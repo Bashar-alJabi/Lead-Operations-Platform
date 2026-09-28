@@ -1,1745 +1,1727 @@
 # Domain Model
 
-## 1. Purpose
+# 1. Purpose
 
-هذا الملف يحدد **نموذج البيانات والمفاهيم الأساسية للمنصة** والعلاقات بينها.
+هذا الملف يحدد المفاهيم والكيانات والعلاقات الأساسية للمنصة.
 
-الهدف هو تحديد:
+الهدف هو توضيح:
 
-- ما هي الكيانات الأساسية في النظام.
-    
-- ما الذي تمثله كل كيان.
-    
+- ما هي الكيانات الأساسية.
+- ما الذي يمثله كل كيان.
 - كيف ترتبط الكيانات ببعضها.
-    
-- ما البيانات التي تحتاجها المنصة وظيفياً.
-    
-- ما البيانات التي يجب الاحتفاظ بها تاريخياً.
-    
+- ما الذي يمثل Current State.
+- ما الذي يجب الاحتفاظ به تاريخياً.
+- كيف تبقى Integrations والـAI والـMessaging منفصلة عن Core Business Domain.
 
-هذا الملف **لا يفرض**:
+هذا الملف لا يفرض:
 
-- نوع قاعدة البيانات.
-    
-- Programming Language.
-    
-- Framework.
-    
+- Database engine.
+- Programming language.
 - ORM.
-    
-- أسماء الجداول الفعلية.
-    
-- طريقة تخزين البيانات تقنياً.
-    
-
-هذه القرارات يتم تحديدها لاحقاً ضمن التصميم التقني.
+- Table names.
+- Storage technology.
+- Specific provider implementation.
 
 ---
 
 # 2. Domain Modeling Principles
 
-يجب أن يحافظ نموذج البيانات على المبادئ التالية:
+يجب أن يحافظ النموذج على:
 
-- الفصل بين الشخص نفسه والفرصة/الطلب الخاص به.
-    
-- دعم أكثر من Lead لنفس Contact.
-    
-- دعم أكثر من Branch.
-    
-- دعم أكثر من Campaign.
-    
-- دعم Campaign-specific Fields.
-    
-- الحفاظ على Source Data الأصلية.
-    
-- الحفاظ على التاريخ التشغيلي والتغييرات المهمة.
-    
-- عدم ربط النظام بمصدر Leads واحد فقط.
-    
-- عدم فرض مجموعة Fields ثابتة على جميع Campaigns.
-    
-- الحفاظ على Branch Isolation.
-    
-- عدم فقدان التاريخ بسبب تعديل البيانات الحالية.
-    
-- فصل بيانات التشغيل عن إعدادات النظام عند الحاجة.
-    
+- Contact منفصل عن Lead.
+- Campaign منفصلة عن Lead.
+- Current State منفصل عن History.
+- Source Data منفصلة عن Operational Data.
+- Payment منفصل عن Enrollment.
+- Lead Owner منفصل عن Conversation Controller.
+- Conversation منفصلة عن Notification.
+- AI configuration منفصلة عن AI execution.
+- Integration Connection منفصلة عن Provider implementation.
+- Campaign Knowledge versioned.
+- Branch isolation.
+- Provider independence.
+- Multi-connection support.
+- Historical integrity.
 
 ---
 
 # 3. Organization
 
-يمثل الكيان الأعلى الذي يحتوي على النظام الحالي.
+يمثل الكيان الأعلى.
 
-حالياً المنتج مصمم لمنظمة واحدة، لكن النموذج يجب ألا يمنع التوسع مستقبلاً إلى أكثر من Organization إذا أصبح ذلك مطلوباً.
+حالياً المنتج لمنظمة واحدة، لكن النموذج لا يجب أن يمنع دعم أكثر من Organization مستقبلاً.
 
-## العلاقات
+العلاقات:
 
-Organization:
-
-- يملك Branches متعددة.
-    
+```text
+Organization
+  → Branches
+  → Integration Connections
+  → Global Configurations
+```
 
 ---
 
 # 4. Branch
 
-يمثل وحدة تشغيل مستقلة داخل Organization.
+يمثل وحدة تشغيل مستقلة.
 
-يمكن أن يحتوي Branch على:
+يمكن أن يحتوي على:
 
 - Name.
-    
 - Status.
-    
 - Manager.
-    
 - Agents.
-    
 - Campaigns.
-    
 - Leads.
-    
 - Payment Methods.
-    
 - Automations.
-    
-- إعدادات التشغيل الخاصة به.
-    
+- Integration bindings.
+- Messaging connections.
+- Operational settings.
 
-## العلاقات
+---
 
-Branch:
+## Branch Operational Settings
 
-- يرتبط بManager.
-    
-- يحتوي على Agents.
-    
-- يحتوي على Campaigns.
-    
-- يحتوي على Leads.
-    
-- يحتوي على Payment Methods.
-    
-- يمكن أن يحتوي على Automations.
-    
-- يمكن أن يحتوي على إعدادات خاصة بالـNotifications والتشغيل.
-    
+يمكن أن تشمل:
+
+- Timezone.
+- Business hours.
+- Default messaging hours.
+- Default locale.
+- Operational escalation settings.
+
+يمكن للحملة override بعض هذه الإعدادات عندما يسمح النظام.
 
 ---
 
 # 5. User
 
-يمثل حساب المستخدم الذي يستطيع الدخول إلى المنصة.
+حساب المستخدم.
 
-الأدوار الحالية:
+الأدوار الأساسية:
 
 - Super Admin.
-    
 - Manager.
-    
 - Agent.
-    
 
-## ملاحظات
-
-Role يحدد مستوى الوصول، لكن الصلاحيات الفعلية تعتمد أيضاً على:
+Role وحده لا يكفي لتحديد الوصول؛ يجب أيضاً مراعاة:
 
 - Branch.
-    
 - Ownership.
-    
 - Campaign.
-    
 - Field permissions.
-    
-- Actions allowed.
-    
+- Action permissions.
+- Integration scope.
+- Conversation scope.
+
+---
+
+## User Access Lifecycle
+
+Functional concepts المطلوبة تشمل:
+
+- Active / inactive account.
+- Login credential state.
+- Password/credential reset lifecycle.
+- Session revocation capability.
+- Last access/security metadata عند الحاجة.
+
+التنفيذ التقني يمكن أن يستخدم Identity Provider أو Authentication stack مناسب.
 
 ---
 
 # 6. Manager
 
-يمثل المستخدم المسؤول عن Branch.
+مستخدم مسؤول عن Branch.
 
-يمكن أن يحتوي Manager على:
+يمكن أن يحتوي على:
 
 - User account.
-    
 - Assigned Branch.
-    
 - Status.
-    
-- Profile information.
-    
+- Profile.
 - Notification preferences.
-    
-
-كل Branch في النموذج الحالي له Manager مسؤول عنه.
 
 ---
 
 # 7. Agent
 
-يمثل المستخدم التشغيلي الذي يتعامل مع Leads.
+مستخدم تشغيلي.
 
-يمكن أن يحتوي Agent على:
+يمكن أن يحتوي على:
 
 - User account.
-    
 - Branch.
-    
 - Display name.
-    
-- Phone number.
-    
+- Phone.
 - Active status.
-    
 - Working hours.
-    
 - Capacity.
-    
-- Routing settings.
-    
+- Routing configuration.
 - Notification preferences.
-    
 
-رقم الهاتف يستخدم أيضاً لإرسال Notifications عبر WhatsApp.
+رقم الهاتف ليس هو Customer-facing sender الافتراضي؛ Customer conversations تستخدم Messaging Connection مركزية حسب إعداد النظام.
 
 ---
 
 # 8. Contact
 
-يمثل **الشخص نفسه** وليس طلبه.
+يمثل الشخص نفسه.
 
-يمكن أن يحتوي على بيانات أساسية مثل:
+يمكن أن يحتوي على:
 
 - Name.
-    
 - Phone.
-    
 - Email.
-    
-- بيانات تواصل أخرى حسب الحاجة.
-    
+- Other contact data.
 
-## العلاقات
+العلاقة:
 
-Contact:
+```text
+Contact 1 → many Leads
+```
 
-- يمكن أن يرتبط بـLead واحدة أو أكثر.
-    
+وجود Contact سابق لا يمنع إنشاء Lead جديدة.
 
-## قاعدة أساسية
+---
 
-وجود Contact سابق لا يعني أن Lead جديدة يجب أن يتم حذفها.
+## Contact Identity / Matching
 
-الشخص نفسه يمكن أن يعود بطلب أو اهتمام مختلف.
+يمكن أن يحتفظ النظام بقيم normalized للمطابقة، مثل:
+
+- Canonical phone.
+- Normalized email.
+- External participant identifiers.
+
+هذه القيم تساعد المطابقة ولا تستبدل Original user-entered/source values.
+
+إذا كانت المطابقة ambiguous يجب ألا ينتج عنها merge تلقائي غير موثوق.
 
 ---
 
 # 9. Lead
 
-يمثل **فرصة أو طلباً محدداً** مرتبطاً بـContact.
+يمثل فرصة أو طلباً محدداً.
 
-Lead هي الكيان المركزي في عمليات المبيعات.
-
-يمكن أن ترتبط Lead بـ:
+يمكن أن يرتبط بـ:
 
 - Contact.
-    
 - Campaign.
-    
 - Branch.
-    
-- Agent.
-    
+- Current assigned Agent.
 - Source.
-    
+- Source Submissions.
 - Dynamic Field Values.
-    
+- Conversation(s).
 - Follow-ups.
-    
+- Notes.
 - Activities.
-    
 - Payments.
-    
 - Enrollment.
-    
-- Notifications المرتبطة بالأحداث الخاصة بها.
-    
+- Notifications.
+- AI executions.
 
-## أمثلة
+Lead هو الكيان المركزي في دورة المبيعات.
 
-Contact:
+---
 
-> Ahmad
+## Lead Lifecycle State
 
-Lead 1:
+يمثل الحالة التشغيلية الداخلية للـLead بشكل مستقل عن Campaign Status Field.
 
-> French Course
+قيم مفاهيمية:
 
-Lead 2:
+- OPEN.
+- CLOSED.
+- ARCHIVED.
 
-> Arabic Course
+يمكن حفظ:
 
-Lead 3:
+- Current lifecycle state.
+- Closed/archived timestamp.
+- Actor/source.
+- Reason عند الحاجة.
 
-> Private Course
+Campaign Status يبقى Custom/optional ولا يستخدم وحده كمرجع للـCapacity أو Core lifecycle.
 
 ---
 
 # 10. Lead Identity & Metadata
 
-Lead يجب أن يحتفظ بالمعلومات التي تساعد على تعريفه وتتبع مصدره.
-
 يمكن أن تشمل:
 
-- Lead identifier.
-    
-- Created date.
-    
-- Updated date.
-    
+- Internal identifier.
+- Created at.
+- Updated at.
 - Source.
-    
 - Campaign.
-    
-- External identifiers.
-    
 - Branch.
-    
 - Current Agent.
-    
 - Current operational state.
-    
+- External references.
+- Intake timestamps.
 
-هذه البيانات يجب ألا تكون مرتبطة حصراً بـMeta.
+هذه المعلومات لا ترتبط حصراً بـMeta.
 
 ---
 
 # 11. Lead Source
 
-يمثل المصدر الذي جاء منه Lead.
+مفهوم عام يمثل أصل Lead.
 
 أمثلة:
 
 - Meta.
-    
 - Manual.
-    
 - CSV.
-    
 - Excel.
-    
 - Google Sheets.
-    
 - API.
-    
-- Future Sources.
-    
-
-يجب أن يكون مفهوم Source عاماً بما يكفي لدعم مصادر مستقبلية.
+- Webhook.
+- Future source.
 
 ---
 
 # 12. Source Submission
 
-يمثل **البيانات الأصلية التي وصلت من مصدر خارجي** قبل أو مع معالجتها داخل المنصة.
+يمثل البيانات الأصلية المستلمة من Source.
 
-يجب أن يسمح هذا المفهوم بالحفاظ على:
+يحفظ:
 
-- Original source data.
-    
+- Original payload/data.
 - External identifiers.
-    
-- Original submission information.
-    
-- Source timestamps عند توفرها.
-    
-- Source-specific metadata.
-    
+- Source timestamps.
+- Source metadata.
+- Processing state.
+- Related connection.
+- Mapping/reprocessing context عند الحاجة.
 
-## الهدف
-
-الحفاظ على البيانات الأصلية من أجل:
+يستخدم من أجل:
 
 - Audit.
-    
 - Troubleshooting.
-    
 - Reprocessing.
-    
 - Mapping.
-    
 - Historical accuracy.
-    
-
-إذا تغيرت طريقة Mapping لاحقاً، لا يجب أن يؤدي ذلك تلقائياً إلى حذف أو تشويه Source Data الأصلية.
 
 ---
 
 # 13. Campaign
 
-Campaign هي وحدة تشغيلية تستخدم لتحديد **كيفية التعامل مع Leads القادمة من حملة معينة**.
+وحدة تشغيل تحدد كيفية التعامل مع Leads.
 
-يمكن أن تكون مرتبطة بمصدر خارجي مثل Meta Campaign أو Form.
-
-Campaign تحدد بشكل مفاهيمي:
+يمكن أن تحتوي على:
 
 - Branch.
-    
+- Source bindings.
 - Eligible Agents.
-    
 - Routing configuration.
-    
-- Field configuration.
-    
-- Visibility rules.
-    
-- Editability rules.
-    
+- Field configurations.
+- Visibility/editability.
 - Automation configuration.
-    
-- Source configuration.
-    
+- Messaging configuration.
+- AI configuration.
+- Qualification configuration.
+- Follow-up policy.
+- Payment availability.
+- Conversion definition.
+- Status.
+
+---
+
+## Campaign Agent Configuration
+
+يمثل علاقة Agent بـCampaign ويمكن أن يحتوي على:
+
+- Eligibility.
+- Active/inactive for campaign.
+- Routing weight.
+- Campaign-specific capacity override عند الحاجة.
+- Routing metadata.
+
+## Routing Configuration
+
+يمثل إعداد طريقة التوزيع للحملة.
+
+يمكن أن يحتوي على:
+
+- Method.
+- Eligible agent settings.
+- Capacity behavior.
+- Working-hours behavior.
+- Performance-based policy reference.
+- Fallback behavior.
+
+---
+
+## Performance Routing Policy
+
+عندما تستخدم Campaign Performance-Based Routing يمكن أن تحتوي Policy على:
+
+- Enabled metrics.
+- Metric weights.
+- Lookback window.
+- Minimum sample size.
+- Normalization/scoring rules.
+- Fallback routing method.
+
+المقاييس يجب أن تكون Human Agent metrics وقابلة للتفسير.
 
 ---
 
 # 14. External Campaign Reference
 
-يمثل هوية Campaign في مصدر خارجي.
+يربط Campaign داخل المنصة بمورد خارجي.
 
-يمكن أن يحتوي مفهومياً على:
+يمكن أن يحتوي على:
 
-- Source / Provider.
-    
-- External Campaign ID.
-    
-- External Campaign Name.
-    
-- External metadata عند الحاجة.
-    
+- Provider.
+- Connection.
+- External ID.
+- External name.
+- External type.
+- Metadata.
 
-الهدف هو ربط Campaign الموجودة في المنصة بالحملة الموجودة في النظام الخارجي.
+لا يجب أن تعتمد Campaign داخلياً على بنية Provider.
 
 ---
 
 # 15. Form
 
-يمثل نموذجاً يتم من خلاله جمع Lead Information.
-
-يمكن أن يكون مرتبطاً بمصدر خارجي.
+يمثل Form لجمع بيانات Lead.
 
 يمكن أن يحتوي على:
 
 - Name.
-    
-- External Form ID.
-    
 - Source.
-    
-- Campaign.
-    
+- Connection.
+- External Form ID.
+- Campaign association.
 - Status.
-    
-- Source metadata.
-    
+- Metadata.
 
-Campaign يمكن أن ترتبط بـForm واحد أو أكثر بحسب طبيعة التكامل.
+Campaign يمكن أن ترتبط بForm واحد أو أكثر حسب المصدر.
 
 ---
 
 # 16. Source Field
 
-يمثل سؤالاً أو Field قادماً من Source خارجي مثل Meta Form.
+يمثل سؤالاً أو Field قادماً من Source خارجي.
 
 يمكن أن يحتوي على:
 
-- External field/question identifier.
-    
-- Label / question text.
-    
-- Source.
-    
-- Form.
-    
-- Data type information عند توفرها.
-    
+- External identifier.
+- Label.
+- Source/Form.
+- Data type.
+- Metadata.
 
-Source Field لا يجب أن يصبح بالضرورة Field داخلياً بنفس الاسم أو نفس البنية.
+---
+
+## Source Field Mapping
+
+يمثل الربط بين Source Field وPlatform Field.
+
+يمكن أن يحتوي على:
+
+- Source/Connection/Form scope.
+- Source Field.
+- Platform Field.
+- Transformation/normalization rule عند الحاجة.
+- Required mapping state.
+- Active version/status.
+
+Mapping لا يغير Source Submission الأصلية.
 
 ---
 
 # 17. Field Definition
 
-يمثل تعريف Field يمكن استخدامه داخل المنصة.
+تعريف Field داخلي.
 
-هذه الكيان أساسي لأن المنتج يعتمد على **نظام حقول مرن**.
-
-يمكن أن يحتوي Field Definition على خصائص مفاهيمية مثل:
+يمكن أن يحتوي على:
 
 - Name.
-    
 - Label.
-    
 - Key.
-    
 - Type.
-    
 - Description.
-    
 - Scope.
-    
-- Required capability.
-    
 - Options.
-    
-- Validation rules.
-    
-- Calculated status.
-    
-- Active status.
-    
+- Validation.
+- Calculated flag.
+- Active state.
 
 ---
 
 # 18. Field Scope
 
-Field يمكن أن يكون مرتبطاً بأحد مستويات الاستخدام التالية:
+قد يكون:
 
-### System-level
-
-Field عام يمكن استخدامه على مستوى المنصة عندما يكون ذلك مناسباً.
-
-### Branch-level
-
-Field خاص بوحدة تشغيل معينة.
-
-### Campaign-level
-
-Field خاص بحملة محددة.
-
-الهدف من هذا المفهوم هو منع فرض نفس مجموعة الحقول على جميع الحملات.
+- System-level.
+- Branch-level.
+- Campaign-level.
 
 ---
 
 # 19. Field Types
 
-Field Definition يجب أن يكون قادراً على تمثيل أنواع مختلفة من البيانات.
-
-أمثلة:
+يدعم مفاهيم مثل:
 
 - Text.
-    
 - Long Text.
-    
 - Number.
-    
 - Phone.
-    
 - Email.
-    
 - Date.
-    
 - Time.
-    
 - Date & Time.
-    
 - Single Select.
-    
 - Multi Select.
-    
 - Boolean.
-    
 - Status.
-    
 - Interest.
-    
 - Tags.
-    
 - Currency.
-    
 - Percentage.
-    
 - Duration.
-    
 - URL.
-    
 - Calculated Field.
-    
 
-هذه قائمة وظيفية قابلة للتوسع وليست بالضرورة قائمة تنفيذ نهائية.
+القائمة قابلة للتوسع.
 
 ---
 
-# 20. Field Options
+# 20. Field Option
 
-بعض أنواع الحقول تحتاج مجموعة قيم.
+قيمة مسموحة لحقل يعتمد على Options.
 
-مثلاً:
-
-Status:
-
-- New.
-    
-- Contacted.
-    
-- Interested.
-    
-
-أو:
-
-Interest:
-
-- Low.
-    
-- Medium.
-    
-- High.
-    
-- Very High.
-    
-
-أو أي مجموعة قيم أخرى يحددها Manager أو Super Admin.
-
-Field Options يجب أن ترتبط بالـField Definition وليس بـLead نفسها.
+ترتبط بـField Definition.
 
 ---
 
 # 21. Campaign Field Configuration
 
-يمثل استخدام Field معين داخل Campaign محددة.
+يمثل استخدام Field داخل Campaign.
 
-هذا مهم لأن نفس Field يمكن أن يستخدم في أكثر من Campaign بإعدادات مختلفة.
-
-Campaign Field Configuration يمكن أن يحدد:
+يمكن أن يحدد:
 
 - Visible.
-    
 - Editable.
-    
 - Required.
-    
 - Display order.
-    
-- Show in Lead table.
-    
+- Show in Lead Table.
 - Show in Lead Details.
-    
 - Available in filters.
-    
 - Available to Agent.
-    
 - Available to Manager.
-    
-- Available to Super Admin حسب الصلاحيات.
-    
+- Usable by automation.
+- Usable by AI qualification.
+- Validation overrides المسموحة.
 
 ---
 
 # 22. Field Visibility
 
-وجود Field في النظام لا يعني أنه يظهر لكل مستخدم.
+وجود Field لا يعني ظهوره للجميع.
 
-إظهار Field يعتمد على:
+الوصول يعتمد على:
 
 - Role.
-    
 - Branch.
-    
 - Campaign.
-    
+- Lead access.
 - Field configuration.
-    
-- Permissions.
-    
-
-يجب أن يدعم النموذج التحكم في **ما الذي يظهر لكل نوع من المستخدمين**.
+- Permission.
 
 ---
 
 # 23. Field Editability
 
-Field يمكن أن يكون:
+يمكن أن يكون Field:
 
 - Editable.
-    
 - Read-only.
-    
-- System-managed.
-    
 - Source-managed.
-    
+- System-managed.
 - Calculated.
-    
-
-مثلاً:
-
-Lead Name القادم من مصدر خارجي قد يكون Read-only.
-
-بينما:
-
-First Contact Date يمكن أن يكون قابلاً للتعديل أو يتم تحديثه وفق قواعد النظام.
-
-Response Time يمكن أن يكون Calculated.
 
 ---
 
 # 24. Lead Field Value
 
-يمثل القيمة الفعلية لـField معين داخل Lead.
+القيمة الفعلية لـField على Lead.
 
-مثلاً:
-
-Field:
-
-> Learning Language
-
-Lead Value:
-
-> French
-
-أو:
-
-Field:
-
-> First Contact Date
-
-Lead Value:
-
-> 2026-09-26 14:30
-
-Lead Field Value يجب أن يكون قادراً على تمثيل مصادر مختلفة للقيمة:
+يمكن أن تحمل معلومات عن مصدر القيمة:
 
 - Source-provided.
-    
 - Manual.
-    
 - Imported.
-    
 - Calculated.
-    
 - Automation-generated.
-    
+- AI-extracted/AI-assisted.
+
+AI-generated value لا تعني تجاوز Validation أو Business Rules.
 
 ---
 
 # 25. Field Value History
 
-عند الحاجة للحفاظ على التاريخ، يجب أن يكون بالإمكان معرفة تغييرات القيم المهمة.
+يحفظ تغييرات القيم المهمة.
 
-مثلاً:
+يمكن أن يحتوي على:
 
-Interest:
-
-Low  
-→ Medium  
-→ High
-
-أو:
-
-Contact Status:
-
-New  
-→ Contacted  
-→ Follow-up
-
-الهدف هو عدم فقدان التاريخ التشغيلي بسبب استبدال القيمة الحالية.
+- Lead.
+- Field.
+- Old value.
+- New value.
+- Actor.
+- Source of change.
+- Timestamp.
 
 ---
 
 # 26. Calculated Field Definition
 
-يمثل Field يتم احتساب قيمته تلقائياً.
+تعريف قيمة مشتقة.
 
-أمثلة:
-
-### Response Time
-
-First Contact Time  
-−  
-Lead Created Time
-
-### Time Since Last Contact
-
-Current Time  
-−  
-Last Contact Time
-
-### Contact Attempts
-
-عدد أحداث التواصل المسجلة.
-
-### Other Derived Values
-
-أي قيمة يمكن اشتقاقها من:
+قد تعتمد على:
 
 - Fields.
-    
 - Activities.
-    
 - Timestamps.
-    
-- أحداث أخرى.
-    
-
-الصيغة والتنفيذ الفعلي يتم تحديدهما لاحقاً.
+- Messages.
+- Payments.
+- Other supported data.
 
 ---
 
 # 27. Assignment
 
-يمثل التعيين الحالي لـLead.
+يمثل التعيين الحالي.
 
-يتضمن مفاهيم مثل:
+يشمل:
 
+- Lead.
 - Current Branch.
-    
 - Current Agent.
-    
-- Assignment time.
-    
+- Assigned at.
 - Assignment source.
-    
 
-Lead قد تكون:
-
-- Assigned.
-    
-- Unassigned.
-    
-
-حسب حالة الـRouting.
+Lead قد تكون Assigned أو Unassigned.
 
 ---
 
 # 28. Assignment History
 
-يمثل تاريخ جميع عمليات تعيين وإعادة تعيين Lead.
+يحفظ:
 
-يجب أن يسمح بمعرفة:
-
-- Lead.
-    
 - Previous Branch.
-    
 - Previous Agent.
-    
 - New Branch.
-    
 - New Agent.
-    
-- Time.
-    
-- Actor.
-    
-- Reason أو مصدر التغيير عندما يكون متاحاً.
-    
-
-هذا يمنع فقدان التاريخ عند نقل Lead بين Agents أو Branches.
+- Actor/source.
+- Reason.
+- Timestamp.
 
 ---
 
-# 29. Follow-up
+## Routing Decision
 
-يمثل مهمة أو متابعة مرتبطة بـLead.
+عند Automatic Routing يمكن حفظ:
+
+- Lead.
+- Routing configuration/version.
+- Eligible candidate set أو summary مناسب.
+- Selected Agent.
+- Decision reason/method.
+- Fallback used.
+- Timestamp.
+
+الهدف هو troubleshooting والشفافية، وليس تخزين تفاصيل تقنية غير لازمة.
+
+---
+
+# 29. Lead Owner
+
+مفهوم وظيفي يمثل Agent المسؤول عن Lead حالياً.
+
+Lead Owner لا يساوي بالضرورة الشخص/النظام الذي يتحكم بالمحادثة لحظياً.
+
+---
+
+# 30. Conversation
+
+يمثل سلسلة Customer-facing messages مرتبطة بـLead.
 
 يمكن أن يحتوي على:
 
 - Lead.
-    
-- Due date/time.
-    
-- Type.
-    
-- Priority.
-    
-- Notes.
-    
+- Channel.
+- Messaging Connection.
+- External thread/conversation reference عند توفره.
 - Status.
-    
-- Created by.
-    
-- Completed by.
-    
-- Completion time.
-    
+- Current Controller.
+- Started at.
+- Last message at.
+- Closed at.
+- Current handoff state.
 
-الحالات التشغيلية قد تشمل:
-
-- Upcoming.
-    
-- Due.
-    
-- Overdue.
-    
-- Completed.
-    
-- Cancelled.
-    
+Lead يمكن أن يمتلك Conversation واحدة أو أكثر حسب القنوات أو lifecycle.
 
 ---
 
-# 30. Activity
+# 31. Conversation Channel
 
-يمثل حدثاً مهماً في تاريخ Lead.
+يمثل القناة المستخدمة.
+
+أمثلة:
+
+- WhatsApp.
+- Future messaging channel.
+- Email conversation إذا تم دعمه مستقبلاً.
+
+لا يجب ربط Conversation بمنطق WhatsApp حصراً.
+
+---
+
+# 32. Conversation Controller
+
+يمثل من يملك حق auto-send/active control حالياً.
+
+يتكون مفاهيمياً من:
+
+- Controller type: AI / HUMAN / NONE.
+- Controller reference عند الحاجة: AI Assistant أو Human User محدد.
+
+إذا كان Controller = HUMAN فيجب معرفة المستخدم البشري الذي يملك Active control، وغالباً يكون Lead Owner بعد Handoff.
+
+هذا المفهوم منفصل عن Lead Owner، لكنه يمنع أكثر من Human من الإرسال المتزامن بدون Takeover واضح.
+
+---
+
+# 33. Conversation State
+
+حالات مفاهيمية يمكن أن تشمل:
+
+- AI_ACTIVE.
+- AI_WAITING_FOR_LEAD.
+- AI_HANDOFF_REQUIRED.
+- WAITING_FOR_HUMAN.
+- HUMAN_ACTIVE.
+- CLOSED.
+
+الأسماء التنفيذية النهائية قرار تقني، لكن المعنى الوظيفي يجب أن يبقى.
+
+---
+
+# 34. Message
+
+يمثل رسالة داخل Conversation.
+
+يمكن أن يحتوي على:
+
+- Conversation.
+- Direction: inbound/outbound.
+- Sender type: customer/AI/user/system.
+- Sender reference.
+- Body/content.
+- Attachments reference.
+- Provider message ID.
+- Created/sent/received time.
+- Delivery status.
+- Failure information المناسبة.
+- AI execution reference عند الحاجة.
+
+---
+
+## Messaging Consent / Contactability
+
+يمثل حالة السماح بالتواصل عند الحاجة للقناة أو القانون/السياسة.
+
+يمكن أن يحتوي على:
+
+- Contact/Lead.
+- Channel.
+- Status.
+- Source.
+- Granted/revoked time.
+- Evidence/reference عند الحاجة.
+- Suppression / do-not-contact reason.
+
+## Provider Message Template
+
+عندما يفرض Provider templates معتمدة، يمكن للنظام تمثيل:
+
+- Connection.
+- External template ID.
+- Name.
+- Language.
+- Approval/status.
+- Allowed use context.
+
+لا تفرض Template model على Providers التي لا تحتاجها.
+
+---
+
+# 35. Message Delivery State
+
+قد تشمل:
+
+- Queued.
+- Sent.
+- Delivered.
+- Read عندما يوفر المزود ذلك.
+- Failed.
+
+حالة المزود لا تغير التاريخ الداخلي للرسالة.
+
+---
+
+# 36. Conversation Handoff
+
+يمثل انتقال التحكم من AI إلى Human أو العكس وفق قواعد مسموحة.
+
+يمكن أن يحتوي على:
+
+- Conversation.
+- From controller.
+- To controller.
+- Reason.
+- Requested by.
+- Timestamp.
+- Resolved at.
+
+---
+
+# 37. Follow-up
+
+مهمة مرتبطة بـLead.
+
+يمكن أن يحتوي على:
+
+- Due date/time.
+- Type.
+- Priority.
+- Notes.
+- Status.
+- Created by/source.
+- Completed by.
+- Completion time.
+
+يمكن أن يكون مصدره:
+
+- Agent.
+- Manager.
+- Automation.
+- AI policy.
+
+---
+
+# 38. Note
+
+ملاحظة تشغيلية مرتبطة بـLead.
+
+ليست بديلاً عن Structured Fields.
+
+---
+
+# 39. Activity
+
+حدث مهم في تاريخ Lead.
 
 أمثلة:
 
 - Lead received.
-    
-- Contact matched.
-    
 - Lead assigned.
-    
-- Lead reassigned.
-    
+- Conversation started.
+- AI message sent.
+- Human handoff.
 - Field changed.
-    
-- Note added.
-    
 - Follow-up created.
-    
-- Follow-up completed.
-    
-- Payment Link created.
-    
 - Payment confirmed.
-    
 - Enrollment confirmed.
-    
-- Notification sent.
-    
 
-Activity هو سجل للأحداث، وليس بديلاً عن Current State.
+Activity ليس بديلاً عن Current State.
 
 ---
 
-# 31. Note
+# 40. Notification
 
-يمثل ملاحظة تشغيلية مرتبطة بـLead.
-
-يمكن أن يحتوي على:
-
-- Text.
-    
-- Author.
-    
-- Created time.
-    
-- Updated time عند الحاجة.
-    
-
-Notes يجب أن تكون مرتبطة بـLead وليس بـContact فقط، لأن الملاحظة قد تخص فرصة معينة.
-
----
-
-# 32. Payment Method
-
-يمثل طريقة دفع متاحة داخل Branch.
-
-يمكن أن تحتوي مفاهيمياً على:
-
-- Branch.
-    
-- Provider type.
-    
-- Display name.
-    
-- Active status.
-    
-- Configuration reference.
-    
-- Availability rules عند الحاجة.
-    
-
-Credentials الحساسة يجب ألا تعامل كبيانات تشغيلية عادية ولا تعرض للAgent.
-
----
-
-# 33. Payment Link
-
-يمثل رابط دفع تم إنشاؤه لـLead.
-
-يمكن أن يرتبط بـ:
-
-- Lead.
-    
-- Payment Method.
-    
-- Amount.
-    
-- Currency.
-    
-- Created date.
-    
-- Status.
-    
-- Provider reference.
-    
-
----
-
-# 34. Payment
-
-يمثل عملية دفع مرتبطة بـLead.
-
-يمكن أن يحتوي على:
-
-- Lead.
-    
-- Payment Method.
-    
-- Payment Link.
-    
-- Amount.
-    
-- Currency.
-    
-- Status.
-    
-- Provider reference.
-    
-- Payment date/time.
-    
-- Confirmation information.
-    
-
-## Scope
-
-النظام لا يحتاج ضمن هذا الـDomain إلى:
-
-- Installment entities.
-    
-- Payment plan entities.
-    
-- Refund workflow entities.
-    
-- Accounting ledger.
-    
-
----
-
-# 35. Enrollment
-
-يمثل حالة اشتراك الشخص الناتجة عن Payment confirmation.
-
-يرتبط بـLead.
-
-يمكن أن يحتوي على:
-
-- Status.
-    
-- Enrollment date/time.
-    
-- Payment reference.
-    
-- Relevant metadata.
-    
-
-العملية الأساسية:
-
-Payment Confirmed  
-→ Enrollment / Subscription
-
----
-
-# 36. Notification
-
-يمثل إشعاراً مرتبطاً بمستخدم و/أو Lead و/أو حدث.
-
-القنوات:
-
-- In-App.
-    
-- Email.
-    
-- WhatsApp.
-    
+إشعار للمستخدم وليس Customer Conversation.
 
 يمكن أن يحتوي على:
 
 - Recipient.
-    
 - Lead.
-    
 - Event.
-    
 - Channel.
-    
 - Status.
-    
-- Created time.
-    
-- Sent time.
-    
-- Delivery information عند توفرها.
-    
+- Delivery information.
 
 ---
 
-# 37. Notification Preference
+# 41. Notification Preference
 
-يمثل تفضيلات المستخدم للإشعارات.
-
-يمكن أن يحدد:
+يحدد:
 
 - Event type.
-    
 - Channel.
-    
-- Enabled / Disabled.
-    
+- Enabled/disabled.
 
-بعض الإشعارات يمكن أن تكون إلزامية ولا يمكن للمستخدم تعطيلها.
+بعض Notifications قد تكون إلزامية.
 
 ---
 
-# 38. WhatsApp Recipient Profile
+## Notification Template
 
-لا يحتاج النظام إلى كيان معقد خاص بـWhatsApp لكل Agent.
+يمثل صياغة Notification قابلة للإدارة عندما تحتاج القناة/الحدث ذلك.
 
-المعلومة الأساسية المطلوبة من Agent هي:
+يمكن أن يحتوي على:
 
-- Phone Number.
-    
+- Event type.
+- Channel.
+- Scope: system/branch/campaign عند الحاجة.
+- Language.
+- Content/template reference.
+- Active status.
 
-وأي تفاصيل خاصة بمزود WhatsApp يجب أن تكون جزءاً من Integration configuration وليس Agent profile كبيانات تشغيلية يعبئها Agent.
-
----
-
-# 39. Tag
-
-يمثل تصنيفاً اختيارياً يمكن ربطه بـLead.
-
-Tag ليست مطلوبة لكل Campaign.
-
-يمكن استخدامها في:
-
-- Filtering.
-    
-- Saved Views.
-    
-- Automation.
-    
-- Analytics.
-    
-- Organization.
-    
+Notification Template مختلفة عن Provider Message Template الخاصة بقيود Messaging provider.
 
 ---
 
-# 40. Saved View
+# 42. Payment Method
 
-يمثل View محفوظاً للمستخدم.
+طريقة دفع ضمن Scope مناسب.
 
-يمكن أن يتضمن:
+يمكن أن يحتوي على:
 
-- Name.
-    
-- Filters.
-    
-- Sorting.
-    
-- Visible columns.
-    
-- Owner.
-    
-- Scope.
-    
+- Branch.
+- Provider type.
+- Integration Connection.
+- Display name.
+- Active state.
+- Availability rules.
+- Configuration reference.
 
-يجب أن يكون Saved View مرتبطاً بصلاحيات المستخدم ونطاق البيانات المتاح له.
+Credentials لا تعامل كبيانات تشغيلية عادية.
 
 ---
 
-# 41. Automation
+# 43. Payment Link
 
-يمثل قاعدة تنفيذ تلقائي.
+يمكن أن يحتوي على:
 
-المفهوم:
+- Lead.
+- Payment Method.
+- Amount.
+- Currency.
+- Status.
+- Provider reference.
+- Created at.
+- Expiry عند توفرها.
 
-**Trigger → Conditions → Actions**
+---
 
-Automation يمكن أن تكون:
+# 44. Payment
+
+يمثل عملية دفع.
+
+يمكن أن يحتوي على:
+
+- Lead.
+- Payment Method.
+- Payment Link.
+- Amount.
+- Currency.
+- Status.
+- Provider reference.
+- Confirmation event.
+- Payment timestamp.
+
+---
+
+# 45. Enrollment
+
+يمثل حالة الاشتراك الناتجة عن التدفق التشغيلي.
+
+يمكن أن يحتوي على:
+
+- Lead.
+- Status.
+- Enrollment date.
+- Payment reference.
+- Metadata.
+
+Payment وEnrollment كيانان منفصلان.
+
+---
+
+# 46. Automation
+
+قاعدة:
+
+```text
+Trigger → Conditions → Actions
+```
+
+قد تكون:
 
 - System-level.
-    
 - Branch-level.
-    
 - Campaign-level.
-    
-
-حسب الصلاحيات والإعدادات.
 
 ---
 
-# 42. Automation Trigger
-
-حدث يؤدي إلى تشغيل Automation.
+# 47. Automation Trigger
 
 أمثلة:
 
 - Lead created.
-    
 - Lead assigned.
-    
+- Message received.
+- Conversation state changed.
 - Field changed.
-    
-- Status changed.
-    
 - Follow-up due.
-    
-- Follow-up overdue.
-    
 - Payment confirmed.
-    
 - Enrollment confirmed.
-    
 
 ---
 
-# 43. Automation Condition
+# 48. Automation Condition
 
-شرط يحدد ما إذا كان Action يجب أن ينفذ.
+قد تعتمد على:
 
-قد يعتمد على:
-
-- Campaign.
-    
 - Branch.
-    
+- Campaign.
 - Agent.
-    
 - Field values.
-    
-- Status.
-    
-- Payment state.
-    
-- Enrollment state.
-    
+- Conversation state.
+- AI state.
+- Payment.
+- Enrollment.
 - Dates.
-    
-- Events.
-    
 
 ---
 
-# 44. Automation Action
-
-Action يتم تنفيذه تلقائياً.
+# 49. Automation Action
 
 أمثلة:
 
 - Change Field.
-    
 - Create Follow-up.
-    
 - Send Notification.
-    
 - Assign Lead.
-    
 - Add Tag.
-    
 - Change Status.
-    
+- Request human attention.
+- Start/stop allowed AI workflow.
 
-لا يمكن Action تجاوز Permissions أو Business Rules.
+لا تتجاوز Business Rules.
 
 ---
 
-# 45. Automation Execution
+# 50. Automation Execution
 
-يجب أن يمكن تتبع تنفيذ Automations.
-
-يمكن الاحتفاظ بمعلومات مثل:
+يحفظ عند الحاجة:
 
 - Automation.
-    
 - Trigger.
-    
 - Lead.
-    
-- Execution time.
-    
 - Result.
-    
-- Success / Failure.
-    
-- Relevant error information.
-    
-
-الهدف هو منع التكرار غير المقصود وإتاحة التتبع.
+- Started/completed time.
+- Success/failure.
+- Error context.
 
 ---
 
-# 46. Integration Connection
+# 51. Integration Provider Type
 
-يمثل تكاملاً بين المنصة وخدمة خارجية.
+مفهوم يصف نوع Provider/adapter.
 
 أمثلة:
 
 - Meta.
-    
-- WhatsApp Provider.
-    
-- Payment Provider.
-    
-- Google Sheets.
-    
-- Email Provider.
-    
-- AI Provider.
-    
+- WhatsApp Cloud API.
+- Other messaging provider.
+- Stripe.
+- Other payment provider.
+- AI provider.
+- Email provider.
+- Google.
 
-Integration Connection قد يحتوي conceptually على:
+هذا المفهوم لا يعني hardcoding provider داخل الـDomain.
 
-- Provider.
-    
+---
+
+# 52. Integration Connection
+
+يمثل اتصالاً فعلياً بحساب/مزود خارجي.
+
+يمكن أن يحتوي على:
+
+- Provider type.
+- Organization/Branch scope.
+- Display name.
 - Status.
-    
 - Configuration.
-    
 - Credentials reference.
-    
-- Last synchronization/status information.
-    
+- External account identifiers.
+- Last successful activity.
+- Last error.
+- Health information.
+- Capability metadata.
+- Created/updated by.
 
-التفاصيل السرية لا تعامل كبيانات عادية.
+يجب دعم أكثر من Connection لنفس Provider type.
+
+Organization-scoped Connection يمكن أن تُشارك مع Branches بدون كشف Credentials عندما يسمح النظام.
+
+Branch-scoped Connection لا تستخدم خارج Branch الخاص بها.
 
 ---
 
-# 47. Integration Event
+# 53. Integration Binding
 
-يمثل حدثاً متعلقاً بتكامل خارجي.
+يربط Connection بكيان تشغيلي.
 
-يمكن أن يكون:
+أمثلة:
 
-- Incoming event.
-    
+- Meta Connection → Campaign.
+- Messaging Connection → Branch/Campaign.
+- Payment Connection → Payment Method.
+- AI Provider Connection → AI profile/configuration.
+
+يفصل Binding بين Connection نفسها واستخدامها التشغيلي.
+
+---
+
+# 54. Credential Reference
+
+يمثل مرجعاً آمناً للسر أو الـtoken.
+
+الـDomain لا يحتاج تخزين السر كنص عادي.
+
+يجب الفصل بين:
+
+- Credential metadata.
+- Actual encrypted/secure secret.
+
+---
+
+# 55. Integration Event
+
+يمثل حدثاً متعلقاً بتكامل.
+
+أمثلة:
+
+- Incoming webhook.
 - Outgoing request.
-    
-- Synchronization.
-    
-- Notification delivery.
-    
+- Sync.
+- Delivery callback.
 - Payment event.
-    
-
-يستخدم لتتبع العمليات والتعامل مع الأخطاء وإعادة المحاولة.
+- OAuth refresh.
+- Connection failure.
 
 ---
 
-# 48. External Reference
+# 56. External Reference
 
-يمثل معرفاً لمورد داخلي في نظام خارجي.
+يربط كياناً داخلياً بمعرف خارجي.
 
-يمكن استخدامه لـ:
+يمكن استخدامه مع:
 
 - Lead.
-    
 - Campaign.
-    
 - Form.
-    
 - Page.
-    
+- Ad.
 - Payment.
-    
-- Other provider objects.
-    
-
-الغرض هو الربط بين الكيان الداخلي والكيان الخارجي دون جعل النظام الداخلي يعتمد على بنية المزود الخارجي.
+- Message.
+- Other provider resources.
 
 ---
 
-# 49. Audit Log
+# 57. Messaging Connection
 
-يمثل عملية إدارية أو أمنية قابلة للتتبع.
+تخصص وظيفي لـIntegration Connection لقناة Messaging.
+
+يمكن أن يمثل:
+
+- Business account.
+- Sender/number.
+- Provider.
+- Branch/Organization scope.
+- Status.
+
+يجب دعم عدة senders/connections عند الحاجة.
+
+---
+
+# 58. AI Provider Connection
+
+تخصص وظيفي لاتصال AI Provider.
+
+يمكن أن يحتوي على:
+
+- Provider type.
+- Secure credential reference.
+- Available/configured model profiles.
+- Status.
+- Scope.
+- Health information.
+
+لا يجب أن يحمل Business Rules الخاصة بالحملة.
+
+---
+
+# 59. AI Model/Profile Configuration
+
+يمثل اختياراً configurable للمهام.
+
+يمكن أن يحدد:
+
+- Conversation model/profile.
+- Summarization model/profile.
+- Classification model/profile.
+- Analysis model/profile.
+
+يمكن أن تستخدم كلها نفس model مبدئياً، لكن النموذج لا يمنع الفصل لاحقاً.
+
+---
+
+# 60. AI Assistant Definition
+
+يمثل Assistant/Agent configuration عامة.
+
+أمثلة مفاهيمية:
+
+- AI Lead Assistant.
+- AI Operations Assistant.
+
+يمكن أن يحتوي على:
+
+- Type.
+- Enabled state.
+- Provider/model profile.
+- Tool permissions profile.
+- Behavior configuration.
+- Scope.
+
+---
+
+# 61. Campaign AI Configuration
+
+إعداد AI خاص بحملة.
+
+يمكن أن يحتوي على:
+
+- Enabled/disabled.
+- AI Assistant reference.
+- Knowledge reference.
+- Qualification configuration.
+- Follow-up policy.
+- Handoff rules.
+- Approved tool scope.
+- Language/tone configuration.
+- Messaging binding.
+- Activation state.
+
+---
+
+# 62. Campaign Knowledge Base
+
+يمثل المعرفة المعتمدة للحملة.
+
+قد تحتوي على:
+
+- Product/service info.
+- Pricing.
+- Locations.
+- Schedules.
+- Requirements.
+- FAQs.
+- Approved links.
+- Approved files.
+- Allowed claims.
+- Prohibited claims.
+
+---
+
+# 63. Knowledge Version
+
+كل Publish ينتج Version يمكن الرجوع إليها.
+
+يمكن أن يحتوي على:
+
+- Campaign.
+- Version.
+- Status: draft/published/archived.
+- Content snapshot/reference.
+- Published by.
+- Published at.
+
+AI customer-facing يستخدم Published version فقط.
+
+---
+
+# 64. Knowledge Item / Asset
+
+عنصر داخل Knowledge Base.
+
+قد يمثل:
+
+- FAQ.
+- Text section.
+- Link.
+- File.
+- Structured fact.
+- Policy.
+
+التنفيذ الفعلي يمكن أن يختلف، لكن يجب الحفاظ على Versioning وapproval semantics.
+
+---
+
+# 65. Qualification Definition
+
+تعريف البيانات والأسئلة المطلوبة لتأهيل Lead.
+
+يمكن أن يحتوي على:
+
+- Campaign.
+- Questions.
+- Related platform fields.
+- Required/optional status.
+- Order.
+- Completion criteria.
+
+---
+
+# 66. Qualification Result
+
+يمثل نتائج التأهيل لـLead.
+
+يمكن أن يعتمد على Structured Field Values بدلاً من duplication، لكن يجب أن يمكن معرفة:
+
+- ما الذي تم جمعه.
+- ما الذي بقي ناقصاً.
+- Completion state.
+- Source: AI/Human/Form.
+
+---
+
+# 67. AI Follow-up Policy
+
+إعداد Campaign يحدد:
+
+- Whether enabled.
+- Delays.
+- Maximum attempts.
+- Allowed time windows.
+- Stop conditions.
+- Handoff conditions.
+
+لا يجب Hardcode policy واحدة لكل الحملات.
+
+---
+
+# 68. AI Tool Definition / Capability
+
+يمثل Action مسموحة للـAI عبر Application layer.
+
+أمثلة:
+
+- getLeadContext.
+- getCampaignKnowledge.
+- updateQualification.
+- sendMessage.
+- requestHumanHandoff.
+- getCampaignStats.
+- getUnfollowedLeads.
+- createFollowUpTask.
+
+الـAI لا يتصل مباشرة بالـDatabase لتنفيذ هذه الإجراءات.
+
+---
+
+# 69. AI Execution
+
+يمثل عملية AI مهمة قابلة للتتبع.
+
+يمكن أن يحتوي على:
+
+- Assistant definition.
+- Lead/Conversation/User context.
+- Knowledge version.
+- Model/profile.
+- Started/completed time.
+- Result state.
+- Failure state.
+
+لا يلزم تخزين كل reasoning الداخلي؛ المطلوب هو التتبع التشغيلي الآمن.
+
+---
+
+# 70. AI Tool Execution
+
+يمثل محاولة استخدام Tool.
+
+يمكن أن يحتوي على:
+
+- AI Execution.
+- Tool.
+- Input metadata المناسبة.
+- Authorization context.
+- Result.
+- Success/failure.
+- Timestamp.
+
+لا تسجل secrets.
+
+---
+
+# 71. AI Summary
+
+ملخص مشتق من Conversation/Lead.
+
+ليس Source of Truth.
+
+يمكن إعادة توليده.
+
+---
+
+# 72. AI Insight
+
+Insight أو recommendation مشتقة.
+
+أمثلة:
+
+- Suggested next action.
+- Potential intent.
+- Conversation themes.
+- Leads needing attention.
+
+يجب أن تبقى منفصلة مفاهيمياً عن factual operational state.
+
+---
+
+# 73. Audit Log
+
+يسجل عمليات إدارية أو أمنية مهمة.
 
 يمكن أن يحتوي على:
 
 - Actor.
-    
 - Role.
-    
 - Action.
-    
-- Target type.
-    
 - Target.
-    
 - Time.
-    
-- Relevant old value.
-    
-- Relevant new value.
-    
+- Old/new values المناسبة.
 - Context.
-    
 
 أمثلة:
 
-- User created.
-    
-- User disabled.
-    
-- Field changed.
-    
-- Campaign modified.
-    
-- Routing changed.
-    
-- Payment Method changed.
-    
-- Integration changed.
-    
+- Campaign changed.
+- Integration connection changed.
+- Knowledge published.
+- Permission changed.
+- Payment method changed.
 
 ---
 
-# 50. Dashboard / Analytics Data
+# 74. Saved View
 
-Dashboard وAnalytics ليست بالضرورة كيانات Business مستقلة.
+يتضمن:
 
-هي تمثل بيانات مشتقة من:
+- Name.
+- Filters.
+- Sorting.
+- Columns.
+- Owner.
+- Scope.
 
-- Leads.
-    
-- Activities.
-    
-- Payments.
-    
-- Enrollments.
-    
-- Campaigns.
-    
-- Agents.
-    
-- Branches.
-    
-- Fields.
-    
-
-الهدف هو عدم جعل Analytics مصدراً مستقلاً يناقض البيانات الأساسية.
+لا يتجاوز صلاحيات المستخدم الحالية.
 
 ---
 
-# 51. Contact vs Lead Rules
+# 75. Tag
 
-يجب أن يظل الفصل بين Contact وLead واضحاً.
-
-### Contact
-
-الشخص.
-
-### Lead
-
-الفرصة أو الطلب.
-
-يمكن:
-
-- Contact واحد → Leads متعددة.
-    
-- Lead واحد → Contact واحد.
-    
-- Contact موجود مسبقاً → Lead جديدة ممكنة.
-    
-- Lead قد تنتقل بين Agents دون تغيير Contact.
-    
+تصنيف اختياري للـLead.
 
 ---
 
-# 52. Campaign vs Lead Rules
+# 76. Current State vs History
 
-Campaign تحدد:
+أمثلة:
 
-**كيف يتم تشغيل Lead وإدارته.**
-
-Lead تمثل:
-
-**فرصة فعلية مرتبطة بهذه Campaign.**
-
-Campaign يمكن أن تحتوي Leads كثيرة.
-
-تغيير إعدادات Campaign لا يعني تعديل التاريخ السابق للـLeads تلقائياً إلا عندما يتم تحديد ذلك صراحة كقاعدة عمل.
-
----
-
-# 53. Source Data vs Operational Data
-
-يجب التمييز بين:
-
-### Source Data
-
-ما جاء من Meta أو مصدر خارجي.
-
-### Operational Data
-
-ما أضافه أو غيره النظام والمستخدمون أثناء إدارة Lead.
-
-تعديل Operational Data لا يجب أن يمحو Source Data الأصلية.
-
----
-
-# 54. Current State vs History
-
-يجب أن يكون هناك فرق بين:
-
-### Current State
-
-القيمة الحالية.
-
-### History
-
-كيف وصلت القيمة إلى حالتها الحالية.
-
-مثلاً:
-
+```text
 Current Agent = Sarah
+Assignment History = Ahmed → Sarah
+```
 
-لكن Assignment History يحفظ:
+```text
+Current Conversation Controller = HUMAN
+Handoff History = AI → HUMAN
+```
 
-Ahmed → Sarah
+```text
+Current Knowledge = v4
+Historical AI Execution may reference v3
+```
 
-Current Status = Interested
-
-لكن Activity/Field History يمكن أن يحفظ:
-
-New → Contacted → Interested
-
----
-
-# 55. Branch Ownership
-
-كل Lead تشغيلية يجب أن يكون لها Branch واضح أثناء دورة العمل.
-
-عند نقل Lead بين Branches:
-
-- تتغير Current Branch.
-    
-- يجب الاحتفاظ بالتاريخ السابق.
-    
-- الصلاحيات الحالية تعتمد على Branch الحالي.
-    
-- لا يجب فقدان Activity السابقة.
-    
+لا يجوز استبدال التاريخ بالقيمة الحالية فقط.
 
 ---
 
-# 56. Agent Ownership
+# 77. Contact vs Lead Rules
 
-Lead يمكن أن تكون:
-
-- Unassigned.
-    
-- Assigned to Agent.
-    
-
-عند تغيير Agent:
-
-- تتغير Current Assignment.
-    
-- يحفظ Assignment History.
-    
-- لا يتغير Contact بسبب ذلك.
-    
+- Contact واحد يمكن أن يملك Leads متعددة.
+- Lead واحدة ترتبط بـContact واحد.
+- Contact matching لا يعني Lead merge.
+- Assignment changes لا تغير Contact.
 
 ---
 
-# 57. Payment & Enrollment Relationship
+# 78. Campaign vs Lead Rules
 
-Payment وEnrollment مرتبطان لكنهما ليسا نفس الكيان.
+Campaign تحدد Configuration.
 
-Payment:
+Lead تمثل فرصة فعلية.
 
-> هل تم الدفع؟
+تغيير Campaign configuration لا يعيد كتابة التاريخ السابق تلقائياً.
 
-Enrollment:
+---
 
-> هل تم تسجيل الشخص/اعتباره مشتركاً؟
+# 79. Source Data vs Operational Data
+
+Source Data أصلية.
+
+Operational Data تتغير أثناء العمل.
+
+يجب الاحتفاظ بالاثنين بدون تشويه الأصل.
+
+---
+
+# 80. Lead Owner vs Conversation Controller Rules
+
+- Lead Owner يحدد الموظف المسؤول.
+- Controller يحدد من يدير Customer conversation حالياً.
+- يمكن أن يكون AI Controller بينما Lead Owner موجود.
+- Human handoff لا يحتاج تغيير Lead Owner بالضرورة.
+
+---
+
+# 81. Payment & Enrollment Relationship
+
+Payment يجيب: هل تم الدفع؟
+
+Enrollment يجيب: هل تم التسجيل/الاشتراك؟
 
 في التدفق الأساسي:
 
-**Confirmed Payment → Enrollment**
+```text
+Confirmed Payment → Enrollment
+```
 
-لكن يجب الحفاظ على الكيانين منفصلين حتى يبقى النموذج واضحاً وقابلاً للتوسع.
-
----
-
-# 58. Notification & Event Relationship
-
-Notification هي نتيجة حدث أو Rule، وليست بديلاً عن Activity.
-
-مثلاً:
-
-Payment Confirmed
-
-قد ينتج:
-
-- Activity.
-    
-- Notification.
-    
-- Enrollment.
-    
-- Analytics update.
-    
-
-كل واحد منها له دوره المختلف.
+لكن الكيانين منفصلان.
 
 ---
 
-# 59. Domain Constraints
+# 82. Notification vs Conversation Relationship
 
-النموذج يجب أن يضمن مفاهيمياً:
+Notification موجهة للمستخدم الداخلي غالباً.
+
+Conversation موجهة للتواصل مع Customer/Lead.
+
+لا يجب استخدام Notification model كبديل للرسائل.
+
+---
+
+# 83. Integration Connection vs Business Configuration
+
+Connection تمثل الربط الخارجي.
+
+Campaign/Branch configuration تحدد كيف يستخدم النظام هذا الربط.
+
+مثال:
+
+```text
+Meta Connection
+  → External Form Binding
+  → Campaign
+```
+
+ولا يجب تخزين Meta-specific IDs داخل Core Campaign fields إذا يمكن فصلها في External References/Bindings.
+
+---
+
+# 84. Domain Constraints
+
+يجب أن يضمن النموذج مفاهيمياً:
 
 - Agent تابع لـBranch.
-    
 - Manager مسؤول عن Branch.
-    
-- Lead مرتبطة بContact.
-    
-- Lead مرتبطة بـCampaign عندما تكون قادمة من Campaign.
-    
+- Lead مرتبطة بـContact.
 - Campaign مرتبطة بـBranch.
-    
-- Field Configuration مرتبطة بـCampaign.
-    
-- Lead Field Values مرتبطة بـLead وField.
-    
-- Payment Method مرتبطة بـBranch.
-    
+- Lead Branch واضح.
+- Assignment history محفوظ.
+- Conversation مرتبطة بـLead.
+- Message مرتبطة بـConversation.
+- AI customer-facing execution مرتبطة بالـLead/Conversation/Campaign.
+- Payment Method ضمن Scope واضح.
 - Payment مرتبطة بـLead.
-    
 - Enrollment مرتبطة بـLead.
-    
-- Assignment History مرتبطة بـLead.
-    
-- Activities مرتبطة بـLead.
-    
-- Follow-ups مرتبطة بـLead.
-    
+- Integration Connection ذات Scope واضح.
+- Knowledge Version مرتبطة بـCampaign.
+- AI tool execution لا يتجاوز authorization context.
 
 ---
 
-# 60. Historical Integrity
+# 85. Historical Integrity
 
-يجب ألا تؤدي التغييرات الحالية إلى فقدان المعلومات التاريخية المهمة.
+يجب الحفاظ عند الحاجة على:
 
-خصوصاً:
-
-- Lead Assignment.
-    
-- Field changes المهمة.
-    
-- Status changes.
-    
+- Source submissions.
+- Assignment history.
+- Field changes.
+- Conversation history.
+- Message history.
+- Handoff history.
 - Payment events.
-    
 - Enrollment events.
-    
-- Activity Timeline.
-    
 - Integration events.
-    
+- Knowledge versions.
+- AI action history.
+- Audit logs.
 
 ---
 
-# 61. Extensibility
+# 86. Extensibility
 
-Domain Model يجب أن يسمح مستقبلاً بإضافة:
+النموذج يجب أن يسمح بإضافة:
 
-- Lead Sources.
-    
-- Notification Providers.
-    
-- Payment Providers.
-    
-- Custom Field types.
-    
-- Additional Automation triggers/actions.
-    
-- Additional Analytics dimensions.
-    
+- Lead sources.
+- Messaging providers.
+- Messaging channels.
+- Payment providers.
+- AI providers.
+- AI models/profiles.
+- AI assistants.
+- Field types.
+- Automation triggers/actions.
+- Analytics dimensions.
 
-بدون تغيير المفاهيم الأساسية للمنتج.
+بدون تغيير المعنى الأساسي للكيانات.
 
 ---
 
-# 62. Domain Model Summary
+# 87. Domain Model Summary
 
-العلاقات الأساسية هي:
+```text
+Organization
+  → Branches
+  → Integration Connections
 
-**Organization**  
-→ Branches
+Branch
+  → Manager
+  → Agents
+  → Campaigns
+  → Leads
+  → Payment Methods
 
-**Branch**  
-→ Manager  
-→ Agents  
-→ Campaigns  
-→ Leads  
-→ Payment Methods  
-→ Automations
+Contact
+  → Leads
 
-**Contact**  
-→ Leads
+Campaign
+  → Source Bindings
+  → Forms
+  → Source Field Mappings
+  → Field Configurations
+  → Campaign Agent Configurations
+  → Routing Configuration
+  → Eligible Agents
+  → Automations
+  → Messaging Configuration
+  → Campaign AI Configuration
+  → Knowledge Versions
+  → Qualification Definition
 
-**Campaign**  
-→ Forms  
-→ External References  
-→ Field Configurations  
-→ Agents  
-→ Leads  
-→ Automations
+Lead
+  → Contact
+  → Campaign
+  → Branch
+  → Internal Lifecycle State
+  → Lead Owner
+  → Field Values
+  → Conversations
+  → Follow-ups
+  → Notes
+  → Activities
+  → Payments
+  → Enrollment
+  → AI Executions
 
-**Lead**  
-→ Contact  
-→ Campaign  
-→ Branch  
-→ Agent  
-→ Field Values  
-→ Follow-ups  
-→ Activities  
-→ Payments  
-→ Enrollment  
-→ Notifications
+Conversation
+  → Messages
+  → Controller
+  → Handoffs
 
-**Field Definition**  
-→ Campaign Field Configuration  
-→ Lead Field Values
+Integration Connection
+  → External References
+  → Bindings
+  → Integration Events
 
-**Payment Method**  
-→ Payments / Payment Links
+AI Provider Connection
+  → Model/Profile Configuration
+  → AI Assistant Definitions
 
-**Integration**  
-→ External References / Events
+Campaign AI Configuration
+  → Knowledge
+  → Qualification
+  → Follow-up Policy
+  → Handoff Rules
+```
 
 ---
 
-# 63. Final Domain Principles
+# 88. Final Domain Principles
 
-هذا النموذج يجب أن يحافظ على:
+النموذج النهائي يجب أن يحافظ على:
 
-1. Contact مختلف عن Lead.
-    
-2. Campaign مختلفة عن Lead.
-    
-3. Source Data مختلفة عن Operational Data.
-    
-4. Current State مختلف عن History.
-    
-5. Payment مختلف عن Enrollment.
-    
-6. Field Definition مختلف عن Field Value.
-    
-7. Branch Isolation.
-    
-8. Flexible Campaign-specific Fields.
-    
-9. Historical integrity.
-    
-10. Provider-agnostic integrations.
-    
+1. Contact ≠ Lead.
+2. Campaign ≠ Lead.
+3. Source Data ≠ Operational Data.
+4. Current State ≠ History.
+5. Payment ≠ Enrollment.
+6. Notification ≠ Conversation.
+7. Lead Owner ≠ Conversation Controller.
+8. AI Insight ≠ Business Truth.
+9. Integration Connection ≠ Core Business Logic.
+10. Provider independence.
+11. Branch isolation.
+12. Campaign-specific flexibility.
+13. Historical integrity.
+14. Secure credential separation.
+15. Multi-connection extensibility.
 
-يجب أن يبني التصميم التقني اللاحق على هذه المفاهيم دون تغيير معناها الوظيفي.
+# 90. Scale-Oriented Data Model Requirements
+
+مع نمو البيانات يجب أن يبقى الـDomain قابلاً للاستعلام بكفاءة.
+
+يجب أن يسمح التصميم التقني بإنشاء Indexes وConstraints مناسبة للمسارات الأكثر استخداماً، خصوصاً حول:
+
+- Lead by Branch / Campaign / Agent.
+- Lead lifecycle / created / updated time.
+- Conversation by Lead / channel / participant.
+- Message by Conversation / time / provider message ID.
+- Follow-up by owner / status / due time.
+- External references / provider IDs.
+- Payment by Lead / provider / status / reference.
+- Integration Event by connection / provider / external event ID.
+- AI Execution by Lead / Conversation / Campaign / time.
+
+لا تفرض هذه الوثيقة Database engine أو أسماء Indexes، لكنها تفرض أن Full-table scans ليست المسار الطبيعي للاستعلامات التشغيلية المتكررة.
+
+يجب أن يدعم التصميم Idempotency keys عند الحاجة وPagination-friendly ordering وSafe archival/retention مع إمكانية optimization إضافية عندما يثبت الحجم الحاجة.

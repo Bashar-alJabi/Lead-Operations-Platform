@@ -4,645 +4,340 @@
 
 هذه الوثيقة تحدد:
 
-- صلاحيات كل Role.
-    
-- نطاق الوصول إلى البيانات.
-    
-- قواعد إدارة Branches وCampaigns وLeads.
-    
-- قواعد الحقول الديناميكية.
-    
-- قواعد التوزيع.
-    
-- قواعد المتابعة.
-    
-- قواعد الدفع والاشتراك.
-    
-- قواعد Notifications.
-    
-- قواعد Automations.
-    
-- حدود استخدام AI.
-    
-- قواعد الحفاظ على البيانات والتاريخ.
-    
+- Roles.
+- Data access.
+- Branch isolation.
+- Lead rules.
+- Campaign rules.
+- Field rules.
+- Assignment/routing.
+- Conversation access.
+- Messaging behavior.
+- AI permissions.
+- Integration setup permissions.
+- Payment/enrollment.
+- Automation.
+- Audit/security rules.
 
-هذه الوثيقة تحدد **السلوك المطلوب من النظام**، ولا تحدد طريقة تنفيذه تقنياً.
+هذه الوثيقة تحدد **السلوك المطلوب** وليس تفاصيل التنفيذ التقنية.
 
 ---
 
 # 2. Roles
 
-يوجد ثلاثة أدوار رئيسية فقط:
+الأدوار الأساسية:
 
 1. Super Admin
-    
 2. Manager
-    
 3. Agent
-    
 
 لا يوجد Public Signup.
 
-إنشاء المستخدمين يتم من خلال المستخدمين المصرح لهم بذلك.
+إنشاء المستخدمين يتم من خلال مستخدم مصرح له.
 
 ---
 
-# 3. Super Admin
+# 3. General Authorization Principle
 
-Super Admin يمتلك صلاحية الوصول الكاملة إلى النظام.
+كل Action يجب أن يمر عبر Authorization حقيقي في الـBackend.
 
-## 3.1 Users
+لا يكفي:
 
-يستطيع:
+- إخفاء زر.
+- إخفاء Screen.
+- منع Route في Frontend فقط.
 
-- إنشاء Managers.
-    
-- تعديل Managers.
-    
-- تعطيل Managers.
-    
-- إنشاء Agents.
-    
-- تعديل Agents.
-    
-- تعطيل Agents.
-    
-- إدارة بيانات المستخدمين.
-    
-- إدارة صلاحيات الوصول التي يوفرها النظام.
-    
-- ربط المستخدمين بالـBranch المناسب.
-    
+أي وصول عبر:
+
+- UI.
+- API.
+- Export.
+- AI Assistant.
+- Background action.
+- Automation.
+
+يجب أن يحترم نفس Business/Permission boundaries.
 
 ---
 
-## 3.2 Branches
+## Account Access Rules
 
-يستطيع:
+- لا يوجد Public Signup.
+- User غير Active لا يستطيع بدء Session جديدة.
+- تعطيل User لا يحذف Historical actions الخاصة به.
+- Password/credential recovery يجب أن تكون آمنة ولا تكشف وجود حساب أكثر مما يلزم.
+- يجب أن يمكن إبطال Sessions عند تغيير أمني مهم أو تعطيل الحساب.
 
-- إنشاء Branch.
-    
-- تعديل Branch.
-    
-- تعطيل Branch.
-    
-- إدارة Manager.
-    
+---
+
+# 4. Super Admin
+
+Super Admin يستطيع، ضمن النظام:
+
+- إدارة جميع Branches.
+- إدارة Managers.
 - إدارة Agents.
-    
-- رؤية جميع البيانات.
-    
-- نقل Leads بين Branches.
-    
-- إدارة إعدادات Branch.
-    
-
----
-
-## 3.3 Leads
-
-يستطيع:
-
-- رؤية جميع Leads.
-    
-- إنشاء Lead.
-    
-- تعديل Lead.
-    
-- نقل Lead بين Branches.
-    
-- إعادة تعيين Agent.
-    
-- تعديل البيانات التي تسمح بها Business Rules.
-    
-- الوصول إلى Activity History.
-    
-- الوصول إلى Payment وEnrollment information.
-    
-- تنفيذ Bulk Actions على البيانات المسموح بها.
-    
-- Export البيانات.
-    
-
----
-
-## 3.4 Campaigns
-
-يستطيع:
-
-- إنشاء Campaign.
-    
-- تعديل Campaign.
-    
-- تعطيل Campaign.
-    
-- ربط Campaign بالمصادر.
-    
-- اختيار Branch.
-    
-- اختيار Agents.
-    
-- إعداد Routing.
-    
-- إعداد Fields.
-    
-- إعداد Visibility.
-    
-- إعداد Editability.
-    
-- إعداد Automations.
-    
-
----
-
-## 3.5 Fields
-
-يستطيع:
-
-- إنشاء Field.
-    
-- تعديل Field.
-    
-- تعطيل Field.
-    
-- إعادة ترتيب Fields.
-    
-- تحديد Type.
-    
-- تحديد Required.
-    
-- تحديد Visibility.
-    
-- تحديد Editability.
-    
-- تحديد Options.
-    
-- تحديد استخدام Field في Tables.
-    
-- تحديد استخدام Field في Details.
-    
-- تحديد استخدام Field في Filters.
-    
-- إعداد Calculated Fields.
-    
-- إعادة استخدام Fields عند الحاجة.
-    
-
----
-
-## 3.6 Payments
-
-يستطيع:
-
-- إدارة Payment Methods لجميع Branches.
-    
-- إدارة إعدادات Payment Providers.
-    
-- رؤية Payments لجميع Branches.
-    
-- رؤية Payment Links.
-    
-- رؤية Enrollment results المرتبطة بالدفع.
-    
-
----
-
-## 3.7 Integrations
-
-يستطيع:
-
+- رؤية جميع Leads/Contacts.
+- إدارة Campaigns.
+- إدارة Fields.
+- إدارة Routing.
 - إدارة Integrations.
-    
-- إدارة إعدادات Meta.
-    
-- إدارة WhatsApp Provider.
-    
-- إدارة Payment Providers.
-    
-- إدارة Email.
-    
-- إدارة Google Sheets.
-    
-- إدارة AI integration.
-    
-- إدارة أي Integrations مستقبلية.
-    
-
-Credentials الحساسة لا يجب عرضها للمستخدمين غير المصرح لهم.
+- إدارة Messaging Connections.
+- إدارة AI Providers/configurations.
+- إدارة Payment Providers/Methods.
+- إدارة Automations.
+- الوصول إلى Global Analytics.
+- الوصول إلى Audit Logs.
 
 ---
 
-## 3.8 Analytics
+# 5. Manager Scope
 
-يستطيع الوصول إلى Analytics على مستوى:
+Manager مرتبط بـBranch.
 
-- Organization.
-    
-- Branch.
-    
-- Campaign.
-    
-- Agent.
-    
-- Lead.
-    
-- Payment.
-    
-- Enrollment.
-    
+Manager لا يستطيع:
+
+- رؤية Branch آخر.
+- رؤية Leads من Branch آخر.
+- رؤية Conversations من Branch آخر.
+- إدارة Agents خارج Branch.
+- إدارة Campaigns خارج Branch.
+- إدارة Payment Methods خارج Branch.
+- الوصول إلى Integration Connection خارج Scope المسموح.
+
+كل Query/Action للManager يجب أن يقيد فعلياً بـBranch scope.
 
 ---
 
-## 3.9 Audit Logs
-
-يستطيع رؤية Audit Logs على مستوى النظام.
-
----
-
-# 4. Manager
-
-Manager مسؤول عن Branch واحد فقط.
-
-## 4.1 Branch Scope
-
-Manager:
-
-- لا يستطيع رؤية Branch آخر.
-    
-- لا يستطيع تعديل Branch آخر.
-    
-- لا يستطيع الوصول إلى Leads في Branch آخر.
-    
-- لا يستطيع إدارة Agents من Branch آخر.
-    
-- لا يستطيع الوصول إلى Campaigns من Branch آخر.
-    
-- لا يستطيع إدارة Payment Methods من Branch آخر.
-    
-
----
-
-# 5. Manager — Users
+# 6. Manager — Users
 
 يستطيع:
 
 - إنشاء Agents داخل Branch.
-    
 - تعديل Agents داخل Branch.
-    
 - تعطيل Agents داخل Branch.
-    
-- تحديث بيانات Agent التشغيلية.
-    
-- إدارة Agent phone number.
-    
-- إدارة Agent working hours.
-    
-- إدارة Agent capacity.
-    
-- إدارة إعدادات Agent التشغيلية التي يسمح بها النظام.
-    
+- إدارة operational profile.
+- working hours.
+- capacity.
+- phone/notification information.
 
 لا يستطيع:
 
 - إنشاء Manager آخر.
-    
 - إنشاء Super Admin.
-    
-- إدارة مستخدم خارج Branch الخاص به.
-    
+- إدارة User خارج Branch.
 
 ---
 
-# 6. Manager — Leads
+# 7. Manager — Leads
 
 يستطيع:
 
-- رؤية جميع Leads في Branch.
-    
+- رؤية Leads في Branch.
 - فتح Lead Details.
-    
-- تعديل البيانات المسموح بها.
-    
-- إعادة تعيين Lead بين Agents في Branch.
-    
-- إنشاء Lead عند الحاجة.
-    
-- إضافة Notes عند الحاجة.
-    
+- تعديل البيانات المسموحة.
+- رؤية Conversations في Branch.
+- إعادة تعيين Leads بين Agents داخل Branch.
+- إنشاء Leads.
+- إضافة Notes.
 - إدارة Follow-ups.
-    
 - تنفيذ Bulk Actions ضمن Branch.
-    
-- Export البيانات التي يملك صلاحية الوصول إليها.
-    
+- Export البيانات المسموحة.
 
 لا يستطيع نقل Lead إلى Branch آخر.
 
 ---
 
-# 7. Manager — Campaigns
+# 8. Manager — Campaigns
 
-يستطيع إدارة Campaigns الخاصة بفرعه.
-
-يمكنه:
+يستطيع داخل Branch:
 
 - إنشاء Campaign.
-    
-- تعديل Campaign.
-    
-- تعطيل Campaign.
-    
-- ربط Campaign بمصدر Leads.
-    
+- تعديلها.
+- تعطيلها.
+- ربط Source.
 - اختيار Agents.
-    
 - إعداد Routing.
-    
 - إعداد Fields.
-    
-- إعداد Visibility.
-    
-- إعداد Editability.
-    
+- إعداد Visibility/Editability.
 - إعداد Automations.
-    
-- تحديد الإعدادات التشغيلية الخاصة بالحملة.
-    
+- إعداد Messaging.
+- إعداد AI.
+- إعداد Campaign Knowledge.
+- إعداد Qualification.
+- إعداد AI follow-up policy.
+- إعداد Payment availability.
 
 ---
 
-# 8. Manager — Field Management
+# 9. Manager — Integrations
 
-هذه من أهم صلاحيات Manager.
+Manager يستطيع إدارة **Branch-scoped Connections** الخاصة بفرعه عندما يدعم Provider هذا النوع من الربط.
 
-يمكنه إنشاء وإدارة الحقول الخاصة بالحملات ضمن Branch الخاص به.
+Organization-scoped Connections:
 
-يمكنه:
+- ينشئها ويدير Credentials الخاصة بها Super Admin.
+- يمكن إتاحتها/ربطها بBranch من قبل Super Admin.
+- يستطيع Manager استخدام Connection المسموح بها داخل Campaigns الخاصة بفرعه بدون رؤية Secret.
 
-- إنشاء Field.
-    
-- اختيار Field Type.
-    
-- تسمية Field.
-    
-- تعديل Label.
-    
-- إضافة Options.
-    
-- تعديل Options.
-    
-- تحديد Required / Optional.
-    
-- تحديد Visible / Hidden.
-    
-- تحديد Editable / Read-only.
-    
-- تحديد ترتيب Field.
-    
-- تحديد ظهوره في جدول Leads.
-    
-- تحديد ظهوره في Lead Details.
-    
-- تحديد استخدامه في Filters.
-    
-- تحديد ظهوره للAgent.
-    
-- تحديد استخدامه في Automations.
-    
-- إنشاء Calculated Fields عندما يسمح النظام بذلك.
-    
-- تعطيل Field غير المستخدم.
-    
+Manager لا يستطيع:
+
+- رؤية Secret لـOrganization Connection.
+- استخدام Branch Connection من Branch آخر.
+- تغيير Scope لConnection بطريقة تتجاوز صلاحياته.
 
 ---
 
-# 9. Field Ownership Rules
-
-Field ليس بالضرورة ملكاً للنظام كله.
-
-يمكن أن يكون:
-
-- System-level.
-    
-- Branch-level.
-    
-- Campaign-specific.
-    
-
-Manager لا يستطيع تعديل Field خارج نطاق الصلاحيات الممنوحة له.
-
-إذا كان Field يستخدم في أكثر من Campaign، يجب ألا يؤدي تعديل إعدادات Campaign واحدة إلى تغيير استخدامه في Campaign أخرى بشكل غير مقصود.
-
----
-
-# 10. Agent
-
-Agent هو المستخدم التشغيلي.
-
-## Agent Scope
-
-Agent يرى فقط البيانات التي تسمح بها صلاحياته ونطاقه التشغيلي.
+# 10. Agent Scope
 
 الافتراضي:
 
-**Agent → Leads المخصصة له**
+```text
+Agent → Leads المخصصة له أو المسموح له بها فقط
+```
+
+لا يستطيع Agent رؤية Lead غير مصرح بها حتى إذا عرف ID أو URL.
 
 ---
 
 # 11. Agent — Read Permissions
 
-Agent يستطيع رؤية:
+يستطيع رؤية، ضمن Leads المسموحة:
 
-- Lead Details.
-    
-- Contact information التي يحتاجها.
-    
-- Campaign information المسموح بها.
-    
-- Fields المسموح له برؤيتها.
-    
-- Follow-ups المرتبطة بLeads التي يملك الوصول إليها.
-    
-- Payment Status.
-    
-- Enrollment Status.
-    
-- Activity information المسموح بها.
-    
-- Notifications الخاصة به.
-    
-
----
-
-# 12. Agent — Edit Permissions
-
-Agent يستطيع تعديل:
-
-- Campaign Fields التي تم السماح له بتعديلها.
-    
-- Operational information الخاصة بالـLead.
-    
-- Notes.
-    
+- Contact information.
+- Campaign information المسموحة.
+- Visible Fields.
 - Follow-ups.
-    
-- البيانات المطلوبة لتسجيل نتيجة التواصل.
-    
-
-Agent لا يستطيع تعديل:
-
-- Campaign structure.
-    
-- Field definitions.
-    
-- Field types.
-    
-- Field options التي يديرها Manager.
-    
-- Routing configuration.
-    
-- Branch configuration.
-    
-- Payment Method configuration.
-    
-- Integration credentials.
-    
+- Payment status.
+- Enrollment status.
+- Permitted Activity.
+- Conversation history.
+- AI summary/insights المسموحة.
+- Notifications الخاصة به.
 
 ---
 
-# 13. Agent — Field Rules
+# 12. Agent — Edit/Action Permissions
 
-وجود Field على Lead لا يعني أن Agent يستطيع تعديله.
+يمكنه:
 
-لكل Field يمكن أن تكون هناك:
+- تعديل Editable Fields.
+- إضافة Note.
+- إنشاء/إكمال Follow-up.
+- تسجيل نتيجة تواصل.
+- الرد على Conversation التي يملكها/يسمح له بها.
+- استخدام AI Copilot ضمن نفس Scope.
+- إنشاء Payment Link إذا كان مسموحاً.
 
-- Visibility rule.
-    
-- Editability rule.
-    
+لا يمكنه:
 
-وبالتالي يمكن أن يكون Field:
+- تغيير Campaign structure.
+- تغيير Field definitions.
+- تغيير Routing.
+- إدارة Integration credentials.
+- إدارة AI Provider.
+- Publish Campaign Knowledge.
+- رؤية Leads أخرى.
+- تغيير Security/Permissions.
 
-### Visible + Editable
+---
 
-Agent يراه ويعدله.
+# 13. Field Visibility Rules
 
-### Visible + Read-only
+لكل Field:
 
-Agent يراه ولا يعدله.
+- Visible + Editable.
+- Visible + Read-only.
+- Hidden.
+- System-managed.
+- Source-managed.
+- Calculated.
 
-### Hidden
-
-Agent لا يراه.
-
-### System-managed
-
-النظام يديره.
-
-### Calculated
-
-النظام يحسبه.
+كل API/Export/Search يجب أن يحترم Visibility.
 
 ---
 
 # 14. Contact Rules
 
-Contact يمثل الشخص.
+عند وصول Lead:
 
-عند وصول Lead جديد:
-
-- يتم محاولة ربطه بـContact موجود.
-    
-- وجود Contact سابق لا يمنع إنشاء Lead جديدة.
-    
-- نفس الشخص يمكن أن يمتلك عدة Leads.
-    
-- لا يجب حذف Lead جديدة لمجرد أن Contact موجود.
-    
-- يجب الحفاظ على Source information.
-    
+- يتم Normalization للقيم المستخدمة بالمطابقة قدر الإمكان.
+- يمكن مطابقة Contact باستخدام phone/email/external identifiers وفق قواعد واضحة.
+- وجود Contact سابق لا يمنع Lead جديدة.
+- لا يتم merge للـLead تلقائياً لمجرد تطابق Contact.
+- لا يتم اختيار Contact عشوائياً عند وجود أكثر من Candidate موثوق.
+- الحالات ambiguous يجب أن تستخدم review/needs-attention أو قاعدة deterministic.
+- Source Submission تبقى محفوظة.
 
 ---
 
 # 15. Lead Creation Rules
 
-Lead يمكن أن تُنشأ من:
+Lead يمكن أن تنشأ من:
 
 - Meta.
-    
-- Manual Entry.
-    
-- CSV.
-    
-- Excel.
-    
+- Manual.
+- CSV/Excel.
 - Google Sheets.
-    
 - API.
-    
-- Future Sources.
-    
+- Webhook.
+- Future source.
 
-عند إنشاء Lead يجب ربطها بالمعلومات المتوفرة عنها، مثل:
+يجب ربط ما يتوفر من:
 
 - Contact.
-    
 - Source.
-    
-- Campaign عند توفرها.
-    
+- Campaign.
 - Branch.
-    
-- Assignment عند توفره.
-    
-- Field Values.
-    
+- Assignment.
+- Field values.
+- Source Submission.
+
+---
+
+## Lead Lifecycle Rules
+
+- Lead الجديدة تبدأ `OPEN`.
+- `CLOSED` لا تعني حذف Lead أو Contact أو Conversation history.
+- `ARCHIVED` تعني إخراجها من التشغيل اليومي المعتاد مع حفظ التاريخ.
+- Campaign Status الاختياري لا يحل محل Internal Lifecycle State.
+- Close/Reopen/Archive Actions تخضع للصلاحيات وتسجل في Activity/Audit حسب الحاجة.
+- Enrollment أو Payment لا يغلقان Lead تلقائياً إلا إذا كان هناك Automation/Business Rule موثقة.
 
 ---
 
 # 16. Campaign Rules
 
-Campaign تحدد طريقة تشغيل مجموعة Leads مرتبطة بها.
-
-يجب أن تحتوي Campaign على الإعدادات اللازمة لتحديد:
+Campaign تحدد على الأقل عند الحاجة:
 
 - Branch.
-    
-- Eligible Agents.
-    
-- Routing.
-    
+- Source.
 - Fields.
-    
-- Visibility.
-    
-- Editability.
-    
+- Routing.
+- Eligible Agents.
+- Messaging.
+- AI.
 - Automations.
-    
+- Payment availability.
 
 ---
 
-# 17. Campaign Activation
+# 17. Campaign Activation Rules
 
-قبل تفعيل Campaign، يجب أن تكون الإعدادات الأساسية المطلوبة مكتملة.
+قبل Activation يجب التحقق من العناصر المطلوبة حسب Features المفعلة.
 
-مثل:
+أمثلة:
 
-- Source connection عند الحاجة.
-    
 - Branch.
-    
-- Agents أو طريقة مناسبة للتعامل مع عدم وجود Agents.
-    
-- Field configuration عند الحاجة.
-    
-- Routing configuration إذا تم تفعيل التوزيع التلقائي.
-    
+- Source binding إذا كانت الحملة تستقبل من Source خارجي.
+- Routing/Agent handling.
+- Field mapping.
+- Messaging Connection إذا كان التواصل الآلي مفعلاً.
+- AI Provider/configuration إذا كان AI Lead Assistant مفعلاً.
+- Published Knowledge إذا كان AI يحتاج معرفة.
+- Qualification mapping عند تفعيله.
 
-إذا كانت إعدادات ضرورية ناقصة، يجب ألا يعتبر النظام Campaign جاهزة للعمل بدون تنبيه أو معالجة واضحة.
+لا يتم Activation بصمت مع Setup ناقص.
 
 ---
 
@@ -650,272 +345,223 @@ Campaign تحدد طريقة تشغيل مجموعة Leads مرتبطة بها.
 
 عند تعطيل Campaign:
 
-- لا تستقبل Leads جديدة منها بالطريقة التشغيلية المعتادة.
-    
-- Leads السابقة لا يتم حذفها.
-    
-- البيانات التاريخية تبقى محفوظة.
-    
-- Leads النشطة لا تختفي.
-    
-- يجب استمرار إمكانية إدارة Leads السابقة وفق الصلاحيات.
-    
+- لا تستقبل Leads جديدة بالطريقة التشغيلية المعتادة.
+- Leads السابقة لا تحذف.
+- Conversations السابقة تبقى.
+- التاريخ محفوظ.
+- إدارة Leads السابقة تبقى ممكنة حسب الصلاحيات.
 
 ---
 
-# 19. Meta Source Rules
+# 19. Source / Meta Lead Rules
 
-عند وصول Lead من Meta:
+عند وصول Lead من Source:
 
-1. يتم التعرف على الحملة/المصدر المرتبط.
-    
-2. يتم تطبيق Campaign configuration.
-    
-3. يتم ربط Lead بالـBranch.
-    
-4. يتم إنشاء أو ربط Contact.
-    
-5. يتم إنشاء Lead.
-    
-6. يتم تطبيق Field Mapping.
-    
-7. يتم تنفيذ Routing إذا كان مفعلاً.
-    
-8. يتم إشعار Agent عند التعيين.
-    
+1. Verify/identify connection.
+2. Preserve source submission.
+3. Resolve Campaign binding.
+4. Match/create Contact.
+5. Create Lead.
+6. Apply field mapping.
+7. Determine Branch.
+8. Execute routing.
+9. Start allowed messaging/AI flow if configured.
+10. Create activities/notifications.
 
-إذا تعذر ربط Lead بـCampaign معروفة:
+إذا لم يتم Resolve للحملة:
 
-- لا يتم ربطها بحملة عشوائية.
-    
-- يجب الاحتفاظ بالـLead.
-    
-- يجب تسجيل المشكلة.
-    
-- يجب إشعار الجهة المسؤولة وفق الإعدادات.
-    
+- لا تربط Lead عشوائياً.
+- احتفظ بالبيانات.
+- سجل failure state.
+- ضعها في queue/list للمعالجة.
+- أشعر المسؤول إذا لزم.
+
+---
+
+## Source Binding Resolution Rules
+
+عند وجود أكثر من External identifier، يجب Resolve Campaign باستخدام Combination موثوقة مثل:
+
+- Integration Connection.
+- External Form.
+- External Campaign/Ad identifiers عندما تتوفر.
+
+لا يجوز أن يكون لنفس External event أكثر من Active binding متعارض يؤدي إلى اختيار Campaign عشوائياً.
+
+إذا بقي resolution ambiguous:
+
+- يتم الاحتفاظ بالSubmission.
+- لا يتم التخمين.
+- تظهر كNeeds Attention.
 
 ---
 
 # 20. Source Data Rules
 
-البيانات القادمة من Meta أو أي Source خارجي يجب أن تبقى قابلة للتتبع.
+Source Data الأصلية لا تمحى عند تعديل Operational Data.
 
-لا يتم تغيير Source Data الأصلية لمجرد أن Agent عدّل البيانات التشغيلية.
-
-إذا احتاج العمل إلى قيمة مصححة:
-
-يمكن استخدام Operational Field منفصل.
+أي correction تشغيلي يجب أن يكون منفصلاً عن Raw Source Submission.
 
 ---
 
 # 21. Field Rules
 
-لا توجد مجموعة Fields إجبارية واحدة لكل Campaign.
+لا توجد Fields ثابتة إجبارية لكل Campaign.
 
-كل Campaign يمكن أن تستخدم Fields مختلفة.
+Manager/Super Admin يحددان ضمن الصلاحيات:
 
-Manager / Super Admin يحددان:
-
-- ماذا يتم جمعه.
-    
-- ماذا يظهر.
-    
-- ماذا يتم تعديله.
-    
-- ماذا يتم حسابه.
-    
-- ماذا يستخدم في Filters.
-    
-- ماذا يستخدم في Automation.
-    
+- Collection.
+- Visibility.
+- Editability.
+- Required behavior.
+- Filtering.
+- Automation usage.
+- AI qualification usage.
 
 ---
 
 # 22. Required Fields
 
-إذا حُدد Field على أنه Required:
+Required يمكن أن تعني required عند نقطة محددة من workflow، وليس بالضرورة عند Lead creation.
 
-- يجب أن تتوفر قيمته عند النقطة التي تتطلبها Business Rule.
-    
-- يجب منع أو تنبيه المستخدم عند محاولة إكمال العملية بدونها.
-    
-- لا يعني Required بالضرورة أنه مطلوب عند إنشاء Lead؛ ذلك يعتمد على إعداد الحملة وسياق العملية.
-    
+يجب أن يمنع النظام إكمال Action يعتمد على Field مطلوبة إذا كانت ناقصة، وفق Business Rule.
 
 ---
 
 # 23. Calculated Fields
 
-Calculated Field:
-
-- لا يعدله Agent يدوياً.
-    
-- يتم حسابه وفق تعريفه.
-    
-- يجب أن يظهر بوضوح على أنه Calculated.
-    
-- يجب ألا تكون هناك قيمة يدوية تناقض قيمته المحسوبة.
-    
+- لا يعدلها Agent يدوياً.
+- تحسب من النظام.
+- لا يسمح بقيمة manual متناقضة.
+- تظهر كCalculated.
 
 ---
 
-# 24. Status Rules
+# 24. Status / Interest / Tags
 
-Status هو Field Type اختياري.
+كلها optional حسب Campaign.
 
-إذا استخدمته Campaign:
-
-- Manager يحدد القيم.
-    
-- يحدد ترتيبها.
-    
-- يمكن استخدامها في Filters.
-    
-- يمكن استخدامها في Automations.
-    
-- يمكن استخدامها في Analytics.
-    
-
-ليس مطلوباً أن تستخدم جميع Campaigns نفس Statuses.
+لا تفترض أن جميع Campaigns تستخدم نفس القيم.
 
 ---
 
-# 25. Interest Rules
+# 25. Field History
 
-Interest هو Field Type اختياري.
+بالنسبة للحقول المهمة، يجب حفظ:
 
-يمكن لكل Campaign أن تحدد:
+- old value.
+- new value.
+- actor/source.
+- timestamp.
 
-- هل تستخدمه.
-    
-- ما القيم المتاحة.
-    
-- كيف يظهر.
-    
-- من يستطيع تعديله.
-    
-- أين يستخدم.
-    
+AI/Automation change يجب أن يحمل source واضحاً.
 
 ---
 
-# 26. Tag Rules
-
-Tags اختيارية.
-
-يمكن استخدامها على مستوى النظام أو Branch أو Campaign وفق الإعدادات.
-
-لا يجب إجبار Campaign على استخدامها.
-
----
-
-# 27. Custom Field History
-
-بالنسبة للحقول المهمة، يجب الاحتفاظ بتاريخ التغيير عندما يكون ذلك مطلوباً.
-
-مثلاً:
-
-Contact Status:
-
-New → Contacted → Interested
-
-History يجب أن يسمح بمعرفة:
-
-- القيمة السابقة.
-    
-- القيمة الجديدة.
-    
-- من قام بالتغيير.
-    
-- وقت التغيير.
-    
-
----
-
-# 28. Lead Assignment Rules
+# 26. Assignment Rules
 
 Lead يمكن أن تكون:
 
-- Unassigned.
-    
 - Assigned.
-    
+- Unassigned.
 
-إذا تم تفعيل Automatic Routing، يجب اختيار Agent مؤهل.
+Automatic routing لا يختار إلا Agent مؤهل.
 
 ---
 
-# 29. Agent Eligibility
+# 27. Agent Eligibility
 
-يمكن اعتماد عوامل مثل:
+يمكن أن تعتمد على:
 
 - Active.
-    
 - Branch.
-    
 - Campaign eligibility.
-    
 - Capacity.
-    
 - Working hours.
-    
 - Availability.
-    
-
-Agent غير المؤهل لا يجب أن يستلم Lead تلقائياً.
 
 ---
 
-# 30. Routing Methods
+# 28. Routing Methods
 
-النظام يدعم:
+- Round Robin.
+- Weighted.
+- Performance-Based.
+- Manual.
 
-### Round Robin
+## Performance-Based rules
 
-توزيع بالتناوب.
+- يعتمد على Human Agent metrics فقط.
+- لا تدخل AI response speed أو AI attempts في Agent score.
+- Campaign تحدد Metrics المفعلة وأوزانها وLookback window ضمن الخيارات التي يوفرها النظام.
+- يجب استخدام Minimum sample/fallback حتى لا يُعاقب Agent جديد بلا تاريخ.
+- يجب أن تكون الفترة/metrics المستخدمة قابلة للتفسير والمراجعة.
+- إذا تعذر حساب score صالح، يستخدم fallback المحدد للحملة بدلاً من التخمين.
 
-### Weighted
-
-التوزيع باستخدام Weights.
-
-### Performance-Based
-
-التوزيع باستخدام معلومات أداء Agent.
-
-### Manual
-
-التعيين اليدوي.
-
-تفاصيل الخوارزمية الداخلية وكيفية حساب Performance Weight هي قرار تقني/تنفيذي لاحق، لكن السلوك الوظيفي يجب أن يلتزم بالنتيجة المطلوبة.
+الخوارزمية التقنية يمكن تحديدها لاحقاً، لكن النتائج يجب أن تحترم eligibility والـscope.
 
 ---
 
-# 31. No Eligible Agent
+# 29. No Eligible Agent
 
-إذا لم يوجد Agent مؤهل:
+إذا لا يوجد Agent:
 
-- يبقى Lead بدون Assignment.
-    
-- لا يتم التوزيع العشوائي.
-    
-- يتم إشعار Manager أو المسؤول المحدد.
-    
-- يجب أن يظهر Lead ضمن قائمة Leads التي تحتاج معالجة.
-    
+- Lead تبقى موجودة.
+- تبقى Unassigned.
+- يسجل السبب.
+- تظهر ضمن Leads needing attention.
+- يشعَر المسؤول حسب الإعدادات.
+
+---
+
+# 30. Reassignment
+
+Manager:
+
+```text
+Agent A → Agent B داخل Branch
+```
+
+Super Admin:
+
+```text
+Branch A / Agent A → Branch B / Agent B
+```
+
+يجب حفظ history.
+
+بعد Reassignment:
+
+- Agent السابق يفقد Active access إلى Lead/Conversation إذا لم يكن لديه Permission أخرى تمنحه الوصول.
+- Agent الجديد يحصل على التاريخ المسموح بالكامل.
+- الرسائل القديمة لا تتغير ownership تاريخياً.
+- إذا كان Agent السابق هو Human Controller، يجب نقل/إعادة تقييم Controller بدون ترك Conversation بحالة غير صالحة.
+
+---
+
+# 31. Agent Deactivation
+
+عند تعطيل Agent:
+
+- لا يستقبل Leads جديدة.
+- لا يبقى eligible للrouting.
+- Leads السابقة لا تختفي.
+- Active Leads يجب التعامل معها وفق configuration.
+- Conversations تحتاج reassignment/handling واضح.
 
 ---
 
 # 32. Capacity Rules
 
+الـCapacity الافتراضية تحسب Leads المعيّنة إلى Agent والتي Internal Lifecycle = `OPEN`.
+
 إذا وصل Agent إلى Capacity المحددة:
 
 - لا يتم إعطاؤه Leads جديدة تلقائياً.
-    
 - يمكن Manager أو Super Admin إعادة التوزيع يدوياً.
-    
 - Leads الموجودة لديه لا تتأثر.
-    
+
+لا يجوز استخدام Campaign Status اختياري بشكل ضمني لتحديد Active workload بدون Mapping/Rule صريحة.
 
 ---
 
@@ -923,643 +569,807 @@ Agent غير المؤهل لا يجب أن يستلم Lead تلقائياً.
 
 إذا كانت Working Hours مستخدمة في Routing:
 
-- يجب احترامها.
-    
-- لا يعتبر Agent مؤهلاً للتوزيع خارج وقته إلا إذا سمحت الإعدادات بذلك.
-    
+- يجب احترامها عند تحديد Agent eligibility.
+- لا يعتبر Agent مؤهلاً للتوزيع خارج وقته إلا إذا سمحت إعدادات Campaign/Branch بذلك.
 
-Working Hours قد تستخدم أيضاً في Notifications أو Follow-ups حسب الإعدادات.
+Working Hours وBranch Timezone يمكن استخدامهما أيضاً في:
 
----
+- Human handoff expectations.
+- Follow-up scheduling.
+- Notifications.
 
-# 34. Manual Reassignment
-
-Manager يستطيع:
-
-**Agent A → Agent B**
-
-داخل Branch.
-
-Super Admin يستطيع:
-
-**Branch A / Agent A → Branch B / Agent B**
-
-عند النقل:
-
-- Current assignment يتغير.
-    
-- Assignment History تحفظ العملية.
-    
-- Lead لا يتم فقدانها.
-    
-- Contact لا يتغير.
-    
+Messaging/AI sending hours تبقى Policy منفصلة ويمكن أن تختلف عن Agent working hours.
 
 ---
 
-# 35. Agent Deactivation Rules
+# 34. Conversation Access Rules
 
-عند تعطيل Agent:
+Conversation access يتبع Lead access.
 
-- يتوقف عن استقبال Leads الجديدة تلقائياً.
-    
-- لا يجوز أن يبقى مؤهلاً للـAutomatic Routing.
-    
-- لا تختفي Leads السابقة.
-    
-- يجب تحديد كيفية التعامل مع Leads النشطة.
-    
-- التاريخ السابق يبقى محفوظاً.
-    
+إذا User لا يستطيع قراءة Lead:
 
-النظام يمكن أن يسمح بإعادة التوزيع التلقائي أو اليدوي حسب الإعدادات والقرار التشغيلي.
+- لا يستطيع قراءة Conversation.
+- لا يستطيع قراءة Message.
+- لا يستطيع قراءة AI summary.
+- لا يستطيع send message.
+- لا يستطيع استخدام AI tool عليها.
 
 ---
 
-# 36. Follow-up Rules
+# 35. Lead Owner vs Conversation Controller
+
+Lead Owner لا يساوي Conversation Controller.
+
+يمكن:
+
+```text
+Owner = Sarah
+Controller = AI
+```
+
+وعند Handoff:
+
+```text
+Owner = Sarah
+Controller = HUMAN
+```
+
+لا يتغير Owner لمجرد تغير Controller.
+
+---
+
+# 36. Conversation Controller Rules
+
+عندما Controller = AI:
+
+- AI يمكنه إرسال Messages فقط ضمن Campaign AI rules.
+- Assigned Agent يمكنه القراءة وطلب Manual Takeover إذا كان مصرحاً.
+
+عندما Controller = HUMAN:
+
+- يجب أن يكون هناك Current Human Controller User واضح.
+- AI لا يقوم auto-send.
+- Human Controller هو الذي يرسل بشكل افتراضي.
+- Manager أو User آخر لديه access لا يرسل بالتوازي بصمت؛ يقوم Takeover صريح إذا أراد استلام التحكم.
+- AI يمكن أن يعمل كCopilot فقط إذا كان مفعلاً.
+
+عندما Conversation = CLOSED:
+
+- لا auto-send إلا إذا workflow يعيد فتحها بشكل صريح.
+
+---
+
+# 37. Human Handoff Rules
+
+Handoff مطلوب عندما:
+
+- Lead يطلب إنسان.
+- AI لا يملك معلومة مؤكدة.
+- Campaign rule تطلب handoff.
+- AI reaches qualification milestone configured for human.
+- complaint/sensitive scenario.
+- unsupported request.
+- low-confidence/guardrail condition.
+
+بعد Handoff:
+
+- تسجل reason.
+- Human controller يصبح active.
+- AI auto-send يتوقف.
+- Agent يرى full context.
+
+---
+
+# 38. Message Send Authorization
+
+أي outbound message يجب أن يمر عبر:
+
+- Lead access.
+- Conversation state.
+- Channel status.
+- Sender/connection scope.
+- Business rules.
+- Consent/contactability state.
+- Provider policy.
+- Required template when applicable.
+- Allowed sending window/business hours.
+
+لا يجوز اختيار Sender من Branch آخر أو Connection غير مصرح بها.
+
+## Message integrity
+
+- Inbound/Outbound messages بعد تسجيلها لا تعدل بصمت.
+- Internal Note لا تعتبر Customer Message.
+- تصحيح رسالة مرسلة يتم برسالة جديدة.
+- حذف Conversation من الواجهة اليومية لا يجوز أن يمحو history المطلوبة.
+
+---
+
+# 39. Messaging Connection Rules
+
+يجب دعم:
+
+- عدة Connections.
+- عدة senders/numbers.
+- Scope واضح.
+- Active/inactive.
+- Health state.
+- Provider independence.
+
+Agent لا يدير credentials.
+
+---
+
+# 40. Messaging Failure Rules
+
+إذا فشل send:
+
+- Lead لا يحذف.
+- Conversation history لا تحذف.
+- Message تظهر Failed.
+- failure يسجل.
+- retry policy يمكن تطبيقها.
+- لا يتم الادعاء بأن الرسالة أرسلت بنجاح.
+- يمكن تصعيدها للAgent/Manager.
+
+---
+
+# 41. Follow-up Rules
 
 Follow-up يمكن أن ينشأ من:
 
 - Agent.
-    
 - Manager.
-    
 - Automation.
-    
+- AI policy.
 
-يمكن أن يكون:
-
-- Upcoming.
-    
-- Due.
-    
-- Overdue.
-    
-- Completed.
-    
-- Cancelled.
-    
-
-يجب ألا يختفي Follow-up من التاريخ بعد اكتماله.
+يجب حفظ completed/cancelled history.
 
 ---
 
-# 37. Activity Rules
-
-الأحداث المهمة يجب أن تظهر في Activity Timeline.
-
-مثل:
-
-- Lead Created.
-    
-- Assignment.
-    
-- Reassignment.
-    
-- Field Change.
-    
-- Note.
-    
-- Follow-up.
-    
-- Payment.
-    
-- Enrollment.
-    
-- Notification.
-    
-
----
-
-# 38. Notes Rules
-
-Agent يمكنه إضافة Notes على Leads التي يملك الوصول إليها.
-
-Manager يستطيع إضافة Notes على Leads في Branch.
-
-Super Admin يستطيع على مستوى النظام.
-
-Note لا يجب أن تُستخدم كبديل للحقول المنظمة عندما تكون المعلومة مهمة للبحث أو Analytics.
-
----
-
-# 39. WhatsApp Rules
-
-WhatsApp هو Notification Channel فقط.
-
-Agent لا يقوم بإعداد التكامل.
-
-Agent يحتاج فقط:
-
-- Name.
-    
-- Phone Number.
-    
-
-النظام/الإدارة يدير:
-
-- Provider.
-    
-- Integration.
-    
-- Credentials.
-    
-- Message configuration.
-    
-
----
-
-# 40. WhatsApp Failure Rules
-
-إذا فشل إرسال WhatsApp:
-
-- لا يتم حذف Lead.
-    
-- لا يتراجع Assignment.
-    
-- لا يفشل Follow-up.
-    
-- لا يفشل Payment.
-    
-- لا يفشل Enrollment.
-    
-- يسجل Notification failure.
-    
-- يمكن إعادة المحاولة حسب النظام.
-    
-
----
-
-# 41. Payment Method Rules
-
-Payment Methods مرتبطة بBranch.
-
-Manager:
-
-- يضيف Payment Methods لفرعه.
-    
-- يعدلها.
-    
-- يعطلها.
-    
-
-Super Admin:
-
-- يدير Payment Methods لكل الفروع.
-    
-
-Agent:
-
-- لا يدير Payment Methods.
-    
-- لا يرى Credentials.
-    
-- يستخدم Payment Method وفق الصلاحيات المتاحة.
-    
-
----
-
-# 42. Payment Link Rules
-
-Payment Link يرتبط بـ:
-
-- Lead.
-    
-- Payment Method.
-    
-- Amount عند الحاجة.
-    
-
-يمكن إنشاء Link عند الحاجة إلى الدفع.
-
-إنشاء Link يجب أن يسجل في Activity.
-
----
-
-# 43. Payment Confirmation Rules
-
-فتح Payment Link أو العودة إلى صفحة نجاح لا يكفي وحده لتأكيد الدفع.
-
-يجب أن يكون Payment confirmed بناءً على حدث موثوق من مزود الدفع.
-
-بعد Confirmation:
-
-Payment  
-→ Lead Update  
-→ Enrollment  
-→ Activity  
-→ Analytics  
-→ Notifications
-
----
-
-# 44. Enrollment Rules
-
-Enrollment يحدث في التدفق الأساسي بعد Payment Confirmation.
-
-لا يجب اعتبار الشخص Enrolled فقط لأنه:
-
-- طلب Payment Link.
-    
-- فتح الرابط.
-    
-- قال للAgent إنه دفع.
-    
-- عاد إلى صفحة نجاح غير موثوقة.
-    
-
-يجب وجود تأكيد دفع مناسب قبل Enrollment.
-
----
-
-# 45. Payment Scope
-
-خارج نطاق المشروع:
-
-- Installments.
-    
-- Payment Plans.
-    
-- Refund Management.
-    
-- Accounting.
-    
-- Financial ledger.
-    
-
----
-
-# 46. Notification Rules
-
-Notifications قد تكون:
-
-- In-App.
-    
-- Email.
-    
-- WhatsApp.
-    
-
-يمكن للمستخدم تعديل بعض Preferences حسب النظام.
-
-Notifications الحرجة يمكن أن تكون إلزامية.
-
----
-
-# 47. Automation Rules
-
-Automation تتكون من:
-
-**Trigger → Conditions → Actions**
-
-يجب أن:
-
-- تحترم Permissions.
-    
-- تحترم Branch boundaries.
-    
-- تحترم Field configuration.
-    
-- تمنع loops.
-    
-- تمنع duplicate execution غير المقصود.
-    
-- تسجل التنفيذ والنتيجة.
-    
-
----
-
-# 48. AI Rules
+# 42. AI General Rules
 
 AI:
 
-- لا يمثل Source of Truth.
-    
+- ليس Source of Truth.
 - لا يغير Permissions.
-    
-- لا يكسر Branch Isolation.
-    
-- لا يؤكد Payments.
-    
-- لا ينشئ صلاحيات.
-    
-- لا يتجاوز Business Rules.
-    
-- يمكن تعطله دون إيقاف العمليات الأساسية.
-    
-
-إذا كان AI يقترح Action، يجب أن يظل تنفيذ Action خاضعاً للقواعد والصلاحيات.
+- لا يتجاوز Branch isolation.
+- لا يتجاوز Lead access.
+- لا يؤكد Payment.
+- لا يغير Security.
+- لا ينفذ Action غير موجودة ضمن approved tools.
+- يمكن تعطيله بدون توقف Core Operations.
 
 ---
 
-# 49. Import Rules
+# 43. AI Permission Inheritance
 
-قبل Import يجب أن يتم التعامل مع:
+## Internal AI Operations Assistant
 
-- Field mapping.
-    
-- Validation.
-    
-- Data types.
-    
-- Required fields عند الحاجة.
-    
-- Duplicates.
-    
-- Source attribution.
-    
+يعمل ضمن صلاحيات User الحالي.
 
-Import لا يجب أن يؤدي إلى تجاوز Permissions أو Branch isolation.
+مثال:
 
----
+Agent لا يستطيع أن يسأل AI عن Lead لا يملكها.
 
-# 50. Duplicate Rules
+Manager لا يحصل عبر AI على بيانات Branch آخر.
 
-Duplicate handling يجب أن يوازن بين:
+## Customer-facing AI Lead Assistant
 
-- عدم إنشاء سجلات مكررة بشكل غير مقصود.
-    
-- عدم حذف Lead صحيحة لمجرد أن Contact موجود.
-    
-- الحفاظ على Source Submission.
-    
-- السماح لنفس Contact بامتلاك Leads متعددة.
-    
+يعمل ضمن:
 
-Contact matching لا يعني Lead merging تلقائياً.
+- Current Lead.
+- Campaign.
+- Published knowledge.
+- Approved tools.
+- Messaging connection.
+- Campaign policy.
 
 ---
 
-# 51. Bulk Action Rules
+# 44. AI Tool Rules
 
-Bulk Action متاحة حسب:
+AI لا يحصل على Direct unrestricted DB access لتنفيذ Actions.
+
+أي Tool:
+
+```text
+AI Request
+  ↓
+Application Service
+  ↓
+Authorization
+  ↓
+Validation
+  ↓
+Business Rules
+  ↓
+Execution
+```
+
+---
+
+# 45. AI Facts vs Interpretation
+
+الأرقام والحقائق مثل:
+
+- lead count.
+- paid count.
+- no follow-up count.
+- conversion.
+
+تأتي من Platform queries/tools.
+
+AI يستخدم للتفسير والتلخيص والتحليل.
+
+لا تعتمد على LLM memory لحساب operational facts.
+
+---
+
+# 46. Campaign Knowledge Rules
+
+AI customer-facing يستخدم Knowledge منشورة فقط.
+
+يجب دعم:
+
+- Draft.
+- Publish.
+- Version history.
+
+إذا تغيرت Knowledge:
+
+- المحادثات الجديدة تستخدم version current حسب policy.
+- AI execution التاريخي يمكن تتبعه إلى version المستخدمة.
+
+---
+
+# 47. Unknown Answer Rule
+
+إذا سأل Lead عن معلومة تخص الشركة/الحملة وغير موجودة في Published Knowledge:
+
+AI:
+
+- لا يخترع.
+- لا يعتمد على generic model knowledge كبديل.
+- يوضح أنه لا يملك معلومة مؤكدة.
+- يسجل/يطلب Handoff حسب policy.
+
+---
+
+# 48. AI Qualification Rules
+
+Qualification questions/configuration تُدار داخل Campaign.
+
+AI يمكن أن:
+
+- يسأل.
+- يستخرج value.
+- يقترح/يحدث structured field عبر Tool مسموحة.
+
+كل update يخضع validation والـfield rules.
+
+---
+
+# 49. AI Follow-up Rules
+
+Policy Campaign-configurable.
+
+يمكن أن تحدد:
+
+- Initial message timing.
+- Follow-up delays.
+- Max attempts.
+- Allowed time windows.
+- Stop conditions.
+- Handoff conditions.
+
+لا توجد policy واحدة hardcoded لكل Campaigns.
+
+---
+
+## AI Follow-up Delivery Rules
+
+كل AI send يخضع أيضاً لـ:
+
+- Consent/contactability.
+- Provider policy.
+- Template requirement.
+- Messaging Connection health.
+- Branch/Campaign timezone.
+
+## No eligible human at handoff
+
+إذا احتاج AI Handoff ولم يوجد Agent مؤهل/متاح:
+
+- Conversation تنتقل إلى WAITING_FOR_HUMAN أو equivalent.
+- لا يستمر AI في موضوع يتطلب Human.
+- يتم إشعار Manager/queue المخصصة.
+- Lead لا تضيع ولا تُربط عشوائياً.
+- يمكن للـAI إرسال رسالة انتقالية معتمدة فقط إذا policy تسمح.
+
+---
+
+# 50. AI Status/Field Mutation Rules
+
+AI لا يغير arbitrary Statuses أو Fields.
+
+فقط Tools/Fields المسموحة صراحة.
+
+Sensitive states مثل:
+
+- PAID.
+- ENROLLED.
+- Security/access.
+
+لا يغيرها AI إلا إذا كانت نتيجة deterministic system event وبنفس Business Rule، وليس قرار LLM.
+
+---
+
+# 51. AI Provider Failure
+
+إذا AI Provider unavailable:
+
+- Lead intake يستمر.
+- Assignment يستمر.
+- Human agents يستطيعون العمل.
+- Conversation يمكن تحويلها للhuman.
+- failure يسجل.
+- retry/fallback حسب policy.
+- لا تفقد incoming message.
+
+---
+
+# 52. AI Audit Rules
+
+سجل عند الحاجة:
+
+- Assistant.
+- User/Lead/Campaign scope.
+- Conversation.
+- Knowledge version.
+- Tool requested.
+- Action executed.
+- Result.
+- Timestamp.
+- Error.
+
+لا تسجل secrets أو unnecessary sensitive data.
+
+---
+
+# 53. AI Operations Assistant Rules
+
+يمكنه ضمن permission:
+
+- summarize.
+- explain metrics.
+- list leads needing attention.
+- analyze conversation themes.
+- suggest next actions.
+- prepare drafts.
+
+لا يمكنه كشف بيانات خارج scope.
+
+Actions write-capable تحتاج Tool واضحة وصلاحية مناسبة.
+
+---
+
+# 54. Integration Setup Rule
+
+كل Integration تشغيلي يجب أن يدار من واجهة المنصة.
+
+حسب Provider يمكن أن تشمل الواجهة:
+
+- prerequisites.
+- Connect.
+- OAuth.
+- API key/token input.
+- Webhook details.
+- account/resource selection.
+- test connection.
+- health/status.
+- last error.
+- reconnect.
+- disable.
+- scope/binding.
+
+لا يحتاج المستخدم التشغيلي لتعديل server config.
+
+---
+
+# 55. Provider External Prerequisite Rule
+
+إذا Provider يفرض خطوة خارج المنصة ولا يمكن أتمتتها:
+
+- تعرض المنصة تعليمات step-by-step.
+- تحدد الرابط/المكان/القيمة المطلوبة.
+- يعود المستخدم للمنصة لإكمال الربط.
+- يتم Test Connection.
+- لا يحتاج تدخل Developer.
+
+هذا لا يعني أن المنصة تنشئ Accounts خارجية إذا Provider لا يسمح بذلك.
+
+---
+
+# 56. No Personal Developer Account Dependency
+
+التنفيذ لا يعتمد على:
+
+- OpenAI account شخصي.
+- Meta account شخصي.
+- WhatsApp number شخصي.
+- Stripe account شخصي.
+- hardcoded test credentials.
+
+استخدم mocks/sandbox/test doubles أثناء التطوير.
+
+Production connection يتم من UI بواسطة المستخدم المصرح له.
+
+---
+
+# 57. Credential Security Rules
+
+Secrets:
+
+- لا تظهر للAgent.
+- لا تظهر كاملة بعد save.
+- لا تدخل Logs.
+- لا ترسل للAI.
+- تخزن securely.
+- rotation/update تخضع permissions.
+- deletion/disconnection لا تمحو history التشغيلي المرتبط.
+
+---
+
+# 58. Multi-Connection Rules
+
+لا تفترض:
+
+- Meta account واحدة.
+- WhatsApp number واحد.
+- Payment account واحد.
+- AI provider واحد.
+
+يجب أن يدعم Domain/Architecture تعدد Connections حسب scope.
+
+---
+
+# 59. Payment Method Rules
+
+Manager يدير Methods ضمن Branch.
+
+Super Admin يدير الجميع.
+
+Agent:
+
+- لا يرى credentials.
+- يستخدم Methods المسموحة.
+
+---
+
+# 60. Payment Link Rules
+
+كل Payment Link يرتبط بـ:
+
+- Lead.
+- Payment Method.
+- amount/currency عند الحاجة.
+
+إنشاء Link يسجل Activity.
+
+---
+
+# 61. Payment Confirmation Rules
+
+لا يعتبر Payment Confirmed بسبب:
+
+- فتح Link.
+- success page فقط.
+- قول العميل إنه دفع.
+
+يجب تأكيد موثوق من Provider/event المعتمد.
+
+---
+
+# 62. Enrollment Rules
+
+التدفق الأساسي:
+
+```text
+Trusted Payment Confirmation → Enrollment
+```
+
+لا يتم Enrollment تلقائياً من claim غير موثوق.
+
+---
+
+# 63. Payment Scope
+
+خارج النطاق:
+
+- Installments.
+- Payment Plans.
+- Refund management.
+- Accounting.
+- Ledger.
+
+---
+
+# 64. Notification Rules
+
+القنوات:
+
+- In-App.
+- Email.
+- WhatsApp/Messaging.
+
+Notification تختلف عن Customer Conversation.
+
+Super Admin يدير Global notification templates/settings.
+
+Manager يمكنه إدارة Branch-level wording/templates التي يسمح بها النظام بدون تعديل Global security/mandatory notifications.
+
+Agent يدير Preferences الشخصية المسموحة فقط، ولا يعدل Administrative templates.
+
+---
+
+# 65. Automation Rules
+
+Automation:
+
+```text
+Trigger → Conditions → Actions
+```
+
+يجب أن:
+
+- تحترم permissions.
+- تحترم Branch.
+- تمنع loops.
+- تمنع duplicate execution.
+- تسجل result.
+- لا تتجاوز conversation controller rules.
+
+---
+
+# 66. Import Rules
+
+قبل Import:
+
+- اختيار Branch ضمن Scope المستخدم.
+- اختيار Campaign عندما تتطلب البيانات ذلك.
+- mapping.
+- validation.
+- data types.
+- duplicate analysis.
+- source attribution.
+- preview.
+
+لا يتجاوز Import Branch isolation.
+
+Manager لا يستطيع Import إلى Branch آخر، وAgent لا يحصل على Import scope أوسع من صلاحياته إن تم السماح له بالاستيراد مستقبلاً.
+
+---
+
+# 67. Duplicate Rules
+
+Contact matching لا يعني Lead merging.
+
+يجب الحفاظ على Source Submission.
+
+يجب منع duplicate events التقنية من إنشاء duplicate business records غير المقصودة.
+
+---
+
+# 68. Bulk Action Rules
+
+تعتمد على:
 
 - Role.
-    
 - Branch.
-    
 - Lead access.
-    
-- Field permissions.
-    
+- Field/action permission.
 
-Agent لا يستطيع تنفيذ Bulk Action على Leads لا يملكها.
-
-Manager لا يستطيع تنفيذها خارج Branch.
-
-Super Admin يستطيع على مستوى النظام.
+Actions الحساسة/wide-scope تحتاج confirmation.
 
 ---
 
-# 52. Export Rules
+# 69. Export Rules
 
-Export يخضع إلى:
+Export يحترم:
 
 - Role.
-    
 - Branch.
-    
 - Lead access.
-    
 - Field visibility.
-    
-- Data sensitivity.
-    
-
-لا يجب أن يحصل المستخدم على Fields أو Leads غير مسموح له بها عبر Export.
+- data sensitivity.
 
 ---
 
-# 53. Search & Filter Rules
+# 70. Search & Filter Rules
 
-Search وFilters يجب أن تحترم:
+Search/Filters لا تصبح وسيلة لكشف hidden data.
 
-- Role.
-    
-- Branch.
-    
-- Lead access.
-    
-- Field visibility.
-    
-
-إذا كان Field مخفياً أو غير مسموح به للمستخدم، لا يجب أن يصبح وسيلة للوصول إلى بيانات مخفية.
+نتائجها تخضع للpermissions نفسها.
 
 ---
 
-# 54. Saved View Rules
+# 71. Saved View Rules
 
-Saved View لا تتجاوز Permissions.
-
-إذا تغيرت صلاحيات المستخدم:
-
-- يجب ألا تصبح View وسيلة للوصول إلى بيانات غير مصرح بها.
-    
-- يجب أن تتكيف نتائجها مع الصلاحيات الحالية.
-    
+Saved View لا تحفظ أو تكشف صلاحية أوسع من Current Permission.
 
 ---
 
-# 55. Audit Rules
+# 72. Audit Rules
 
-العمليات الحساسة يجب أن تكون قابلة للتتبع.
+سجل العمليات الحساسة مثل:
 
-خصوصاً:
-
-- User creation/deactivation.
-    
-- Permission changes.
-    
-- Branch changes.
-    
-- Campaign changes.
-    
-- Field changes.
-    
-- Routing changes.
-    
-- Assignment/Reassignment.
-    
-- Payment configuration.
-    
-- Payment events.
-    
-- Enrollment.
-    
-- Integration configuration.
-    
+- user/permission changes.
+- branch changes.
+- campaign changes.
+- field configuration.
+- routing.
+- assignment.
+- conversation control/handoff المهم.
+- integration configuration.
+- credential rotation event.
+- AI configuration.
+- knowledge publish.
+- payment method/config.
+- payment event.
+- enrollment.
+- sensitive bulk actions.
 
 ---
 
-# 56. Security Rules
+# 73. Failure Isolation
 
-يجب عدم:
+فشل:
 
-- كشف Secrets.
-    
-- كشف Provider Credentials للـAgent.
-    
-- استخدام صلاحيات الواجهة كحماية وحيدة.
-    
-- السماح لـAgent بالوصول إلى Branch آخر.
-    
-- السماح لـManager بالوصول إلى Branch آخر.
-    
-- تجاوز صلاحيات Backend من خلال URL أو API أو Export.
-    
+- Meta.
+- Messaging.
+- Email.
+- AI.
+- Google Sheets.
+- Payment integrations.
 
-الصلاحيات يجب أن تطبق فعلياً على مستوى النظام.
+لا يجب أن ينهار معه Core Platform.
+
+لكن يجب أن يوجد failure state واضح وretry/handling مناسب.
 
 ---
 
-# 57. Historical Data Rules
+## External Event Ordering
 
-تعديل Current State لا يجب أن يمحو التاريخ المهم.
+External callbacks قد تصل out-of-order؛ يجب ألا يعيد Callback قديم Message/Payment/Connection إلى state أقدم بشكل غير صحيح.
 
-يجب الحفاظ عند الحاجة على:
+---
+
+# 74. Historical Data Rules
+
+Current State لا يمحو:
 
 - Assignment history.
-    
-- Field change history.
-    
-- Activity Timeline.
-    
+- Conversation history.
+- Message history.
+- Handoff history.
+- Field history.
 - Payment events.
-    
 - Enrollment events.
-    
 - Integration events.
-    
+- Knowledge versions.
+- AI actions.
+- Audit events.
 
 ---
 
-# 58. Source of Truth Rules
+# 75. Source of Truth Rules
 
-### Platform
-
-هي Source of Truth للبيانات التشغيلية.
-
-### External sources
-
-توفر البيانات أو الخدمات.
-
-### Google Sheets
-
-ليست قاعدة البيانات الرئيسية.
-
-### AI
-
-ليس Source of Truth.
-
-### Agent
-
-ليس Source of Truth مستقل.
-
-البيانات يجب أن تسجل داخل المنصة وفق القواعد المحددة.
+- Platform = operational source of truth.
+- External systems = sources/providers.
+- Google Sheets ≠ primary DB.
+- AI ≠ source of truth.
+- AI summary ≠ factual state.
+- Customer message ≠ payment confirmation.
 
 ---
 
-# 59. Failure Isolation
+## Communication Analytics Rules
 
-فشل خدمة خارجية يجب ألا يؤدي تلقائياً إلى فشل Core Operations.
+يجب أن تحفظ الـAnalytics الفصل بين Human وAI:
 
-الخدمات التي يجب عزل فشلها تشمل:
+- First AI contact ≠ First human contact.
+- AI attempts ≠ Human attempts.
+- AI response time ≠ Agent response time.
+- AI-qualified Lead لا يعني أن Agent قام بالتأهيل يدوياً.
 
-- Meta synchronization.
-    
-- WhatsApp.
-    
-- Email.
-    
-- AI.
-    
-- Google Sheets.
-    
-- Payment integrations.
-    
+أي Performance-Based routing أو Agent performance dashboard يجب أن يستخدم Human metrics المعرّفة فقط.
 
-العمليات الحرجة يجب أن يكون لها سلوك واضح عند فشل التكامل.
+## Archive / Delete Rules
+
+- Deactivate/Close/Archive هو default للسجلات التشغيلية التاريخية.
+- Hard Delete لLead/Conversation/Payment/Audit data ليس Action يومي عادي.
+- أي Delete فعلي يجب أن يكون authorized + audited + relationship-safe.
+- Audit events نفسها يجب ألا تكون قابلة للتعديل من المستخدم العادي.
 
 ---
 
-# 60. Business Rules vs Technical Decisions
+## Conversion Metric Rule
 
-هذه الوثيقة تحدد **ما يجب أن يحدث**.
+Campaign يجب أن تحدد milestone المستخدمة لاحتساب Conversion إذا كانت تريد هذه Metric.
 
-لا تحدد:
-
-- Framework.
-    
-- Database technology.
-    
-- Hosting.
-    
-- Queue system.
-    
-- Cache.
-    
-- Programming language.
-    
-- API framework.
-    
-- AI model.
-    
-
-اختيار طريقة التنفيذ التقنية مسؤولية مرحلة التصميم التقني.
+لا يجوز للنظام أو AI افتراض أن `Interested` أو `Qualified` أو `Paid` أو `Enrolled` تعني Conversion لكل Campaigns.
 
 ---
 
-# 61. Undetermined Business Rule
+## Revenue Currency Rule
 
-إذا واجه النظام حالة لا يوجد لها Rule واضح في هذه الوثيقة أو الـFunctional Concept:
+Analytics لا تجمع Payment amounts بعملات مختلفة كأنها نفس الوحدة.
 
-- لا يتم اختراع Business Rule بصمت.
-    
-- يجب تحديد القرار قبل تنفيذ الجزء المتأثر إذا كان القرار يؤثر على السلوك النهائي للمستخدم أو البيانات.
-    
-
-أما التفاصيل الصغيرة التي لا تغير Business Behavior فيمكن حسمها أثناء التنفيذ وفق أبسط حل Production-ready.
+أي Cross-currency reporting يحتاج Reporting Currency + conversion rule موثقة؛ وإلا تعرض النتائج مفصولة حسب Currency.
 
 ---
 
-# 62. Core Permission Matrix
+# 76. Core Permission Matrix
 
-|Capability|Super Admin|Manager|Agent|
+| Capability | Super Admin | Manager | Agent |
 |---|---|---|---|
-|رؤية جميع Branches|نعم|لا|لا|
-|إنشاء Branch|نعم|لا|لا|
-|إدارة Managers|نعم|لا|لا|
-|إدارة Agents|جميع الفروع|Branch الخاص به|لا|
-|رؤية جميع Leads|نعم|Branch الخاص به|Leads المسموحة له|
-|نقل Lead بين Branches|نعم|لا|لا|
-|نقل Lead بين Agents|نعم|داخل Branch|لا|
-|إنشاء Campaign|نعم|Branch الخاص به|لا|
-|إدارة Campaign|نعم|Branch الخاص به|لا|
-|إنشاء Fields|نعم|Branch الخاص به|لا|
-|إدارة Field Configuration|نعم|Branch الخاص به|لا|
-|تعديل Lead Fields|حسب الصلاحية|حسب الصلاحية|Fields المسموحة|
-|إدارة Routing|نعم|Branch الخاص به|لا|
-|إدارة Payment Methods|جميع الفروع|Branch الخاص به|لا|
-|استخدام Payment Link|نعم|نعم|حسب الصلاحية|
-|إدارة Integrations|نعم|حسب النطاق المسموح|لا|
-|إدارة WhatsApp Provider|نعم|حسب الصلاحية|لا|
-|إدارة Automations|نعم|Branch الخاص به|لا|
-|رؤية Global Analytics|نعم|لا|لا|
-|رؤية Branch Analytics|نعم|نعم|ضمن النطاق|
-|رؤية Personal Analytics|نعم|نعم|نعم|
-|Audit Logs|نعم|وفق النطاق المسموح|لا|
-|Export|كامل حسب النظام|Branch|بياناته المسموحة|
+| رؤية جميع Branches | نعم | لا | لا |
+| إنشاء/إدارة Branch | نعم | لا | لا |
+| إدارة Managers | نعم | لا | لا |
+| إدارة Agents | جميع الفروع | Branch الخاص به | لا |
+| رؤية Leads | جميعها | Branch الخاص به | Leads المسموحة |
+| رؤية Conversations | جميعها حسب النظام | Branch الخاص به | Leads المسموحة |
+| الرد على Customer Conversation | بعد امتلاك/Takeover control | بعد امتلاك/Takeover control ضمن Branch | Leads المسموحة + Human control |
+| نقل Lead بين Branches | نعم | لا | لا |
+| نقل Lead بين Agents | نعم | داخل Branch | لا |
+| إنشاء Campaign | نعم | Branch الخاص به | لا |
+| إدارة Campaign | نعم | Branch الخاص به | لا |
+| إدارة Fields | نعم | Branch الخاص به | لا |
+| إدارة Routing | نعم | Branch الخاص به | لا |
+| إدارة Messaging Connection | جميع Scopes | Branch-scoped فقط؛ shared org connection بدون Secret | لا |
+| إدارة Meta Connection | جميع Scopes | Branch-scoped فقط؛ shared org connection بدون Secret | لا |
+| إدارة Payment Provider/Method | جميع Scopes | Branch-scoped connections/methods | لا |
+| إدارة AI Provider | جميع Scopes | Branch-scoped connection/profile فقط؛ shared org connection بدون Secret | لا |
+| إدارة Campaign AI Knowledge | نعم | Campaigns ضمن Branch | لا |
+| Publish AI Knowledge | نعم | Campaigns ضمن Branch | لا |
+| استخدام AI Copilot | نعم | نعم | ضمن Leads المسموحة |
+| استخدام AI Operations Assistant | Global | Branch | Personal/Lead scope |
+| إدارة Automations | نعم | Branch | لا |
+| رؤية Global Analytics | نعم | لا | لا |
+| رؤية Branch Analytics | نعم | نعم | حسب النطاق |
+| Audit Logs | نعم | لا كـGlobal Audit؛ يرى operational/integration history ضمن Branch | لا |
+| Export | حسب النظام | Branch | بياناته المسموحة |
 
 ---
 
-# 63. Final Business Rule Principle
+# 77. Final Business Rule Principle
 
-النظام يجب أن يحقق المبدأ التالي:
+المبدأ النهائي:
 
-**الإدارة تحدد كيف تعمل Campaign والبيانات والـRouting والصلاحيات، والـAgent ينفذ العمليات اليومية ضمن الإعدادات المسموحة له.**
+> **الإدارة تضبط النظام والحملات والتكاملات والـAI من داخل المنصة ضمن الصلاحيات، والـAgent ينفذ العمل اليومي فقط ضمن Leads والمحادثات المسموحة له.**
 
-لا يجوز أن يتمكن Agent من تغيير البنية التي تعمل بها المنصة.
+ولا يستطيع أي Role أو AI Assistant أو Automation تجاوز:
 
-ولا يجوز أن يتمكن Manager من تجاوز حدود Branch الخاص به.
+- Branch isolation.
+- Lead access.
+- Conversation access.
+- Security.
+- Payment trust rules.
+- Field rules.
+- Integration scope.
+- Business Rules.
 
-ولا يجوز أن يتمكن أي Role من تجاوز Security أو Business Rules من خلال واجهة مختلفة أو API أو Export.
+# 77. High-Volume Reliability Rules
+
+عند ارتفاع حجم التشغيل:
+
+- لا يجوز إسقاط Lead بسبب Queue pressure مؤقت.
+- لا يجوز فقدان Webhook موثوق بسبب ضغط مؤقت.
+- لا يجوز إنشاء Lead/Message/Payment مكرر بسبب Retry.
+- لا يجوز أن تقوم عملية Import أو Export كبيرة بحجب العمل اليومي.
+- لا يجوز أن تجعل Analytics الثقيلة Lead Details أو Conversation reply غير قابلة للاستخدام.
+- يجب أن يكون للـBackground processing حالات قابلة للتتبع والفشل والاستئناف حسب طبيعة العملية.
+- Provider rate limits يجب أن تؤدي إلى queueing/backoff/retry مناسب.
+- Bulk actions يجب أن تكون bounded وقابلة للتتبع.
+- أي degraded external provider يجب أن يظهر كحالة تشغيلية قابلة للمراقبة بدلاً من انهيار Core Platform.

@@ -2,11 +2,11 @@
 
 ## 1. About the Project
 
-منصة ويب مركزية لإدارة الـLeads والعمليات البيعية.
+منصة ويب مركزية Production-ready لإدارة الـLeads والعمليات البيعية من مكان واحد.
 
-تدير المنصة دورة الـLead من لحظة وصوله من مصدر إعلاني أو مصدر آخر، مروراً بالحملة والفرع وتوزيع الـLead على Agent والمتابعة والتواصل، وصولاً إلى الدفع وتأكيد الاشتراك والتحليلات والأتمتة والـAI.
+تدير المنصة دورة الـLead من لحظة وصوله من Meta أو أي مصدر آخر، مروراً بالحملة والفرع والتوزيع والتواصل والمتابعة، وصولاً إلى الدفع والاشتراك والتحليلات والأتمتة والـAI.
 
-المنصة هي النظام المركزي لإدارة الـLeads والعمليات التشغيلية، بينما تتكامل مع الخدمات الخارجية المطلوبة.
+المنصة هي **Operational Source of Truth** للـLeads والعمليات المرتبطة بها، بينما تتكامل مع الخدمات الخارجية المطلوبة من خلال Connections يتم إعدادها وإدارتها من داخل المنصة حسب الصلاحيات.
 
 ---
 
@@ -21,11 +21,11 @@ Campaign
     ↓
 Branch
     ↓
-Agent Assignment
+Lead Owner / Agent Assignment
     ↓
-Notification
+AI Initial Contact & Qualification (when enabled)
     ↓
-Contact & Follow-up
+Human Handoff / Agent Follow-up
     ↓
 Payment
     ↓
@@ -33,8 +33,10 @@ Enrollment
     ↓
 Analytics
     ↓
-Automation / AI
+Automation / AI Operations Assistant
 ```
+
+يمكن تعطيل AI Initial Contact لأي Campaign. عند تعطيله تستمر العملية مباشرة مع الـAgent.
 
 ---
 
@@ -42,15 +44,23 @@ Automation / AI
 
 ### Super Admin
 
-تحكم كامل بالنظام وجميع Branches والبيانات والإعدادات.
+تحكم كامل بالنظام وجميع Branches والبيانات والإعدادات والتكاملات ضمن الصلاحيات المعرّفة.
 
 ### Manager
 
-إدارة Branch واحد والـAgents والـCampaigns والـLeads والإعدادات المرتبطة به.
+إدارة Branch واحد والـAgents والـCampaigns والـLeads والإعدادات والتكاملات التي تقع ضمن نطاق Branch والصلاحيات الممنوحة له.
 
 ### Agent
 
-المستخدم التشغيلي الذي يتعامل مع الـLeads المخصصة له.
+المستخدم التشغيلي الذي يتعامل فقط مع الـLeads والمحادثات والإجراءات المسموح له بها.
+
+### Account Access
+
+- لا يوجد Public Signup.
+- إنشاء المستخدمين يتم من داخل المنصة بواسطة Role مخول.
+- تعطيل المستخدم يمنع تسجيل الدخول والوصول الجديد بدون حذف التاريخ السابق.
+- يجب دعم Login آمن، Password Reset/credential recovery، Session invalidation، وتسجيل الخروج.
+- تفاصيل Authentication التقنية يتم تحديدها في الـArchitecture، لكن لا يجوز الاعتماد على Frontend فقط لحماية الحسابات.
 
 ---
 
@@ -59,53 +69,35 @@ Automation / AI
 المنصة تشمل:
 
 - Branch Management.
-    
 - User Management.
-    
 - Contact Management.
-    
 - Lead Management.
-    
 - Campaign Management.
-    
 - Flexible Campaign Fields.
-    
+- Lead Sources & Intake.
 - Meta Lead Integration.
-    
-- Lead Routing.
-    
+- Lead Routing & Assignment.
+- Conversations & Messaging.
+- AI Lead Assistant.
+- AI Operations Assistant.
+- Human Handoff.
 - Follow-ups.
-    
 - Activity Timeline.
-    
 - Notifications.
-    
-- WhatsApp Notifications.
-    
+- WhatsApp / Messaging Channels.
 - Payment Links.
-    
 - Payment Confirmation.
-    
 - Enrollment.
-    
 - Analytics.
-    
 - Automations.
-    
 - AI-assisted Insights.
-    
 - Search & Filters.
-    
 - Saved Views.
-    
 - Bulk Actions.
-    
 - CSV / Excel Import & Export.
-    
 - Google Sheets Integration.
-    
+- Integration Management.
 - Audit Logs.
-    
 
 ---
 
@@ -116,27 +108,19 @@ Automation / AI
 يمكن لكل Campaign أن تحتوي على Fields مختلفة، مع إمكانية:
 
 - إنشاء Fields.
-    
 - اختيار Field Type.
-    
 - ترتيب Fields.
-    
 - إظهار أو إخفاء Fields.
-    
 - تحديد قابلية التعديل.
-    
 - تحديد Required Fields.
-    
 - تحديد Fields للـTable.
-    
 - تحديد Fields للـLead Details.
-    
 - استخدام Fields في Filters.
-    
+- استخدام Fields في Automations.
+- استخدام Fields في AI Qualification عند الحاجة.
 - إنشاء Calculated Fields.
-    
 
-وبالتالي يمكن أن تكون كل حملة مختلفة عن الأخرى في طريقة إدارة بيانات Leads.
+وبالتالي يمكن أن تكون كل Campaign مختلفة عن الأخرى في طريقة إدارة بيانات Leads.
 
 ---
 
@@ -148,7 +132,7 @@ Automation / AI
 
 الشخص نفسه.
 
-و
+و:
 
 **Lead**
 
@@ -156,59 +140,266 @@ Automation / AI
 
 يمكن للشخص الواحد امتلاك أكثر من Lead.
 
+كل Lead يمكن أن ترتبط بـ:
+
+- Campaign.
+- Branch.
+- Assigned Agent / Lead Owner.
+- Source.
+- Conversation.
+- Dynamic Fields.
+- Follow-ups.
+- Payments.
+- Enrollment.
+- Activities.
+- AI interactions.
+
+---
+
+## Lead Lifecycle vs Campaign Status
+
+المنصة تفرق بين:
+
+- Internal Lead Lifecycle (`OPEN / CLOSED / ARCHIVED`) المستخدمة للتشغيل والـCapacity.
+- Campaign Status الاختياري والقابل للتخصيص.
+
+لا يتم استخدام Custom Status كبديل ضمني عن Core lifecycle.
+
 ---
 
 ## 7. External Integrations
 
-التكاملات الأساسية:
+التكاملات الأساسية تشمل:
 
 - Meta.
-    
-- WhatsApp Provider.
-    
+- WhatsApp / Messaging Providers.
 - Payment Providers.
-    
-- Email.
-    
+- Email Providers.
 - Google Sheets.
-    
-- AI Services.
-    
+- AI Providers.
+- Generic API / Webhook Sources.
 
-يمكن إضافة مصادر وتكاملات أخرى مستقبلاً.
+ويجب أن يكون النظام قابلاً لإضافة Providers وLead Sources أخرى مستقبلاً.
 
-المنصة هي Source of Truth للبيانات التشغيلية.
+### Integration principles
 
----
-
-## 8. WhatsApp
-
-WhatsApp يستخدم كقناة Notifications فقط.
-
-Agent لا يحتاج إلى إعداد:
-
-- API.
-    
-- Webhook.
-    
-- Business Account.
-    
-- Provider.
-    
-- Credentials.
-    
-
-Agent يدخل فقط:
-
-**Name + Phone Number**
-
-والمنصة تتولى إرسال Notifications من خلال مزود WhatsApp.
+- المنصة هي Source of Truth للبيانات التشغيلية.
+- لا يجوز ربط الـBusiness Logic بمزود واحد بشكل يمنع استبداله.
+- يجب دعم أكثر من Connection أو Account لنفس نوع التكامل عندما يحتاج التشغيل ذلك.
+- Credentials وTokens تحفظ بشكل آمن ولا تعرض للمستخدمين غير المصرح لهم.
+- يجب توفير Status وTest Connection وLast Error وReconnect/Disable عندما يكون ذلك مناسباً.
+- فشل مزود خارجي لا يجب أن يؤدي تلقائياً إلى انهيار Core Operations.
 
 ---
 
-## 9. Payments
+## 8. In-Platform Setup Principle
+
+أي Setup تشغيلي يحتاجه Super Admin أو Manager لتشغيل المنصة يجب أن يتم من خلال واجهة المنصة حسب الصلاحيات.
+
+يشمل ذلك، حسب التكامل:
+
+- Connect Account.
+- OAuth flow.
+- API Key / Token entry.
+- Webhook URL / Secret configuration.
+- Account / Page / Form selection.
+- Provider configuration.
+- Sender / Channel configuration.
+- Payment account configuration.
+- AI Provider configuration.
+- AI model/profile selection عندما يسمح النظام بذلك.
+- Field Mapping.
+- Test Connection.
+- Connection health.
+- Error information.
+- Reconnect / Disable.
+- Campaign binding.
+
+لا يجب أن يحتاج المستخدم التشغيلي إلى:
+
+- تعديل Source Code.
+- تعديل Environment Variables يدوياً.
+- الدخول إلى السيرفر.
+- تشغيل Commands.
+- تعديل Database.
+- كتابة Configuration files يدوياً.
+
+إذا كان Provider خارجي يفرض خطوة لا يمكن تنفيذها بالكامل من خلال API، مثل إنشاء Account أو App أو استخراج Credential من بوابة المزود، تبدأ العملية من واجهة المنصة وتعرض للمستخدم تعليمات دقيقة حول:
+
+1. ما المطلوب.
+2. أين يحصل عليه.
+3. ماذا ينسخ.
+4. أين يضعه داخل المنصة.
+5. كيف يختبر الربط.
+6. ما حالة الاتصال بعد ذلك.
+
+الهدف هو أن تكون **المنصة هي مركز الـSetup والتشغيل** حتى عندما توجد خطوة إلزامية لدى مزود خارجي.
+
+---
+
+## 9. WhatsApp & Customer Conversations
+
+WhatsApp ليس مجرد Notification Channel في هذا المنتج.
+
+يمكن استخدام Messaging Channel مركزي، مثل WhatsApp Business، من أجل:
+
+- التواصل الأولي مع Lead.
+- AI qualification.
+- Human Agent follow-up.
+- Customer replies.
+- Approved follow-up messages.
+- Internal notifications عند الحاجة.
+
+### Customer-facing model
+
+```text
+Lead
+  ↓
+Company Messaging Channel
+  ↓
+Platform Conversation
+  ↓
+AI Lead Assistant or Human Agent
+```
+
+الـAgent يرد من داخل المنصة ولا يحتاج إلى استخدام رقم WhatsApp شخصي للتواصل مع Leads.
+
+يجب أن يبقى وصول كل Agent مقيداً بالـLeads والمحادثات المسموح له بها.
+
+يمكن أن توجد عدة Messaging Connections أو Senders حسب Organization / Branch / Brand / operational configuration.
+
+يجب أن تحترم الرسائل الآلية والبشرية:
+
+- Consent / opt-in عندما يكون مطلوباً.
+- Provider messaging policies.
+- Template requirements عندما يفرضها المزود.
+- Allowed sending windows / business hours.
+- Suppression / do-not-contact state عندما تكون موجودة.
+
+المنصة ليست WhatsApp CRM عاماً أو Customer Support Suite؛ المحادثات الموجودة فيها تخدم Lead Operations lifecycle فقط.
+
+---
+
+## 10. AI
+
+الـAI جزء مساعد من المنتج وليس Source of Truth.
+
+المنصة تدعم مفهومين رئيسيين:
+
+### AI Lead Assistant
+
+Customer-facing عند تفعيله للحملة.
+
+يمكنه:
+
+- بدء التواصل الأولي.
+- الإجابة من Campaign Knowledge المنشورة والمسموحة فقط.
+- جمع Qualification data.
+- تحديث Structured Qualification Fields عبر Actions مسموحة.
+- تنفيذ Follow-up policy المسموحة.
+- طلب Human Handoff.
+- إنشاء Summary للـAgent.
+
+لا يجوز له اختراع معلومات غير موجودة في المعرفة المعتمدة.
+
+### AI Operations Assistant
+
+Internal-facing.
+
+يساعد الإدارة والـAgents ضمن صلاحيات المستخدم في:
+
+- Summaries.
+- Operational questions.
+- Lead and Campaign insights.
+- Leads needing attention.
+- Follow-up analysis.
+- Conversation analysis.
+- Suggested next actions.
+- Reporting explanations.
+
+الأرقام والحقائق التشغيلية يجب أن تأتي من Platform data / approved tools، بينما يستخدم AI للتفسير والتلخيص والتحليل اللغوي.
+
+يجب التفريق في الـAnalytics بين:
+
+- First Platform Contact.
+- First AI Contact.
+- First Human Contact.
+- First Customer Response.
+- AI Contact Attempts.
+- Human Contact Attempts.
+- AI Response Time.
+- Human Agent Response Time.
+
+حتى لا تُنسب سرعة الـAI أو محاولاته إلى أداء الـHuman Agent.
+
+---
+
+## 11. AI Permissions & Provider Independence
+
+الـAI لا يملك صلاحيات تتجاوز المستخدم أو الـCampaign أو الـBranch.
+
+المبدأ:
+
+```text
+User / System Permission
+        ↓
+Allowed AI Tool
+        ↓
+Application Service
+        ↓
+Authorization + Business Rules
+        ↓
+Data / External Provider
+```
+
+لا يجب إعطاء الـAI وصولاً حراً مباشراً إلى قاعدة البيانات لتنفيذ Business Actions.
+
+يجب فصل الـAI Provider عن Core Business Logic بحيث يمكن:
+
+- تغيير Model.
+- استخدام Model مختلف لمهمة مختلفة.
+- إضافة Provider آخر مستقبلاً.
+- تشغيل أكثر من AI Assistant / Agent configuration.
+
+بدون إعادة بناء الـLead Operations domain.
+
+---
+
+## 12. Campaign AI Configuration
+
+كل Campaign يمكن أن تمتلك AI Configuration خاصة بها.
+
+يمكن أن تشمل:
+
+- AI enabled / disabled.
+- Campaign Knowledge.
+- FAQs.
+- Product / service information.
+- Prices إذا كانت مسموحة.
+- Locations.
+- Schedules.
+- Requirements.
+- Approved links.
+- Approved files.
+- Qualification questions.
+- Allowed claims.
+- Prohibited claims.
+- Escalation rules.
+- Human handoff rules.
+- Follow-up policy.
+- AI language/tone settings عند الحاجة.
+
+يتم إعداد هذه المعلومات من داخل المنصة.
+
+يجب دعم Draft وPublished knowledge/versioning بحيث يستخدم الـAI النسخة المنشورة المعتمدة فقط.
+
+---
+
+## 13. Payments
 
 كل Branch يمكن أن يملك Payment Methods الخاصة به.
+
+يمكن دعم أكثر من Payment Provider أو أكثر من Connection.
 
 التدفق الأساسي:
 
@@ -217,7 +408,7 @@ Payment Method
     ↓
 Payment Link
     ↓
-Payment Confirmation
+Trusted Payment Confirmation
     ↓
 Enrollment
 ```
@@ -225,26 +416,20 @@ Enrollment
 المشروع لا يتضمن:
 
 - Installments.
-    
 - Payment Plans.
-    
 - Refund Management.
-    
 - Accounting System.
-    
+- Financial Ledger.
 
 ---
 
-## 10. Languages
+## 14. Languages
 
 المنصة تدعم:
 
 - Arabic.
-    
 - French.
-    
 - English.
-    
 
 Arabic:
 
@@ -258,7 +443,7 @@ French / English:
 
 ---
 
-## 11. Documentation
+## 15. Documentation
 
 المواصفات الأساسية للمشروع موجودة داخل:
 
@@ -273,113 +458,89 @@ docs/
 01-domain-model.md
 02-business-rules-permissions.md
 03-integrations-ui-requirements.md
+04-ai-agents-conversations.md
 ```
 
 ### `00-comprehensive-functional-concept.md`
 
-المرجع الوظيفي الرئيسي للمنتج.
+المرجع الوظيفي العام للمنتج:
 
-يشرح:
-
-- ما هي المنصة.
-    
-- الوظائف.
-    
-- Workflows.
-    
+- Product concept.
 - Roles.
-    
 - Campaigns.
-    
 - Leads.
-    
 - Fields.
-    
+- Routing.
+- Conversations.
 - Payments.
-    
-- Notifications.
-    
 - Analytics.
-    
-- Automations.
-    
+- Automation.
 - AI.
-    
-- حدود المنتج.
-    
+- Product boundaries.
 
 ### `01-domain-model.md`
 
-يشرح:
+المرجع الخاص بـ:
 
 - Entities.
-    
 - Relationships.
-    
+- Current state vs history.
+- Integration connections.
+- Conversations / messages.
+- AI configurations / executions.
 - Data responsibilities.
-    
-- Historical data.
-    
-- Domain principles.
-    
 
 ### `02-business-rules-permissions.md`
 
-يشرح:
+المرجع الخاص بـ:
 
 - Roles.
-    
 - Permissions.
-    
 - Branch isolation.
-    
-- Lead rules.
-    
+- Lead access.
+- Conversation access.
 - Field rules.
-    
 - Routing.
-    
-- Payment rules.
-    
-- Enrollment.
-    
-- Automation.
-    
-- AI boundaries.
-    
+- Payments.
+- AI permissions.
+- Integration setup rules.
 - Security-related business rules.
-    
 
 ### `03-integrations-ui-requirements.md`
 
-يشرح:
+المرجع الخاص بـ:
 
 - External integrations.
-    
-- Data flows.
-    
+- In-platform setup.
 - Meta.
-    
-- WhatsApp.
-    
+- Messaging / WhatsApp.
 - Payments.
-    
 - Google Sheets.
-    
-- AI.
-    
-- UI.
-    
-- UX.
-    
+- AI provider connections.
+- UI / UX.
 - Screens.
-    
 - User workflows.
-    
+
+### `04-ai-agents-conversations.md`
+
+المواصفة التفصيلية الخاصة بـ:
+
+- AI Lead Assistant.
+- AI Operations Assistant.
+- Campaign AI Knowledge.
+- Qualification.
+- Conversation lifecycle.
+- Human handoff.
+- AI tools.
+- AI permissions.
+- AI follow-ups.
+- Failure handling.
+- Auditability.
+- AI evaluation requirements.
 
 ---
 
-## 12. AI Development Instructions
+## 16. AI Development Instructions
 
 يوجد في جذر المشروع:
 
@@ -389,85 +550,110 @@ AGENTS.md
 
 وهو يحتوي على قواعد العمل التي يجب على AI Coding Agent اتباعها أثناء تطوير المشروع.
 
-ويجب على أي AI Coding Agent قراءة:
+يجب على أي AI Coding Agent قراءة:
 
 ```text
 AGENTS.md
-```
-
-ثم وثائق:
-
-```text
+README.md
 docs/
 ```
 
-قبل تنفيذ الأجزاء الرئيسية من النظام.
+وفهمها كمنظومة واحدة قبل تنفيذ الأجزاء الرئيسية من النظام.
 
 ---
 
-## 13. Technical Architecture
+## 17. Technical Architecture
 
 الـTechnology Stack والـTechnical Architecture ليست مفروضة مسبقاً داخل وثائق المنتج.
 
-المطلوب من Software Architect / AI Coding Agent هو اختيار الحل التقني الأنسب بناءً على المتطلبات الكاملة.
+المطلوب من Software Architect / AI Coding Agent اختيار الحل التقني الأنسب بناءً على المتطلبات الكاملة.
 
 يجب أن يحقق الاختيار:
 
+- Correctness.
 - Security.
-    
 - Reliability.
-    
 - Data Integrity.
-    
 - Maintainability.
-    
 - Performance.
-    
 - Scalability.
-    
 - Reasonable Cost.
-    
 - Operational Simplicity.
-    
+- Provider Independence.
+- Testability.
+- Suitability for AI-assisted development.
+
+لا يجوز اختيار Architecture تجعل إضافة Provider أو Lead Source أو AI configuration جديدة تتطلب إعادة بناء Core Business Logic.
 
 ---
 
-## 14. Product Boundaries
+## 18. Product Boundaries
 
 المشروع ليس:
 
 - LMS.
-    
 - Course Marketplace.
-    
-- WhatsApp CRM.
-    
-- Chat Platform.
-    
+- General WhatsApp CRM.
+- General-purpose Chat Platform.
+- Customer Support Suite.
 - ERP.
-    
 - Accounting Software.
-    
 - Full Financial System.
-    
+
+لكن المنتج **يتضمن Messaging وConversation capabilities الضرورية لإدارة الـLead والتواصل معه ضمن دورة المبيعات**.
 
 ولا يعتمد على:
 
 - Google Sheets كقاعدة بيانات رئيسية.
-    
 - AI كمصدر حقيقة.
-    
+- Provider واحد ثابت.
+- AI Model واحد ثابت.
 - مجموعة ثابتة من Fields لكل Campaign.
-    
+- حسابات شخصية للمطور لتشغيل Integrations في المنتج النهائي.
 
 ---
 
-## 15. Development Principle
+## 19. Development Principle
 
 المبدأ الأساسي للمشروع:
 
-> **نحن نحدد ماذا يجب أن يفعل المنتج، بينما يتم اختيار طريقة التنفيذ التقنية بناءً على المتطلبات.**
+> **نحن نحدد ماذا يجب أن يفعل المنتج، بينما يتم اختيار طريقة التنفيذ التقنية بناءً على المتطلبات، دون تغيير Business Behavior لتسهيل التنفيذ.**
 
-لا يجوز تغيير Business Requirements فقط لتسهيل التنفيذ التقني.
+ويجب أن تكون النتيجة النهائية منصة يستطيع المستخدم المصرح له إعداد وتشغيل التكاملات والحملات والـAI من داخلها، بدون الاعتماد على تعديلات يدوية في الكود أو السيرفر أثناء التشغيل اليومي.
 
----
+## 20. Scalability & High-Volume Operation
+
+المنصة يجب أن تُبنى من البداية لبيئة تشغيل حقيقية يمكن أن تحتوي على عدد كبير من الـCampaigns والـAgents والـLeads اليومية والـConversations والـMessages والـWebhooks والـAutomations والـAI jobs والـPayment events مع نمو مستمر في البيانات التاريخية.
+
+لا يجوز تصميم الـBackend أو الـDatabase أو الـUI على افتراض Dataset صغير.
+
+يجب أن يختار التصميم التقني ما يلزم من:
+
+- Production-grade database.
+- Proper indexes and constraints.
+- Connection pooling.
+- Server-side pagination.
+- Efficient filtering/sorting.
+- Background jobs / queues.
+- Retry + idempotency.
+- Provider rate-limit handling.
+- Bounded concurrency.
+- Safe bulk processing.
+- Caching عندما يكون مناسباً دون كسر correctness.
+- Horizontal scaling عندما يكون مناسباً.
+- Observability للـlatency والـqueue lag والـdatabase load.
+- Load/performance testing للمسارات الحرجة.
+
+لا تفرض المواصفات أرقام Throughput أو Hardware sizing من عندها. على الـTechnical Architecture وضع Capacity assumptions قابلة للقياس ومنع العمليات الثقيلة مثل Import/Export/Analytics/AI batch work من تعطيل Lead intake أو Conversations اليومية.
+
+## 21. Codex Execution Prompt
+
+يوجد في جذر المشروع:
+
+```text
+INITIAL-CODEX-PROMPT.md
+```
+
+وهو الـPrompt الذي يُعطى لـCodex لبدء تنفيذ المشروع.
+
+هذا الملف لا يحدد Technology Stack مسبقاً. المطلوب من Codex قراءة كامل المواصفات، فحص Repository الحالي، اختيار الـArchitecture والـStack الأفضل، توثيق القرارات التقنية، ثم متابعة التنفيذ الكامل مباشرة بدون تحويل المستخدم إلى مصدر للقرارات التقنية اليومية.

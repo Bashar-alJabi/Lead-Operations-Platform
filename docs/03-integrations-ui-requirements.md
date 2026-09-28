@@ -2,47 +2,33 @@
 
 # 1. Purpose
 
-هذا الملف يحدد المتطلبات الوظيفية المتعلقة بـ:
+هذه الوثيقة تحدد المتطلبات الوظيفية المتعلقة بـ:
 
-- التكامل مع الخدمات الخارجية.
-    
-- دخول البيانات إلى المنصة وخروجها منها.
-    
-- سلوك مزودي الخدمات.
-    
-- كيفية ربط الخدمات الخارجية بالـCampaigns والـBranches.
-    
-- الشاشات والواجهات المطلوبة.
-    
-- Workflows التي يجب أن يستطيع المستخدم تنفيذها من خلال المنصة.
-    
-- حالات الواجهة الأساسية التي يجب التعامل معها.
-    
+- External integrations.
+- In-platform setup.
+- Lead sources.
+- Meta.
+- Messaging / WhatsApp.
+- Payment providers.
+- Email.
+- Google Sheets.
+- AI provider connections.
+- Data flows.
+- UI/UX.
+- Screens.
+- Setup workflows.
+- Error/permission states.
 
-هذه الوثيقة **لا تحدد**:
+لا تفرض:
 
-- Programming Language.
-    
-- Frontend Framework.
-    
-- Backend Framework.
-    
-- Database Technology.
-    
-- Hosting Provider.
-    
-- ORM.
-    
-- Queue Technology.
-    
-- Cache Technology.
-    
-- AI Model.
-    
-- بنية كود محددة.
-    
-
-هذه القرارات يتم تحديدها لاحقاً ضمن التصميم التقني بناءً على كامل متطلبات المشروع.
+- Programming language.
+- Frontend/backend framework.
+- Database.
+- Hosting.
+- Queue.
+- Cache.
+- Specific AI model.
+- Specific messaging/payment provider.
 
 ---
 
@@ -50,2145 +36,2010 @@
 
 # 2. Integration Principles
 
-يجب أن تعمل التكاملات كخدمات مساعدة للمنصة، وليست بديلاً عنها.
+كل Integration يجب أن:
 
-المبادئ الأساسية:
-
-- المنصة هي Source of Truth للبيانات التشغيلية.
-    
-- كل تكامل يجب أن يكون قابلاً للمراقبة.
-    
-- فشل التكامل الخارجي لا يجب أن يؤدي تلقائياً إلى فشل Core Operations.
-    
-- يجب الحفاظ على البيانات الأصلية القادمة من المصادر الخارجية.
-    
-- يجب فصل إعدادات كل Provider عن Business Logic الأساسي.
-    
-- يجب أن يكون من الممكن تغيير Provider مستقبلاً دون إعادة بناء النظام الوظيفي بالكامل.
-    
-- العمليات الخارجية المهمة يجب أن تكون قابلة لإعادة المحاولة عند الحاجة.
-    
-- لا يجب تنفيذ نفس الحدث أكثر من مرة بطريقة تؤدي إلى بيانات مكررة.
-    
-- يجب تسجيل حالات الفشل والنجاح والعمليات المهمة للتكاملات.
-    
+- يكون منفصلاً عن Core Business Logic.
+- يدعم Status واضح.
+- يكون قابلاً للمراقبة.
+- يسجل failures المهمة.
+- يدعم retry حيث يلزم.
+- يحمي من duplicate events.
+- يحافظ على original source data.
+- يسمح بالتغيير أو الإضافة المستقبلية بدون إعادة بناء Core Domain.
+- يخضع للصلاحيات.
+- يدعم أكثر من Connection عندما يحتاج التشغيل ذلك.
 
 ---
 
-# 3. Meta Integration
+# 3. In-Platform Setup Principle
 
-Meta هو المصدر الأساسي للـLeads في النظام الحالي.
+أي Setup تشغيلي مطلوب من Super Admin أو Manager يجب أن يتم من داخل واجهة المنصة حسب الصلاحيات.
+
+لا يجب أن يحتاج المستخدم إلى:
+
+- تعديل Source Code.
+- تعديل Environment Variables يدوياً.
+- الدخول إلى السيرفر.
+- تشغيل CLI.
+- تعديل Database.
+- كتابة JSON/config files يدوياً.
+
+كل Integration مناسب يجب أن يملك Setup Wizard أو equivalent flow.
+
+---
+
+# 4. Standard Integration Setup UX
+
+عندما يكون ذلك مناسباً، يجب أن يحتوي Setup على:
+
+1. Provider selection.
+2. Prerequisites.
+3. Scope selection.
+4. Connect / Authenticate.
+5. Credential/API key/token entry عند الحاجة.
+6. Webhook information عند الحاجة.
+7. External resource discovery/selection.
+8. Test Connection.
+9. Validation.
+10. Save.
+11. Health/Status.
+12. Last activity.
+13. Last error.
+14. Reconnect.
+15. Disable.
+16. Binding to Branch/Campaign/use case.
+17. Audit history.
+
+---
+
+# 5. External Provider Prerequisites
+
+بعض Providers تتطلب خطوات لا تستطيع المنصة تنفيذها نيابة عن المستخدم، مثل:
+
+- إنشاء Provider account.
+- إنشاء app/project.
+- قبول OAuth consent.
+- استخراج API key.
+- إعداد business verification.
+- خطوات vendor-specific غير متاحة عبر API.
+
+في هذه الحالات:
+
+- تبدأ العملية من داخل المنصة.
+- تعرض المنصة شرحاً دقيقاً.
+- تعرض ما الذي يحتاجه المستخدم ولماذا.
+- توضح من أين يحصل على القيمة.
+- توفر Copy buttons للقيم التي يجب نسخها.
+- توفر Back-to-platform continuation.
+- تنفذ Test Connection بعد الإعداد.
+
+الهدف: لا يحتاج المستخدم إلى معرفة تقنية أو Developer intervention لإكمال setup التشغيلي العادي.
+
+---
+
+# 6. Multi-Connection Requirement
+
+النظام لا يفترض Connection واحدة لكل نوع.
+
+يجب أن يمكن دعم:
+
+- أكثر من Meta account.
+- أكثر من Page/Form.
+- أكثر من Messaging provider.
+- أكثر من WhatsApp sender/number.
+- أكثر من Payment account/provider.
+- أكثر من AI provider connection.
+- أكثر من Email connection.
+
+كل Connection لها Scope وStatus واضحان.
+
+---
+
+# 7. Credentials UX
+
+عند إدخال Secret:
+
+- الحقل Masked.
+- لا يعرض secret كاملة بعد Save.
+- يمكن Replace/Rotate حسب الصلاحيات.
+- لا يعرض للAgent.
+- لا تظهر في Logs/Errors.
+- يجب إظهار آخر وقت تم Update فيه بدون كشف القيمة.
+
+---
+
+# 8. Integration Status
+
+حالات مفاهيمية مثل:
+
+- Not configured.
+- Connected.
+- Warning.
+- Error.
+- Disconnected.
+- Disabled.
+- Authentication expired.
+
+مع:
+
+- Last successful activity.
+- Last error.
+- Required action.
+- Test connection result.
+- Provider capabilities عند الحاجة.
+
+الواجهة لا يجب أن تعرض Feature غير مدعومة من Connection وكأنها متاحة.
+
+---
+
+# 9. Meta Integration
+
+Meta مصدر Leads أساسي.
 
 يجب أن تتمكن المنصة من التعامل مع:
 
+- Meta account/business resources المطلوبة.
 - Facebook Pages.
-    
-- Advertising Campaigns.
-    
+- Campaigns.
 - Ad Sets.
-    
 - Ads.
-    
 - Instant Forms.
-    
-- Leads الناتجة عن النماذج.
-    
+- Leads.
 
 ---
 
-# 4. Meta Campaign Setup
+# 10. Meta Connection Setup
 
-الإعلانات والنماذج يتم إنشاؤها وإدارتها على Meta.
+من داخل المنصة، المستخدم المصرح له يبدأ:
 
-بعد ذلك يقوم Super Admin أو Manager بربط الحملة أو النموذج المناسب بالمنصة.
+```text
+Integrations
+  → Meta
+  → Add Connection
+```
 
-داخل المنصة يجب أن يستطيع المسؤول تحديد:
+الواجهة تعرض الطريقة المناسبة مثل OAuth أو credential flow المدعوم.
 
-- اسم Campaign داخل المنصة.
-    
-- المصدر المرتبط.
-    
-- Branch.
-    
-- Agents المؤهلين.
-    
-- Routing.
-    
-- Fields.
-    
-- Visibility.
-    
-- Editability.
-    
-- Automations.
-    
-- الإعدادات التشغيلية الخاصة بالحملة.
-    
+بعد الاتصال يجب أن تستطيع المنصة، حسب صلاحيات الـAPI:
 
-المنصة ليست بديلاً عن Meta Ads Manager.
+- عرض Accounts/Pages المتاحة.
+- اختيار الموارد المطلوبة.
+- اكتشاف Forms.
+- عرض Connection status.
+- عرض Webhook/subscription status.
+- Test connection.
 
 ---
 
-# 5. Meta Lead Flow
+# 11. Meta Webhook Setup
+
+إذا كان استقبال Leads يعتمد Webhook:
+
+المنصة يجب أن:
+
+- تنشئ/تعرض Webhook endpoint المناسب.
+- تعرض Verification information المطلوبة.
+- تحاول تنفيذ subscription عبر API إذا كان ذلك مدعوماً ومناسباً.
+- إذا تطلب Meta خطوة يدوية، تعرض تعليمات دقيقة.
+- توفر Verify/Test button.
+- تعرض آخر Incoming event.
+- تعرض failures.
+
+لا يتطلب Setup تعديل backend code بعد deployment.
+
+---
+
+# 12. Meta Campaign/Form Binding
+
+داخل Campaign setup يستطيع المستخدم:
+
+- اختيار Meta Connection.
+- اختيار Page.
+- اختيار Form/Campaign المناسب.
+- ربطه بالـCampaign الداخلية.
+- إعداد Field Mapping.
+- Review source metadata.
+- Activate binding.
+
+يجب دعم أكثر من External Form/Reference إذا احتاجت Campaign ذلك.
+
+---
+
+## Binding Conflict Validation
+
+قبل تفعيل Binding يجب أن تتحقق المنصة من عدم وجود Active bindings متعارضة لنفس External source context.
+
+إذا كان Form واحد مستخدماً في أكثر من Campaign خارجية، يجب استخدام External campaign/ad context المتاح أو Rule صريحة؛ لا يتم ربط Lead بحملة داخلية عشوائياً.
+
+---
+
+# 13. Meta Lead Flow
+
+```text
+Meta Form Submission
+    ↓
+Webhook / API Intake
+    ↓
+Validate Connection/Event
+    ↓
+Preserve Source Submission
+    ↓
+Resolve Campaign Binding
+    ↓
+Contact Match/Create
+    ↓
+Lead Create
+    ↓
+Field Mapping
+    ↓
+Branch
+    ↓
+Routing
+    ↓
+AI/Messaging flow when enabled
+```
+
+---
+
+# 14. Meta Source Information
+
+يجب الحفاظ على المعلومات المتاحة مثل:
+
+- Page.
+- Campaign.
+- Ad Set.
+- Ad.
+- Form.
+- Source timestamps.
+- External IDs.
+- Connection.
+
+---
+
+# 15. Meta Form Mapping UI
+
+واجهة Mapping يجب أن تعرض:
+
+```text
+Source Field → Platform Field
+```
+
+وتدعم:
+
+- Auto-suggest mapping.
+- Manual mapping.
+- Data type warnings.
+- Required field warnings.
+- Preview.
+- Save.
+- Reprocess rules حسب ما يسمح المنتج.
+
+---
+
+# 16. Historical Meta Leads
+
+عند دعم historical sync:
+
+- اختيار Connection/resource.
+- تحديد range/options إذا كان المزود يسمح.
+- Preview أو summary.
+- deduplication.
+- preserve original timestamps.
+- progress state.
+- result report.
+
+---
+
+# 17. Meta Failure Handling
+
+إذا فشل:
+
+- لا تحذف البيانات السابقة.
+- سجل failure.
+- اعرض status.
+- وفر retry/resync.
+- لا تعطل بقية المنصة.
+- ضع unmatched/unprocessed items في حالة واضحة عند الحاجة.
+
+---
+
+# 18. Messaging Integration
+
+Messaging ليست فقط Notifications.
+
+تستخدم من أجل:
+
+- Customer-facing Lead conversations.
+- AI Lead Assistant.
+- Human Agent replies.
+- Approved follow-ups.
+- Internal notifications حسب الاستخدام.
+
+المنصة تبقى Lead Operations Platform وليست Chat platform عامة.
+
+---
+
+# 19. Messaging Provider Independence
 
 المسار الوظيفي:
 
-**Meta Campaign / Form**
+```text
+Platform Conversation
+    ↓
+Messaging Provider Adapter
+    ↓
+Business Sender / Channel
+    ↓
+Lead
+```
 
-↓
-
-**Person submits the Form**
-
-↓
-
-**Lead reaches the Platform**
-
-↓
-
-**Platform identifies the related Campaign**
-
-↓
-
-**Campaign determines Branch**
-
-↓
-
-**Campaign Field Configuration is applied**
-
-↓
-
-**Contact is matched or created**
-
-↓
-
-**Lead is created**
-
-↓
-
-**Routing is applied**
-
-↓
-
-**Agent is assigned**
-
-↓
-
-**Agent is notified**
-
-↓
-
-**Lead becomes available to the Agent**
+Core Conversation لا تعتمد على Provider محدد.
 
 ---
 
-# 6. Meta Source Information
+# 20. Messaging Connection Setup
 
-يجب الاحتفاظ بالمعلومات المتاحة عن مصدر Lead عند وصولها.
+من داخل:
 
-يمكن أن تشمل:
+```text
+Integrations
+  → Messaging
+  → Add Connection
+```
 
-- Source.
-    
-- Page.
-    
+الواجهة يجب أن تعرض حسب Provider:
+
+- Provider name.
+- Connection method.
+- Account/business prerequisites.
+- API/OAuth credentials.
+- Sender/number selection or configuration.
+- Webhook/callback setup.
+- Test inbound.
+- Test outbound.
+- Status.
+- Last error.
+
+---
+
+# 21. Messaging Sender / Number
+
+يجب دعم أكثر من Sender/Number.
+
+يمكن ربط Sender بـ:
+
+- Organization.
+- Branch.
 - Campaign.
-    
-- Ad Set.
-    
-- Ad.
-    
-- Form.
-    
-- Source date/time.
-    
-- External identifiers.
-    
+- Brand/use case.
 
-هذه المعلومات تستخدم في:
-
-- Lead Details.
-    
-- Analytics.
-    
-- Attribution.
-    
-- Troubleshooting.
-    
-- Historical reporting.
-    
+لا يجب افتراض Number واحدة للنظام كله.
 
 ---
 
-# 7. Meta Form Mapping
+# 22. Agent Messaging Experience
 
-Forms مختلفة قد تستخدم أسئلة مختلفة.
+Agent:
 
-مثلاً:
-
-Form A:
-
-> Which language do you want to learn?
-
-Form B:
-
-> What language would you like to study?
-
-يمكن أن ترتبط الأسئلة نفسها بالحقل التشغيلي المناسب داخل المنصة.
-
-يجب أن تسمح المنصة للمسؤول بإنشاء وإدارة هذه Mapping.
+- لا يدخل Provider API key.
+- لا يربط Business Account.
+- لا يستخدم رقم شخصي للتواصل مع Leads كجزء من التدفق الأساسي.
+- يفتح Lead/Conversation داخل المنصة.
+- يرى History المسموحة.
+- يكتب Reply.
+- المنصة ترسل عبر Messaging Connection المناسبة.
 
 ---
 
-# 8. Meta Source Fields vs Platform Fields
+# 23. Conversation Routing & Access
 
-يجب التمييز بين:
+كل Conversation مرتبطة بـLead.
 
-### Source Field
+الوصول يتبع:
 
-السؤال أو القيمة القادمة من Meta.
+- Branch.
+- Lead access.
+- Lead ownership.
+- permissions.
 
-### Platform Field
+Agent لا يرى Conversations الخاصة بـAgents آخرين إذا لم يملك صلاحية عليها.
 
-الحقل الذي يستخدم داخل المنصة لإدارة الـLead.
-
-ليس شرطاً أن يكون لكل Source Field نسخة مطابقة بالاسم نفسه داخل المنصة.
-
-كما يجب أن يكون من الممكن إضافة Platform Fields لا تأتي من Meta أصلاً.
-
----
-
-# 9. Historical Meta Leads
-
-يجب أن تدعم المنصة إمكانية جلب أو إدخال Leads التاريخية المرتبطة بالمصادر المربوطة بها عندما يكون ذلك متاحاً ومطلوباً.
-
-يجب أن تتم المحافظة على:
-
-- تاريخ الوصول.
-    
-- Source information.
-    
-- External identifiers.
-    
-- Campaign association عندما تكون معروفة.
-    
-- البيانات الأصلية المتاحة.
-    
-
-ولا يجب أن تؤدي عملية Historical Sync إلى إنشاء تكرارات غير مقصودة.
+بعد Reassignment يجب أن تنتقل Active access للAgent الجديد، ويخسر Agent السابق الوصول إلا إذا كانت له Permission أخرى.
 
 ---
 
-# 10. Meta Failure Handling
+# 24. Conversation UI
 
-إذا حدثت مشكلة في استقبال أو مزامنة Leads من Meta:
+يجب أن تعرض:
 
-- يجب عدم حذف البيانات الموجودة مسبقاً.
-    
-- يجب تسجيل المشكلة.
-    
-- يجب إظهار حالة التكامل للمستخدم المسؤول.
-    
-- يجب إمكانية إعادة المحاولة أو إعادة المزامنة عند الحاجة.
-    
-- يجب ألا يؤدي فشل Meta إلى تعطيل بقية المنصة.
-    
-
----
-
-# 11. WhatsApp Integration
-
-WhatsApp هو **Notification Channel** فقط.
-
-المنصة لا تستخدم WhatsApp كـCRM للمحادثات.
-
-لا يوجد ضمن النطاق:
-
-- Customer inbox.
-    
-- Conversation management.
-    
-- Customer chat history.
-    
-- Customer support center.
-    
-- Chatbot.
-    
-
----
-
-# 12. Agent WhatsApp Experience
-
-الـAgent لا يقوم بإعداد التكامل.
-
-الـAgent يدخل فقط:
-
-- الاسم.
-    
-- رقم الهاتف.
-    
-
-بعد ذلك تستخدم المنصة الرقم لإرسال Notifications.
-
-الـAgent لا يحتاج إلى إدخال أو معرفة:
-
-- API.
-    
-- API key.
-    
-- Webhook.
-    
-- Credentials.
-    
-- Business Account.
-    
-- Provider.
-    
-- Session configuration.
-    
-- QR configuration.
-    
-
----
-
-# 13. WhatsApp Provider Independence
-
-يجب أن يكون WhatsApp Provider منفصلاً عن منطق المنتج.
-
-المفهوم الوظيفي:
-
-**Platform Notification**
-
-→ **WhatsApp Provider**
-
-→ **Agent Phone**
-
-يمكن أن يتغير Provider مستقبلاً بدون تغيير الـCampaigns أو Leads أو Automation logic.
-
-يمكن استخدام مزود مثل:
-
-- Wasender.
-    
-- WhatsApp Cloud API.
-    
-- مزود آخر.
-    
-
-اختيار المزود النهائي ليس جزءاً من هذه الوثيقة.
-
----
-
-# 14. WhatsApp Notifications
-
-يجب أن تدعم المنصة Notifications مثل:
-
-- New Lead.
-    
-- Lead Reassigned.
-    
-- Payment Received.
-    
-- Enrollment Confirmed.
-    
-- Follow-up Due.
-    
-- Follow-up Overdue.
-    
-- Important System Alert.
-    
-
-يمكن أن تحتوي الرسالة على معلومات مثل:
-
-- Lead Name.
-    
-- Phone.
-    
+- Lead identity.
 - Campaign.
-    
-- Date/Time.
-    
-- أي معلومات تشغيلية يسمح النظام بإرسالها.
-    
-
-محتوى الرسالة يجب أن يكون قابلاً للإدارة والتخصيص وفق إعدادات النظام.
+- Assigned Agent.
+- Current Controller: AI/Human.
+- Conversation state.
+- Messages chronological.
+- Sender identity.
+- Delivery status.
+- Attachments when supported.
+- Handoff events.
+- AI summary.
+- Reply composer when permitted.
 
 ---
 
-# 15. WhatsApp Delivery Status
+# 25. Inbound Message Flow
 
-عندما يوفر المزود معلومات عن حالة الرسالة، يمكن للمنصة تتبع حالات مثل:
+```text
+Lead sends message
+    ↓
+Provider webhook
+    ↓
+Resolve Messaging Connection
+    ↓
+Resolve Conversation/Lead
+    ↓
+Persist Message
+    ↓
+Apply Conversation Controller rules
+    ↓
+AI or Human workflow
+```
+
+إذا تعذر Resolve:
+
+- لا تفقد الرسالة.
+- سجلها كUnmatched/Needs Attention.
+- لا تربطها عشوائياً.
+
+---
+
+# 26. Outbound Message Flow
+
+```text
+AI or Human authorized send
+    ↓
+Permission/Controller check
+    ↓
+Select Messaging Connection/Sender
+    ↓
+Provider send
+    ↓
+Persist provider reference
+    ↓
+Track delivery status
+```
+
+---
+
+# 27. Human Handoff UI
+
+عند Handoff يجب أن يظهر للAgent:
+
+- reason.
+- AI summary.
+- qualification data.
+- full conversation.
+- campaign context.
+- suggested next action.
+
+وعند قبول Human control:
+
+- AI auto-send يتوقف.
+- reply composer يصبح للHuman.
+- AI Copilot يبقى متاحاً إذا كان مفعلاً.
+
+---
+
+# 28. Messaging Delivery Status
+
+عند توفره:
 
 - Queued.
-    
 - Sent.
-    
 - Delivered.
-    
+- Read.
 - Failed.
-    
 
-ويجب إظهار حالة الفشل للمسؤول عند الحاجة.
-
----
-
-# 16. WhatsApp Failure Handling
-
-إذا فشل WhatsApp:
-
-- يبقى Lead موجوداً.
-    
-- يبقى Assignment موجوداً.
-    
-- لا يفشل Follow-up.
-    
-- لا يفشل Payment.
-    
-- لا يفشل Enrollment.
-    
-- تسجل Notification failure.
-    
-- يمكن إعادة المحاولة حسب قواعد النظام.
-    
-
-WhatsApp هو خدمة مساعدة وليس جزءاً من Core Lead Processing.
+يجب عرض failure بوضوح بدون كشف معلومات حساسة.
 
 ---
 
-# 17. Email Integration
+## Messaging Consent & Policy UI
 
-Email يستخدم بشكل أساسي لإرسال Notifications.
+يجب أن يكون من الممكن، حسب القناة/المتطلبات:
+
+- رؤية Contactability / consent state.
+- تسجيل source/time للحالة.
+- منع الإرسال عند Do-not-contact.
+- إدارة Provider templates عندما تكون مطلوبة.
+- رؤية template approval/status.
+- ضبط Branch/Campaign sending hours.
+- إظهار سبب منع Message قبل الإرسال.
+
+لا يتم hardcode قواعد Provider واحدة داخل Core Conversation UI.
+
+---
+
+# 29. Messaging Failure Handling
+
+إذا فشل الإرسال:
+
+- Message تبقى مسجلة.
+- status = failed.
+- retry ممكن حسب policy.
+- Agent/Manager يرى السبب المناسب.
+- Lead/Assignment لا يتراجع.
+- AI لا يفترض أن الرسالة وصلت.
+
+---
+
+# 30. Internal Notifications over Messaging
+
+يمكن استخدام WhatsApp/Messaging أيضاً لإشعارات Agents.
+
+لكن يجب الفصل بين:
+
+- Customer Conversation.
+- Internal Notification.
+
+حتى لو استخدما نفس Provider.
+
+---
+
+# 31. Email Integration
+
+Email يمكن أن يستخدم:
+
+- Notifications.
+- Future customer messaging use cases إذا أضيفت لاحقاً.
+
+Setup من الواجهة حسب نفس Standard Integration UX.
+
+---
+
+# 32. Payment Integrations
+
+يجب دعم عدة Payment Providers/Connections.
+
+كل Branch قد يملك:
+
+- Provider واحد.
+- أكثر من Method.
+- Accounts مختلفة.
+
+---
+
+# 33. Payment Provider Setup
+
+من داخل:
+
+```text
+Integrations / Payments
+  → Add Provider Connection
+```
+
+الواجهة تعرض:
+
+- Provider.
+- prerequisites.
+- authentication/credentials.
+- webhook/callback information.
+- Test Connection.
+- supported currencies/options عند الحاجة.
+- status.
+
+---
+
+# 34. Payment Method Configuration
+
+بعد Connection يمكن إنشاء Payment Method:
+
+- Display name.
+- Branch.
+- Provider Connection.
+- Currency/availability.
+- Active/inactive.
+- Agent availability rules.
+
+لا تعرض secrets للAgent.
+
+---
+
+# 35. Payment Link Flow
+
+```text
+Lead
+    ↓
+Authorized user/action
+    ↓
+Payment Method
+    ↓
+Provider API
+    ↓
+Payment Link
+    ↓
+Customer
+```
+
+---
+
+# 36. Payment Confirmation
+
+```text
+Provider trusted webhook/event
+    ↓
+Verify event
+    ↓
+Resolve Payment
+    ↓
+Mark Confirmed
+    ↓
+Enrollment
+    ↓
+Activity / Notifications / Analytics
+```
+
+Success page وحدها لا تكفي.
+
+---
+
+# 37. Payment Failure Handling
+
+إذا فشل:
+
+- لا يتم Mark paid.
+- لا يتم Enrollment.
+- failure يظهر.
+- يمكن إنشاء Link جديد حسب rule.
+- Lead data تبقى.
+
+---
+
+# 38. Payment Scope
+
+خارج النطاق:
+
+- Installments.
+- Payment Plans.
+- Refund workflows.
+- Accounting.
+- Ledger.
+
+---
+
+# 39. Google Sheets
+
+تكامل مساعد لـ:
+
+- Import.
+- Export.
+
+ليست primary database.
+
+Continuous two-way synchronization **ليس متطلباً افتراضياً** ما لم تتم إضافة قواعد واضحة لاحقاً لـ:
+
+- conflict resolution.
+- deletion behavior.
+- update direction.
+- scheduling.
+- ownership.
+
+لا يجوز لـCodex اختراع Sync ثنائي عام من نفسه.
+
+Setup من داخل المنصة.
+
+---
+
+# 40. Google Sheets Import Flow
+
+```text
+Connect Google
+  ↓
+Select Sheet
+  ↓
+Select worksheet/range
+  ↓
+Map Fields
+  ↓
+Validate
+  ↓
+Preview
+  ↓
+Duplicate Review
+  ↓
+Import
+  ↓
+Result
+```
+
+---
+
+# 41. Generic API / Webhook Lead Sources
+
+يجب أن يسمح التصميم بإضافة Lead Source عام.
+
+يمكن أن توفر الواجهة:
+
+- Create Source Connection.
+- Generate endpoint/API credentials.
+- Webhook secret.
+- Sample payload/schema guidance.
+- Field mapping.
+- Test event.
+- Status/logs.
+
+لا يجب إنشاء Lead pipeline منفصل لكل Source جديد.
+
+---
+
+# 42. AI Provider Integration
+
+AI Provider Connection يتم إعداده من داخل المنصة للمستخدم المصرح له.
 
 يمكن أن تشمل:
 
-- New Lead.
-    
-- Lead Assignment.
-    
-- Follow-up.
-    
-- Payment.
-    
-- Enrollment.
-    
-- System alerts.
-    
-
-فشل Email لا يجب أن يمنع Core Operations.
-
----
-
-# 18. Payment Integrations
-
-المنصة يجب أن تدعم فكرة تعدد Payment Providers.
-
-كل Branch يمكن أن يكون لديه:
-
-- Provider واحد.
-    
-- أو أكثر من Payment Method حسب إعدادات Branch.
-    
-
-مثال:
-
-Branch A:
-
-Stripe.
-
-Branch B:
-
-Payment provider مختلف.
-
-Branch C:
-
-Stripe configuration مختلفة.
-
----
-
-# 19. Payment Provider Configuration
-
-Manager يدير Payment Methods الخاصة بفرعه.
-
-Super Admin يستطيع إدارة جميع الفروع.
-
-يمكن أن تتضمن Payment Method مفاهيم مثل:
-
-- Display name.
-    
 - Provider.
-    
-- Active / Inactive.
-    
-- Availability.
-    
-- إعدادات مرتبطة بالحساب.
-    
+- Credential/API connection.
+- Connection test.
+- Available/configured model profiles.
+- Status.
+- Scope.
+- Cost/usage metadata إذا تم دعمها لاحقاً.
 
-Credentials الحساسة يجب أن تبقى محمية ولا تظهر للAgent.
-
----
-
-# 20. Payment Link Flow
-
-المسار:
-
-**Lead**
-
-↓
-
-**Select Payment Method**
-
-↓
-
-**Create Payment Link**
-
-↓
-
-**Share / Use Payment Link**
-
-↓
-
-**Payment**
-
-↓
-
-**Payment Confirmation**
-
-↓
-
-**Enrollment**
-
-↓
-
-**Notifications**
-
-↓
-
-**Analytics**
+لا يتم ربط المنتج بحساب المطور الشخصي.
 
 ---
 
-# 21. Payment Confirmation
+# 43. AI Model/Profile UI
 
-فتح Payment Link أو الرجوع إلى صفحة نجاح لا يعتبر وحده إثباتاً نهائياً للدفع.
+يجب أن تسمح المنصة بإدارة configuration بدون hardcoding اسم model في Business Logic.
 
-يجب أن يعتمد النظام على تأكيد موثوق من مزود الدفع.
+يمكن تعريف Profiles مثل:
 
-بعد تأكيد الدفع:
+- Conversation.
+- Summarization.
+- Classification.
+- Analysis.
 
-- يتم إنشاء/تحديث Payment.
-    
-- يتم تحديث Lead.
-    
-- يتم تسجيل Enrollment.
-    
-- يتم تحديث Activity.
-    
-- يتم تحديث Analytics.
-    
-- يتم إرسال Notifications.
-    
+يمكن استخدام نفس model خلف عدة profiles.
 
 ---
 
-# 22. Payment Failure
+# 44. AI Lead Assistant Configuration UI
 
-إذا فشل Payment:
+داخل Campaign:
 
-- لا يتم تسجيل Payment ناجح.
-    
-- لا يتم اعتبار الشخص Enrolled بسبب الفشل.
-    
-- يجب عرض حالة مناسبة.
-    
-- يمكن إنشاء Payment Link جديد حسب قواعد النظام.
-    
-- لا تتأثر بيانات Contact وLead.
-    
+```text
+Campaign
+  → AI
+```
 
----
+يمكن إدارة:
 
-# 23. Payment Scope
-
-لا يدخل ضمن التكامل:
-
-- Installments.
-    
-- Payment Plans.
-    
-- Refund Management.
-    
-- Accounting.
-    
-- Financial Ledger.
-    
-
-المطلوب هو إدارة عملية الدفع اللازمة لإتمام التسجيل فقط.
+- Enabled/disabled.
+- Provider/model profile.
+- Knowledge.
+- Qualification.
+- Handoff rules.
+- Follow-up policy.
+- Allowed assets.
+- Language/tone.
+- Messaging connection.
+- Test/simulation.
+- Publish/activate.
 
 ---
 
-# 24. Enrollment Integration Flow
+# 45. Campaign Knowledge UI
 
-Enrollment ليس مزوداً خارجياً بحد ذاته.
+يجب دعم:
 
-هو نتيجة تشغيلية داخل المنصة.
+- Draft editor.
+- Structured sections.
+- FAQs.
+- Facts.
+- Prices.
+- Locations.
+- Requirements.
+- Approved links.
+- File attachments/assets.
+- Allowed claims.
+- Prohibited claims.
+- Preview.
+- Publish.
+- Version history.
 
-المسار الأساسي:
-
-**Payment Confirmed**
-
-→ **Enrollment / Subscription**
-
-→ **Activity**
-
-→ **Notifications**
-
-→ **Analytics**
-
----
-
-# 25. Google Sheets
-
-Google Sheets تكامل مساعد.
-
-يمكن استخدامه من أجل:
-
-- Import.
-    
-- Export.
-    
-- Synchronization عند الحاجة.
-    
-
-لكن Google Sheets:
-
-**ليست قاعدة النظام الرئيسية.**
+AI يستخدم Published version فقط.
 
 ---
 
-# 26. Google Sheets Data Flow
+# 46. Qualification UI
 
-عند Import:
+المستخدم يستطيع:
 
-**Google Sheet**
-
-→ **Field Mapping**
-
-→ **Validation**
-
-→ **Duplicate Analysis**
-
-→ **Import**
-
-→ **Platform Database**
-
-عند Export:
-
-**Platform Data**
-
-→ **Selected Data**
-
-→ **Google Sheet**
-
-الصلاحيات والنطاق يجب أن يطبقا في كلا الاتجاهين.
+- Add question.
+- Map question to Platform Field.
+- Set required/optional.
+- Set order.
+- Define completion condition.
+- Define handoff trigger.
+- Preview.
 
 ---
 
-# 27. Import Sources
+# 47. AI Follow-up Policy UI
 
-المصادر المدعومة:
+يمكن إدارة:
 
-- CSV.
-    
-- Excel.
-    
-- Google Sheets.
-    
-- Manual Lead Creation.
-    
-- Future API Sources.
-    
-
-يجب أن تدعم عملية Import:
-
-- اختيار Branch.
-    
-- اختيار Campaign عند الحاجة.
-    
-- Field Mapping.
-    
-- Validation.
-    
-- Duplicate analysis.
-    
-- Preview قبل التنفيذ.
-    
-- Import result/report.
-    
+- enabled/disabled.
+- initial response timing.
+- follow-up delays.
+- max attempts.
+- allowed sending hours.
+- stop on reply.
+- stop on handoff.
+- stop on closed.
+- final status/action.
 
 ---
 
-# 28. Import Rules
+# 48. AI Operations Assistant UI
 
-Import لا يجب أن:
+واجهة داخلية يمكن أن تسمح للمستخدم بكتابة أسئلة مثل:
 
-- يكسر Branch Isolation.
-    
-- يتجاوز Field permissions.
-    
-- يعدل Source Data بشكل غير متوقع.
-    
-- ينشئ بيانات مكررة بلا تحذير أو معالجة.
-    
-- يحذف بيانات موجودة دون قاعدة واضحة.
-    
+- كم Lead وصل اليوم؟
+- أي Leads بدون Follow-up؟
+- ما أكثر الأسئلة تكراراً؟
+- اعطيني ملخص حملة.
+- ما Leads التي تحتاج attention؟
+
+الإجابة يجب أن تحترم Scope المستخدم.
 
 ---
 
-# 29. AI Integration
+# 49. AI Facts UI
 
-AI يستخدم كمساعد.
+إذا كانت الإجابة تعتمد على Metrics:
 
-يمكن أن يقدم:
-
-- Lead summaries.
-    
-- Intent.
-    
-- Priority.
-    
-- Follow-up suggestions.
-    
-- Agent insights.
-    
-- Campaign insights.
-    
-- Branch insights.
-    
-- Trend detection.
-    
-- Anomaly detection.
-    
+- يجب أن تكون مبنية على Platform query.
+- يمكن إظهار filters/time range المستخدمة.
+- يمكن توفير drill-down إلى Leads عند الحاجة.
 
 ---
 
-# 30. AI Failure
+# 50. AI Failure Handling
 
-إذا كان AI unavailable:
+إذا AI غير متاح:
 
-- Lead Management يستمر.
-    
-- Routing يستمر.
-    
-- Payments تستمر.
-    
-- Notifications الأساسية تستمر.
-    
-- Enrollment يستمر.
-    
-- Analytics الأساسية تستمر.
-    
-
-AI ليس Dependency حرجة لـCore Operations.
+- Customer message لا تضيع.
+- يمكن handoff للHuman.
+- Core lead operations تستمر.
+- يظهر status.
+- retry/fallback حسب policy.
 
 ---
 
-# 31. Future Lead Sources
+# 51. Integration History
 
-النظام يجب أن يكون قابلاً لإضافة:
-
-- Website Forms.
-    
-- Google Ads.
-    
-- TikTok.
-    
-- API.
-    
-- Additional advertising platforms.
-    
-- Additional import methods.
-    
-
-المبدأ:
-
-**أي مصدر جديد يجب أن يتحول إلى Lead داخل نفس Domain Model دون إنشاء نظام Lead منفصل لكل مصدر.**
-
----
-
-# 32. Integration Source of Truth
-
-الخدمات الخارجية قد تكون:
-
-### Source of Data
-
-مثل Meta.
-
-### Service Provider
-
-مثل WhatsApp أو Payment Provider.
-
-### Optional Data Tool
-
-مثل Google Sheets.
-
-لكن:
-
-**Platform remains the operational Source of Truth.**
-
----
-
-# 33. Integration Status
-
-يجب أن يكون لدى الإدارة طريقة لمعرفة حالة التكاملات.
-
-مثلاً:
-
-- Connected.
-    
-- Not configured.
-    
-- Warning.
-    
-- Error.
-    
-- Disconnected.
-    
-
-مع إظهار معلومات مفيدة مثل:
-
-- آخر مزامنة.
-    
-- آخر فشل.
-    
-- عدد الأحداث الفاشلة.
-    
-- الإجراء المطلوب.
-    
-
-حسب طبيعة التكامل.
-
----
-
-# 34. Integration Permissions
-
-### Super Admin
-
-تحكم كامل بالتكاملات.
-
-### Manager
-
-يمكنه إدارة التكاملات التي تقع ضمن نطاق Branch الخاص به إذا كان ذلك مسموحاً من النظام.
-
-### Agent
-
-لا يدير Integration Configuration.
-
----
-
-# 35. Integration History
-
-يجب أن يمكن تتبع العمليات المهمة المرتبطة بالتكاملات.
-
-مثل:
+يجب تتبع أحداث مهمة مثل:
 
 - Connection created.
-    
-- Configuration changed.
-    
-- Sync started.
-    
-- Sync completed.
-    
-- Sync failed.
-    
-- Incoming event.
-    
+- Connection updated.
+- Auth expired.
+- Sync started/completed/failed.
+- Webhook received/failed.
+- Provider error.
+- AI connection changed.
+- Knowledge published.
 - Payment event.
-    
-- Notification failure.
-    
 
 ---
 
-# 36. Data Flow Principles
+# 52. Integration Permissions
 
-يجب أن تكون تدفقات البيانات واضحة:
+## Super Admin
 
-### Meta
+يدير كل Connections.
 
-Meta  
-→ Platform  
-→ Campaign  
-→ Branch  
-→ Lead  
-→ Agent
+## Manager
 
-### WhatsApp
+يدير Branch-scoped Connections الخاصة بفرعه.
 
-Platform  
-→ Notification  
-→ WhatsApp Provider  
-→ Agent
+إذا استخدم Branch Connection مشتركة على مستوى Organization:
 
-### Payment
+- يستطيع Manager ربطها واستخدامها داخل Branch إذا أتاحها Super Admin.
+- لا يرى Credentials الخاصة بها.
+- لا يغير Organization scope.
 
-Lead  
-→ Payment Link  
-→ Payment Provider  
-→ Confirmation  
-→ Platform  
-→ Enrollment
+## Agent
 
-### Google Sheets
+لا يدير Integration configuration.
 
-Sheet  
-↔ Platform
+---
 
-لكن Platform هي المصدر التشغيلي الرئيسي.
+# 53. Data Flow Summary
 
-### AI
+## Meta
 
-Platform Data  
-→ AI  
-→ Suggestions / Insights  
-→ Platform UI
+```text
+Meta → Platform Intake → Campaign → Branch → Lead → Agent/AI
+```
 
-AI لا يصبح مصدراً مستقلاً للبيانات الأساسية.
+## Customer Messaging
+
+```text
+Lead ↔ Messaging Provider ↔ Platform Conversation ↔ AI/Human
+```
+
+## Internal Notification
+
+```text
+Platform Event → Notification Service → Channel → User
+```
+
+## Payment
+
+```text
+Lead → Payment Link → Provider → Trusted Confirmation → Platform → Enrollment
+```
+
+## Google Sheets
+
+```text
+Sheet ↔ Platform
+```
+
+## AI
+
+```text
+Platform Context
+  → Approved AI Provider
+  → Tool Requests / Language Output
+  → Platform Authorization/Services
+  → Result
+```
 
 ---
 
 # PART B — UI & UX REQUIREMENTS
 
-# 37. General UX Principles
+# 54. General UX Principles
 
-المنصة يجب أن تكون:
+الواجهة يجب أن تكون:
 
 - واضحة.
-    
 - بسيطة.
-    
 - عملية.
-    
-- سريعة الفهم.
-    
 - قليلة الخطوات.
-    
 - مناسبة للمستخدم غير التقني.
-    
-- قابلة للاستخدام على الشاشات الصغيرة.
-    
-- مرنة دون أن تصبح معقدة.
-    
+- Responsive.
+- Role-aware.
+- Permission-aware.
 
-المرونة الأكبر يجب أن تكون في إعدادات الإدارة، بينما Agent يحصل على تجربة أبسط.
+الإدارة تحصل على مرونة أكبر.
+
+Agent يحصل على تجربة تشغيلية بسيطة.
 
 ---
 
-# 38. Global Navigation
+## Authentication UX
 
-Navigation يختلف حسب Role.
+يجب أن يوجد:
+
+- Login.
+- Logout.
+- Forgot/Reset credential flow.
+- Clear disabled/invalid account state.
+- Safe expired-session handling without losing unsaved work where practical.
+
+---
+
+# 55. Global Navigation
 
 ## Super Admin
 
 - Dashboard.
-    
 - Leads.
-    
 - Contacts.
-    
 - Branches.
-    
 - Users.
-    
 - Campaigns.
-    
+- Conversations.
 - Fields.
-    
 - Routing.
-    
 - Payments.
-    
 - Enrollments.
-    
 - Analytics.
-    
 - Automations.
-    
 - AI.
-    
 - Integrations.
-    
 - Audit Logs.
-    
 - Settings.
-    
 
 ## Manager
 
 - Dashboard.
-    
 - Leads.
-    
 - Contacts.
-    
 - Agents.
-    
 - Campaigns.
-    
+- Conversations.
 - Fields.
-    
 - Routing.
-    
 - Payments.
-    
 - Enrollments.
-    
 - Analytics.
-    
 - Automations.
-    
+- AI.
+- Integrations (Branch-scoped / shared connections المسموحة).
 - Notifications.
-    
 - Settings.
-    
 
 ## Agent
 
 - Dashboard.
-    
 - My Leads.
-    
+- My Conversations.
 - Follow-ups.
-    
+- AI Copilot.
 - Notifications.
-    
 - Profile.
-    
 
-يمكن أن تختلف عناصر Navigation الفعلية حسب الصلاحيات.
+Navigation الفعلي يتكيف مع permissions.
 
 ---
 
-# 39. Super Admin Dashboard
+# 56. Super Admin Dashboard
 
-يجب أن يقدم نظرة شاملة عن النظام.
-
-يمكن أن يشمل:
+يمكن أن يعرض:
 
 - Total Leads.
-    
 - New Leads.
-    
 - Leads by Branch.
-    
-- Leads by Campaign.
-    
+- Campaign performance.
 - Agent performance.
-    
+- Conversations needing attention.
+- AI handoffs.
 - Payments.
-    
 - Enrollments.
-    
 - Conversion.
-    
 - Revenue.
-    
 - Follow-ups.
-    
-- Leads requiring attention.
-    
 - Integration alerts.
-    
 - System alerts.
-    
 
 ---
 
-# 40. Manager Dashboard
-
-يجب أن يركز على Branch.
+# 57. Manager Dashboard
 
 يمكن أن يعرض:
 
 - Branch Leads.
-    
-- New Leads.
-    
-- Unassigned Leads.
-    
+- New/Unassigned.
 - Agent workload.
-    
 - Follow-ups.
-    
-- Overdue Leads.
-    
-- Payment Pending.
-    
+- Conversations needing human response.
+- AI handoffs.
+- Payment pending.
 - Enrollments.
-    
 - Campaign performance.
-    
-- Leads requiring attention.
-    
+- Integration alerts ضمن scope.
 
 ---
 
-# 41. Agent Dashboard
+# 58. Agent Dashboard
 
-يجب أن يركز على العمل اليومي.
+يركز على:
 
-يمكن أن يعرض:
-
-- New Leads.
-    
+- New assigned Leads.
 - My active Leads.
-    
-- Follow-ups due today.
-    
-- Overdue Follow-ups.
-    
-- Priority Leads.
-    
-- Payment Pending.
-    
-- Recently updated Leads.
-    
-
-يجب ألا يتحول Dashboard الخاص بالAgent إلى لوحة Analytics معقدة.
+- Conversations needing reply.
+- AI handoffs.
+- Follow-ups due.
+- Overdue.
+- Payment pending.
+- Priority Leads عندما توفر تعريف/Field مناسب.
+- Personal performance المبني على Human Agent metrics.
+- Recently updated.
 
 ---
 
-# 42. Campaign Management Screen
+# 59. Campaign Management Screen
 
-يجب أن تسمح الشاشة للمسؤول بإدارة:
+تحتوي Sections/Tabs مثل:
 
-- Campaign name.
-    
+- Overview.
 - Source.
-    
-- Branch.
-    
-- Eligible Agents.
-    
+- Branch & Agents.
 - Routing.
-    
 - Fields.
-    
-- Visibility.
-    
-- Editability.
-    
+- Mapping.
+- Messaging.
+- AI.
+- Qualification.
+- Follow-up policy.
 - Automations.
-    
-- Status.
-    
-- إعدادات التشغيل المرتبطة بالحملة.
-    
+- Payments.
+- Analytics / Conversion definition.
+- Status/Activation.
 
 ---
 
-# 43. Campaign Setup Workflow
+## Routing UI
+
+Routing configuration يجب أن تسمح حسب Method بـ:
+
+- Eligible Agents.
+- Weights للWeighted.
+- Capacity behavior.
+- Working-hours behavior.
+- Performance policy/status.
+- Performance metrics + weights.
+- Lookback window / minimum sample.
+- Fallback when no score/no eligible agent.
+
+ويجب تمييز Human Agent performance metrics عن AI metrics.
+
+---
+
+## Closed Lead / Returning Contact Policy
+
+ضمن Campaign Messaging settings يجب أن يكون واضحاً ماذا يحدث عندما يرسل Contact رسالة على Conversation مرتبطة بـLead مغلقة:
+
+- Reopen Lead.
+- Send to review/attention queue.
+- Create new Lead فقط إذا كانت Rule صريحة وتوجد معلومات كافية.
+
+لا يتم إنشاء Lead جديدة عشوائياً من مجرد inbound message.
+
+---
+
+# 60. Campaign Setup Wizard
 
 المسار:
 
-**Create Campaign**
+```text
+Create Campaign
+  → Basic Info
+  → Source
+  → Branch
+  → Agents
+  → Routing
+  → Fields
+  → Mapping
+  → Messaging
+  → AI (optional)
+  → Qualification
+  → Follow-up
+  → Automations
+  → Review
+  → Activate
+```
 
-→ إدخال اسم الحملة
-
-→ ربط المصدر
-
-→ اختيار Branch
-
-→ اختيار Agents
-
-→ تحديد Routing
-
-→ إعداد Fields
-
-→ تحديد Visibility
-
-→ تحديد Editability
-
-→ إعداد Automations عند الحاجة
-
-→ Review
-
-→ Activate
-
-ويجب أن يكون واضحاً للمستخدم ما الذي ينقص قبل تفعيل Campaign.
+يمكن تخطي Steps غير المفعلة وظيفياً.
 
 ---
 
-# 44. Field Builder
+# 61. Campaign Readiness Checklist
 
-Field Builder هو من أهم أجزاء الواجهة.
+قبل Activation تظهر Checklist مثل:
 
-يجب أن يسمح لـManager / Super Admin بـ:
-
-- Add Field.
-    
-- Edit Field.
-    
-- Disable Field.
-    
-- Reorder Field.
-    
-- Select type.
-    
-- Add options.
-    
-- Edit options.
-    
-- Required / Optional.
-    
-- Visible / Hidden.
-    
-- Editable / Read-only.
-    
-- Show in Lead Table.
-    
-- Show in Lead Details.
-    
-- Use in Filters.
-    
-- Use in Automation عند الحاجة.
-    
-- Configure Calculated Field عند الحاجة.
-    
+- Source connected?
+- Branch selected?
+- Routing valid?
+- Required fields mapped?
+- Messaging configured if required?
+- AI provider available if AI enabled?
+- Published knowledge available?
+- Qualification mapping valid?
+- Payment method ready if required?
 
 ---
 
-# 45. Field Builder UX
+# 62. Field Builder
 
-الهدف هو أن يشعر المستخدم أن إنشاء الأعمدة مرن وسهل، قريب من فكرة Spreadsheet:
+يدعم:
 
-**Add Column → Name → Type → Configure → Save**
-
-لكن مع:
-
-- Permissions.
-    
-- Validation.
-    
-- Field types.
-    
-- Campaign scope.
-    
-- Business Rules.
-    
-
-لا يجب أن تتحول المنصة إلى Spreadsheet عامة غير منظمة.
+- Add/Edit/Disable.
+- Reorder.
+- Type.
+- Add/Edit/Reorder Options.
+- Required.
+- Visible.
+- Editable.
+- Table.
+- Details.
+- Filters.
+- Automation.
+- AI qualification mapping.
+- Calculated fields.
+- Column/display settings المناسبة عندما يكون ذلك مفيداً.
 
 ---
 
-# 46. Lead List
+# 63. Lead List
 
-Lead List يجب أن تكون مرنة.
-
-يجب أن تسمح بـ:
+تدعم:
 
 - Search.
-    
 - Filters.
-    
 - Sorting.
-    
 - Saved Views.
-    
 - Column selection.
-    
-- Bulk selection.
-    
-- Bulk actions.
-    
+- Bulk selection/actions.
 
-الأعمدة المعروضة تعتمد على:
+الأعمدة حسب Campaign + permissions.
 
+---
+
+# 64. Lead Details
+
+يجب أن تجمع:
+
+- Contact.
+- Source.
 - Campaign.
-    
-- User permissions.
-    
-- Field configuration.
-    
+- Dynamic fields.
+- Assignment.
+- Conversation.
+- AI summary.
+- Follow-ups.
+- Payment.
+- Enrollment.
+- Activity.
+- Actions.
 
 ---
 
-# 47. Lead Table Columns
+## Agent Lead Editing
 
-Manager / Super Admin يستطيعان تحديد الأعمدة المعروضة حسب Campaign.
+من Lead Details يستطيع Agent ضمن الصلاحيات:
 
-Agent يرى فقط الأعمدة التي يسمح النظام له برؤيتها.
-
-يجب أن يدعم النظام:
-
-- إظهار عمود.
-    
-- إخفاء عمود.
-    
-- ترتيب الأعمدة.
-    
-- تعديل عرض العمود عندما يكون ذلك مناسباً.
-    
-- حفظ إعدادات العرض حسب المستخدم أو Campaign وفق التصميم.
-    
-
----
-
-# 48. Lead Details
-
-Lead Details هي الشاشة الرئيسية للتشغيل.
-
-يجب أن تحتوي على مناطق واضحة:
-
-## Contact
-
-بيانات الشخص.
-
-## Campaign
-
-المصدر والحملة.
-
-## Dynamic Fields
-
-الحقول المطبقة على هذه الحملة.
-
-## Assignment
-
-Branch + Agent.
-
-## Follow-ups
-
-المتابعات.
-
-## Payment
-
-الدفع.
-
-## Enrollment
-
-الاشتراك.
-
-## Activity
-
-التاريخ.
-
-## Actions
-
-الإجراءات التي يسمح بها المستخدم.
-
----
-
-# 49. Lead Details Dynamic Behavior
-
-Lead Details لا يجب أن تعرض مجموعة ثابتة من الحقول.
-
-يجب أن تعتمد على:
-
-- Campaign.
-    
-- Field configuration.
-    
-- Role.
-    
-- User permissions.
-    
-
-مثلاً:
-
-Campaign A تعرض 12 Field.
-
-Campaign B تعرض 25 Field.
-
-Campaign C تعرض 8 Fields.
-
-ويستطيع Agent رؤية subset فقط من الحقول إذا كانت صلاحياته تتطلب ذلك.
-
----
-
-# 50. Agent Lead Editing
-
-Agent يستطيع من Lead Details:
-
-- تحديث Fields المسموحة.
-    
+- تحديث Editable Fields.
+- تحديث Campaign Status إذا كانت Campaign تستخدم Status وكان Field قابلاً للتعديل له.
 - تسجيل نتيجة التواصل.
-    
-- إضافة Note.
-    
-- إنشاء Follow-up.
-    
-- إكمال Follow-up.
-    
-- استخدام إجراءات Payment المسموحة.
-    
-- رؤية حالة Enrollment.
-    
+- إضافة Note داخلية.
+- إنشاء/إكمال Follow-up.
+- استخدام Payment actions المسموحة.
 
-يجب أن تكون الخطوات الأساسية قليلة وواضحة.
+## Lead Status Editing
 
----
+Status ليس إلزامياً لكل Campaign.
 
-# 51. Lead Status Editing
+إذا كان موجوداً:
 
-إذا كانت Campaign تستخدم Status:
-
-يجب أن تكون عملية تغييره سهلة وسريعة من Lead Details.
-
-ولا يجب إجبار Campaigns الأخرى على استخدام Status.
+- يظهر بطريقة واضحة وسريعة.
+- القيم تأتي من Campaign Field configuration.
+- Agent يرى/يعدّل فقط ما تسمح به Field permissions.
+- تغيير Status يسجل في التاريخ عند الحاجة.
 
 ---
 
-# 52. Follow-up UI
+## Lead Lifecycle Controls
 
-يجب توفير:
+Lead Details يجب أن تعرض Internal Lifecycle State بشكل منفصل عن Campaign Status.
 
-- Create Follow-up.
-    
+Authorized users يمكن أن يروا Actions مثل:
+
+- Close Lead.
+- Reopen Lead.
+- Archive حسب الصلاحية/الـworkflow.
+
+يجب توضيح أن تغيير Campaign Status لا يعني تلقائياً Close للـLead إلا إذا وجدت Automation/Rule واضحة.
+
+---
+
+# 65. Conversation Panel
+
+داخل Lead Details أو Screen مخصصة:
+
+- messages.
+- inbound/outbound distinction.
+- AI/Human badges.
+- timestamps.
+- delivery state.
+- current controller type.
+- current Human Controller user عندما يكون HUMAN.
+- handoff state.
+- Takeover action للمخولين.
+- reply composer فقط عندما يملك المستخدم Active control.
+- attachments.
+- AI Copilot controls.
+
+---
+
+# 66. AI Summary Panel
+
+يمكن أن يعرض:
+
+- qualification summary.
+- captured structured data.
+- customer intent/needs.
+- unanswered question.
+- handoff reason.
+- suggested next action.
+
+يجب تمييز AI-generated content بصرياً.
+
+---
+
+# 67. AI Copilot Actions
+
+للAgent:
+
+- Summarize.
+- Suggest reply.
+- What should I ask next?
+- Show campaign knowledge.
+- Draft follow-up.
+- Explain conversation.
+
+الإرسال للعميل يبقى Human action عندما Controller = HUMAN.
+
+---
+
+# 68. Follow-up UI
+
+- Create.
 - Edit.
-    
 - Complete.
-    
 - Cancel.
-    
 - Reschedule.
-    
-
-Dashboard وLead Details يمكن أن يعرضا:
-
-- Upcoming.
-    
-- Due Today.
-    
-- Overdue.
-    
+- Upcoming/Due/Overdue.
 
 ---
 
-# 53. Payment UI
+# 69. Payment UI
 
-## Manager / Super Admin
+## Admin/Manager
 
-يمكنهما إدارة:
-
-- Payment Methods.
-    
-- Availability.
-    
-- Configuration المناسبة.
-    
+- Methods.
+- Provider connection.
+- availability.
+- status.
 
 ## Agent
 
-يمكنه:
-
-- إنشاء Payment Link أو استخدامه حسب الصلاحية.
-    
-- رؤية Payment Status.
-    
-- الوصول إلى Payment Link عند الحاجة.
-    
+- Create/use payment link حسب الصلاحية.
+- view payment status.
+- copy/share link.
 
 ---
 
-# 54. Enrollment UI
+# 70. Enrollment UI
 
-Lead Details يجب أن تعرض بوضوح:
+تعرض:
 
-- هل الشخص Enrolled / Subscribed؟
-    
-- متى تم التسجيل؟
-    
-- Payment المرتبط عند الحاجة.
-    
-
-ولا يجب السماح بتغيير Enrollment بطريقة تتجاوز قواعد Payment.
+- status.
+- date.
+- linked payment.
+- source of confirmation.
 
 ---
 
-# 55. Notification Center
+# 71. Notification Center
 
-Notification Center يعرض:
+يعرض:
 
 - New Lead.
-    
 - Assignment.
-    
 - Reassignment.
-    
 - Follow-up.
-    
+- AI handoff.
+- Conversation needing attention.
 - Payment.
-    
 - Enrollment.
-    
-- System Alerts.
-    
-
-يجب التمييز بين:
-
-- Read.
-    
-- Unread.
-    
-- Important.
-    
+- Integration/System alerts.
 
 ---
 
-# 56. Notification Preferences
-
-المستخدم يمكنه إدارة Preferences التي يسمح النظام بتخصيصها.
-
-يمكن أن تشمل:
-
-- In-App.
-    
-- Email.
-    
-- WhatsApp.
-    
-
-بعض Notifications قد تبقى إلزامية.
-
----
-
-# 57. Analytics UI
-
-Analytics يجب أن تدعم:
-
-- Date range.
-    
-- Branch.
-    
-- Campaign.
-    
-- Agent.
-    
-- Source.
-    
-- Relevant custom fields عند الحاجة.
-    
-
-يجب أن تكون قابلة للفهم بدون الحاجة إلى تحليل تقني.
-
----
-
-# 58. Analytics Drill-down
-
-عند الضغط على Metric:
-
-يمكن عند الحاجة الانتقال إلى:
-
-**Metric → Filtered Lead List**
-
-مثال:
-
-**Enrolled = 43**
-
-→ عرض الـ43 Lead المرتبطة بالرقم.
-
----
-
-# 59. Automation UI
-
-يجب أن يكون إنشاء Automation واضحاً:
-
-**Trigger**
-
-↓
-
-**Conditions**
-
-↓
-
-**Actions**
-
-مثال:
-
-Payment Confirmed  
-→ Mark Enrollment  
-→ Notify Agent
-
-أو:
-
-Follow-up Overdue  
-→ Notify Agent  
-→ Notify Manager
-
----
-
-# 60. AI UI
-
-AI features يجب ألا تسيطر على الواجهة.
-
-يمكن عرض:
-
-- Lead Summary.
-    
-- Lead Priority.
-    
-- Suggested Next Action.
-    
-- Agent Insights.
-    
-- Campaign Insights.
-    
-- Leads Needing Attention.
-    
-
-ويجب أن تكون توصيات AI واضحة على أنها suggestions/insights وليست Business Truth.
-
----
-
-# 61. Search & Filters UI
-
-Search:
-
-- Name.
-    
-- Phone.
-    
-- Email.
-    
-- Lead ID.
-    
-
-Additional search حسب الحملة والحقول المناسبة.
+# 72. Analytics UI
 
 Filters:
 
-- Campaign.
-    
-- Branch.
-    
-- Agent.
-    
 - Date.
-    
-- Payment.
-    
-- Enrollment.
-    
-- Custom Fields.
-    
-- Status عند توفره.
-    
-- Interest عند توفره.
-    
-- Tags عند توفرها.
-    
+- Branch.
+- Campaign.
+- Agent.
+- Source.
+- Conversation state.
+- AI/Human.
+- relevant custom fields.
+
+Communication metrics يجب أن تعرض بشكل منفصل عند الحاجة:
+
+- First AI Contact.
+- First Human Contact.
+- First Customer Response.
+- AI Attempts.
+- Human Attempts.
+- AI Response Time.
+- Human Agent Response Time.
+- AI Qualified / Human Qualified source.
+
+لا يجوز عرض AI response time كAgent response time.
 
 ---
 
-# 62. Saved Views UI
+## Conversion Configuration UI
+
+Campaign settings يجب أن تسمح بتحديد Conversion milestone من الخيارات المناسبة لبياناتها.
+
+Analytics تعرض تعريف الـConversion المستخدم حتى يفهم المستخدم معنى النسبة.
+
+---
+
+## Revenue Currency UI
+
+عندما تحتوي النتائج على أكثر من Currency:
+
+- تعرض totals منفصلة حسب Currency.
+- لا تعرض Total موحد مضلل.
+- إذا تم دعم Reporting Currency، يجب إظهار العملة وطريقة/وقت التحويل بشكل مفهوم.
+
+---
+
+# 73. Analytics Drill-down
+
+Metric يمكن أن يفتح filtered Lead List.
+
+---
+
+# 74. Automation UI
+
+واضح:
+
+```text
+Trigger
+  ↓
+Conditions
+  ↓
+Actions
+```
+
+مع validation وتحذير من loops.
+
+---
+
+# 75. AI Operations UI
+
+يمكن أن تكون:
+
+- global assistant screen.
+- contextual assistant داخل Campaign/Lead/Analytics.
+
+يجب أن تبقى الإجابات permission-scoped.
+
+---
+
+# 76. Integration Management UI
+
+صفحة Integrations تعرض Cards/List:
+
+- Provider.
+- Connection name.
+- Scope.
+- Connected/Disconnected.
+- Health.
+- Last activity.
+- Last sync.
+- Last error.
+- Required action.
+
+Actions:
+
+- Add Connection.
+- Open.
+- Test.
+- Reconnect.
+- Edit.
+- Disable.
+- View history.
+
+---
+
+# 77. Integration Setup Wizard UX
+
+كل Wizard يجب أن:
+
+- يشرح المصطلحات.
+- لا يفترض خبرة تقنية.
+- يستخدم step-by-step.
+- يعرض Copy buttons.
+- يعرض validation.
+- يمنع Save invalid config.
+- يحافظ على entered data عند recoverable errors.
+- يوضح الفرق بين provider-side step وplatform-side step.
+- ينتهي بـTest Connection/Success state.
+
+---
+
+# 78. Meta Management UI
+
+تعرض:
+
+- Connections.
+- Pages.
+- Forms.
+- Campaign bindings.
+- Webhook status.
+- Last lead received.
+- Sync/import.
+- Mapping.
+- Errors.
+
+---
+
+# 79. Messaging Management UI
+
+تعرض:
+
+- Provider connections.
+- Business senders/numbers.
+- Scope.
+- Inbound webhook status.
+- Outbound test.
+- Templates عند الحاجة.
+- Delivery callbacks.
+- Connection health.
+- Errors.
+
+---
+
+# 80. AI Management UI
+
+تعرض:
+
+- AI Provider Connections.
+- Model/Profile configurations.
+- Assistants.
+- Usage/status metadata عند توفرها.
+- Campaign AI configurations.
+- Knowledge versions.
+- Evaluation/test tools.
+
+---
+
+# 81. Payment Management UI
+
+تعرض:
+
+- Provider connections.
+- Branch methods.
+- status.
+- webhook status.
+- last payment event.
+- errors.
+
+---
+
+# 82. Agent Profile
+
+Agent يدير فقط المعلومات الشخصية/التشغيلية المسموحة مثل:
+
+- Name.
+- Phone.
+- Notification preferences.
+
+لا يوجد Provider/API setup للAgent.
+
+---
+
+# 83. Empty States
+
+كل Screen رئيسية توضح:
+
+- ما الذي يعنيه Empty State.
+- ما الخطوة التالية.
+- CTA مناسب.
+
+مثال Integrations:
+
+> لا يوجد Meta Connection بعد → Add Connection.
+
+---
+
+# 84. Loading States
+
+مطلوبة لـ:
+
+- Sync.
+- Import.
+- AI operations.
+- Analytics.
+- Provider tests.
+- Payment.
+- historical fetch.
+
+---
+
+# 85. Error States
+
+يجب:
+
+- شرح الخطأ بلغة مفهومة.
+- عدم عرض secrets.
+- عرض next action.
+- الحفاظ على user input.
+- توفير retry عندما يكون مناسباً.
+
+---
+
+# 86. Permission States
+
+إذا Action غير مسموحة:
+
+- لا تظهر كمتاحة بشكل مضلل.
+- لا يتم كشف hidden data.
+- direct URL/API access يبقى ممنوعاً.
+
+---
+
+# 87. Responsive Design
+
+يدعم:
+
+- Desktop.
+- Tablet.
+- Mobile.
+
+الأولوية التشغيلية للAgent على الهاتف.
+
+---
+
+# 88. Arabic RTL
+
+كل:
+
+- Navigation.
+- Tables.
+- Forms.
+- Filters.
+- Modals.
+- Conversation UI.
+- AI panels.
+
+تدعم RTL.
+
+---
+
+# 89. French & English
+
+LTR مع responsive layouts.
+
+---
+
+# 90. Date & Time
+
+يجب عرض:
+
+- Lead received.
+- Message times.
+- First contact.
+- Last contact.
+- Payment.
+- Follow-up.
+- Handoff.
+
+بسياق زمني واضح.
+
+لا تفقد original timestamps.
+
+---
+
+# 91. Manager Experience
+
+Manager يجب أن يستطيع تشغيل Branch يومياً من داخل المنصة:
+
+```text
+Integrations
+  → Campaigns
+  → Agents
+  → Routing
+  → Fields
+  → Messaging
+  → AI
+  → Leads
+  → Conversations
+  → Follow-ups
+  → Payments
+  → Enrollment
+  → Analytics
+```
+
+---
+
+# 92. Agent Experience
+
+```text
+Assigned Lead
+  → Open Lead
+  → Read AI/Conversation context
+  → Reply
+  → Update
+  → Follow-up
+  → Payment
+  → Enrollment
+```
+
+بدون أي Provider setup.
+
+---
+
+# 93. Product Boundary
+
+المنصة ليست:
+
+- General WhatsApp CRM.
+- General chat system.
+- Customer support suite.
+- Full accounting.
+- LMS.
+- ERP.
+
+لكن Conversations/Messaging الضرورية لدورة Lead جزء أساسي من المنتج.
+
+---
+
+# 94. Search & Filters UI
+
+Search يجب أن يدعم حسب الصلاحيات:
+
+- Name.
+- Phone.
+- Email.
+- Lead ID.
+- Campaign.
+- Agent.
+- Permitted custom fields.
+
+Filters يمكن أن تشمل:
+
+- Branch.
+- Campaign.
+- Agent.
+- Date.
+- Source.
+- Payment.
+- Enrollment.
+- Conversation state.
+- AI/Human controller.
+- Status عند توفره.
+- Interest عند توفره.
+- Tags عند توفرها.
+- Custom fields.
+
+لا يجب أن تصبح Search أو Filters وسيلة لكشف Field أو Lead غير مسموح بها.
+
+---
+
+# 95. Saved Views UI
 
 المستخدم يستطيع:
 
 1. اختيار Filters.
-    
 2. اختيار Sorting.
-    
 3. اختيار Columns.
-    
 4. حفظ View.
-    
 5. إعادة استخدامها لاحقاً.
-    
 
-Saved Views لا تتجاوز Permissions الحالية.
+Saved View تبقى محكومة بالصلاحيات الحالية حتى لو تغيرت صلاحيات المستخدم بعد إنشائها.
 
 ---
 
-# 63. Bulk Actions UI
+# 96. Bulk Actions UI
 
-يتم تحديد مجموعة Leads ثم اختيار Action.
-
-Examples:
+يمكن تحديد Leads متعددة ثم تنفيذ Actions مسموحة مثل:
 
 - Assign.
-    
 - Change Field.
-    
 - Change Status.
-    
 - Add Tag.
-    
 - Remove Tag.
-    
 - Create Follow-up.
-    
 - Export.
-    
 
-يجب إظهار Confirmation قبل الإجراءات الحساسة أو واسعة النطاق.
+الإجراءات الحساسة أو واسعة النطاق تحتاج Confirmation واضحة.
 
 ---
 
-# 64. Import UI
+# 97. Import UI
 
-Import workflow:
+المسار:
 
-**Upload**
+```text
+Upload / Select Source
+  → Select Branch
+  → Select Campaign when applicable
+  → Detect
+  → Map Fields
+  → Validate
+  → Preview
+  → Duplicate Review
+  → Import
+  → Result
+```
 
-→ **Detect**
+Branch/Campaign choices يجب أن تكون محدودة بالـScope المسموح للمستخدم.
 
-→ **Map Fields**
-
-→ **Validate**
-
-→ **Preview**
-
-→ **Duplicate Review**
-
-→ **Import**
-
-→ **Result**
-
-النتيجة يجب أن توضح:
+النتيجة تعرض:
 
 - Imported.
-    
 - Skipped.
-    
 - Invalid.
-    
 - Duplicate.
-    
 - Failed.
-    
 
 ---
 
-# 65. Integration Management UI
+# 98. Export UI
 
-Super Admin يجب أن يرى صفحة واضحة للتكاملات.
+Export يجب أن يسمح باختيار البيانات المسموحة فقط.
 
-يمكن أن تعرض:
+يمكن أن يعتمد على:
 
-- Integration name.
-    
-- Status.
-    
-- Connected / Not connected.
-    
-- Last activity.
-    
-- Last synchronization.
-    
-- Last error.
-    
-- Required action.
-    
+- Current filters.
+- Saved View.
+- Campaign.
+- Branch.
+- Selected columns.
+- User permissions.
 
-Manager يرى فقط التكاملات التي تقع ضمن صلاحياته.
-
-Agent لا يدير Integrations.
+لا يصدر Field مخفية أو Leads غير مسموح بها.
 
 ---
 
-# 66. WhatsApp Management UI
+# 99. Notification Preferences UI
 
-الإدارة تتولى:
+المستخدم يمكنه إدارة Preferences التي يسمح النظام بتخصيصها مثل:
 
-- Provider configuration.
-    
-- Connection status.
-    
-- Sender configuration.
-    
-- Message templates / wording.
-    
-- Delivery status.
-    
-- Error state.
-    
+- In-App.
+- Email.
+- WhatsApp/Messaging.
 
-Agent لا يرى إعدادات Provider.
+بعض Notifications الحرجة يمكن أن تبقى إلزامية.
 
-Agent يرى فقط:
+الإدارة يجب أن تملك شاشة/جزءاً لإدارة Notification wording/templates المسموحة حسب:
 
-**Phone Number**
+- Event.
+- Channel.
+- Language.
+- Branch/Campaign scope عند الحاجة.
 
-ويستخدم الإشعارات دون إعداد تقني.
+مع Preview وDefault fallback واضح.
 
 ---
 
-# 67. Payment Management UI
+## User Management UI
 
-Manager يرى Payment Methods الخاصة بفرعه.
+Super Admin يستطيع من داخل المنصة:
 
-Super Admin يرى الجميع.
+- Create/Invite Manager or Agent.
+- Activate/Deactivate account.
+- Assign Branch/Role.
+- Trigger credential reset/invitation resend حسب Authentication design.
+- View account status.
 
-المعلومات الحساسة الخاصة بالمزود يجب ألا تظهر في واجهات لا تحتاجها.
+Manager يدير Agents داخل Branch فقط.
+
+لا يوجد Public Signup.
+
+## Manual Lead Creation UI
+
+Authorized user يستطيع إنشاء Lead يدوياً من داخل المنصة مع:
+
+- Contact match/create.
+- Branch selection ضمن scope.
+- Campaign selection عند الحاجة.
+- Required field validation.
+- Source = Manual.
+- Optional assignment حسب rules.
 
 ---
 
-# 68. Agent Profile
+# 100. Manager Agent Management
 
-Agent Profile يجب أن يسمح له بإدارة البيانات الشخصية التي يحتاجها، مثل:
-
-- Name.
-    
-- Phone.
-    
-- Notification preferences.
-    
-
-رقم الهاتف المستخدم لـWhatsApp يدخل من هنا.
-
-لا يوجد أي إعداد API أو Business Account للـAgent.
-
----
-
-# 69. Manager Agent Management
-
-Manager يجب أن يستطيع:
+Manager يجب أن يستطيع ضمن Branch:
 
 - Create Agent.
-    
 - Edit Agent.
-    
-- Activate / Deactivate Agent.
-    
-- Set phone.
-    
+- Activate / Deactivate.
+- Set phone/profile information.
 - Set working hours.
-    
 - Set capacity.
-    
 - Manage operational settings.
-    
-- معرفة حالة Agent.
-    
+- View current workload/status.
+
+لا يعرض له إعدادات Provider غير المسموحة.
 
 ---
 
-# 70. Empty States
+## Branch Settings UI
 
-كل شاشة رئيسية يجب أن توفر Empty State واضحة.
+Manager/Super Admin حسب الصلاحية يستطيعان إدارة:
 
-مثلاً:
+- Branch timezone.
+- Working/business hours.
+- Default messaging hours.
+- Operational defaults.
 
-لا توجد Leads بعد.
-
-يجب أن توضّح:
-
-- ماذا يعني ذلك.
-    
-- ما الإجراء التالي.
-    
-- هل يمكن إنشاء/ربط البيانات من هذه الشاشة.
-    
+Timezone يجب أن تظهر بوضوح في أي AI follow-up أو scheduled operation.
 
 ---
 
-# 71. Loading States
+# 101. Integration Setup Help Pattern
 
-العمليات التي تحتاج وقتاً يجب أن تظهر Loading State واضحة.
+كل Setup تقني نسبيًا يجب أن يملك Help واضح داخل نفس الواجهة.
 
-خصوصاً:
+يجب أن يشرح:
 
-- Import.
-    
-- Sync.
-    
-- Analytics.
-    
-- Payment.
-    
-- Integration actions.
-    
+- ما هذه القيمة؟
+- لماذا نحتاجها؟
+- من أين أحصل عليها؟
+- هل هي secret؟
+- مثال لشكلها بدون كشف credential حقيقية.
+- ماذا أفعل إذا فشل Test Connection؟
+- رابط أو زر للخطوة التالية عندما يكون مناسباً.
 
----
-
-# 72. Error States
-
-عند حدوث خطأ:
-
-- شرح مفهوم وواضح.
-    
-- عدم إظهار معلومات تقنية حساسة للمستخدم العادي.
-    
-- إعطاء الإجراء الممكن عند الحاجة.
-    
-- عدم فقدان البيانات التي تم إدخالها.
-    
+الهدف هو أن يستطيع مستخدم إداري غير تقني إكمال Setup دون الرجوع إلى Developer في التشغيل اليومي.
 
 ---
 
-# 73. Permission States
+# 102. Central Lead Experience
 
-إذا لم يكن المستخدم يملك صلاحية:
-
-- لا يجب إظهار Action كأنه متاح ثم يفشل فقط بعد الضغط.
-    
-- يجب توضيح أن الوصول غير مسموح إذا كان من المفيد إظهار العنصر.
-    
-- يجب ألا تتحول الواجهة إلى وسيلة للوصول إلى بيانات غير مسموح بها.
-    
-
----
-
-# 74. Responsive Design
-
-يجب أن تعمل الواجهة على:
-
-- Desktop.
-    
-- Tablet.
-    
-- Mobile.
-    
-
-لكن الأولوية التشغيلية للـAgent على الهاتف.
-
-الـManager وSuper Admin يحتاجان إلى واجهة إدارة أكثر اتساعاً على Desktop مع دعم الأجهزة الصغيرة.
-
----
-
-# 75. Arabic RTL
-
-عند اختيار العربية:
-
-- Navigation يدعم RTL.
-    
-- Tables تتعامل مع RTL بشكل صحيح.
-    
-- Forms تعمل بشكل طبيعي.
-    
-- Filters.
-    
-- Modals.
-    
-- Sidebars.
-    
-- Text alignment.
-    
-- الاتجاه العام للواجهة.
-    
-
----
-
-# 76. French & English
-
-French وEnglish تستخدمان LTR.
-
-التخطيط يجب أن يتكيف مع اللغات المختلفة دون كسر:
-
-- Tables.
-    
-- Buttons.
-    
-- Labels.
-    
-- Forms.
-    
-- Navigation.
-    
-
----
-
-# 77. Date & Time Experience
-
-التاريخ والوقت يجب أن يظهرا بطريقة مفهومة للمستخدم.
-
-عند عرض أوقات مهمة مثل:
-
-- Lead received.
-    
-- First contact.
-    
-- Last contact.
-    
-- Payment.
-    
-- Follow-up.
-    
-
-يجب أن يكون السياق الزمني واضحاً.
-
-أي تحويل زمني يجب ألا يسبب فقدان الوقت الأصلي.
-
----
-
-# 78. Core UX Principles
-
-يجب أن تحقق الواجهة:
-
-- أقل عدد مناسب من الخطوات.
-    
-- وضوح الإجراء التالي.
-    
-- عدم إخفاء المعلومات المهمة.
-    
-- عدم عرض إعدادات لا تخص المستخدم.
-    
-- مرونة الحقول دون تعقيد.
-    
-- سهولة التشغيل اليومية.
-    
-- سرعة الوصول إلى Lead Details.
-    
-- وضوح الحالة الحالية.
-    
-- وضوح الخطوة التالية.
-    
-
----
-
-# 79. Central User Experience
-
-الهدف الأساسي:
-
-عند فتح Lead يجب أن يعرف المستخدم:
+عند فتح Lead يجب أن يعرف المستخدم المصرح له بسرعة:
 
 1. من هو الشخص؟
-    
 2. ماذا يريد؟
-    
 3. من أين جاء؟
-    
 4. لأي Campaign ينتمي؟
-    
 5. لأي Branch ينتمي؟
-    
-6. من المسؤول عنه؟
-    
-7. ما البيانات المهمة عنه؟
-    
-8. ماذا حدث معه؟
-    
-9. ما الذي يجب فعله الآن؟
-    
-10. هل يوجد Follow-up؟
-    
-11. هل يوجد Payment؟
-    
-12. هل أصبح Enrolled؟
-    
+6. من هو Lead Owner؟
+7. من يتحكم بالمحادثة الآن: AI أم Human؟
+8. ماذا قال AI أو العميل سابقاً؟
+9. ما البيانات المهمة؟
+10. ماذا يجب أن يحدث الآن؟
+11. هل يوجد Follow-up؟
+12. هل يوجد Payment؟
+13. هل أصبح Enrolled؟
 
 ---
 
-# 80. Manager Experience
+# 103. Final Integration & UI Principle
 
-Manager يجب أن يستطيع تشغيل Branch دون الحاجة إلى أدوات خارجية لإدارة العملية اليومية.
+كل Integration يجب أن تعمل حول نفس Core Domain:
 
-من إعداد Campaign:
+```text
+Lead Source
+  → Campaign
+  → Branch
+  → Lead
+  → Assignment
+  → Conversation
+  → AI/Human
+  → Follow-up
+  → Payment
+  → Enrollment
+  → Analytics / Automation
+```
 
-**Campaign → Agents → Routing → Fields → Automations**
+والمنصة هي مركز:
 
-إلى التشغيل:
+- التشغيل.
+- الإعداد.
+- الصلاحيات.
+- المراقبة.
+- التاريخ.
+- الربط بين Providers.
 
-**Leads → Follow-ups → Payments → Enrollments → Analytics**
+# 105. Large-Data UX
 
----
+الشاشات التي يمكن أن تحتوي عدداً كبيراً جداً من السجلات لا تعتمد على تحميل جميع النتائج.
 
-# 81. Agent Experience
+يشمل ذلك Leads وConversations وMessages وActivities وAudit Logs وIntegration Events وPayments وAI Executions وAnalytics drill-down.
 
-Agent يجب أن يحصل على تجربة بسيطة:
+يجب دعم Server-side pagination وSearch وFilters وSorting وProgressive loading عند الحاجة.
 
-**New Lead**
+Large imports/exports/bulk actions يجب أن تظهر كعمليات قابلة للتتبع مثل Queued / Processing / Completed / Failed، مع Progress وResult عندما يكون ذلك ممكناً.
 
-→ Open
-
-→ Contact
-
-→ Update
-
-→ Follow-up
-
-→ Payment
-
-→ Enrollment
-
-ولا يحتاج إلى معرفة كيف تم بناء النظام أو كيف تعمل التكاملات خلفه.
-
----
-
-# 82. Product Boundary
-
-الواجهة والتكاملات لا يجب أن توسع المنتج إلى:
-
-- WhatsApp CRM.
-    
-- Full accounting.
-    
-- LMS.
-    
-- Course management.
-    
-- ERP.
-    
-- Complex financial management.
-    
-
-كل UI وIntegration يجب أن يخدم الـLead Operations lifecycle الأساسي.
-
----
-
-# 83. Technical Decision Boundary
-
-هذه الوثيقة تحدد **السلوك الوظيفي والتجربة المطلوبة**.
-
-لا تفرض أي تقنية محددة.
-
-على التصميم التقني لاحقاً اختيار الطريقة الأنسب لتحقيق:
-
-- Functional requirements.
-    
-- Security.
-    
-- Reliability.
-    
-- Data integrity.
-    
-- Maintainability.
-    
-- Performance.
-    
-- Scalability.
-    
-- Reasonable cost.
-    
-- Simple operational experience.
-    
-- Provider independence.
-    
-
----
-
-# 84. Final Integration & UI Principle
-
-كل التكاملات والشاشات يجب أن تخدم نفس المنظومة:
-
-**Lead Source**
-
-→ **Campaign**
-
-→ **Branch**
-
-→ **Agent**
-
-→ **Follow-up**
-
-→ **Payment**
-
-→ **Enrollment**
-
-→ **Analytics**
-
-→ **Automation / AI**
-
-مع بقاء:
-
-- Meta كمصدر Leads أساسي.
-    
-- WhatsApp كقناة Notifications.
-    
-- Payment Providers كخدمات دفع.
-    
-- Google Sheets كأداة مساعدة.
-    
-- AI كطبقة مساعدة.
-    
-
-والمنصة نفسها هي **المركز الرئيسي للبيانات والعمليات التشغيلية**.
+لا يجب إبقاء واجهة المستخدم معلقة بانتظار عملية طويلة داخل Request واحد إذا كان Background processing أكثر موثوقية.
