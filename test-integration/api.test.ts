@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { test } from 'node:test';
 import { buildApp } from '../src/app.js';
 import { createDatabase } from '../src/db.js';
-import { sha256 } from '../src/security.js';
+import { passwordHash, sha256 } from '../src/security.js';
 
 const url = process.env.TEST_DATABASE_URL;
 const databaseName = url ? new URL(url).pathname.slice(1) : '';
@@ -33,10 +33,12 @@ test('PostgreSQL API: bootstrap, isolation, sessions, and concurrent routing', a
     assert.ok(cookie);
     return (Array.isArray(cookie) ? cookie[0]! : cookie).split(';')[0]!;
   };
-  const createUser = async (adminCookie: string, branchId: string, role: 'MANAGER'|'AGENT', name: string, email: string, capacity?: number) => {
-    const response = await send('POST', '/api/users', { branchId, role, name, email, password: 'Test password 12345!', capacity }, adminCookie);
-    assert.equal(response.statusCode, 201, response.body);
-    return response.json().id as string;
+  const createUser = async (_adminCookie: string, branchId: string, role: 'MANAGER'|'AGENT', name: string, email: string, capacity?: number) => {
+    const organizationId = (await db`SELECT id FROM organization LIMIT 1`)[0]!.id;
+    const hashed = await passwordHash('Test password 12345!');
+    const rows = await db`INSERT INTO user_account (organization_id, branch_id, role, name, email, password_hash, capacity)
+      VALUES (${organizationId}, ${branchId}, ${role}, ${name}, ${email}, ${hashed}, ${capacity ?? null}) RETURNING id`;
+    return rows[0]!.id as string;
   };
 
   assert.deepEqual((await send('GET', '/api/setup/status')).json(), { initialized: false });

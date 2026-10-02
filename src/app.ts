@@ -7,9 +7,13 @@ import { HttpError } from './security.js';
 import { sessionCookie } from './config.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerOperationsRoutes } from './routes/operations.js';
+import { registerIdentityEmailRoutes } from './routes/identity-email.js';
+import { smtpEmailAdapter, type IdentityEmailAdapter } from './identity-email.js';
 
-export async function buildApp(db: Database, options: { logger?: boolean } = {}): Promise<FastifyInstance> {
-  const app = Fastify({ logger: options.logger === false ? false : { redact: ['req.headers.cookie', 'req.headers.authorization', 'req.body.password', 'req.body.token'] }, bodyLimit: 1024 * 1024 });
+export async function buildApp(db: Database, options: { logger?: boolean; emailAdapter?: IdentityEmailAdapter } = {}): Promise<FastifyInstance> {
+  const app = Fastify({ logger: options.logger === false ? false : { redact: ['req.headers.cookie', 'req.headers.authorization', 'req.body.password', 'req.body.token'] }, bodyLimit: 1024 * 1024,
+    ajv: { customOptions: { removeAdditional: false } },
+  });
   await app.register(cookie);
   await app.register(helmet);
   await app.register(rateLimit, { max: 120, timeWindow: '1 minute' });
@@ -41,5 +45,6 @@ export async function buildApp(db: Database, options: { logger?: boolean } = {})
   });
   registerAuthRoutes(app, db);
   registerOperationsRoutes(app, db);
+  registerIdentityEmailRoutes(app, db, options.emailAdapter ?? smtpEmailAdapter);
   return app;
 }

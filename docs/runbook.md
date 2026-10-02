@@ -18,12 +18,14 @@
 4. ولّد مفتاح تشفير credential من 32 بايت عشوائية، ورمز bootstrap عشوائياً مستقلاً. عين `CREDENTIAL_ENCRYPTION_KEY` و`BOOTSTRAP_TOKEN` في بيئة الـAPI، و`APP_ORIGIN=http://127.0.0.1:5173` للتطوير.
 5. شغّل `npm run build` ثم `npm start` للـAPI، وفي نافذة ثانية `npm run web:dev` للواجهة.
 6. افتح `http://127.0.0.1:5173` وأنشئ أول Super Admin برمز bootstrap. بعد النجاح يصبح مسار التهيئة غير صالح لأن وجود أول مستخدم يمنع تكراره. احذف رمز bootstrap من بيئة النشر بعد ذلك.
+7. لتفعيل دعوات الموظفين واستعادة كلمة المرور: من صفحة **بريد الحسابات**، أدخل بيانات SMTP التي أُنشئت لدى مزود البريد واختبر الاتصال. لا يُعاد عرض كلمة المرور بعد حفظها. شغّل عملية `npm run worker:identity` مستقلة مع `DATABASE_URL` و`APP_ORIGIN` و`CREDENTIAL_ENCRYPTION_KEY` نفسها. يمكن للـSuper Admin وManager المصرح لهما رؤية حالة التسليم وإعادة محاولة Job فاشل صالح. `APP_ORIGIN` يجب أن يكون origin الواجهة الذي يستقبل رابط الدعوة/الاستعادة. لا تستخدم Credential شخصية أو Production للتطوير.
 
 في الإنتاج، اجعل الواجهة والـAPI وراء HTTPS وreverse proxy على origin واحد أو اضبط `APP_ORIGIN` على origin الواجهة الحقيقي. Cookie الجلسة `Secure` في `NODE_ENV=production`. يجب أن يوجه proxy مسار `/api` و`/health` إلى الـAPI، وأن يقدّم ملفات `dist-web` بعد `npm run web:build`.
 
 ## الاختبارات والنسخ الاحتياطي
 
 `npm test` يشغّل اختبارات الوحدة الحالية. `npm run typecheck` و`npm run web:typecheck` و`npm run web:build` تفحص البناء. لا تُعتبر هذه بديلاً عن integration/E2E/load tests الواردة في `06`.
+`npm run test:integration` يستخدم Email adapter وهمياً، ولا يتصل بمزود بريد حقيقي. يتطلب تحقق SMTP sandbox/live حساباً أو Credential مخصصة ومصرحاً بها؛ حالياً الحالة `Live Verification Pending External Credential/Approval`. لا تشغّل worker ضد اتصال Production أثناء الاختبارات.
 
 لاختبارات API: أنشئ قاعدة منفصلة `lead_operations_test` داخل حاوية المشروع (`docker compose exec -T postgres createdb -U lead_operations lead_operations_test` مرة واحدة). اضبط `DATABASE_URL` على هذه القاعدة وطبّق `npm run db:migrate`، ثم اضبط `TEST_DATABASE_URL` على الرابط نفسه وشغّل `npm run test:integration`. الاختبار يرفض أي اسم قاعدة غير `lead_operations_test` ويفرّغ بياناتها قبل كل تشغيل؛ لا توجهه إلى قاعدة التطوير أو الإنتاج. لا تعرض روابط الاتصال أو كلمات المرور في السجل. قاعدة التطوير نفسها تبقى منفصلة.
 

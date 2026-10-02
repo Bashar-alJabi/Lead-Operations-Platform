@@ -2,6 +2,8 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { Database } from '../db.js';
 import { isProduction, sessionCookie } from '../config.js';
 import { HttpError, newToken, passwordHash, passwordVerify, principalFromRequest, requireBranch, requireRole, safeTokenEqual, sha256 } from '../security.js';
+import { enqueueIdentityEmail, identityEmailConnection } from '../identity-email.js';
+import { decodeCursor, encodeCursor } from '../pagination.js';
 
 const emailPattern = '^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$';
 const passwordSchema = { type: 'string', minLength: 12, maxLength: 256 } as const;
@@ -18,6 +20,7 @@ export function registerAuthRoutes(app: FastifyInstance, db: Database): void {
 
   app.post<{ Body: { token: string; organizationName: string; name: string; email: string; password: string } }>(
     '/api/setup/bootstrap', {
+      config: { rateLimit: { max: 5, timeWindow: '15 minutes' } },
       schema: { body: { type: 'object', additionalProperties: false, required: ['token','organizationName','name','email','password'], properties: {
         token: { type: 'string', minLength: 24 }, organizationName: { type: 'string', minLength: 1, maxLength: 200 },
         name: { type: 'string', minLength: 1, maxLength: 200 }, email: { type: 'string', pattern: emailPattern, maxLength: 320 }, password: passwordSchema,
@@ -49,9 +52,10 @@ export function registerAuthRoutes(app: FastifyInstance, db: Database): void {
       email: { type: 'string', maxLength: 320 }, password: { type: 'string', maxLength: 256 },
     } } },
   }, async (request, reply) => {
-    const rows = await db`SELECT id, password_hash, active FROM user_account WHERE email_normalized = ${request.body.email.trim().toLowerCase()} LIMIT 1`;
+    const rows = await db`SELECT id, password_hash, active, credential_state FROM user_account WHERE email_normalized = ${request.body.email.trim().toLowerCase()} LIMIT 1`;
     const user = rows[0];
-    const valid = user && user.active && await passwordVerify(user.password_hash, request.body.password);
+    const valid = user && user.active && user.credential_state === 'READY' && user.password_hash &&
+      await passwordVerify(user.password_hash, request.body.password);
     if (!valid) throw new HttpError(401, 'INVALID_CREDENTIALS');
     const token = newToken();
     await db`INSERT INTO user_session (user_id, token_hash, expires_at) VALUES (${user.id}, ${sha256(token)}, now() + interval '12 hours')`;
@@ -81,7 +85,7 @@ export function registerAuthRoutes(app: FastifyInstance, db: Database): void {
       }
       await tx`UPDATE user_account SET password_hash = ${newHash}, updated_at = now() WHERE id = ${actor.id}`;
       await tx`UPDATE user_session SET revoked_at = now() WHERE user_id = ${actor.id} AND revoked_at IS NULL`;
-      await tx`UPDATE password_reset SET used_at = now() WHERE user_id = ${actor.id} AND used_at IS NULL`;
+      await tx`UPDATE credential_token SET used_at = now() WHERE user_id = ${actor.id} AND used_at IS NULL`;
       await tx`INSERT INTO audit_log (organization_id, branch_id, actor_user_id, action, target_type, target_id)
         VALUES (${actor.organizationId}, ${actor.branchId}, ${actor.id}, 'PASSWORD_CHANGED', 'USER', ${actor.id})`;
     });
@@ -89,28 +93,116 @@ export function registerAuthRoutes(app: FastifyInstance, db: Database): void {
     return { ok: true };
   });
 
-  app.get('/api/auth/me', async (request) => principalFromRequest(request, db));
-
-  app.get('/api/users', async (request) => {
-    const actor = await principalFromRequest(request, db);
-    requireRole(actor, 'SUPER_ADMIN', 'MANAGER');
-    const rows = await db`SELECT id, branch_id, role, name, email, active, capacity, working_hours, created_at
-      FROM user_account WHERE organization_id = ${actor.organizationId}
-      AND (${actor.role === 'SUPER_ADMIN'} OR branch_id = ${actor.branchId})
-      ORDER BY created_at DESC LIMIT 100`;
-    return { items: rows };
+  app.post<{ Body: { email: string } }>('/api/auth/forgot', {
+    config: { rateLimit: { max: 5, timeWindow: '15 minutes' } },
+    schema: { body: { type: 'object', additionalProperties: false, required: ['email'], properties: {
+      email: { type: 'string', pattern: emailPattern, maxLength: 320 },
+    } } },
+  }, async (request, reply) => {
+    const generic = { accepted: true };
+    const users = await db`SELECT id, organization_id, branch_id, email FROM user_account
+      WHERE email_normalized = ${request.body.email.trim().toLowerCase()} AND active = true
+        AND credential_state = 'READY' LIMIT 1`;
+    const user = users[0];
+    if (!user) { reply.code(202); return generic; }
+    const connection = await identityEmailConnection(db, String(user.organization_id));
+    if (!connection || connection.status !== 'CONNECTED' || !connection.ciphertext) {
+      reply.code(202); return generic;
+    }
+    await db.begin(async (tx) => {
+      const locked = await tx`SELECT id FROM user_account WHERE id = ${user.id} AND active = true
+        AND credential_state = 'READY' FOR UPDATE`;
+      if (!locked.length) return;
+      const recent = await tx`SELECT 1 FROM credential_token WHERE user_id = ${user.id} AND purpose = 'RESET'
+        AND created_at > now() - interval '2 minutes' AND used_at IS NULL LIMIT 1`;
+      if (recent.length) return;
+      await tx`UPDATE credential_token SET used_at = now() WHERE user_id = ${user.id} AND purpose = 'RESET' AND used_at IS NULL`;
+      await enqueueIdentityEmail(tx, { userId: String(user.id), recipient: String(user.email), purpose: 'RESET', connectionId: String(connection.id) });
+      await tx`INSERT INTO audit_log (organization_id, branch_id, action, target_type, target_id)
+        VALUES (${user.organization_id}, ${user.branch_id}, 'PASSWORD_RESET_REQUESTED', 'USER', ${user.id})`;
+    });
+    reply.code(202); return generic;
   });
 
-  app.post<{ Body: { branchId?: string; role: 'SUPER_ADMIN'|'MANAGER'|'AGENT'; name: string; email: string; password: string; capacity?: number } }>('/api/users', {
-    schema: { body: { type: 'object', additionalProperties: false, required: ['role','name','email','password'], properties: {
+  app.post<{ Body: { token: string; password: string } }>('/api/auth/reset', {
+    config: { rateLimit: { max: 10, timeWindow: '15 minutes' } },
+    schema: { body: { type: 'object', additionalProperties: false, required: ['token','password'], properties: {
+      token: { type: 'string', minLength: 32, maxLength: 128 }, password: passwordSchema,
+    } } },
+  }, async (request) => {
+    const hashed = await passwordHash(request.body.password);
+    await db.begin(async (tx) => {
+      const rows = await tx`SELECT t.id AS token_id, u.id AS user_id, u.organization_id, u.branch_id
+        FROM credential_token t JOIN user_account u ON u.id = t.user_id
+        WHERE t.token_hash = ${sha256(request.body.token)} AND t.purpose = 'RESET'
+          AND t.used_at IS NULL AND t.expires_at > now() AND u.active = true AND u.credential_state = 'READY'
+        FOR UPDATE OF t, u`;
+      const row = rows[0];
+      if (!row) throw new HttpError(400, 'INVALID_RESET_TOKEN');
+      await tx`UPDATE user_account SET password_hash = ${hashed}, updated_at = now() WHERE id = ${row.user_id}`;
+      await tx`UPDATE credential_token SET used_at = now() WHERE user_id = ${row.user_id} AND used_at IS NULL`;
+      await tx`UPDATE user_session SET revoked_at = now() WHERE user_id = ${row.user_id} AND revoked_at IS NULL`;
+      await tx`INSERT INTO audit_log (organization_id, branch_id, action, target_type, target_id)
+        VALUES (${row.organization_id}, ${row.branch_id}, 'PASSWORD_RESET_COMPLETED', 'USER', ${row.user_id})`;
+    });
+    return { ok: true };
+  });
+
+  app.post<{ Body: { token: string; password: string } }>('/api/auth/invitations/accept', {
+    config: { rateLimit: { max: 10, timeWindow: '15 minutes' } },
+    schema: { body: { type: 'object', additionalProperties: false, required: ['token','password'], properties: {
+      token: { type: 'string', minLength: 32, maxLength: 128 }, password: passwordSchema,
+    } } },
+  }, async (request) => {
+    const hashed = await passwordHash(request.body.password);
+    await db.begin(async (tx) => {
+      const rows = await tx`SELECT t.id AS token_id, u.id AS user_id, u.organization_id, u.branch_id
+        FROM credential_token t JOIN user_account u ON u.id = t.user_id
+        WHERE t.token_hash = ${sha256(request.body.token)} AND t.purpose = 'INVITATION'
+          AND t.used_at IS NULL AND t.expires_at > now() AND u.active = true AND u.credential_state = 'INVITED'
+        FOR UPDATE OF t, u`;
+      const row = rows[0];
+      if (!row) throw new HttpError(400, 'INVALID_INVITATION_TOKEN');
+      await tx`UPDATE user_account SET password_hash = ${hashed}, credential_state = 'READY', updated_at = now()
+        WHERE id = ${row.user_id}`;
+      await tx`UPDATE credential_token SET used_at = now() WHERE user_id = ${row.user_id} AND used_at IS NULL`;
+      await tx`INSERT INTO audit_log (organization_id, branch_id, actor_user_id, action, target_type, target_id)
+        VALUES (${row.organization_id}, ${row.branch_id}, ${row.user_id}, 'INVITATION_ACCEPTED', 'USER', ${row.user_id})`;
+    });
+    return { ok: true };
+  });
+
+  app.get('/api/auth/me', async (request) => principalFromRequest(request, db));
+
+  app.get<{ Querystring: { limit?: number; cursor?: string } }>('/api/users', {
+    schema: { querystring: { type: 'object', additionalProperties: false, properties: {
+      limit: { type: 'integer', minimum: 1, maximum: 100 }, cursor: { type: 'string', maxLength: 256 },
+    } } },
+  }, async (request) => {
+    const actor = await principalFromRequest(request, db);
+    requireRole(actor, 'SUPER_ADMIN', 'MANAGER');
+    const cursor = decodeCursor(request.query.cursor);
+    const limit = request.query.limit ?? 50;
+    const rows = await db`SELECT id, branch_id, role, name, email, active, credential_state, capacity, working_hours, created_at
+      FROM user_account WHERE organization_id = ${actor.organizationId}
+      AND (${actor.role === 'SUPER_ADMIN'} OR branch_id = ${actor.branchId})
+      AND (${cursor?.timestamp ?? null}::timestamptz IS NULL OR (created_at, id) < (${cursor?.timestamp ?? null}::timestamptz, ${cursor?.id ?? null}::uuid))
+      ORDER BY created_at DESC, id DESC LIMIT ${limit + 1}`;
+    const items = rows.slice(0, limit);
+    const last = items.at(-1);
+    return { items, nextCursor: rows.length > limit && last ? encodeCursor({ timestamp: last.created_at.toISOString(), id: last.id }) : null };
+  });
+
+  app.post<{ Body: { branchId?: string; role: 'SUPER_ADMIN'|'MANAGER'|'AGENT'; name: string; email: string; capacity?: number } }>('/api/users', {
+    schema: { body: { type: 'object', additionalProperties: false, required: ['role','name','email'], properties: {
       branchId: { type: 'string', format: 'uuid' }, role: { enum: ['SUPER_ADMIN','MANAGER','AGENT'] },
       name: { type: 'string', minLength: 1, maxLength: 200 }, email: { type: 'string', pattern: emailPattern, maxLength: 320 },
-      password: passwordSchema, capacity: { type: 'integer', minimum: 0 },
+      capacity: { type: 'integer', minimum: 0 },
     } } },
   }, async (request, reply) => {
     const actor = await principalFromRequest(request, db);
     requireRole(actor, 'SUPER_ADMIN', 'MANAGER');
-    const { branchId, role, name, email, password, capacity } = request.body;
+    const { branchId, role, name, email, capacity } = request.body;
     if (actor.role === 'MANAGER' && role !== 'AGENT') throw new HttpError(403, 'FORBIDDEN');
     if (role === 'SUPER_ADMIN' ? branchId != null : !branchId) throw new HttpError(400, 'INVALID_BRANCH');
     if (branchId) {
@@ -118,16 +210,43 @@ export function registerAuthRoutes(app: FastifyInstance, db: Database): void {
       const branches = await db`SELECT 1 FROM branch WHERE id = ${branchId} AND organization_id = ${actor.organizationId} AND active = true`;
       if (!branches.length) throw new HttpError(404, 'BRANCH_NOT_FOUND');
     }
-    const hashed = await passwordHash(password);
-    const rows = await db.begin(async (tx) => {
-      const users = await tx`INSERT INTO user_account (organization_id, branch_id, role, name, email, password_hash, capacity)
-        VALUES (${actor.organizationId}, ${branchId ?? null}, ${role}, ${name.trim()}, ${email.trim()}, ${hashed}, ${capacity ?? null}) RETURNING id`;
+    const connection = await identityEmailConnection(db, actor.organizationId);
+    if (!connection || connection.status !== 'CONNECTED' || !connection.ciphertext) throw new HttpError(409, 'IDENTITY_EMAIL_UNAVAILABLE');
+    const id = await db.begin(async (tx) => {
+      const users = await tx`INSERT INTO user_account
+        (organization_id, branch_id, role, name, email, password_hash, credential_state, capacity)
+        VALUES (${actor.organizationId}, ${branchId ?? null}, ${role}, ${name.trim()}, ${email.trim()}, NULL, 'INVITED', ${capacity ?? null})
+        ON CONFLICT DO NOTHING RETURNING id`;
+      if (!users[0]) throw new HttpError(409, 'USER_ALREADY_EXISTS');
+      const userId = String(users[0].id);
+      await enqueueIdentityEmail(tx, { userId, recipient: email.trim(), purpose: 'INVITATION', connectionId: String(connection.id) });
       await tx`INSERT INTO audit_log (organization_id, branch_id, actor_user_id, action, target_type, target_id)
-        VALUES (${actor.organizationId}, ${branchId ?? null}, ${actor.id}, 'USER_CREATED', 'USER', ${users[0]!.id})`;
-      return users;
+        VALUES (${actor.organizationId}, ${branchId ?? null}, ${actor.id}, 'USER_INVITED', 'USER', ${userId})`;
+      return userId;
     });
-    reply.code(201);
-    return { id: rows[0]!.id };
+    reply.code(201); return { id, delivery: 'QUEUED' };
+  });
+
+  app.post<{ Params: { id: string } }>('/api/users/:id/invitation', {
+    schema: { params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } },
+  }, async (request) => {
+    const actor = await principalFromRequest(request, db);
+    requireRole(actor, 'SUPER_ADMIN', 'MANAGER');
+    const connection = await identityEmailConnection(db, actor.organizationId);
+    if (!connection || connection.status !== 'CONNECTED' || !connection.ciphertext) throw new HttpError(409, 'IDENTITY_EMAIL_UNAVAILABLE');
+    await db.begin(async (tx) => {
+      const rows = await tx`SELECT id, branch_id, role, email, active, credential_state FROM user_account
+        WHERE id = ${request.params.id} AND organization_id = ${actor.organizationId} FOR UPDATE`;
+      const target = rows[0];
+      if (!target) throw new HttpError(404, 'USER_NOT_FOUND');
+      if (actor.role === 'MANAGER' && (target.role !== 'AGENT' || target.branch_id !== actor.branchId)) throw new HttpError(403, 'FORBIDDEN');
+      if (!target.active || target.credential_state !== 'INVITED') throw new HttpError(409, 'INVITATION_NOT_AVAILABLE');
+      await tx`UPDATE credential_token SET used_at = now() WHERE user_id = ${target.id} AND purpose = 'INVITATION' AND used_at IS NULL`;
+      await enqueueIdentityEmail(tx, { userId: String(target.id), recipient: String(target.email), purpose: 'INVITATION', connectionId: String(connection.id) });
+      await tx`INSERT INTO audit_log (organization_id, branch_id, actor_user_id, action, target_type, target_id)
+        VALUES (${actor.organizationId}, ${target.branch_id}, ${actor.id}, 'INVITATION_RESENT', 'USER', ${target.id})`;
+    });
+    return { delivery: 'QUEUED' };
   });
 
   app.patch<{ Params: { id: string }; Body: { active: boolean } }>('/api/users/:id/status', {

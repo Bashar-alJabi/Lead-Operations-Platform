@@ -11,10 +11,11 @@
     "web:build": "vite build --config web/vite.config.ts",
     "web:typecheck": "tsc -p web/tsconfig.json",
     "start": "node dist/src/server.js",
+    "worker:identity": "node dist/src/identity-worker.js",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "npm run build && node --test dist/test/*.test.js",
-    "test:integration": "npm run build && node --test dist/test-integration/*.test.js",
+    "test:integration": "npm run build && node --test --test-concurrency=1 dist/test-integration/*.test.js",
     "db:migrate": "npm run build && node dist/scripts/migrate.js",
     "db:local": "npm run build && node dist/scripts/local-postgres.js"
   },
@@ -24,12 +25,14 @@
     "@fastify/rate-limit": "^10.0.0",
     "@node-rs/argon2": "^2.0.0",
     "fastify": "^5.0.0",
+    "nodemailer": "^10.0.13",
     "postgres": "^3.4.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "@types/nodemailer": "^8.0.2",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "embedded-postgres": "18.4.0-beta.17",
