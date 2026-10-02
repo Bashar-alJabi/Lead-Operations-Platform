@@ -25,7 +25,7 @@
 
 ## بيئة التطوير ومسألة PostgreSQL
 
-Node.js 24.19.0 وnpm 11.17.0 وpnpm 11.25.0 متاحة. Docker/PostgreSQL/Python ليست في PATH، وWSL يرفض تعداد التوزيعات. ثُبتت حزمة `embedded-postgres` المحلية للتطوير فقط، لكن تشغيلها داخل العزل فشل بخطأ Windows `uv_os_get_passwd ENOMEM`. طلب تشغيل PostgreSQL المحلي خارج العزل رُفض؛ لم تُعد المحاولة عبر مسار آخر. لا توجد Production credentials أو حسابات شخصية مستخدمة. ملفات `.local` و`.env` مستثناة من Git.
+Node.js 24.19.0 وnpm 11.17.0 وpnpm 11.25.0 متاحة. Docker/PostgreSQL/Python ليست في PATH، وWSL يرفض تعداد التوزيعات. ثُبتت حزمة `embedded-postgres` المحلية للتطوير فقط، لكن تشغيلها داخل العزل فشل بخطأ Windows `uv_os_get_passwd ENOMEM` حتى بعد تبديل `tsx` إلى JavaScript مبني؛ الخطأ داخل constructor للحزمة. طلب تشغيل PostgreSQL المحلي خارج العزل لم تُمنح له الموافقة. لا توجد Production credentials أو حسابات شخصية مستخدمة. ملفات `.local` و`.env` مستثناة من Git.
 
 ## ما بقي وأولوية المتابعة
 
