@@ -35,6 +35,13 @@ export function registerOperationsRoutes(app: FastifyInstance, db: Database): vo
 
   app.get('/api/campaigns', async (request) => {
     const actor = await principalFromRequest(request, db);
+    if (actor.role === 'AGENT') {
+      const rows = await db`SELECT c.id, c.branch_id, c.name, c.status
+        FROM campaign c WHERE c.organization_id = ${actor.organizationId}
+          AND EXISTS (SELECT 1 FROM lead l WHERE l.campaign_id = c.id AND l.assigned_agent_id = ${actor.id})
+        ORDER BY c.created_at DESC, c.id DESC LIMIT 100`;
+      return { items: rows };
+    }
     const rows = await db`SELECT c.id, c.branch_id, c.name, c.status, c.source_kind, c.routing_method, c.created_at,
       COALESCE(jsonb_agg(jsonb_build_object('agentId', ca.agent_id, 'name', u.name) ORDER BY u.name)
         FILTER (WHERE ca.active = true AND u.id IS NOT NULL), '[]'::jsonb) AS agents

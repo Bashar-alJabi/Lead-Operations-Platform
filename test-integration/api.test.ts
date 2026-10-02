@@ -103,6 +103,13 @@ test('PostgreSQL API: bootstrap, isolation, sessions, and concurrent routing', a
   assert.deepEqual(new Set(assigned.map((row) => row.assigned_agent_id).filter(Boolean)), new Set([agentA1, agentA2]));
   assert.equal(assigned.filter((row) => row.needs_attention_reason === 'NO_ELIGIBLE_AGENT').length, 1);
   const firstAssigned = assigned.find((row) => row.assigned_agent_id === agentA1)!;
+  const unrelatedCampaign = await send('POST', '/api/campaigns', { branchId: branchA, name: 'Unrelated' }, managerA);
+  assert.equal(unrelatedCampaign.statusCode, 201, unrelatedCampaign.body);
+  const agentCampaigns = await send('GET', '/api/campaigns', undefined, agent1);
+  assert.equal(agentCampaigns.statusCode, 200, agentCampaigns.body);
+  assert.deepEqual(agentCampaigns.json().items.map((campaign: { id: string }) => campaign.id), [campaignId]);
+  assert.equal('routing_method' in agentCampaigns.json().items[0], false);
+  assert.equal('agents' in agentCampaigns.json().items[0], false);
   assert.equal((await send('GET', `/api/leads/${firstAssigned.id}`, undefined, agent1)).statusCode, 200);
   assert.equal((await send('GET', `/api/leads/${firstAssigned.id}`, undefined, agent2)).statusCode, 404);
   assert.equal((await send('GET', `/api/leads/${firstAssigned.id}`, undefined, managerB)).statusCode, 404);

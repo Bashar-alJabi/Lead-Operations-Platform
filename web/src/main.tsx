@@ -5,7 +5,7 @@ import './style.css';
 type Role = 'SUPER_ADMIN' | 'MANAGER' | 'AGENT';
 type User = { id: string; organizationId: string; branchId: string | null; role: Role; name: string; email: string };
 type Branch = { id: string; name: string; timezone: string; active: boolean };
-type Campaign = { id: string; branch_id: string; name: string; status: string; routing_method: string; agents: { agentId: string; name: string }[] };
+type Campaign = { id: string; branch_id: string; name: string; status: string; routing_method?: string; agents?: { agentId: string; name: string }[] };
 type Lead = { id: string; branch_id: string; campaign_id: string; assigned_agent_id: string | null; lifecycle: string; contact_name: string; phone: string | null; email: string | null; needs_attention_reason: string | null; created_at: string };
 type ManagedUser = { id: string; branch_id: string | null; role: Role; name: string; email: string; active: boolean };
 type Locale = 'ar' | 'fr' | 'en';
@@ -117,7 +117,7 @@ function App() {
   const isAdmin = user.role === 'SUPER_ADMIN';
   const canManage = user.role !== 'AGENT';
   return <div className="app-shell"><aside className="sidebar"><div className="brand">{t.app}</div><div className="user-block"><strong>{user.name}</strong><span>{user.role.replace('_', ' ')}</span></div>
-    <nav>{(['leads','campaigns','branches','users','profile'] as Page[]).filter((item) => item !== 'users' || canManage).map((item) =>
+    <nav>{(['leads','campaigns','branches','users','profile'] as Page[]).filter((item) => canManage || item === 'leads' || item === 'profile').map((item) =>
       <button key={item} className={page === item ? 'selected' : ''} onClick={() => { setPage(item); setSelectedLead(null); setShowForm(false); setForm({}); }}>{t[item]}</button>)}</nav>
     <div className="sidebar-bottom">{language}<button onClick={() => { void api('/api/auth/logout', { method: 'POST' }).then(() => setUser(null)); }}>{t.logout}</button></div>
   </aside><main className="content"><header><div><small>Lead Operations</small><h1>{selectedLead ? t.details : t[page]}</h1></div><button className="secondary" onClick={() => void refresh()} disabled={busy}>{t.retry}</button></header>
@@ -152,10 +152,10 @@ function App() {
         page === 'branches' ? <><th>{t.name}</th><th>{t.timezone}</th><th>{t.status}</th></> :
         <><th>{t.name}</th><th>{t.email}</th><th>{t.role}</th><th>{t.branch}</th><th>{t.status}</th><th>{t.actions}</th></>}</tr></thead><tbody>
         {page === 'leads' && leads.map((lead) => <tr key={lead.id}><td><strong>{lead.contact_name}</strong><small>{lead.phone || lead.email}</small></td><td>{campaigns.find((item) => item.id === lead.campaign_id)?.name || lead.campaign_id}</td><td>{branches.find((item) => item.id === lead.branch_id)?.name || '—'}</td><td><span className="badge">{lead.lifecycle}</span>{lead.needs_attention_reason && <small className="attention">{t.attention}</small>}</td><td>{users.find((item) => item.id === lead.assigned_agent_id)?.name || '—'}</td><td><button className="link" onClick={() => setSelectedLead(lead.id)}>{t.details}</button></td></tr>)}
-        {page === 'campaigns' && campaigns.map((campaign) => <tr key={campaign.id}><td><strong>{campaign.name}</strong></td><td>{branches.find((item) => item.id === campaign.branch_id)?.name || '—'}</td><td><span className="badge">{campaign.status}</span></td><td>{campaign.routing_method}<small>{campaign.agents.map((agent) => agent.name).join(', ') || '—'}</small></td><td>{canManage && <div className="actions">
+        {page === 'campaigns' && campaigns.map((campaign) => <tr key={campaign.id}><td><strong>{campaign.name}</strong></td><td>{branches.find((item) => item.id === campaign.branch_id)?.name || '—'}</td><td><span className="badge">{campaign.status}</span></td><td>{campaign.routing_method}<small>{campaign.agents?.map((agent) => agent.name).join(', ') || '—'}</small></td><td>{canManage && <div className="actions">
           {campaign.status !== 'ACTIVE' && <button className="link" onClick={() => void submit(`/api/campaigns/${campaign.id}/activate`, {})}>{t.activate}</button>}
           <select aria-label={t.assignAgent} value={campaignAgentChoice[campaign.id] ?? ''} onChange={(event) => setCampaignAgentChoice({ ...campaignAgentChoice, [campaign.id]: event.target.value })}>
-            <option value="">{t.select}</option>{users.filter((item) => item.role === 'AGENT' && item.active && item.branch_id === campaign.branch_id && !campaign.agents.some((agent) => agent.agentId === item.id))
+            <option value="">{t.select}</option>{users.filter((item) => item.role === 'AGENT' && item.active && item.branch_id === campaign.branch_id && !campaign.agents?.some((agent) => agent.agentId === item.id))
               .map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
           </select><button className="link" disabled={!campaignAgentChoice[campaign.id] || busy} onClick={() => { setBusy(true); setError('');
             void api(`/api/campaigns/${campaign.id}/agents`, { method: 'PUT', body: JSON.stringify({ agentId: campaignAgentChoice[campaign.id] }) })

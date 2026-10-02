@@ -5,7 +5,7 @@
 | المجال | المراجع | التنفيذ الحالي | الاختبارات | الحالة |
 |---|---|---|---|---|
 | Authentication | README، 00، 02، 06 | Bootstrap، login/logout، session hash، تغيير كلمة المرور وإبطال الجلسات، تعطيل حساب؛ forgot reset/invite غير منفذين | Argon2/token unit؛ API bootstrap race/session/disable/password change ناجح على PostgreSQL | جزئي |
-| Roles/Permissions | 02، 06 | Branch/Lead access في بعض API؛ لم تُغط كل الوحدات | Branch unit؛ API cross-branch/agent access وOrigin ناجح | جزئي |
+| Roles/Permissions | 02، 06 | Branch/Lead access في بعض API؛ Agent campaign list محصورة بحملات Leads المسموحة ودون إعدادات التوزيع؛ لم تُغط كل الوحدات | Branch unit؛ API cross-branch/agent/campaign access وOrigin ناجح | جزئي |
 | Branches | 00، 01، 03 | Schema وcreate/list UI/API | API create/branch boundary ناجح | جزئي |
 | Contacts | 00، 01، 02 | Schema ومطابقة أولية عند manual intake | API contact reuse المتزامن ناجح؛ canonical phone ناقص | جزئي |
 | Leads | 00، 01، 02 | Manual intake، lifecycle، activity، list/detail، keyset pagination | Cursor unit؛ API intake/access/lifecycle/pagination ناجح | جزئي |
