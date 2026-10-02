@@ -35,9 +35,13 @@ export function registerOperationsRoutes(app: FastifyInstance, db: Database): vo
 
   app.get('/api/campaigns', async (request) => {
     const actor = await principalFromRequest(request, db);
-    const rows = await db`SELECT id, branch_id, name, status, source_kind, routing_method, created_at FROM campaign
-      WHERE organization_id = ${actor.organizationId} AND (${actor.role === 'SUPER_ADMIN'} OR branch_id = ${actor.branchId})
-      ORDER BY created_at DESC, id DESC LIMIT 100`;
+    const rows = await db`SELECT c.id, c.branch_id, c.name, c.status, c.source_kind, c.routing_method, c.created_at,
+      COALESCE(jsonb_agg(jsonb_build_object('agentId', ca.agent_id, 'name', u.name) ORDER BY u.name)
+        FILTER (WHERE ca.active = true AND u.id IS NOT NULL), '[]'::jsonb) AS agents
+      FROM campaign c LEFT JOIN campaign_agent ca ON ca.campaign_id = c.id
+      LEFT JOIN user_account u ON u.id = ca.agent_id
+      WHERE c.organization_id = ${actor.organizationId} AND (${actor.role === 'SUPER_ADMIN'} OR c.branch_id = ${actor.branchId})
+      GROUP BY c.id ORDER BY c.created_at DESC, c.id DESC LIMIT 100`;
     return { items: rows };
   });
 

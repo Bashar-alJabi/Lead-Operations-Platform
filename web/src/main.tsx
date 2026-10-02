@@ -5,16 +5,28 @@ import './style.css';
 type Role = 'SUPER_ADMIN' | 'MANAGER' | 'AGENT';
 type User = { id: string; organizationId: string; branchId: string | null; role: Role; name: string; email: string };
 type Branch = { id: string; name: string; timezone: string; active: boolean };
-type Campaign = { id: string; branch_id: string; name: string; status: string; routing_method: string };
+type Campaign = { id: string; branch_id: string; name: string; status: string; routing_method: string; agents: { agentId: string; name: string }[] };
 type Lead = { id: string; branch_id: string; campaign_id: string; assigned_agent_id: string | null; lifecycle: string; contact_name: string; phone: string | null; email: string | null; needs_attention_reason: string | null; created_at: string };
 type ManagedUser = { id: string; branch_id: string | null; role: Role; name: string; email: string; active: boolean };
 type Locale = 'ar' | 'fr' | 'en';
-type Page = 'leads' | 'campaigns' | 'branches' | 'users';
+type Page = 'leads' | 'campaigns' | 'branches' | 'users' | 'profile';
 
 const labels = {
   ar: { app: 'إدارة العملاء والعمليات', login: 'تسجيل الدخول', setup: 'إعداد المسؤول الأول', email: 'البريد الإلكتروني', password: 'كلمة المرور', token: 'رمز التهيئة', organization: 'اسم المؤسسة', name: 'الاسم', enter: 'دخول', save: 'حفظ', create: 'إنشاء', logout: 'خروج', leads: 'الفرص', campaigns: 'الحملات', branches: 'الفروع', users: 'المستخدمون', noData: 'لا توجد سجلات بعد.', loading: 'جاري التحميل…', branch: 'الفرع', campaign: 'الحملة', contact: 'جهة الاتصال', phone: 'الهاتف', timezone: 'المنطقة الزمنية', role: 'الدور', status: 'الحالة', routing: 'التوزيع', details: 'التفاصيل', active: 'نشط', inactive: 'غير نشط', source: 'المصدر', newLead: 'فرصة جديدة', newCampaign: 'حملة جديدة', newBranch: 'فرع جديد', newUser: 'مستخدم جديد', lifecycle: 'حالة الفرصة', assign: 'المسؤول', actions: 'إجراءات', close: 'إغلاق', reopen: 'إعادة فتح', archive: 'أرشفة', activity: 'النشاط', back: 'عودة', initialSetup: 'أدخل رمز التهيئة الذي أنشأه مسؤول النشر.', accessDenied: 'غير مصرح لك بهذه العملية.', error: 'تعذّر إكمال الطلب.', retry: 'إعادة المحاولة', sourceManual: 'يدوي', activate: 'تفعيل', select: 'اختر', attention: 'بحاجة إلى متابعة' },
   fr: { app: 'Opérations commerciales', login: 'Connexion', setup: 'Premier administrateur', email: 'Adresse e-mail', password: 'Mot de passe', token: 'Jeton initial', organization: 'Organisation', name: 'Nom', enter: 'Se connecter', save: 'Enregistrer', create: 'Créer', logout: 'Déconnexion', leads: 'Prospects', campaigns: 'Campagnes', branches: 'Agences', users: 'Utilisateurs', noData: 'Aucun élément pour le moment.', loading: 'Chargement…', branch: 'Agence', campaign: 'Campagne', contact: 'Contact', phone: 'Téléphone', timezone: 'Fuseau horaire', role: 'Rôle', status: 'État', routing: 'Attribution', details: 'Détails', active: 'Actif', inactive: 'Inactif', source: 'Source', newLead: 'Nouveau prospect', newCampaign: 'Nouvelle campagne', newBranch: 'Nouvelle agence', newUser: 'Nouvel utilisateur', lifecycle: 'Cycle', assign: 'Responsable', actions: 'Actions', close: 'Fermer', reopen: 'Rouvrir', archive: 'Archiver', activity: 'Activité', back: 'Retour', initialSetup: 'Saisissez le jeton créé par le responsable du déploiement.', accessDenied: 'Action non autorisée.', error: 'La demande a échoué.', retry: 'Réessayer', sourceManual: 'Manuel', activate: 'Activer', select: 'Choisir', attention: 'À examiner' },
   en: { app: 'Lead operations', login: 'Sign in', setup: 'First administrator', email: 'Email', password: 'Password', token: 'Setup token', organization: 'Organization', name: 'Name', enter: 'Sign in', save: 'Save', create: 'Create', logout: 'Sign out', leads: 'Leads', campaigns: 'Campaigns', branches: 'Branches', users: 'Users', noData: 'No records yet.', loading: 'Loading…', branch: 'Branch', campaign: 'Campaign', contact: 'Contact', phone: 'Phone', timezone: 'Time zone', role: 'Role', status: 'Status', routing: 'Routing', details: 'Details', active: 'Active', inactive: 'Inactive', source: 'Source', newLead: 'New lead', newCampaign: 'New campaign', newBranch: 'New branch', newUser: 'New user', lifecycle: 'Lead lifecycle', assign: 'Owner', actions: 'Actions', close: 'Close', reopen: 'Reopen', archive: 'Archive', activity: 'Activity', back: 'Back', initialSetup: 'Enter the one-time token from the deployment administrator.', accessDenied: 'You do not have access.', error: 'The request failed.', retry: 'Retry', sourceManual: 'Manual', activate: 'Activate', select: 'Select', attention: 'Needs attention' },
+} as const;
+
+const profileLabels = {
+  ar: { profile: 'حسابي', currentPassword: 'كلمة المرور الحالية', newPassword: 'كلمة المرور الجديدة', passwordChanged: 'ستُنهى جميع جلساتك بعد تغيير كلمة المرور.' },
+  fr: { profile: 'Mon compte', currentPassword: 'Mot de passe actuel', newPassword: 'Nouveau mot de passe', passwordChanged: 'Toutes vos sessions seront fermées après le changement.' },
+  en: { profile: 'My account', currentPassword: 'Current password', newPassword: 'New password', passwordChanged: 'All your sessions will end after changing your password.' },
+} as const;
+
+const managementLabels = {
+  ar: { assignAgent: 'إضافة وكيل', disable: 'تعطيل', enable: 'تفعيل الحساب' },
+  fr: { assignAgent: 'Ajouter un agent', disable: 'Désactiver', enable: 'Activer le compte' },
+  en: { assignAgent: 'Add agent', disable: 'Disable', enable: 'Enable account' },
 } as const;
 
 async function api<T>(path: string, options?: RequestInit): Promise<T> {
@@ -26,7 +38,7 @@ async function api<T>(path: string, options?: RequestInit): Promise<T> {
 
 function App() {
   const [locale, setLocale] = useState<Locale>(() => (localStorage.getItem('lop-locale') as Locale) || 'ar');
-  const t = labels[locale];
+  const t = { ...labels[locale], ...profileLabels[locale], ...managementLabels[locale] };
   const [user, setUser] = useState<User | null>(null);
   const [initialized, setInitialized] = useState<boolean | null>(null);
   const [page, setPage] = useState<Page>('leads');
@@ -41,6 +53,7 @@ function App() {
   const [error, setError] = useState('');
   const [form, setForm] = useState<Record<string, string>>({});
   const [showForm, setShowForm] = useState(false);
+  const [campaignAgentChoice, setCampaignAgentChoice] = useState<Record<string, string>>({});
 
   useEffect(() => {
     document.documentElement.lang = locale;
@@ -104,13 +117,18 @@ function App() {
   const isAdmin = user.role === 'SUPER_ADMIN';
   const canManage = user.role !== 'AGENT';
   return <div className="app-shell"><aside className="sidebar"><div className="brand">{t.app}</div><div className="user-block"><strong>{user.name}</strong><span>{user.role.replace('_', ' ')}</span></div>
-    <nav>{(['leads','campaigns','branches','users'] as Page[]).filter((item) => item !== 'users' || canManage).map((item) =>
+    <nav>{(['leads','campaigns','branches','users','profile'] as Page[]).filter((item) => item !== 'users' || canManage).map((item) =>
       <button key={item} className={page === item ? 'selected' : ''} onClick={() => { setPage(item); setSelectedLead(null); setShowForm(false); setForm({}); }}>{t[item]}</button>)}</nav>
     <div className="sidebar-bottom">{language}<button onClick={() => { void api('/api/auth/logout', { method: 'POST' }).then(() => setUser(null)); }}>{t.logout}</button></div>
   </aside><main className="content"><header><div><small>Lead Operations</small><h1>{selectedLead ? t.details : t[page]}</h1></div><button className="secondary" onClick={() => void refresh()} disabled={busy}>{t.retry}</button></header>
     {error && <div role="alert" className="error">{error}</div>}
     {busy && <div className="loading">{t.loading}</div>}
-    {selectedLead && detail ? <section className="panel"><button className="link" onClick={() => setSelectedLead(null)}>{t.back}</button><h2>{detail.lead.contact_name}</h2>
+    {page === 'profile' ? <section className="panel form-panel"><h2>{t.profile}</h2><p>{t.passwordChanged}</p>
+      <form onSubmit={(event) => { event.preventDefault(); setBusy(true); setError('');
+        void api('/api/auth/password', { method: 'POST', body: JSON.stringify({ currentPassword: form.currentPassword, newPassword: form.newPassword }) })
+          .then(() => { setUser(null); setForm({}); setPage('leads'); }).catch((failure) => setError(String(failure))).finally(() => setBusy(false)); }}>
+        {field('currentPassword', t.currentPassword, 'password')}{field('newPassword', t.newPassword, 'password')}
+        <button disabled={busy}>{t.save}</button></form></section> : selectedLead && detail ? <section className="panel"><button className="link" onClick={() => setSelectedLead(null)}>{t.back}</button><h2>{detail.lead.contact_name}</h2>
       <div className="facts"><div><small>{t.phone}</small><strong>{detail.lead.phone || '—'}</strong></div><div><small>{t.email}</small><strong>{detail.lead.email || '—'}</strong></div>
       <div><small>{t.lifecycle}</small><strong>{detail.lead.lifecycle}</strong></div><div><small>{t.assign}</small><strong>{users.find((item) => item.id === detail.lead.assigned_agent_id)?.name || '—'}</strong></div></div>
       {canManage && <div className="actions">{(['OPEN','CLOSED','ARCHIVED'] as const).filter((state) => state !== detail.lead.lifecycle).map((state) =>
@@ -132,11 +150,23 @@ function App() {
       <section className="panel table-panel"><div className="table-scroll"><table><thead><tr>{page === 'leads' ? <><th>{t.contact}</th><th>{t.campaign}</th><th>{t.branch}</th><th>{t.lifecycle}</th><th>{t.assign}</th><th>{t.actions}</th></> :
         page === 'campaigns' ? <><th>{t.name}</th><th>{t.branch}</th><th>{t.status}</th><th>{t.routing}</th><th>{t.actions}</th></> :
         page === 'branches' ? <><th>{t.name}</th><th>{t.timezone}</th><th>{t.status}</th></> :
-        <><th>{t.name}</th><th>{t.email}</th><th>{t.role}</th><th>{t.branch}</th><th>{t.status}</th></>}</tr></thead><tbody>
+        <><th>{t.name}</th><th>{t.email}</th><th>{t.role}</th><th>{t.branch}</th><th>{t.status}</th><th>{t.actions}</th></>}</tr></thead><tbody>
         {page === 'leads' && leads.map((lead) => <tr key={lead.id}><td><strong>{lead.contact_name}</strong><small>{lead.phone || lead.email}</small></td><td>{campaigns.find((item) => item.id === lead.campaign_id)?.name || lead.campaign_id}</td><td>{branches.find((item) => item.id === lead.branch_id)?.name || '—'}</td><td><span className="badge">{lead.lifecycle}</span>{lead.needs_attention_reason && <small className="attention">{t.attention}</small>}</td><td>{users.find((item) => item.id === lead.assigned_agent_id)?.name || '—'}</td><td><button className="link" onClick={() => setSelectedLead(lead.id)}>{t.details}</button></td></tr>)}
-        {page === 'campaigns' && campaigns.map((campaign) => <tr key={campaign.id}><td><strong>{campaign.name}</strong></td><td>{branches.find((item) => item.id === campaign.branch_id)?.name || '—'}</td><td><span className="badge">{campaign.status}</span></td><td>{campaign.routing_method}</td><td>{canManage && campaign.status !== 'ACTIVE' && <button className="link" onClick={() => void submit(`/api/campaigns/${campaign.id}/activate`, {})}>{t.activate}</button>}</td></tr>)}
+        {page === 'campaigns' && campaigns.map((campaign) => <tr key={campaign.id}><td><strong>{campaign.name}</strong></td><td>{branches.find((item) => item.id === campaign.branch_id)?.name || '—'}</td><td><span className="badge">{campaign.status}</span></td><td>{campaign.routing_method}<small>{campaign.agents.map((agent) => agent.name).join(', ') || '—'}</small></td><td>{canManage && <div className="actions">
+          {campaign.status !== 'ACTIVE' && <button className="link" onClick={() => void submit(`/api/campaigns/${campaign.id}/activate`, {})}>{t.activate}</button>}
+          <select aria-label={t.assignAgent} value={campaignAgentChoice[campaign.id] ?? ''} onChange={(event) => setCampaignAgentChoice({ ...campaignAgentChoice, [campaign.id]: event.target.value })}>
+            <option value="">{t.select}</option>{users.filter((item) => item.role === 'AGENT' && item.active && item.branch_id === campaign.branch_id && !campaign.agents.some((agent) => agent.agentId === item.id))
+              .map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+          </select><button className="link" disabled={!campaignAgentChoice[campaign.id] || busy} onClick={() => { setBusy(true); setError('');
+            void api(`/api/campaigns/${campaign.id}/agents`, { method: 'PUT', body: JSON.stringify({ agentId: campaignAgentChoice[campaign.id] }) })
+              .then(() => { setCampaignAgentChoice({ ...campaignAgentChoice, [campaign.id]: '' }); return refresh(); })
+              .catch((failure) => setError(String(failure))).finally(() => setBusy(false)); }}>{t.assignAgent}</button>
+        </div>}</td></tr>)}
         {page === 'branches' && branches.map((branch) => <tr key={branch.id}><td><strong>{branch.name}</strong></td><td>{branch.timezone}</td><td>{branch.active ? t.active : t.inactive}</td></tr>)}
-        {page === 'users' && users.map((item) => <tr key={item.id}><td><strong>{item.name}</strong></td><td>{item.email}</td><td>{item.role}</td><td>{branches.find((branch) => branch.id === item.branch_id)?.name || '—'}</td><td>{item.active ? t.active : t.inactive}</td></tr>)}
+        {page === 'users' && users.map((item) => <tr key={item.id}><td><strong>{item.name}</strong></td><td>{item.email}</td><td>{item.role}</td><td>{branches.find((branch) => branch.id === item.branch_id)?.name || '—'}</td><td>{item.active ? t.active : t.inactive}</td><td>{item.id !== user.id && (isAdmin || (item.role === 'AGENT' && item.branch_id === user.branchId)) &&
+          <button className="link" disabled={busy} onClick={() => { setBusy(true); setError('');
+            void api(`/api/users/${item.id}/status`, { method: 'PATCH', body: JSON.stringify({ active: !item.active }) })
+              .then(() => refresh()).catch((failure) => setError(String(failure))).finally(() => setBusy(false)); }}>{item.active ? t.disable : t.enable}</button>}</td></tr>)}
         </tbody></table></div>{(page === 'leads' ? leads : page === 'campaigns' ? campaigns : page === 'branches' ? branches : users).length === 0 && <div className="empty">{t.noData}</div>}
         {page === 'leads' && nextLeadCursor && <div className="load-more"><button className="secondary" disabled={busy} onClick={() => { setBusy(true);
           api<{ items: Lead[]; nextCursor: string | null }>(`/api/leads?limit=50&cursor=${encodeURIComponent(nextLeadCursor)}`)

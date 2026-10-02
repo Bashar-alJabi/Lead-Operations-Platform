@@ -66,6 +66,29 @@ export function registerAuthRoutes(app: FastifyInstance, db: Database): void {
     return { ok: true };
   });
 
+  app.post<{ Body: { currentPassword: string; newPassword: string } }>('/api/auth/password', {
+    config: { rateLimit: { max: 10, timeWindow: '15 minutes' } },
+    schema: { body: { type: 'object', additionalProperties: false, required: ['currentPassword','newPassword'], properties: {
+      currentPassword: { type: 'string', minLength: 1, maxLength: 256 }, newPassword: passwordSchema,
+    } } },
+  }, async (request, reply) => {
+    const actor = await principalFromRequest(request, db);
+    const newHash = await passwordHash(request.body.newPassword);
+    await db.begin(async (tx) => {
+      const rows = await tx`SELECT password_hash FROM user_account WHERE id = ${actor.id} AND active = true FOR UPDATE`;
+      if (!rows[0] || !await passwordVerify(rows[0].password_hash, request.body.currentPassword)) {
+        throw new HttpError(401, 'INVALID_CREDENTIALS');
+      }
+      await tx`UPDATE user_account SET password_hash = ${newHash}, updated_at = now() WHERE id = ${actor.id}`;
+      await tx`UPDATE user_session SET revoked_at = now() WHERE user_id = ${actor.id} AND revoked_at IS NULL`;
+      await tx`UPDATE password_reset SET used_at = now() WHERE user_id = ${actor.id} AND used_at IS NULL`;
+      await tx`INSERT INTO audit_log (organization_id, branch_id, actor_user_id, action, target_type, target_id)
+        VALUES (${actor.organizationId}, ${actor.branchId}, ${actor.id}, 'PASSWORD_CHANGED', 'USER', ${actor.id})`;
+    });
+    reply.clearCookie(sessionCookie, { path: '/' });
+    return { ok: true };
+  });
+
   app.get('/api/auth/me', async (request) => principalFromRequest(request, db));
 
   app.get('/api/users', async (request) => {

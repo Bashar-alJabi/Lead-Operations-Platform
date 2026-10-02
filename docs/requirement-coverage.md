@@ -1,18 +1,18 @@
 # مصفوفة تغطية المتطلبات
 
-الحالة هنا تعكس **تنفيذاً مثبتاً**، وليست وعداً. `جزئي` يعني أن المسار المطلوب للإنتاج غير مكتمل. لا توجد منطقة موسومة `Complete` حالياً. الاختبارات بوحدة مستقلة عن PostgreSQL لا تثبت API أو migration أو تكاملاً مباشراً.
+الحالة هنا تعكس **تنفيذاً مثبتاً**، وليست وعداً. `جزئي` يعني أن المسار المطلوب للإنتاج غير مكتمل. لا توجد منطقة موسومة `Complete` حالياً. اختبارات الـAPI تعمل على PostgreSQL 18 داخل Docker؛ لا تثبت الميزات التي لم تُنفذ.
 
 | المجال | المراجع | التنفيذ الحالي | الاختبارات | الحالة |
 |---|---|---|---|---|
-| Authentication | README، 00، 02، 06 | Bootstrap، login/logout، session hash، تعطيل حساب؛ reset/invite غير منفذين | Argon2/token unit؛ API غير مختبر | جزئي |
-| Roles/Permissions | 02، 06 | Branch/Lead access في بعض API؛ لم تُغط كل الوحدات | Branch unit؛ API attack غير مختبر | جزئي |
-| Branches | 00، 01، 03 | Schema وcreate/list UI/API | لا يوجد integration test | جزئي |
-| Contacts | 00، 01، 02 | Schema ومطابقة أولية عند manual intake | لا يوجد integration test؛ canonical phone ناقص | جزئي |
-| Leads | 00، 01، 02 | Manual intake، lifecycle، activity، list/detail، keyset pagination | Cursor unit؛ API غير مختبر | جزئي |
-| Campaigns | 00، 02، 03 | Schema وcreate/agent binding/activation أساسي؛ إعدادات كثيرة ناقصة | لا يوجد integration test | جزئي |
+| Authentication | README، 00، 02، 06 | Bootstrap، login/logout، session hash، تغيير كلمة المرور وإبطال الجلسات، تعطيل حساب؛ forgot reset/invite غير منفذين | Argon2/token unit؛ API bootstrap race/session/disable/password change ناجح على PostgreSQL | جزئي |
+| Roles/Permissions | 02، 06 | Branch/Lead access في بعض API؛ لم تُغط كل الوحدات | Branch unit؛ API cross-branch/agent access وOrigin ناجح | جزئي |
+| Branches | 00، 01، 03 | Schema وcreate/list UI/API | API create/branch boundary ناجح | جزئي |
+| Contacts | 00، 01، 02 | Schema ومطابقة أولية عند manual intake | API contact reuse المتزامن ناجح؛ canonical phone ناقص | جزئي |
+| Leads | 00، 01، 02 | Manual intake، lifecycle، activity، list/detail، keyset pagination | Cursor unit؛ API intake/access/lifecycle/pagination ناجح | جزئي |
+| Campaigns | 00، 02، 03 | Schema وcreate/agent binding/activation أساسي في API والواجهة؛ إعدادات كثيرة ناقصة | API agent binding/scope وactivation ناجح | جزئي |
 | Dynamic Fields | 00، 01، 02 | Schema فقط | لا يوجد | غير منفذ تشغيلياً |
 | Meta/Sources | 00، 02، 03 | Source Submission schema فقط | لا يوجد | غير منفذ تشغيلياً |
-| Routing | 00، 02، 06 | Round Robin/Weighted/Manual أولي وPerformance fallback، سعة وساعات | Unit 4؛ concurrency/API غير مختبر | جزئي |
+| Routing | 00، 02، 06 | Round Robin/Weighted/Manual أولي وPerformance fallback، سعة وساعات | Unit 4؛ API concurrent intake/capacity/no eligible ناجح | جزئي |
 | Messaging | 02، 03، 05، 06 | Schema، pure sender/policy/inbound rules؛ لا webhook/send worker أو UI | Unit 5؛ integration غير مختبر | جزئي |
 | AI | 04، 05، 06 | حدود معمارية موثقة فقط | لا evaluations | غير منفذ تشغيلياً |
 | Follow-ups | 00، 02، 06 | Schema فقط | لا يوجد | غير منفذ تشغيلياً |
@@ -32,5 +32,5 @@
 | Responsive UI | 03، 06 | CSS للشاشات الحالية | Web build فقط | جزئي |
 | Scalability | AGENTS، 00، 06 | فهارس وkeyset وrouting lock وjob schema؛ worker/backpressure غير منفذين | لا يوجد load test | جزئي |
 | Observability | AGENTS، 06 | Health endpoints وlogs أولية | لا smoke فعلي | جزئي |
-| Testing | AGENTS، 06 | 14 unit tests وbuild/typecheck | 14 ناجحة؛ لا integration/E2E/migration/load | جزئي |
-| Deployment/Runbook | AGENTS، 06 | Compose وملف env نموذجي ومعمارية | لم يجر تشغيل production | جزئي |
+| Testing | AGENTS، 06 | 14 unit tests وAPI integration test وbuild/typecheck | 14 unit ناجحة؛ 1 suite API ناجح على PostgreSQL؛ migrations ناجحة؛ لا UI E2E/load | جزئي |
+| Deployment/Runbook | AGENTS، 06 | Compose وملف env نموذجي ومعمارية | Docker PostgreSQL وAPI health تحققا محلياً؛ لم يجر تشغيل production | جزئي |
