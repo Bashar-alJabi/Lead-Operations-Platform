@@ -3,9 +3,10 @@ import type { Database } from '../db.js';
 import { HttpError, principalFromRequest, requireBranch, requireLead, requireRole } from '../security.js';
 import { routeLead } from '../routing.js';
 import { decodeCursor, encodeCursor } from '../pagination.js';
+import { identityLockKeys, normalizeContact } from '../contacts.js';
 
 const idParam = { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } as const;
-const pageQuery = { type: 'object', additionalProperties: false, properties: { limit: { type: 'integer', minimum: 1, maximum: 100 }, cursor: { type: 'string', maxLength: 256 }, branchId: { type: 'string', format: 'uuid' }, campaignId: { type: 'string', format: 'uuid' }, assignedAgentId: { type: 'string', format: 'uuid' }, lifecycle: { enum: ['OPEN','CLOSED','ARCHIVED'] } } } as const;
+const pageQuery = { type: 'object', additionalProperties: false, properties: { limit: { type: 'integer', minimum: 1, maximum: 100 }, cursor: { type: 'string', maxLength: 256 }, branchId: { type: 'string', format: 'uuid' }, campaignId: { type: 'string', format: 'uuid' }, contactId: { type: 'string', format: 'uuid' }, assignedAgentId: { type: 'string', format: 'uuid' }, lifecycle: { enum: ['OPEN','CLOSED','ARCHIVED'] } } } as const;
 
 export function registerOperationsRoutes(app: FastifyInstance, db: Database): void {
   app.get('/api/branches', async (request) => {
@@ -124,36 +125,50 @@ export function registerOperationsRoutes(app: FastifyInstance, db: Database): vo
     const campaigns = await db`SELECT c.id, c.routing_method, b.timezone FROM campaign c JOIN branch b ON b.id = c.branch_id
       WHERE c.id = ${request.body.campaignId} AND c.branch_id = ${request.body.branchId} AND c.organization_id = ${actor.organizationId} AND c.status = 'ACTIVE'`;
     const campaign = campaigns[0]; if (!campaign) throw new HttpError(404, 'ACTIVE_CAMPAIGN_NOT_FOUND');
-    const rawPhone = request.body.contact.phone?.replace(/[\s().-]/g, '') || null;
-    const phone = rawPhone && /^\+[1-9]\d{7,14}$/.test(rawPhone) ? rawPhone : null;
-    const email = request.body.contact.email?.trim().toLowerCase() || null;
-    if (rawPhone && !phone && !email) throw new HttpError(400, 'PHONE_E164_REQUIRED');
-    if (!phone && !email) throw new HttpError(400, 'CONTACT_IDENTIFIER_REQUIRED');
-    const id = await db.begin(async (tx) => {
-      const identities = [phone && `phone:${phone}`, email && `email:${email}`].filter((item): item is string => Boolean(item)).sort();
-      for (const identity of identities) await tx`SELECT pg_advisory_xact_lock(hashtextextended(${actor.organizationId + ':' + identity}, 0))`;
+    const normalized = normalizeContact(request.body.contact);
+    const result = await db.begin(async (tx) => {
+      for (const identity of identityLockKeys(actor.organizationId, normalized)) await tx`SELECT pg_advisory_xact_lock(hashtextextended(${identity}, 0))`;
       const matches = await tx`SELECT id FROM contact WHERE organization_id = ${actor.organizationId}
-        AND ((${phone}::text IS NOT NULL AND phone_normalized = ${phone}) OR (${email}::text IS NOT NULL AND email_normalized = ${email})) LIMIT 2`;
-      if (matches.length > 1) throw new HttpError(409, 'CONTACT_AMBIGUOUS');
+        AND ((${normalized.phoneNormalized}::text IS NOT NULL AND phone_normalized = ${normalized.phoneNormalized})
+          OR (${normalized.emailNormalized}::text IS NOT NULL AND email_normalized = ${normalized.emailNormalized}))
+        ORDER BY id`;
+      const crossBranchOnly = matches.length === 1 && actor.role === 'MANAGER' &&
+        !(await tx`SELECT 1 FROM lead WHERE contact_id = ${matches[0]!.id} AND branch_id = ${request.body.branchId} LIMIT 1`).length;
+      if (matches.length > 1 || crossBranchOnly) {
+        const reason = crossBranchOnly ? 'CONTACT_SCOPE_REVIEW' : 'CONTACT_AMBIGUOUS';
+        const review = await tx`INSERT INTO source_submission
+          (organization_id, branch_id, campaign_id, source_kind, raw_payload, state, failure_code)
+          VALUES (${actor.organizationId}, ${request.body.branchId}, ${campaign.id}, 'MANUAL',
+            ${tx.json({ contact: request.body.contact, candidateContactIds: matches.map((item) => item.id) })}, 'NEEDS_ATTENTION', ${reason})
+          RETURNING id`;
+        await tx`INSERT INTO audit_log (organization_id, branch_id, actor_user_id, action, target_type, target_id, detail)
+          VALUES (${actor.organizationId}, ${request.body.branchId}, ${actor.id}, 'CONTACT_MATCH_REVIEW_CREATED', 'SOURCE_SUBMISSION', ${review[0]!.id}, ${tx.json({ reason })})`;
+        return { reviewId: review[0]!.id as string };
+      }
       let contactId = matches[0]?.id as string | undefined;
       if (!contactId) {
         const created = await tx`INSERT INTO contact (organization_id, name, phone, phone_normalized, email, email_normalized)
-          VALUES (${actor.organizationId}, ${request.body.contact.name.trim()}, ${request.body.contact.phone ?? null}, ${phone}, ${request.body.contact.email ?? null}, ${email}) RETURNING id`;
+          VALUES (${actor.organizationId}, ${normalized.name}, ${normalized.phone}, ${normalized.phoneNormalized}, ${normalized.email}, ${normalized.emailNormalized}) RETURNING id`;
         contactId = created[0]!.id as string;
+        await tx`INSERT INTO audit_log (organization_id, branch_id, actor_user_id, action, target_type, target_id)
+          VALUES (${actor.organizationId}, ${request.body.branchId}, ${actor.id}, 'CONTACT_CREATED', 'CONTACT', ${contactId})`;
       }
       const leads = await tx`INSERT INTO lead (organization_id, branch_id, campaign_id, contact_id, source_kind)
         VALUES (${actor.organizationId}, ${request.body.branchId}, ${campaign.id}, ${contactId}, 'MANUAL') RETURNING id`;
       const leadId = leads[0]!.id as string;
-      await tx`INSERT INTO source_submission (organization_id, branch_id, lead_id, source_kind, raw_payload, state)
-        VALUES (${actor.organizationId}, ${request.body.branchId}, ${leadId}, 'MANUAL', ${tx.json({ contact: request.body.contact })}, 'PROCESSED')`;
+      await tx`INSERT INTO source_submission (organization_id, branch_id, campaign_id, lead_id, source_kind, raw_payload, state)
+        VALUES (${actor.organizationId}, ${request.body.branchId}, ${campaign.id}, ${leadId}, 'MANUAL', ${tx.json({ contact: request.body.contact })}, 'PROCESSED')`;
       await tx`INSERT INTO lead_activity (lead_id, actor_user_id, event_type) VALUES (${leadId}, ${actor.id}, 'LEAD_CREATED')`;
+      await tx`INSERT INTO audit_log (organization_id, branch_id, actor_user_id, action, target_type, target_id)
+        VALUES (${actor.organizationId}, ${request.body.branchId}, ${actor.id}, 'LEAD_CREATED', 'LEAD', ${leadId})`;
       await routeLead(tx, campaign.id, request.body.branchId, campaign.routing_method, campaign.timezone, leadId);
-      return leadId;
+      return { id: leadId };
     });
-    reply.code(201); return { id };
+    if ('reviewId' in result) { reply.code(202); return { reviewId: result.reviewId, status: 'NEEDS_ATTENTION' }; }
+    reply.code(201); return result;
   });
 
-  app.get<{ Querystring: { limit?: number; cursor?: string; branchId?: string; campaignId?: string; assignedAgentId?: string; lifecycle?: string } }>('/api/leads', {
+  app.get<{ Querystring: { limit?: number; cursor?: string; branchId?: string; campaignId?: string; contactId?: string; assignedAgentId?: string; lifecycle?: string } }>('/api/leads', {
     schema: { querystring: pageQuery },
   }, async (request) => {
     const actor = await principalFromRequest(request, db);
@@ -170,6 +185,7 @@ export function registerOperationsRoutes(app: FastifyInstance, db: Database): vo
           OR (${actor.role === 'AGENT'} AND l.assigned_agent_id = ${actor.id}))
         AND (${q.branchId ?? null}::uuid IS NULL OR l.branch_id = ${q.branchId ?? null})
         AND (${q.campaignId ?? null}::uuid IS NULL OR l.campaign_id = ${q.campaignId ?? null})
+        AND (${q.contactId ?? null}::uuid IS NULL OR l.contact_id = ${q.contactId ?? null})
         AND (${q.assignedAgentId ?? null}::uuid IS NULL OR l.assigned_agent_id = ${q.assignedAgentId ?? null})
         AND (${q.lifecycle ?? null}::text IS NULL OR l.lifecycle = ${q.lifecycle ?? null})
         AND (${cursor?.timestamp ?? null}::timestamptz IS NULL OR (l.created_at, l.id) < (${cursor?.timestamp ?? null}::timestamptz, ${cursor?.id ?? null}::uuid))

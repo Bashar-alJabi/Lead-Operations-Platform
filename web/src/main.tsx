@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './style.css';
+import { ContactWorkspace } from './ContactWorkspace.js';
 
 type Role = 'SUPER_ADMIN' | 'MANAGER' | 'AGENT';
 type User = { id: string; organizationId: string; branchId: string | null; role: Role; name: string; email: string };
@@ -11,7 +12,7 @@ type ManagedUser = { id: string; branch_id: string | null; role: Role; name: str
 type EmailConnection = { configured: boolean; id?: string; name?: string; status?: string; hasCredential?: boolean; settings?: { host: string; port: number; secure: boolean; username: string; fromAddress: string } };
 type DeliveryJob = { id: string; kind: string; status: string; attempts: number; max_attempts: number; last_error_code: string | null; email: string; name: string; created_at: string };
 type Locale = 'ar' | 'fr' | 'en';
-type Page = 'leads' | 'campaigns' | 'branches' | 'users' | 'profile' | 'identityEmail';
+type Page = 'leads' | 'contacts' | 'contactReviews' | 'campaigns' | 'branches' | 'users' | 'profile' | 'identityEmail';
 type AuthMode = 'login' | 'forgot' | 'reset' | 'invite';
 const linkParameters = new URLSearchParams(window.location.hash.slice(1));
 const initialLinkMode: AuthMode = linkParameters.has('invite') ? 'invite' : linkParameters.has('reset') ? 'reset' : 'login';
@@ -47,6 +48,12 @@ const deliveryLabels = {
   en: { deliveries: 'Account email delivery', retryDelivery: 'Retry delivery', attempts: 'Attempts' },
 } as const;
 
+const contactLabels = {
+  ar: { contacts: 'جهات الاتصال', contactReviews: 'مراجعة المطابقة', reviewSaved: 'حُفظت الحالة للمراجعة؛ لم تُنشأ فرصة حتى اختيار جهة الاتصال.' },
+  fr: { contacts: 'Contacts', contactReviews: 'Correspondances à examiner', reviewSaved: 'Cas conservé pour examen ; aucun prospect créé avant le choix du contact.' },
+  en: { contacts: 'Contacts', contactReviews: 'Match reviews', reviewSaved: 'Saved for review; no lead was created until a contact is selected.' },
+} as const;
+
 async function api<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(path, { credentials: 'same-origin', headers: { 'Content-Type': 'application/json', ...options?.headers }, ...options });
   const body = await response.json().catch(() => ({}));
@@ -56,7 +63,7 @@ async function api<T>(path: string, options?: RequestInit): Promise<T> {
 
 function App() {
   const [locale, setLocale] = useState<Locale>(() => (localStorage.getItem('lop-locale') as Locale) || 'ar');
-  const t = { ...labels[locale], ...profileLabels[locale], ...managementLabels[locale], ...identityLabels[locale], ...deliveryLabels[locale] };
+  const t = { ...labels[locale], ...profileLabels[locale], ...managementLabels[locale], ...identityLabels[locale], ...deliveryLabels[locale], ...contactLabels[locale] };
   const [user, setUser] = useState<User | null>(null);
   const [authMode, setAuthMode] = useState<AuthMode>(initialLinkMode);
   const [authToken] = useState(initialLinkToken);
@@ -79,6 +86,7 @@ function App() {
   const [emailConnection, setEmailConnection] = useState<EmailConnection | null>(null);
   const [deliveryJobs, setDeliveryJobs] = useState<DeliveryJob[]>([]);
   const [nextDeliveryCursor, setNextDeliveryCursor] = useState<string | null>(null);
+  const [workspaceRefresh, setWorkspaceRefresh] = useState(0);
   const [emailForm, setEmailForm] = useState<Record<string, string>>({ secure: 'true', port: '465' });
 
   useEffect(() => { if (initialLinkToken) window.history.replaceState(null, '', window.location.pathname + window.location.search); }, []);
@@ -129,7 +137,10 @@ function App() {
 
   async function submit(path: string, payload: unknown, after?: () => void) {
     setBusy(true); setError('');
-    try { await api(path, { method: 'POST', body: JSON.stringify(payload) }); after?.(); setForm({}); setShowForm(false); await refresh(); }
+    try { const result = await api<{ reviewId?: string }>(path, { method: 'POST', body: JSON.stringify(payload) });
+      after?.(); setForm({}); setShowForm(false); await refresh();
+      if (result.reviewId) { setNotice(t.reviewSaved); setPage('contactReviews'); setWorkspaceRefresh((value) => value + 1); }
+    }
     catch (failure) { setError(String(failure)); } finally { setBusy(false); }
   }
 
@@ -199,12 +210,13 @@ function App() {
   const isAdmin = user.role === 'SUPER_ADMIN';
   const canManage = user.role !== 'AGENT';
   return <div className="app-shell"><aside className="sidebar"><div className="brand">{t.app}</div><div className="user-block"><strong>{user.name}</strong><span>{user.role.replace('_', ' ')}</span></div>
-    <nav>{(['leads','campaigns','branches','users','identityEmail','profile'] as Page[]).filter((item) =>
-      item === 'identityEmail' ? canManage : canManage || item === 'leads' || item === 'profile').map((item) =>
-      <button key={item} className={page === item ? 'selected' : ''} onClick={() => { setPage(item); setSelectedLead(null); setShowForm(false); setForm({}); }}>{t[item]}</button>)}</nav>
+    <nav>{(['leads','contacts','contactReviews','campaigns','branches','users','identityEmail','profile'] as Page[]).filter((item) =>
+      item === 'identityEmail' || item === 'contactReviews' ? canManage : canManage || item === 'leads' || item === 'contacts' || item === 'profile').map((item) =>
+      <button key={item} className={page === item ? 'selected' : ''} onClick={() => { setPage(item); setSelectedLead(null); setShowForm(false); setForm({}); setNotice(''); }}>{t[item]}</button>)}</nav>
     <div className="sidebar-bottom">{language}<button onClick={() => { void api('/api/auth/logout', { method: 'POST' }).then(() => setUser(null)); }}>{t.logout}</button></div>
-  </aside><main className="content"><header><div><small>Lead Operations</small><h1>{selectedLead ? t.details : t[page]}</h1></div><button className="secondary" onClick={() => void (page === 'identityEmail' ? refreshDeliveryJobs() : refresh())} disabled={busy}>{t.retry}</button></header>
+  </aside><main className="content"><header><div><small>Lead Operations</small><h1>{selectedLead ? t.details : t[page]}</h1></div><button className="secondary" onClick={() => void (page === 'identityEmail' ? refreshDeliveryJobs() : page === 'contacts' || page === 'contactReviews' ? setWorkspaceRefresh((value) => value + 1) : refresh())} disabled={busy}>{t.retry}</button></header>
     {error && <div role="alert" className="error">{error}</div>}
+    {notice && <div role="status" className="panel">{notice}</div>}
     {busy && <div className="loading">{t.loading}</div>}
     {page === 'identityEmail' ? <section className="panel form-panel"><h2>{t.identityEmail}</h2>
       {isAdmin && <>
@@ -225,7 +237,8 @@ function App() {
         void api<{ items: DeliveryJob[]; nextCursor: string | null }>(`/api/identity/deliveries?cursor=${encodeURIComponent(nextDeliveryCursor)}`)
           .then((result) => { setDeliveryJobs((current) => [...current, ...result.items]); setNextDeliveryCursor(result.nextCursor); })
           .catch((failure) => setError(String(failure))).finally(() => setBusy(false)); }}>{locale === 'ar' ? 'تحميل المزيد' : locale === 'fr' ? 'Afficher plus' : 'Load more'}</button>}
-    </section> : page === 'profile' ? <section className="panel form-panel"><h2>{t.profile}</h2><p>{t.passwordChanged}</p>
+    </section> : page === 'contacts' || page === 'contactReviews' ? <ContactWorkspace key={`${page}-${workspaceRefresh}`} mode={page === 'contacts' ? 'contacts' : 'reviews'} locale={locale} canManage={canManage} api={api} onOpenLead={(id) => { setPage('leads'); setSelectedLead(id); setNotice(''); }} />
+      : page === 'profile' ? <section className="panel form-panel"><h2>{t.profile}</h2><p>{t.passwordChanged}</p>
       <form onSubmit={(event) => { event.preventDefault(); setBusy(true); setError('');
         void api('/api/auth/password', { method: 'POST', body: JSON.stringify({ currentPassword: form.currentPassword, newPassword: form.newPassword }) })
           .then(() => { setUser(null); setForm({}); setPage('leads'); }).catch((failure) => setError(String(failure))).finally(() => setBusy(false)); }}>

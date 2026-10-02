@@ -8,6 +8,7 @@ import { sessionCookie } from './config.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerOperationsRoutes } from './routes/operations.js';
 import { registerIdentityEmailRoutes } from './routes/identity-email.js';
+import { registerContactRoutes } from './routes/contacts.js';
 import { smtpEmailAdapter, type IdentityEmailAdapter } from './identity-email.js';
 
 export async function buildApp(db: Database, options: { logger?: boolean; emailAdapter?: IdentityEmailAdapter } = {}): Promise<FastifyInstance> {
@@ -45,6 +46,7 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   });
   registerAuthRoutes(app, db);
   registerOperationsRoutes(app, db);
+  registerContactRoutes(app, db);
   registerIdentityEmailRoutes(app, db, options.emailAdapter ?? smtpEmailAdapter);
   return app;
 }

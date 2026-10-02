@@ -19,6 +19,7 @@
 5. شغّل `npm run build` ثم `npm start` للـAPI، وفي نافذة ثانية `npm run web:dev` للواجهة.
 6. افتح `http://127.0.0.1:5173` وأنشئ أول Super Admin برمز bootstrap. بعد النجاح يصبح مسار التهيئة غير صالح لأن وجود أول مستخدم يمنع تكراره. احذف رمز bootstrap من بيئة النشر بعد ذلك.
 7. لتفعيل دعوات الموظفين واستعادة كلمة المرور: من صفحة **بريد الحسابات**، أدخل بيانات SMTP التي أُنشئت لدى مزود البريد واختبر الاتصال. لا يُعاد عرض كلمة المرور بعد حفظها. شغّل عملية `npm run worker:identity` مستقلة مع `DATABASE_URL` و`APP_ORIGIN` و`CREDENTIAL_ENCRYPTION_KEY` نفسها. يمكن للـSuper Admin وManager المصرح لهما رؤية حالة التسليم وإعادة محاولة Job فاشل صالح. `APP_ORIGIN` يجب أن يكون origin الواجهة الذي يستقبل رابط الدعوة/الاستعادة. لا تستخدم Credential شخصية أو Production للتطوير.
+8. عند إدخال Lead يطابق أكثر من Contact أو يطابق Contact خارج فرع Manager، تُحفظ Submission وتظهر في **مراجعة المطابقة** دون إنشاء Lead. يختار المسؤول Contact المرشحة صراحة؛ الحالات التي تضم مرشحاً خارج نطاق الفرع تحتاج Super Admin. تأكد من ظهور Lead بعد الحسم في صفحة الفرص ومن بقاء Submission التاريخية؛ تكرار الحسم نفسه يعيد Lead نفسها.
 
 في الإنتاج، اجعل الواجهة والـAPI وراء HTTPS وreverse proxy على origin واحد أو اضبط `APP_ORIGIN` على origin الواجهة الحقيقي. Cookie الجلسة `Secure` في `NODE_ENV=production`. يجب أن يوجه proxy مسار `/api` و`/health` إلى الـAPI، وأن يقدّم ملفات `dist-web` بعد `npm run web:build`.
 

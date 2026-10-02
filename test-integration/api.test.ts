@@ -143,6 +143,120 @@ test('PostgreSQL API: bootstrap, isolation, sessions, and concurrent routing', a
   for (const result of repeatedIntake) assert.equal(result.statusCode, 201, result.body);
   assert.equal((await db`SELECT count(*)::integer AS count FROM contact WHERE phone_normalized = '+15550000004'`)[0]!.count, 1);
 
+  assert.equal((await send('POST', '/api/leads', { branchId: branchA, campaignId,
+    contact: { name: 'Invalid phone', phone: '555 1234', email: 'valid@example.test' } }, managerA)).statusCode, 400);
+  assert.equal((await send('POST', '/api/leads', { branchId: branchA, campaignId,
+    contact: { name: 'Invalid email', phone: '+15550000009', email: 'not-an-email' } }, managerA)).statusCode, 400);
+  const emailOnly = await send('POST', '/api/leads', { branchId: branchA, campaignId,
+    contact: { name: 'Email candidate', email: '  Candidate@Example.TEST  ' } }, managerA);
+  assert.equal(emailOnly.statusCode, 201, emailOnly.body);
+  const sameEmail = await send('POST', '/api/leads', { branchId: branchA, campaignId,
+    contact: { name: 'Email candidate again', email: 'candidate@example.test' } }, managerA);
+  assert.equal(sameEmail.statusCode, 201, sameEmail.body);
+  assert.equal((await db`SELECT contact_id FROM lead WHERE id = ${emailOnly.json().id}`)[0]!.contact_id,
+    (await db`SELECT contact_id FROM lead WHERE id = ${sameEmail.json().id}`)[0]!.contact_id);
+
+  const contactA = (await db`SELECT contact_id FROM lead WHERE id = ${leadIds[0]!}`)[0]!.contact_id as string;
+  const contactB = (await db`SELECT contact_id FROM lead WHERE id = ${emailOnly.json().id}`)[0]!.contact_id as string;
+  const ambiguous = await send('POST', '/api/leads', { branchId: branchA, campaignId,
+    contact: { name: 'Ambiguous', phone: '+1 (555) 000-0001', email: 'candidate@example.test' } }, managerA);
+  assert.equal(ambiguous.statusCode, 202, ambiguous.body);
+  const reviewId = ambiguous.json().reviewId as string;
+  assert.equal((await db`SELECT state FROM source_submission WHERE id = ${reviewId}`)[0]!.state, 'NEEDS_ATTENTION');
+  assert.equal((await db`SELECT raw_payload FROM source_submission WHERE id = ${reviewId}`)[0]!.raw_payload.contact.phone, '+1 (555) 000-0001');
+  assert.equal((await send('GET', '/api/contact-reviews', undefined, agent1)).statusCode, 403);
+  assert.equal((await send('GET', '/api/contact-reviews', undefined, managerB)).json().items.length, 0);
+  const reviews = await send('GET', '/api/contact-reviews', undefined, managerA);
+  assert.equal(reviews.statusCode, 200, reviews.body);
+  assert.deepEqual(new Set(reviews.json().items[0].candidates.map((item: { id: string }) => item.id)), new Set([contactA, contactB]));
+  assert.equal((await send('POST', `/api/contact-reviews/${reviewId}/resolve`, { contactId: contactA }, managerB)).statusCode, 403);
+  assert.equal((await send('POST', `/api/contact-reviews/${reviewId}/resolve`, { contactId: agentA1 }, managerA)).statusCode, 400);
+  const resolved = await send('POST', `/api/contact-reviews/${reviewId}/resolve`, { contactId: contactA }, managerA);
+  assert.equal(resolved.statusCode, 200, resolved.body);
+  assert.equal((await send('POST', `/api/contact-reviews/${reviewId}/resolve`, { contactId: contactA }, managerA)).json().id, resolved.json().id);
+  assert.equal((await send('POST', `/api/contact-reviews/${reviewId}/resolve`, { contactId: contactB }, managerA)).statusCode, 409);
+  assert.equal((await db`SELECT count(*)::integer AS count FROM lead WHERE id = ${resolved.json().id}`)[0]!.count, 1);
+  assert.equal((await send('GET', '/api/contact-reviews', undefined, managerA)).json().items.length, 0);
+
+  const contactsA = await send('GET', '/api/contacts?limit=2', undefined, managerA);
+  assert.equal(contactsA.statusCode, 200, contactsA.body);
+  assert.equal(contactsA.json().items.length, 2);
+  assert.ok(contactsA.json().nextCursor);
+  const phoneSearch = await send('GET', `/api/contacts?q=${encodeURIComponent('+1 (555) 000')}`, undefined, managerA);
+  assert.equal(phoneSearch.statusCode, 200, phoneSearch.body);
+  assert.ok(phoneSearch.json().items.some((item: { id: string }) => item.id === contactA));
+  assert.deepEqual((await send('GET', '/api/contacts?q=%25_', undefined, managerA)).json().items, []);
+  assert.equal((await send('GET', `/api/contacts/${contactA}`, undefined, managerB)).statusCode, 404);
+  assert.equal((await send('GET', `/api/contacts/${contactA}`, undefined, agent1)).statusCode, 200);
+  assert.equal((await send('PATCH', `/api/contacts/${contactA}`, { name: 'Denied', version: 1, phone: '+15550000001' }, agent1)).statusCode, 403);
+  const beforeEdit = (await send('GET', `/api/contacts/${contactA}`, undefined, managerA)).json().contact;
+  const edit = await send('PATCH', `/api/contacts/${contactA}`, { name: 'Updated person', phone: '+1 555 000 0001', version: beforeEdit.version }, managerA);
+  assert.equal(edit.statusCode, 200, edit.body);
+  assert.equal((await send('PATCH', `/api/contacts/${contactA}`, { name: 'Stale', phone: '+15550000001', version: beforeEdit.version }, managerA)).statusCode, 409);
+  assert.equal((await send('PATCH', `/api/contacts/${contactA}`, { name: 'Conflict', email: 'candidate@example.test', version: edit.json().version }, managerA)).statusCode, 409);
+  assert.equal((await db`SELECT count(*)::integer AS count FROM contact_history WHERE contact_id = ${contactA}`)[0]!.count, 1);
+  assert.equal((await db`SELECT count(*)::integer AS count FROM audit_log WHERE action = 'CONTACT_UPDATED' AND target_id = ${contactA}`)[0]!.count, 1);
+
+  const campaignBResponse = await send('POST', '/api/campaigns', { branchId: branchB, name: 'Campaign B' }, managerB);
+  assert.equal(campaignBResponse.statusCode, 201, campaignBResponse.body);
+  const campaignB = campaignBResponse.json().id as string;
+  assert.equal((await send('POST', `/api/campaigns/${campaignB}/activate`, undefined, managerB)).statusCode, 200);
+  const sharedLeadReview = await send('POST', '/api/leads', { branchId: branchB, campaignId: campaignB,
+    contact: { name: 'Shared contact', phone: '+15550000001' } }, managerB);
+  assert.equal(sharedLeadReview.statusCode, 202, sharedLeadReview.body);
+  const restrictedReview = (await send('GET', '/api/contact-reviews', undefined, managerB)).json().items[0];
+  assert.equal(restrictedReview.id, sharedLeadReview.json().reviewId);
+  assert.equal(restrictedReview.restrictedCandidates, true);
+  assert.deepEqual(restrictedReview.candidates, []);
+  assert.equal((await send('POST', `/api/contact-reviews/${restrictedReview.id}/resolve`, { contactId: contactA }, managerB)).statusCode, 403);
+  const sharedLead = await send('POST', `/api/contact-reviews/${restrictedReview.id}/resolve`, { contactId: contactA }, admin);
+  assert.equal(sharedLead.statusCode, 200, sharedLead.body);
+  assert.equal((await db`SELECT contact_id FROM lead WHERE id = ${sharedLead.json().id}`)[0]!.contact_id, contactA);
+  const branchBContact = await send('GET', `/api/contacts/${contactA}`, undefined, managerB);
+  assert.equal(branchBContact.statusCode, 200, branchBContact.body);
+  assert.equal(branchBContact.json().contact.editable, false);
+  assert.deepEqual(branchBContact.json().leads.map((item: { id: string }) => item.id), [sharedLead.json().id]);
+  assert.equal((await send('GET', `/api/leads?contactId=${contactA}`, undefined, managerB)).json().items.length, 1);
+  assert.equal((await send('PATCH', `/api/contacts/${contactA}`, { name: 'Cross branch edit', version: edit.json().version }, managerA)).statusCode, 403);
+  assert.equal((await send('PATCH', `/api/contacts/${contactA}`, { name: 'Cross branch edit', version: edit.json().version }, managerB)).statusCode, 403);
+  const adminEdit = await send('PATCH', `/api/contacts/${contactA}`, { name: 'Admin reviewed shared contact', version: edit.json().version }, admin);
+  assert.equal(adminEdit.statusCode, 200, adminEdit.body);
+  const editRace = await Promise.all(['First edit', 'Second edit'].map((name) => send('PATCH', `/api/contacts/${contactA}`,
+    { name, version: adminEdit.json().version }, admin)));
+  assert.deepEqual(editRace.map((response) => response.statusCode).sort(), [200, 409]);
+
+  const branchBOnly = await send('POST', '/api/leads', { branchId: branchB, campaignId: campaignB,
+    contact: { name: 'Branch B only', email: 'b-only@example.test' } }, managerB);
+  assert.equal(branchBOnly.statusCode, 201, branchBOnly.body);
+  const branchBContactId = (await db`SELECT contact_id FROM lead WHERE id = ${branchBOnly.json().id}`)[0]!.contact_id as string;
+  assert.equal((await send('GET', `/api/contacts/${branchBContactId}`, undefined, managerA)).statusCode, 404);
+  assert.ok(!(await send('GET', '/api/contacts', undefined, agent1)).json().items.some((item: { id: string }) => item.id === branchBContactId));
+  const crossBranchReview = await send('POST', '/api/leads', { branchId: branchA, campaignId,
+    contact: { name: 'Needs admin review', phone: '+15550000001', email: 'b-only@example.test' } }, managerA);
+  assert.equal(crossBranchReview.statusCode, 202, crossBranchReview.body);
+  const crossReviewId = crossBranchReview.json().reviewId as string;
+  const managerReview = (await send('GET', '/api/contact-reviews', undefined, managerA)).json().items[0];
+  assert.equal(managerReview.id, crossReviewId);
+  assert.equal(managerReview.restrictedCandidates, true);
+  assert.deepEqual(managerReview.candidates, []);
+  assert.equal((await send('POST', `/api/contact-reviews/${crossReviewId}/resolve`, { contactId: branchBContactId }, managerA)).statusCode, 403);
+  const competingResolution = await Promise.all([1, 2].map(() => send('POST', `/api/contact-reviews/${crossReviewId}/resolve`, { contactId: contactA }, admin)));
+  assert.deepEqual(competingResolution.map((response) => response.statusCode), [200, 200]);
+  assert.equal(competingResolution[0]!.json().id, competingResolution[1]!.json().id);
+  assert.equal((await db`SELECT count(*)::integer AS count FROM lead WHERE id = ${competingResolution[0]!.json().id}`)[0]!.count, 1);
+  assert.equal((await db`SELECT count(*)::integer AS count FROM source_submission WHERE id = ${crossReviewId} AND state = 'PROCESSED'`)[0]!.count, 1);
+  const mixedReview = await send('POST', '/api/leads', { branchId: branchA, campaignId,
+    contact: { name: 'One visible candidate', phone: '+15550000004', email: 'b-only@example.test' } }, managerA);
+  assert.equal(mixedReview.statusCode, 202, mixedReview.body);
+  const mixedReviewId = mixedReview.json().reviewId as string;
+  const branchAContact = (await db`SELECT id FROM contact WHERE phone_normalized = '+15550000004'`)[0]!.id as string;
+  const mixedReviewList = (await send('GET', '/api/contact-reviews', undefined, managerA)).json().items[0];
+  assert.equal(mixedReviewList.id, mixedReviewId);
+  assert.deepEqual(mixedReviewList.candidates.map((item: { id: string }) => item.id), [branchAContact]);
+  assert.equal(mixedReviewList.restrictedCandidates, true);
+  assert.equal((await send('POST', `/api/contact-reviews/${mixedReviewId}/resolve`, { contactId: branchAContact }, managerA)).statusCode, 403);
+  assert.equal((await send('POST', `/api/contact-reviews/${mixedReviewId}/resolve`, { contactId: branchAContact }, admin)).statusCode, 200);
+
   const disable = await send('PATCH', `/api/users/${agentA1}/status`, { active: false }, managerA);
   assert.equal(disable.statusCode, 200, disable.body);
   assert.equal((await send('GET', '/api/auth/me', undefined, agent1)).statusCode, 401);
