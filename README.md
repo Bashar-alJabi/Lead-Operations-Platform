@@ -58,6 +58,7 @@ Automation / AI Operations Assistant
 
 - لا يوجد Public Signup.
 - إنشاء المستخدمين يتم من داخل المنصة بواسطة Role مخول.
+- إنشاء **أول Super Admin** يتم عبر Bootstrap آمن لمرة واحدة أثناء الإعداد الأولي، بدون Default Password hardcoded وبدون فتح Public Signup؛ بعد النجاح يجب إبطال/تعطيل bootstrap path أو token حسب التصميم.
 - تعطيل المستخدم يمنع تسجيل الدخول والوصول الجديد بدون حذف التاريخ السابق.
 - يجب دعم Login آمن، Password Reset/credential recovery، Session invalidation، وتسجيل الخروج.
 - تفاصيل Authentication التقنية يتم تحديدها في الـArchitecture، لكن لا يجوز الاعتماد على Frontend فقط لحماية الحسابات.
@@ -268,6 +269,28 @@ AI Lead Assistant or Human Agent
 
 يمكن أن توجد عدة Messaging Connections أو Senders حسب Organization / Branch / Brand / operational configuration.
 
+النموذج التشغيلي النهائي للـMessaging/WhatsApp هو:
+
+```text
+Organization Shared Sender (اختياري)
+        ↓
+Branch Default Sender
+        ↓
+Campaign Sender Override (اختياري)
+        ↓
+Conversation Resolved/Pinned Sender
+```
+
+القواعد الأساسية:
+
+- لا تفترض المنصة رقم WhatsApp واحداً لكل النظام.
+- لا تفرض رقماً منفصلاً لكل Campaign.
+- الـDefault العملي هو Sender/Number على مستوى Branch.
+- Campaign ترث Branch Default Sender ما لم تحدد Override صالحاً ومسموحاً.
+- Organization-scoped Sender يمكن مشاركته بين Branches فقط عبر Binding صريح.
+- Conversation القائمة لا تنتقل بصمت إلى Sender آخر.
+- إذا كان Provider يفصل Account/Connection عن Sender/Number، يجب أن يعكس الـDomain هذا الفصل.
+
 يجب أن تحترم الرسائل الآلية والبشرية:
 
 - Consent / opt-in عندما يكون مطلوباً.
@@ -275,6 +298,20 @@ AI Lead Assistant or Human Agent
 - Template requirements عندما يفرضها المزود.
 - Allowed sending windows / business hours.
 - Suppression / do-not-contact state عندما تكون موجودة.
+- Sender/Connection scope.
+- Connection/Sender health.
+- Campaign frequency/max-attempt rules.
+- Provider capabilities والـrate/throughput/quality constraints عندما تكون متاحة.
+
+كل Outbound Message للعميل، سواء جاءت من AI أو Human أو Automation أو Follow-up، تمر عبر **Central Messaging Policy** واحدة قبل Provider send. هذه الطبقة تنفذ Authorization وController check وSender resolution وConsent/DNC وTemplate requirements وSending hours وHealth/Provider constraints وIdempotency.
+
+Sender resolution يفرق بين:
+- **Existing Conversation**: إذا كان لها Pinned Sender/Thread صالح يستخدم نفسه. إذا أصبح غير صالح، يتم Block/Needs Attention أو Explicit migration workflow؛ لا يتم التحويل تلقائياً إلى رقم آخر.
+- **New Conversation**: Campaign Sender Override → Branch Default Sender → Organization Shared Fallback المسموح صراحة → وإلا Block/Needs Attention.
+
+Inbound Message لا تُربط بـCampaign أو Lead بالتخمين. يتم Resolve باستخدام Connection + Business Sender + Provider thread/reference + Contact + Active Conversations/Leads + Campaign/External References. إذا بقي أكثر من Candidate صالح، تحفظ الرسالة وتوضع `Needs Attention` أو Review بدل اختيار Campaign عشوائياً.
+
+حدود Provider المتغيرة مثل Messaging limits أو throughput أو quality لا تُحفظ كأرقام Business ثابتة hardcoded؛ يتم التعامل معها كProvider capabilities/status ديناميكية قدر الإمكان.
 
 المنصة ليست WhatsApp CRM عاماً أو Customer Support Suite؛ المحادثات الموجودة فيها تخدم Lead Operations lifecycle فقط.
 
@@ -391,6 +428,22 @@ Data / External Provider
 
 يتم إعداد هذه المعلومات من داخل المنصة.
 
+إعداد الـAI Customer-facing يتبع التسلسل النهائي:
+
+```text
+Global AI Guardrails
+        ↓
+Branch AI Defaults
+        ↓
+Campaign AI Configuration
+```
+
+- Global Guardrails تشمل القيود الأمنية وحدود الصلاحيات والـTools والقواعد غير القابلة للتجاوز.
+- Branch AI Defaults توفر Defaults تشغيلية قابلة للوراثة فقط، مثل timezone/locale/escalation/provider profile عندما يكون ذلك مناسباً.
+- Campaign AI Configuration تحدد فعلياً Knowledge وQualification وTone/Language وFollow-up وHandoff وAllowed Tools والسلوك الخاص بالحملة.
+- يمكن مشاركة نفس AI Provider/Model/Runtime بين Campaigns متعددة؛ المطلوب هو **عزل الـContext والـConfiguration لكل Campaign** وليس Model مادي منفصل لكل حملة.
+- Campaign A لا يجوز أن تقرأ Knowledge أو Instructions أو Qualification أو Lead/Conversation data الخاصة بـCampaign B بسبب مشاركة نفس Provider/Model.
+
 يجب دعم Draft وPublished knowledge/versioning بحيث يستخدم الـAI النسخة المنشورة المعتمدة فقط.
 
 ---
@@ -459,6 +512,8 @@ docs/
 02-business-rules-permissions.md
 03-integrations-ui-requirements.md
 04-ai-agents-conversations.md
+05-messaging-ai-final-architecture.md
+06-final-completeness-and-acceptance.md
 ```
 
 ### `00-comprehensive-functional-concept.md`
@@ -537,6 +592,31 @@ docs/
 - Failure handling.
 - Auditability.
 - AI evaluation requirements.
+
+### `05-messaging-ai-final-architecture.md`
+
+المرجع النهائي الذي يحسم:
+
+- Branch Default Sender وCampaign Sender Override.
+- Messaging Connection مقابل Business Sender.
+- Deterministic inbound/outbound resolution.
+- Central Messaging Policy.
+- High-volume messaging behavior.
+- Global → Branch → Campaign AI configuration.
+- Campaign AI context isolation.
+
+إذا وجد غموض أقدم في هذه النقاط تحديداً، فهذا الملف هو التوضيح النهائي دون إلغاء المتطلبات الأخرى.
+
+### `06-final-completeness-and-acceptance.md`
+
+المرجع الخاص بـDefinition of Done والـAcceptance الشاملة للمنتج:
+
+- اكتمال Modules.
+- Security/Reliability.
+- Required tests.
+- Critical End-to-End scenarios.
+- Requirement Coverage Matrix.
+- شروط إعلان المنصة جاهزة.
 
 ---
 
@@ -656,4 +736,6 @@ INITIAL-CODEX-PROMPT.md
 
 وهو الـPrompt الذي يُعطى لـCodex لبدء تنفيذ المشروع.
 
-هذا الملف لا يحدد Technology Stack مسبقاً. المطلوب من Codex قراءة كامل المواصفات، فحص Repository الحالي، اختيار الـArchitecture والـStack الأفضل، توثيق القرارات التقنية، ثم متابعة التنفيذ الكامل مباشرة بدون تحويل المستخدم إلى مصدر للقرارات التقنية اليومية.
+هذا الملف لا يحدد Technology Stack مسبقاً. المطلوب من Codex قراءة كامل المواصفات بما فيها `05` و`06`، فحص Repository الحالي، اختيار الـArchitecture والـStack الأفضل، توثيق القرارات التقنية، ثم متابعة التنفيذ الكامل مباشرة بدون تحويل المستخدم إلى مصدر للقرارات التقنية اليومية.
+
+النسخة الحالية من `INITIAL-CODEX-PROMPT.md` هي الـPrompt العربي النهائي المعتمد لـCodex. لا تعتبر المنصة مكتملة قبل المرور على Definition of Done وRequirement Coverage Matrix المعرّفة في المواصفات.

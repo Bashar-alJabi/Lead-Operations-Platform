@@ -39,6 +39,8 @@ docs/01-domain-model.md
 docs/02-business-rules-permissions.md
 docs/03-integrations-ui-requirements.md
 docs/04-ai-agents-conversations.md
+docs/05-messaging-ai-final-architecture.md
+docs/06-final-completeness-and-acceptance.md
 ```
 
 كل وثيقة مسؤولة عن نوع مختلف من المتطلبات، ويجب تفسيرها معاً كمنظومة واحدة.
@@ -56,6 +58,10 @@ docs/04-ai-agents-conversations.md
 - Permissions وBusiness Rules من ملف القواعد.
 - Integration وUI flows من ملف Integrations/UI.
 - AI وConversation behavior التفصيلي من ملف AI/Conversations.
+- القرارات النهائية الخاصة بـMessaging sender architecture وCampaign AI isolation من `05-messaging-ai-final-architecture.md`.
+- Definition of Done والـAcceptance النهائية من `06-final-completeness-and-acceptance.md`.
+
+إذا وجد غموض قديم في **Messaging sender scope أو inbound/outbound resolution أو Central Messaging Policy أو AI configuration inheritance/context isolation**، فإن ملف `05` يحسم هذه النقاط فقط، ولا يستخدم لإلغاء Requirements أخرى.
 
 لا تنشئ Source-of-Truth hierarchy من عندك إذا لم يوجد تعارض فعلي.
 
@@ -196,6 +202,8 @@ docs/04-ai-agents-conversations.md
 
 - Secure login.
 - Password/credential reset flow.
+- Secure one-time First Super Admin bootstrap بدون hardcoded default credentials أو Public Signup.
+- Bootstrap credential/token/path يجب إبطاله بعد نجاح التهيئة وأن يكون قابلاً للتدقيق حسب التصميم.
 - Session expiration and revocation.
 - Disabled users cannot create new authenticated sessions.
 - Logout invalidates the intended session.
@@ -482,16 +490,44 @@ Customer-facing Messages المرسلة أو المستلمة تعتبر Histori
 
 ### Messaging policies
 
-قبل أي outbound send، طبق:
+كل Customer-facing outbound send من AI أو Human أو Automation أو Follow-up يجب أن يمر عبر **Central Messaging Policy** واحدة.
 
+قبل الإرسال طبق:
+
+- Authorization / Lead access.
+- Current Conversation Controller.
 - consent / do-not-contact state.
 - provider policy.
 - template requirement إن وجد.
-- allowed sending window.
-- current Conversation Controller.
+- allowed sending window + timezone.
 - sender/connection scope.
+- sender/connection health.
+- Campaign frequency/max-attempt rules.
+- provider capabilities والـrate/throughput/quality constraints عندما تتوفر.
+- idempotency / duplicate protection.
 
-Provider capability يجب أن يحدد ما هو مدعوم فعلياً؛ لا تفترض أن كل مزود يدعم Read receipts أو Templates أو Attachments بنفس الطريقة.
+النموذج النهائي للـSender:
+
+```text
+Organization Shared Sender (اختياري)
+        ↓
+Branch Default Sender
+        ↓
+Campaign Sender Override (اختياري)
+        ↓
+Conversation Resolved/Pinned Sender
+```
+
+قواعد الـResolution:
+
+- Existing Conversation ذات Pinned Sender/Thread تستخدمه إذا بقي صالحاً. إذا أصبح غير صالح، يتم Block/Needs Attention أو Explicit migration workflow؛ **لا تسقط تلقائياً إلى Sender آخر**.
+- New Conversation بلا Pinned Sender تستخدم: Campaign Sender Override → Branch Default Sender → Organization Shared Fallback المسموح صراحة → وإلا Block/Needs Attention.
+
+لا تفترض رقم WhatsApp واحداً لكل النظام، ولا تفرض رقماً منفصلاً لكل Campaign، ولا تختَر Sender عشوائياً.
+
+Inbound resolution يستخدم Connection + Business Sender + provider thread/reference + participant/contact + active Conversation/Lead + Campaign/external references. إذا بقي Ambiguous، تحفظ الرسالة وتذهب إلى Needs Attention/Review ولا يتم التخمين.
+
+Provider capability يجب أن يحدد ما هو مدعوم فعلياً؛ لا تفترض أن كل مزود يدعم Read receipts أو Templates أو Attachments بنفس الطريقة. كما لا Hardcode لحدود Provider المتغيرة كBusiness constants.
 
 ---
 
@@ -603,6 +639,26 @@ AI customer-facing يعمل ضمن:
 - Follow-up policy.
 
 الـAI لا يجب أن يستخدم Draft غير منشورة في Customer-facing answers.
+
+### AI Configuration Inheritance & Campaign Isolation
+
+Customer-facing AI configuration تتبع:
+
+```text
+Global AI Guardrails
+        ↓
+Branch AI Defaults
+        ↓
+Campaign AI Configuration
+```
+
+- Global Guardrails تشمل Security/Permissions/Tool boundaries/no-fabrication rules ولا يمكن للحملة تعطيلها.
+- Branch Defaults هي Defaults تشغيلية قابلة للوراثة فقط ضمن الحدود المسموحة.
+- Campaign Configuration تحدد Knowledge وQualification وTone/Language وFollow-up وHandoff وAllowed Tools وسلوك الـMessaging الخاص بالحملة.
+- يمكن مشاركة Provider/Model/Runtime بين عدة Campaigns.
+- مشاركة Runtime لا تعني مشاركة Business Context.
+- Campaign A لا يجوز أن تحصل على Knowledge/Instructions/Qualification/Lead/Conversation data الخاصة بـCampaign B.
+- Effective Configuration لكل AI Execution يجب أن تكون Deterministic وقابلة للتتبع، بما فيها Knowledge Version والـProvider/Profile والـCampaign scope.
 
 ---
 
@@ -894,6 +950,8 @@ Expected:
 
 ## 33. Documentation
 
+لغة وثائق المنتج والـArchitecture والـImplementation Plan والـProgress/Completion reports داخل هذا المشروع تكون **العربية**، مع إبقاء أسماء الـAPIs والـClasses والـEntities والـtechnical terms بالإنجليزية عندما يكون ذلك أوضح. أسماء الكود والIdentifiers يمكن أن تبقى بالإنجليزية وفق أفضل الممارسات.
+
 وثائق المنتج هي المرجع الوظيفي.
 
 أي قرار تقني مهم طويل الأمد يؤثر على:
@@ -982,7 +1040,7 @@ Expected:
 
 نفّذ المنتج كما هو موثق، مع Architecture Production-ready تسمح للإدارة بإعداد وتشغيل Integrations والـAI والحملات من داخل المنصة، وتحافظ على Security وPermissions وProvider independence بدون الاعتماد على حسابات شخصية أو إعدادات يدوية مخفية.
 
-## 40. Scalability & High-Volume Operation
+## 38. Scalability & High-Volume Operation
 
 افترض أن المنصة ستعمل مع عدد كبير ومتزايد من Campaigns وBranches وAgents المتزامنين وLeads اليومية وConversations/Messages وWebhooks وAutomations وAI jobs وPayment events وAnalytics records.
 
@@ -1000,6 +1058,8 @@ Expected:
 - Avoiding N+1 queries.
 - Idempotent workers.
 - Backpressure وProvider rate limits.
+- Per-Sender/Per-Connection throttling أو isolation عندما يكون ذلك مناسباً.
+- Sender/Connection health وProvider quality/throughput signals عندما يوفرها المزود.
 - Bounded retries.
 - Dead-letter/recovery strategy عند الحاجة.
 - Efficient analytics strategy.
@@ -1014,7 +1074,20 @@ Expected:
 
 ---
 
-## 41. Autonomous Technical Execution
+## 39. Final Completeness Review
+
+قبل إعلان المشروع جاهزاً:
+
+- راجع `docs/06-final-completeness-and-acceptance.md`.
+- أنشئ Requirement Coverage Matrix تربط كل Requirement Area بالـSource Docs والتنفيذ والاختبارات والحالة.
+- لا تستخدم `Complete` لأي Area فيها Placeholder أو Stub أو TODO حرجة أو Permission ناقصة أو Test حرج فاشل.
+- ميّز بين `Implemented` و`Mock/Sandbox Verified` و`Live Provider Verified` و`Live Verification Pending External Credential/Approval`.
+- غياب Production credential لا يبرر ترك Adapter أو Setup UI أو Validation أو Tests غير منفذة.
+- لا تدّعِ أن Live Integration تم التحقق منها إن لم يتم ذلك فعلياً.
+
+---
+
+## 40. Autonomous Technical Execution
 
 بعد قراءة المواصفات كاملة:
 

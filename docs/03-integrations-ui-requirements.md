@@ -133,6 +133,8 @@
 
 كل Connection لها Scope وStatus واضحان.
 
+في Messaging تحديداً، يجب دعم Branch Default Sender مع Campaign Sender Override اختياري، ولا يتحول تعدد Connections إلى افتراض أن كل Campaign تحتاج Number مستقلة.
+
 ---
 
 # 7. Credentials UX
@@ -404,7 +406,19 @@ Integrations
 
 # 21. Messaging Sender / Number
 
-يجب دعم أكثر من Sender/Number.
+يجب دعم أكثر من Sender/Number، مع فصل واضح بين Provider Connection/Credentials وبين Business Sender identity عندما يميز Provider بينهما.
+
+النموذج النهائي:
+
+```text
+Organization Shared Sender (اختياري)
+        ↓
+Branch Default Sender
+        ↓
+Campaign Sender Override (اختياري)
+        ↓
+Conversation Resolved/Pinned Sender
+```
 
 يمكن ربط Sender بـ:
 
@@ -413,7 +427,16 @@ Integrations
 - Campaign.
 - Brand/use case.
 
-لا يجب افتراض Number واحدة للنظام كله.
+القواعد:
+
+- لا يجب افتراض Number واحدة للنظام كله.
+- Branch يمكن أن يحدد Default Sender.
+- Campaign ترث Branch Default ما لم تحدد Override صالحاً.
+- Dedicated Number لكل Campaign اختيارية وليست شرطاً.
+- Shared Organization Sender يحتاج Binding صريح للـBranches المسموحة.
+- Existing Conversation لا تنتقل عشوائياً إلى Sender آخر.
+- الواجهة تعرض Health/Capabilities وProvider quality/throughput/limit metadata عندما يوفرها المزود.
+- لا تصمم UX يوحي بأن إضافة الأرقام هدفها تجاوز Provider limits.
 
 ---
 
@@ -474,40 +497,74 @@ Lead sends message
     ↓
 Provider webhook
     ↓
-Resolve Messaging Connection
+Verify authenticity + deduplicate/idempotency
     ↓
-Resolve Conversation/Lead
+Persist raw Integration Event / inbound event safely
     ↓
-Persist Message
+Resolve Messaging Connection + Business Sender
+    ↓
+Use provider thread/reference when available
+    ↓
+Resolve Contact
+    ↓
+Resolve Active Conversation / Lead / Campaign deterministically
+    ↓
+Persist/attach Message or mark Unmatched/Needs Attention
     ↓
 Apply Conversation Controller rules
     ↓
 AI or Human workflow
 ```
 
-إذا تعذر Resolve:
+Resolution signals تشمل:
+
+- exact Connection/Sender.
+- provider thread/conversation reference.
+- participant identity.
+- existing active Conversation.
+- Contact.
+- active Lead(s).
+- Campaign context.
+- external/source references.
+
+إذا تعذر Resolve أو بقي أكثر من Candidate صالح:
 
 - لا تفقد الرسالة.
 - سجلها كUnmatched/Needs Attention.
 - لا تربطها عشوائياً.
+- لا تجعل AI يخمن Campaign من نص الرسالة وحده كقرار حاسم.
+- وفر Review/resolution action للمستخدم المصرح له.
 
 ---
 
 # 26. Outbound Message Flow
 
 ```text
-AI or Human authorized send
+AI / Human / Automation send request
     ↓
-Permission/Controller check
+Authorization + Conversation Controller check
     ↓
-Select Messaging Connection/Sender
+Resolve Sender deterministically
+    ↓
+Central Messaging Policy
+    ↓
+Persist Outbound Message / Send Intent as Queued with idempotency context
+    ↓
+Queue / Provider capability / health / rate checks
     ↓
 Provider send
     ↓
-Persist provider reference
+Persist provider reference + delivery state
     ↓
-Track delivery status
+Track delivery callbacks
 ```
+
+Sender resolution:
+
+- Existing Conversation ذات Pinned Sender/Thread تستخدمه إذا كان صالحاً. إذا أصبح غير صالح، يتم Block/Needs Attention أو Explicit migration workflow؛ لا يتم التحويل تلقائياً إلى Sender آخر.
+- New Conversation بلا Pinned Sender تستخدم: Campaign Sender Override → Branch Default Sender → Organization Shared Fallback المسموح صراحة → وإلا Block/Needs Attention.
+
+Central Messaging Policy تتحقق من Consent/DNC وTemplates وSending hours/timezone وCampaign max attempts/frequency وSender scope/health وProvider constraints وCurrent Controller وIdempotency.
 
 ---
 
@@ -554,9 +611,13 @@ Track delivery status
 - إدارة Provider templates عندما تكون مطلوبة.
 - رؤية template approval/status.
 - ضبط Branch/Campaign sending hours.
+- ضبط Campaign frequency/max-attempt rules.
+- رؤية Branch Default Sender وCampaign Override والEffective Sender.
+- رؤية Connection/Sender health.
+- رؤية Provider quality/throughput/limit metadata عندما تكون متاحة.
 - إظهار سبب منع Message قبل الإرسال.
 
-لا يتم hardcode قواعد Provider واحدة داخل Core Conversation UI.
+لا يتم hardcode قواعد Provider واحدة داخل Core Conversation UI، ولا يتم hardcode أرقام Limits متغيرة كBusiness constants.
 
 ---
 
@@ -668,13 +729,17 @@ Customer
 ```text
 Provider trusted webhook/event
     ↓
-Verify event
+Verify authenticity + idempotency
+    ↓
+Persist Payment/Integration Event
     ↓
 Resolve Payment
     ↓
+Apply state transition transactionally
+    ↓
 Mark Confirmed
     ↓
-Enrollment
+Enrollment according to trusted Business Rule
     ↓
 Activity / Notifications / Analytics
 ```
@@ -817,6 +882,7 @@ Campaign
 يمكن إدارة:
 
 - Enabled/disabled.
+- Effective Configuration Preview: Global AI Guardrails → Branch AI Defaults → Campaign AI Configuration/Overrides.
 - Provider/model profile.
 - Knowledge.
 - Qualification.
@@ -824,7 +890,7 @@ Campaign
 - Follow-up policy.
 - Allowed assets.
 - Language/tone.
-- Messaging connection.
+- Messaging connection / Effective Sender / optional Campaign Sender Override.
 - Test/simulation.
 - Publish/activate.
 
@@ -968,7 +1034,12 @@ Meta → Platform Intake → Campaign → Branch → Lead → Agent/AI
 ## Customer Messaging
 
 ```text
-Lead ↔ Messaging Provider ↔ Platform Conversation ↔ AI/Human
+Lead
+  ↔ Messaging Provider
+  ↔ Resolved Business Sender
+  ↔ Central Messaging Policy
+  ↔ Platform Conversation
+  ↔ AI/Human
 ```
 
 ## Internal Notification
@@ -986,8 +1057,11 @@ Lead → Payment Link → Provider → Trusted Confirmation → Platform → Enr
 ## Google Sheets
 
 ```text
-Sheet ↔ Platform
+Sheet → Platform Import
+Platform → Sheet/Export Output
 ```
+
+هذا يلخص Import/Export فقط؛ لا يعني Continuous two-way synchronization افتراضي.
 
 ## AI
 
@@ -1029,6 +1103,7 @@ Agent يحصل على تجربة تشغيلية بسيطة.
 - Login.
 - Logout.
 - Forgot/Reset credential flow.
+- Secure initial setup/bootstrap UX أو deployment bootstrap path لأول Super Admin، مرة واحدة فقط وبدون Default Password ثابت.
 - Clear disabled/invalid account state.
 - Safe expired-session handling without losing unsaved work where practical.
 
@@ -1154,8 +1229,8 @@ Navigation الفعلي يتكيف مع permissions.
 - Routing.
 - Fields.
 - Mapping.
-- Messaging.
-- AI.
+- Messaging بما فيها Branch Default Sender والCampaign Override والEffective Sender.
+- AI بما فيها Effective inherited configuration.
 - Qualification.
 - Follow-up policy.
 - Automations.
@@ -1229,6 +1304,8 @@ Create Campaign
 - Routing valid?
 - Required fields mapped?
 - Messaging configured if required?
+- A valid/healthy Sender resolves through Conversation/Campaign/Branch rules?
+- Campaign Sender Override is within allowed scope if configured?
 - AI provider available if AI enabled?
 - Published knowledge available?
 - Qualification mapping valid?
@@ -1575,13 +1652,21 @@ Actions:
 تعرض:
 
 - Provider connections.
+- الفرق بين Provider Connection وBusiness Sender identity عندما يميز Provider بينهما.
 - Business senders/numbers.
+- Organization/Branch/Campaign bindings.
+- Branch Default Sender.
+- Campaign Sender Overrides.
 - Scope.
 - Inbound webhook status.
 - Outbound test.
 - Templates عند الحاجة.
 - Delivery callbacks.
-- Connection health.
+- Connection/Sender health.
+- Provider quality/throughput/limit metadata عندما تتوفر.
+- Queue/backpressure/blocked-send indicators عند الحاجة.
+- Unmatched / Needs Attention inbound queue.
+- Resolution action للمستخدم المصرح له مع Candidate context وAudit، بدون كشف Leads خارج Scope.
 - Errors.
 
 ---
@@ -1593,8 +1678,11 @@ Actions:
 - AI Provider Connections.
 - Model/Profile configurations.
 - Assistants.
-- Usage/status metadata عند توفرها.
+- Global AI Guardrails summary.
+- Branch AI Defaults.
 - Campaign AI configurations.
+- Effective inherited/overridden configuration عند الحاجة.
+- Usage/status metadata عند توفرها.
 - Knowledge versions.
 - Evaluation/test tools.
 
@@ -1722,6 +1810,14 @@ LTR مع responsive layouts.
 - Handoff.
 
 بسياق زمني واضح.
+
+قواعد الزمن:
+
+- احفظ timestamps كـunambiguous instants بطريقة مناسبة للـStack، مع الحفاظ على provider/source timestamp الأصلي عند الحاجة للتتبع.
+- العرض يستخدم User/Branch locale/timezone المناسب.
+- Scheduled messaging/follow-ups تستخدم Campaign timezone override إن وجد، وإلا Branch timezone.
+- Date-based Analytics/Filters يجب أن يكون لها timezone semantics واضحة حتى لا تختلف النتائج بصمت عند حدود اليوم.
+- التعامل مع DST يجب ألا يسبب إرسالاً مكرراً أو موعداً مفقوداً.
 
 لا تفقد original timestamps.
 
@@ -1961,6 +2057,9 @@ Manager/Super Admin حسب الصلاحية يستطيعان إدارة:
 - Branch timezone.
 - Working/business hours.
 - Default messaging hours.
+- Default Messaging Sender/Number.
+- Allowed Organization Shared Senders.
+- Branch AI Defaults القابلة للوراثة.
 - Operational defaults.
 
 Timezone يجب أن تظهر بوضوح في أي AI follow-up أو scheduled operation.
@@ -1969,7 +2068,7 @@ Timezone يجب أن تظهر بوضوح في أي AI follow-up أو scheduled o
 
 # 101. Integration Setup Help Pattern
 
-كل Setup تقني نسبيًا يجب أن يملك Help واضح داخل نفس الواجهة.
+كل Setup تقني نسبياً يجب أن يملك Help واضح داخل نفس الواجهة.
 
 يجب أن يشرح:
 
@@ -2032,7 +2131,7 @@ Lead Source
 - التاريخ.
 - الربط بين Providers.
 
-# 105. Large-Data UX
+# 104. Large-Data UX
 
 الشاشات التي يمكن أن تحتوي عدداً كبيراً جداً من السجلات لا تعتمد على تحميل جميع النتائج.
 

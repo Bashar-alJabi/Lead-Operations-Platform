@@ -102,6 +102,8 @@ Core Business Logic لا يعتمد على Provider واحد ثابت.
 
 - Login.
 - Credential/password reset.
+- Secure one-time bootstrap لأول Super Admin بدون Public Signup أو hardcoded default password.
+- تعطيل bootstrap mechanism بعد نجاح التهيئة الأولى.
 - Logout.
 - Session invalidation.
 - منع المستخدم المعطل من الدخول.
@@ -223,6 +225,8 @@ Campaigns / Leads
 - Routing configuration.
 - Integration connections أو bindings.
 - Messaging connections.
+- Default Messaging Sender/Number عند استخدام Customer Messaging.
+- Branch AI defaults القابلة للوراثة.
 - Payment methods.
 - Automations.
 - Analytics.
@@ -292,6 +296,7 @@ Campaign داخل المنصة هي **وحدة تشغيلية** تحدد كيف 
 - Editability.
 - Automations.
 - Messaging channel.
+- Messaging Sender Override اختياري؛ وإلا ترث Campaign الـBranch Default Sender.
 - AI enabled/disabled.
 - AI knowledge.
 - Qualification questions.
@@ -333,6 +338,28 @@ Activate
 ```
 
 يجب أن توضح المنصة ما الذي ينقص قبل Activation.
+
+## Messaging Sender Scope
+
+القرار النهائي:
+
+```text
+Organization Shared Sender (اختياري)
+        ↓
+Branch Default Sender
+        ↓
+Campaign Sender Override (اختياري)
+        ↓
+Conversation Resolved/Pinned Sender
+```
+
+- لا يوجد افتراض أن Number واحدة تخدم النظام كله.
+- لا يوجد Requirement يفرض Dedicated Number لكل Campaign.
+- Campaign ترث Branch Default Sender ما لم يوجد Override صالح.
+- Campaign Override يجب أن يبقى ضمن Bindings المسموحة للـBranch/Organization.
+- Conversation القائمة لا تتنقل بصمت بين Senders.
+- إذا كان Provider يفرق بين Account/Connection وSender/Number، يجب أن تدعم الـArchitecture هذا الفصل.
+- Provider limits/quality/throughput تعامل كProvider metadata/status متغيرة ولا Hardcode لها كBusiness constants.
 
 ---
 
@@ -697,7 +724,19 @@ Customer-facing conversation لا تعتمد على رقم Agent الشخصي.
 - Provider policies.
 - Template requirement عندما يفرضها Provider.
 - Allowed sending hours.
-- Messaging Connection scope.
+- Messaging Connection/Sender scope.
+- Current Conversation Controller.
+- Connection/Sender health.
+- Campaign frequency/max-attempt rules.
+- Provider capabilities والـrate/throughput/quality constraints عندما تتوفر.
+
+كل AI/Human/Automation/Follow-up outbound send يمر عبر **Central Messaging Policy** مشتركة. لا توجد طريق مختصرة للـAI أو Automation تتجاوز هذه القواعد.
+
+Outbound Sender resolution يكون Deterministic:
+- Existing Conversation ذات Pinned Sender/Thread لا تتحول تلقائياً إلى Sender آخر؛ إذا الـPinned Sender غير صالح يتم Block/Needs Attention أو Workflow صريح.
+- New Conversation بلا Pinned Sender تستخدم Campaign Sender Override → Branch Default Sender → explicitly allowed Organization fallback → وإلا Block/Needs Attention.
+
+Inbound resolution يستخدم Connection/Sender/thread + Contact + active Conversations/Leads + Campaign/external references. إذا بقي Ambiguous، تحفظ الرسالة وتوضع Needs Attention ولا يتم اختيار Campaign أو Lead بالتخمين.
 
 Messages المرسلة أو المستلمة تبقى جزءاً من التاريخ ولا يتم تعديلها بعد الإرسال/الاستلام كأنها لم تحدث.
 
@@ -738,6 +777,20 @@ Conversation Controller = HUMAN
 ---
 
 # 32. AI Lead Assistant
+
+Customer-facing AI لا يعني Model منفصلاً مادياً لكل Campaign. يمكن مشاركة Provider/Model/Runtime، لكن كل Execution يجب أن تستخدم Effective Campaign AI Configuration معزولة.
+
+التسلسل:
+
+```text
+Global AI Guardrails
+        ↓
+Branch AI Defaults
+        ↓
+Campaign AI Configuration
+```
+
+Global Guardrails غير قابلة للتجاوز، Branch Defaults تورث ضمن الحدود المسموحة، وCampaign Configuration تحدد السلوك customer-facing الخاص بالحملة.
 
 عند تفعيله للحملة يستطيع:
 
@@ -790,6 +843,8 @@ Conversation Controller = HUMAN
 - Approved files.
 
 Follow-up policy وHandoff behavior جزء من Campaign AI Configuration وليسا Knowledge facts.
+
+يجب عزل Knowledge وInstructions وQualification وFollow-up/Handoff Context لكل Campaign. مشاركة نفس Provider أو Model لا تسمح بخلط سياق Campaigns أو Leads أو Conversations بينها.
 
 يجب دعم:
 
@@ -1564,6 +1619,8 @@ Enrollment tracking
 
 # 72. المرجعية الوظيفية
 
+هذه الوثيقة تُقرأ مع بقية المواصفات. القرارات النهائية الخاصة بمعمارية Messaging Sender والـCampaign AI isolation موثقة أيضاً في `05-messaging-ai-final-architecture.md`، ومعيار اكتمال المنتج النهائي موثق في `06-final-completeness-and-acceptance.md`.
+
 هذا الملف يحدد:
 
 - ما هو المنتج.
@@ -1584,7 +1641,7 @@ Enrollment tracking
 
 القرارات التقنية يجب أن تحقق المتطلبات مع الحفاظ على Security وReliability وProvider independence وIn-platform operational setup.
 
-# 79. High-Volume Operational Requirement
+# 73. High-Volume Operational Requirement
 
 المنصة يجب أن تبقى عملية عند نمو عدد Campaigns وAgents وLeads اليومية وConversations وMessages وFollow-ups وWebhook events وAutomation executions وAI executions وPayments والسجلات التاريخية.
 
@@ -1593,5 +1650,7 @@ Enrollment tracking
 القوائم الرئيسية والـDrill-down يجب أن تعتمد على Server-side pagination وSearch وEfficient filtering/sorting وBounded bulk operations.
 
 العمليات الطويلة أو الكثيفة مثل Historical imports وLarge exports وBulk actions وAI batch analysis وProvider synchronization وLarge analytics refresh يجب أن تعمل بطريقة لا تمنع Lead intake أو Agent login أو Lead Details أو Conversation replies أو Payment processing.
+
+في Messaging عالي الحجم يجب دعم Queue/Backpressure/Retry/Idempotency، ومعالجة throttling على مستوى Sender/Connection عند الحاجة، ومراقبة Sender/Connection health وProvider quality/throughput metadata عندما تتوفر، بحيث لا يشل Sender متعثر بقية Senders بلا داعٍ.
 
 الهدف الوظيفي: نمو حجم التشغيل يجب أن يُعالج عبر Architecture قابلة للتوسع ومراقبة الأداء، وليس عبر إعادة بناء المنصة من الصفر.

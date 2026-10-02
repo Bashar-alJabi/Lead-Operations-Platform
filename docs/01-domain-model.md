@@ -89,8 +89,10 @@ Organization
 - Timezone.
 - Business hours.
 - Default messaging hours.
+- Default Messaging Sender/Number.
 - Default locale.
 - Operational escalation settings.
+- Branch AI defaults التي يسمح النظام بوراثتها.
 
 يمكن للحملة override بعض هذه الإعدادات عندما يسمح النظام.
 
@@ -321,8 +323,8 @@ Campaign Status يبقى Custom/optional ولا يستخدم وحده كمرجع
 - Field configurations.
 - Visibility/editability.
 - Automation configuration.
-- Messaging configuration.
-- AI configuration.
+- Messaging configuration بما فيها inherited Branch default sender أو explicit Campaign override.
+- AI configuration المبنية من Global Guardrails + Branch Defaults + Campaign Configuration.
 - Qualification configuration.
 - Follow-up policy.
 - Payment availability.
@@ -661,6 +663,7 @@ Lead Owner لا يساوي بالضرورة الشخص/النظام الذي ي�
 - Lead.
 - Channel.
 - Messaging Connection.
+- Resolved/Pinned Messaging Sender/Number.
 - External thread/conversation reference عند توفره.
 - Status.
 - Current Controller.
@@ -1127,6 +1130,28 @@ Branch-scoped Connection لا تستخدم خارج Branch الخاص بها.
 
 ---
 
+## Messaging Inbound Resolution Record / Needs Attention
+
+عندما يصل Messaging Provider Event ولا يمكن Resolve الـConversation/Lead/Campaign بشكل Deterministic، يجب حفظه بدون اختراع Conversation عشوائية.
+
+يمكن تمثيل ذلك كتخصص/حالة من `Integration Event` أو ككيان تقني مستقل مناسب، بشرط الاحتفاظ على الأقل بـ:
+
+- Messaging Connection.
+- Business Sender.
+- External participant identifier.
+- Provider event/message ID.
+- Received timestamp.
+- Safe payload/content reference.
+- Resolution state: pending/resolved/ignored/error أو equivalent.
+- Candidate context summary عند الحاجة بدون تجاوز Permissions.
+- Resolved Lead/Conversation/Campaign عند الحسم.
+- Resolved by / resolved at.
+- Resolution audit/history.
+
+الـ`Message` التشغيلية المرتبطة بـConversation تنشأ/ترتبط بعد Resolution الصحيح. عدم وجود Conversation لحظة الاستقبال لا يجوز أن يؤدي إلى فقدان الحدث أو ربطه عشوائياً.
+
+---
+
 # 56. External Reference
 
 يربط كياناً داخلياً بمعرف خارجي.
@@ -1148,15 +1173,44 @@ Branch-scoped Connection لا تستخدم خارج Branch الخاص بها.
 
 تخصص وظيفي لـIntegration Connection لقناة Messaging.
 
-يمكن أن يمثل:
+يمكن أن يمثل اتصالاً إلى:
 
-- Business account.
-- Sender/number.
+- Business/provider account.
 - Provider.
 - Branch/Organization scope.
+- Credential reference.
 - Status.
+- Capability/health metadata.
 
-يجب دعم عدة senders/connections عند الحاجة.
+Connection واحدة قد تحتوي Sender/Number واحدة أو أكثر حسب Provider، لذلك لا يجب دمج Credential/Account Connection مع Business Sender identity قسراً إذا كان Provider يميز بينهما.
+
+## Messaging Sender / Number Identity
+
+يمثل الهوية Customer-facing المستخدمة فعلياً للإرسال والاستقبال.
+
+يمكن أن يحتوي على:
+
+- Messaging Connection.
+- External sender/phone identifier.
+- Display identity.
+- Status/health.
+- Organization/Branch bindings.
+- Provider capability/quality/throughput metadata عندما تتوفر.
+- Default/override usage metadata.
+
+العلاقة التشغيلية:
+
+```text
+Organization Shared Sender (اختياري)
+        ↓
+Branch Default Sender
+        ↓
+Campaign Sender Override (اختياري)
+        ↓
+Conversation Resolved/Pinned Sender
+```
+
+يجب دعم عدة senders/connections عند الحاجة، لكن Dedicated Sender لكل Campaign ليس Requirement.
 
 ---
 
@@ -1216,6 +1270,20 @@ Branch-scoped Connection لا تستخدم خارج Branch الخاص بها.
 
 إعداد AI خاص بحملة.
 
+الـEffective AI Configuration تتبع:
+
+```text
+Global AI Guardrails
+        ↓
+Branch AI Defaults
+        ↓
+Campaign AI Configuration
+```
+
+- Global Guardrails تمثل القيود غير القابلة للتجاوز.
+- Branch AI Defaults تمثل Defaults تشغيلية قابلة للوراثة فقط.
+- Campaign Configuration تحدد السلوك النهائي للحملة وتعمل Override فقط لما هو مسموح.
+
 يمكن أن يحتوي على:
 
 - Enabled/disabled.
@@ -1226,8 +1294,10 @@ Branch-scoped Connection لا تستخدم خارج Branch الخاص بها.
 - Handoff rules.
 - Approved tool scope.
 - Language/tone configuration.
-- Messaging binding.
+- Messaging binding / optional Sender override.
 - Activation state.
+
+يمكن مشاركة AI Provider/Model/Runtime بين Campaigns متعددة، لكن كل AI Execution يجب أن يحمل Campaign scope وEffective Configuration واضحة. Shared runtime لا يسمح بقراءة Knowledge/Instructions/Qualification/Lead/Conversation الخاصة بحملة أخرى.
 
 ---
 
@@ -1568,8 +1638,9 @@ Meta Connection
 - Lead Branch واضح.
 - Assignment history محفوظ.
 - Conversation مرتبطة بـLead.
+- Customer-facing Conversation مرتبطة بـResolved/Pinned Messaging Sender ضمن Scope صالح.
 - Message مرتبطة بـConversation.
-- AI customer-facing execution مرتبطة بالـLead/Conversation/Campaign.
+- AI customer-facing execution مرتبطة بالـLead/Conversation/Campaign وبـEffective AI Configuration/Knowledge Version المناسبة.
 - Payment Method ضمن Scope واضح.
 - Payment مرتبطة بـLead.
 - Enrollment مرتبطة بـLead.
@@ -1669,9 +1740,11 @@ Conversation
   → Handoffs
 
 Integration Connection
+  → Messaging Sender(s) when applicable
   → External References
   → Bindings
   → Integration Events
+  → Unmatched/Needs-Attention inbound resolution records when needed
 
 AI Provider Connection
   → Model/Profile Configuration
@@ -1705,8 +1778,10 @@ Campaign AI Configuration
 13. Historical integrity.
 14. Secure credential separation.
 15. Multi-connection extensibility.
+16. Messaging Connection ≠ Business Sender عندما يميز Provider بينهما.
+17. Shared AI runtime ≠ Shared Campaign Context.
 
-# 90. Scale-Oriented Data Model Requirements
+# 89. Scale-Oriented Data Model Requirements
 
 مع نمو البيانات يجب أن يبقى الـDomain قابلاً للاستعلام بكفاءة.
 

@@ -63,6 +63,7 @@
 ## Account Access Rules
 
 - لا يوجد Public Signup.
+- أول Super Admin ينشأ عبر One-time secure bootstrap mechanism لا يعتمد على hardcoded default password، ويُبطل/يُقفل بعد نجاح التهيئة.
 - User غير Active لا يستطيع بدء Session جديدة.
 - تعطيل User لا يحذف Historical actions الخاصة به.
 - Password/credential recovery يجب أن تكون آمنة ولا تكشف وجود حساب أكثر مما يلزم.
@@ -315,8 +316,8 @@ Campaign تحدد على الأقل عند الحاجة:
 - Fields.
 - Routing.
 - Eligible Agents.
-- Messaging.
-- AI.
+- Messaging بما فيه Branch Default Sender أو Campaign Sender Override المسموح.
+- AI باستخدام Global AI Guardrails + Branch AI Defaults + Campaign AI Configuration.
 - Automations.
 - Payment availability.
 
@@ -332,7 +333,9 @@ Campaign تحدد على الأقل عند الحاجة:
 - Source binding إذا كانت الحملة تستقبل من Source خارجي.
 - Routing/Agent handling.
 - Field mapping.
-- Messaging Connection إذا كان التواصل الآلي مفعلاً.
+- Messaging Connection/Sender صالح وقابل للحل إذا كان Customer Messaging مفعلاً.
+- Campaign Sender Override، إن وجد، ضمن Scope مسموح؛ وإلا Branch Default Sender أو explicit allowed fallback.
+- Sender/Connection health مناسب للعملية.
 - AI Provider/configuration إذا كان AI Lead Assistant مفعلاً.
 - Published Knowledge إذا كان AI يحتاج معرفة.
 - Qualification mapping عند تفعيله.
@@ -673,6 +676,12 @@ Handoff مطلوب عندما:
 - Provider policy.
 - Required template when applicable.
 - Allowed sending window/business hours.
+- Sender/Connection health.
+- Campaign frequency/max-attempt rules.
+- Provider capabilities والـrate/throughput/quality constraints عندما تتوفر.
+- Idempotency/duplicate protection.
+
+كل هذه الفحوصات تمر عبر **Central Messaging Policy** مشتركة لكل AI/Human/Automation/Follow-up sends؛ لا يوجد bypass خاص لأي منها.
 
 لا يجوز اختيار Sender من Branch آخر أو Connection غير مصرح بها.
 
@@ -694,7 +703,19 @@ Handoff مطلوب عندما:
 - Scope واضح.
 - Active/inactive.
 - Health state.
+- Provider capability/quality/throughput metadata عندما تتوفر.
 - Provider independence.
+
+لا تفترض Number واحدة للنظام كله ولا Dedicated Number لكل Campaign.
+
+الـOutbound Sender resolution:
+
+- Conversation قائمة مع Pinned Sender/Thread تستخدمه إذا كان صالحاً؛ إذا لم يعد صالحاً يتم Block/Needs Attention أو Explicit migration workflow، ولا يتم fallback تلقائياً إلى رقم آخر.
+- Conversation جديدة بلا Pinned Sender تستخدم: Campaign Sender Override → Branch Default Sender → Organization Shared Fallback المسموح صراحة → وإلا Block/Needs Attention.
+
+Inbound resolution يستخدم Connection/Sender/provider thread + Contact + active Conversation/Lead + Campaign/external references. عند ambiguity يحفظ Provider/Integration Event في Needs Attention ولا يتم التخمين.
+
+حسم Unmatched/Needs Attention inbound يحتاج User مصرحاً ضمن Branch/Lead scope، ويُسجل Resolution audit. لا يجوز عرض Candidate Leads خارج Scope المستخدم.
 
 Agent لا يدير credentials.
 
@@ -759,11 +780,14 @@ Manager لا يحصل عبر AI على بيانات Branch آخر.
 يعمل ضمن:
 
 - Current Lead.
-- Campaign.
-- Published knowledge.
+- Current Campaign.
+- Effective AI Configuration الناتجة من Global AI Guardrails + Branch AI Defaults + Campaign AI Configuration.
+- Published Knowledge الخاصة بالحملة.
 - Approved tools.
-- Messaging connection.
+- Resolved Messaging Connection/Sender.
 - Campaign policy.
+
+مشاركة نفس Provider/Model/Runtime بين Campaigns لا توسع الـScope ولا تسمح بخلط Knowledge أو Instructions أو Qualification أو Lead/Conversation data بينها.
 
 ---
 
@@ -869,13 +893,17 @@ Policy Campaign-configurable.
 
 ## AI Follow-up Delivery Rules
 
-كل AI send يخضع أيضاً لـ:
+كل AI send يخضع أيضاً لنفس Central Messaging Policy المستخدمة للHuman والAutomation، بما فيها:
 
 - Consent/contactability.
 - Provider policy.
 - Template requirement.
-- Messaging Connection health.
+- Messaging Connection/Sender health.
 - Branch/Campaign timezone.
+- Campaign frequency/max-attempt rules.
+- Provider rate/throughput/quality constraints عندما تتوفر.
+- Deterministic sender resolution.
+- Queue/backpressure behavior عند الحاجة.
 
 ## No eligible human at handoff
 
@@ -1027,10 +1055,11 @@ Secrets:
 
 - Meta account واحدة.
 - WhatsApp number واحد.
+- Dedicated WhatsApp number لكل Campaign.
 - Payment account واحد.
 - AI provider واحد.
 
-يجب أن يدعم Domain/Architecture تعدد Connections حسب scope.
+يجب أن يدعم Domain/Architecture تعدد Connections حسب scope، مع Branch Default Sender وCampaign Sender Override اختياري وOrganization Shared Sender عند السماح به صراحة.
 
 ---
 
@@ -1360,7 +1389,7 @@ Analytics لا تجمع Payment amounts بعملات مختلفة كأنها ن�
 - Integration scope.
 - Business Rules.
 
-# 77. High-Volume Reliability Rules
+# 78. High-Volume Reliability Rules
 
 عند ارتفاع حجم التشغيل:
 
@@ -1371,5 +1400,8 @@ Analytics لا تجمع Payment amounts بعملات مختلفة كأنها ن�
 - لا يجوز أن تجعل Analytics الثقيلة Lead Details أو Conversation reply غير قابلة للاستخدام.
 - يجب أن يكون للـBackground processing حالات قابلة للتتبع والفشل والاستئناف حسب طبيعة العملية.
 - Provider rate limits يجب أن تؤدي إلى queueing/backoff/retry مناسب.
+- Messaging throughput يجب أن يسمح Per-Sender/Per-Connection throttling/isolation عند الحاجة.
+- Sender/Connection health وProvider quality/throughput signals تراقب عندما تكون متاحة.
+- Sender متعثر لا يجب أن يشل Senders أخرى بلا داعٍ.
 - Bulk actions يجب أن تكون bounded وقابلة للتتبع.
 - أي degraded external provider يجب أن يظهر كحالة تشغيلية قابلة للمراقبة بدلاً من انهيار Core Platform.

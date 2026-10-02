@@ -1,12 +1,20 @@
-# INITIAL CODEX PROMPT
+# الـPrompt النهائي لـCodex — تنفيذ منصة Lead Operations & Sales Management كاملة
 
-You are responsible for implementing the complete **Lead Operations & Sales Management Platform** in this repository.
+أنت مسؤول عن تنفيذ **منصة Lead Operations & Sales Management كاملة وجاهزة للإنتاج** داخل هذا الـRepository:
 
-This is a **full production-ready product**, not an MVP, prototype, demo, partial implementation, or proof of concept.
+```text
+Bashar-alJabi/Lead-Operations-Platform
+```
 
-## Read the complete specification first
+المطلوب ليس MVP، وليس Prototype، وليس Demo، وليس Scaffold، وليس جزءًا من النظام.
 
-Before making major implementation decisions, read and understand all of the following as one specification set:
+المطلوب هو تنفيذ المنتج الكامل المحدد في وثائق المشروع، وتشغيله واختباره ومراجعته حتى يصل إلى حالة جاهزية حقيقية ضمن ما يمكن تنفيذه بدون Credentials أو Approvals خارجية غير متوفرة.
+
+---
+
+# 1. اقرأ المشروع كاملًا قبل اتخاذ قرارات كبيرة
+
+ابدأ بقراءة وفهم جميع الملفات التالية كمنظومة واحدة:
 
 ```text
 AGENTS.md
@@ -16,483 +24,1366 @@ docs/01-domain-model.md
 docs/02-business-rules-permissions.md
 docs/03-integrations-ui-requirements.md
 docs/04-ai-agents-conversations.md
+docs/05-messaging-ai-final-architecture.md
+docs/06-final-completeness-and-acceptance.md
 ```
 
-Then inspect the entire current repository and understand what already exists before modifying it.
+ثم افحص كامل الـRepository الحالي وافهم ما هو موجود فعليًا قبل تعديل أي شيء.
 
-The repository specifications define **what the product must do**.
+ملفا `05` و`06` موجودان بالفعل ضمن النسخة النهائية للمواصفات:
 
-You are responsible for deciding **how to build it technically**.
+- `05` يحسم معمارية Messaging/WhatsApp والـAI configuration/isolation.
+- `06` يحدد Definition of Done والـAcceptance النهائية.
+
+لا تحذفهما ولا تختصرهما. إذا احتاج التنفيذ قرارًا تقنيًا إضافيًا، وثّقه في Technical Architecture بدون تغيير Business Behavior.
 
 ---
 
-## Do not ask me to choose the technology stack
+# 2. القرارات النهائية التي تحسم أي غموض سابق
 
-Choose the best production-ready technical stack and architecture yourself.
+## 2.1 Messaging / WhatsApp
 
-You are expected to choose and justify, as appropriate:
+اعتمد:
 
-- Programming language.
-- Backend framework.
-- Frontend framework.
+```text
+Organization Shared Sender (optional)
+        ↓
+Branch Default Sender
+        ↓
+Campaign Sender Override (optional)
+        ↓
+Conversation Resolved/Pinned Sender
+```
+
+القواعد:
+
+- لا تفترض رقم WhatsApp واحدًا لكل النظام.
+- لا تفرض رقمًا منفصلًا لكل Campaign.
+- الـDefault العملي هو Branch Sender مع Campaign Override اختياري.
+- Existing Conversation لا تغير Sender بصمت.
+- Outbound Sender Resolution يجب أن يكون Deterministic.
+- Inbound Resolution يجب أن يكون Deterministic.
+- Ambiguous Inbound → Persist + Needs Attention بدل التخمين.
+- كل AI/Human/Automation Send يمر عبر Central Messaging Policy.
+- Consent / DNC / Templates / Sending Hours / Sender Health / Provider Constraints / Frequency / Max Attempts / Controller كلها تتحقق قبل الإرسال.
+- Provider Limits المتغيرة لا يتم Hardcode لها كـBusiness Constants.
+- Queues / Backpressure / Retry / Idempotency مطلوبة حسب الحاجة.
+
+Sender Resolution:
+
+- إذا كانت Conversation قائمة ولها Pinned Sender/Thread: استخدمه إذا بقي صالحًا. إذا أصبح غير صالح، Block/Needs Attention أو Explicit migration workflow؛ **لا تعمل fallback تلقائيًا إلى رقم آخر**.
+- إذا كانت Conversation جديدة بلا Pinned Sender: Campaign Sender Override → Branch Default Sender → Organization Shared Fallback المسموح صراحة → وإلا Block/Needs Attention.
+
+لا تختَر Sender عشوائيًا.
+
+## 2.2 AI
+
+اعتمد:
+
+```text
+Global AI Guardrails
+        ↓
+Branch AI Defaults
+        ↓
+Campaign AI Configuration
+```
+
+القواعد:
+
+- Global Guardrails غير قابلة للتعطيل من Campaign.
+- Branch Defaults قابلة للوراثة فقط في الحدود المسموحة.
+- Campaign تحدد Knowledge وQualification وTone وHandoff وFollow-up وسلوكها الخاص.
+- يمكن مشاركة نفس AI Provider/Model/Runtime.
+- لكن Context كل Campaign يجب أن يبقى معزولًا.
+- ممنوع Campaign A أن ترى Knowledge أو Instructions أو Qualification أو Leads أو Conversations الخاصة بـCampaign B.
+- Effective AI Configuration يجب أن تكون Deterministic وقابلة للـAudit.
+
+هذه القرارات تحسم أي غموض أقدم في نفس المواضيع، ولا تلغي أي Requirement آخر في الملفات السابقة.
+
+---
+
+# 3. وحّد الوثائق قبل التنفيذ الكبير
+
+حدّث مراجع الوثائق داخل:
+
+```text
+README.md
+AGENTS.md
+```
+
+بحيث تشمل:
+
+```text
+docs/05-messaging-ai-final-architecture.md
+docs/06-final-completeness-and-acceptance.md
+```
+
+صحح مشاكل ترقيم العناوين البسيطة إذا وجدت، لكن:
+
+- لا تغير Business Behavior.
+- لا تحذف Requirements.
+- لا تعيد كتابة المواصفات بشكل يفقد تفاصيلها.
+
+---
+
+# 4. لغة التوثيق داخل المشروع
+
+كل Product/Requirements documentation وأي `technical-architecture.md` أو `implementation-plan.md` أو `codex-progress.md` أو Completion/Review report تنشئه داخل الـRepository يجب أن يكون بالعربية، مع استخدام المصطلحات التقنية وأسماء الـAPIs والـClasses والـIdentifiers بالإنجليزية عندما يكون ذلك أوضح.
+
+لا تترجم أسماء الكود أو المكتبات أو البروتوكولات بشكل يضر بالدقة التقنية.
+
+---
+
+# 5. لا تسألني عن الـTechnology Stack
+
+أنت مسؤول عن اختيار أفضل طريقة تقنية لبناء المنتج.
+
+اختر بنفسك ما يناسب المشروع من:
+
+- Programming Language.
+- Backend Framework.
+- Frontend Framework.
 - Database.
-- ORM/query layer.
-- Authentication approach.
-- Authorization architecture.
-- Queue/background jobs.
+- ORM / Query Layer.
+- Authentication Architecture.
+- Authorization Architecture.
+- Queue / Background Jobs.
 - Cache.
-- Search strategy.
-- File/object storage.
-- AI integration architecture.
-- Messaging provider abstraction.
-- Payment provider abstraction.
-- Integration architecture.
-- Testing stack.
-- Deployment/container strategy.
+- Search Strategy.
+- File/Object Storage.
+- Messaging Architecture.
+- AI Integration Architecture.
+- Payment Integration Architecture.
+- Testing Stack.
+- Container/Deployment Strategy.
 - Observability.
-- CI/CD structure where appropriate.
+- CI/CD.
 
-Do not ask me which framework, database, AI SDK, queue, cache, hosting provider, or ORM I prefer unless a documented business requirement genuinely depends on that choice.
+اختر على أساس:
 
-Prefer the most robust, secure, scalable, maintainable, and operationally simple solution for the documented product.
+- Correctness.
+- Security.
+- Reliability.
+- Maintainability.
+- Scalability.
+- Performance.
+- Data Integrity.
+- Testability.
+- Operational Simplicity.
+- Provider Independence.
+- Reasonable Cost.
 
-Do not overengineer.
+لا تستخدم Microservices لمجرد أن المنتج كبير.
 
-A well-designed modular monolith is acceptable if it is the best fit. Microservices are not required merely because the product is large.
+Modular Monolith قوي ومنظم مقبول إذا كان هو الأنسب.
+
+لا تسألني أي Framework أو Database أو ORM أو Hosting أفضل إذا لم يوجد Requirement تجاري يفرض الاختيار.
 
 ---
 
-## Execute, do not only plan
+# 6. نفّذ ولا تتوقف عند التخطيط
 
-Create the technical architecture and implementation plan, but **do not stop after planning and do not wait for my approval of ordinary technical decisions**.
-
-Create appropriate technical documentation inside the repository, for example:
+أنشئ داخل الـRepository وثائق تقنية مثل:
 
 ```text
 docs/technical-architecture.md
 docs/implementation-plan.md
 ```
 
-You may choose better filenames if appropriate.
+أو أسماء أفضل إذا رأيت ذلك.
 
-After documenting the architecture and plan, continue directly into implementation.
+لكن **لا تتوقف بعد إنشائها**.
 
-Your job is to carry the project from the current repository state to the complete working product described by the specification.
+بعد الخطة تابع مباشرة إلى:
 
-Do not respond with only:
+- إنشاء المشروع الفعلي.
+- Database.
+- Migrations.
+- Backend.
+- Frontend.
+- Authentication.
+- Authorization.
+- كل Modules.
+- Integrations.
+- Queues.
+- AI.
+- Tests.
+- Deployment/Run setup.
+- Verification.
 
-- an architecture proposal,
-- a task list,
-- a roadmap,
-- pseudocode,
-- a partial scaffold,
-- a demo,
-- or an MVP.
-
-Implement the actual system.
-
----
-
-## Do not repeatedly ask questions already answered by the specifications
-
-Before asking any question:
-
-1. Search all project documentation.
-2. Search the current codebase.
-3. Check whether the question is a technical decision you should make yourself.
-4. Choose the safest and most maintainable solution when the ambiguity does not change business behavior.
-
-Only ask me when there is a genuine blocker that cannot be resolved from the repository, such as:
-
-- a real contradiction between business requirements,
-- a missing business/legal decision that materially changes product behavior,
-- or an external production credential/approval that cannot reasonably be replaced with a mock/sandbox during development.
-
-If a real external credential is unavailable, do not stop the project. Build the provider adapter, setup UI, mocks/sandbox path, validation, failure handling, and tests, and continue with the rest of the system.
+لا ترجع لي بمجرد Roadmap أو Architecture Proposal.
 
 ---
 
-## Never depend on my personal external accounts during development
+# 7. لا تختصر المنتج إلى MVP
 
-Do not silently connect or hardcode:
+لا تؤجل Feature موثقة بحجج مثل:
 
-- my OpenAI account,
-- my Meta account,
-- my WhatsApp number,
-- my payment account,
-- or any other personal/production provider account.
+- MVP.
+- V1.
+- Phase 2.
+- Later.
+- Nice to have.
 
-External integrations must be implemented so that an authorized Super Admin or Manager can connect the appropriate provider/account **from inside the platform UI**, as defined in the specifications.
+يمكن تقسيم التنفيذ إلى Milestones وTasks فقط لتنظيم العمل، لكن النطاق النهائي يبقى كاملًا.
 
-During development use:
+إذا كانت Feature صعبة:
 
-- mocks,
-- fakes,
-- provider sandboxes,
-- test doubles,
-- or explicitly provided test credentials only.
-
-Never place real credentials in source code.
+- لا تحذفها.
+- لا تحولها إلى Fake Version.
+- ابحث عن أبسط تنفيذ صحيح Production-ready.
 
 ---
 
-## The platform must be scalable from the beginning
+# 8. لا تسأل سؤالًا تمت الإجابة عنه
 
-Assume the product will have:
+قبل أي سؤال لي:
 
-- many active Campaigns,
-- many Agents,
-- many Leads arriving every day,
-- concurrent users,
-- large conversation histories,
-- many webhooks,
-- automation jobs,
-- AI jobs,
-- payment events,
-- and growing analytics history.
+1. ابحث في كل الوثائق.
+2. ابحث في الـCodebase.
+3. حدد إن كان القرار Technical ويمكنك حسمه.
+4. اختر أفضل حل آمن وقابل للصيانة إذا لم يغير Business Behavior.
 
-Design so growth does not require rebuilding the product.
+اسأل فقط عند Blocker حقيقي مثل:
 
-Use appropriate:
+- تناقض Business فعلي لا يمكن حسمه.
+- قرار قانوني/تجاري غير موجود ويغير السلوك جذريًا.
+- Credential/Approval Production خارجي لا يمكن محاكاته أو استبداله أثناء التطوير.
 
-- indexing,
-- pagination,
-- connection pooling,
-- background jobs,
-- queues,
-- retries,
-- idempotency,
-- rate-limit handling,
-- bounded concurrency,
-- efficient query patterns,
-- observability,
-- and scalable storage.
+حتى عند غياب Credential خارجي:
 
-Do not load entire large datasets into memory or into the browser.
-
-Do not use full-table scans as the normal path for common operational queries.
-
-Do not let large imports, exports, analytics, or AI batch work block core Lead and Conversation operations.
-
-Add meaningful performance/load tests for critical paths.
-
-Do not invent business throughput numbers as facts. Document technical capacity assumptions and make the architecture measurable and horizontally scalable where appropriate.
+- لا توقف المشروع.
+- ابنِ Adapter.
+- ابنِ Setup UI.
+- ابنِ Mock/Fake/Sandbox Path.
+- ابنِ Validation.
+- ابنِ Failure Handling.
+- ابنِ Tests.
+- أكمل بقية النظام.
 
 ---
 
-## Security requirements are mandatory
+# 9. لا تعتمد على حسابات شخصية
 
-Backend enforcement is required for:
+ممنوع ربط المنتج النهائي أو التطوير تلقائيًا بـ:
 
-- authentication,
-- authorization,
-- roles,
-- branch isolation,
-- Lead access,
-- Conversation access,
-- field visibility/editability,
-- integration scope,
-- AI tool access,
-- payment operations,
-- exports,
-- bulk actions,
-- and admin settings.
+- حساب OpenAI شخصي.
+- حساب Meta شخصي.
+- رقم WhatsApp شخصي.
+- Payment Account شخصي.
+- API Key محلية غير موثقة.
 
-Frontend hiding is not security.
-
-Protect:
-
-- secrets,
-- tokens,
-- webhook endpoints,
-- uploaded files,
-- customer messages,
-- AI context,
-- logs,
-- and sensitive provider configuration.
-
-Implement appropriate:
-
-- secure credential storage,
-- session handling,
-- password/credential reset,
-- brute-force protection,
-- signature verification,
-- CSRF/XSS protections as applicable,
-- input validation,
-- rate limiting,
-- replay protection,
-- audit logging,
-- and safe error handling.
+Operational Integrations يجب أن تُدار من واجهة المنصة حسب الصلاحيات.
 
 ---
 
-## AI requirements are mandatory
+# 10. الـBackend هو مرجع الصلاحيات
 
-Implement the documented:
+يجب فرض:
 
-- AI Lead Assistant,
-- AI Operations Assistant,
-- Campaign Knowledge,
-- Knowledge Draft/Published versions,
-- Qualification,
-- AI follow-up policy,
-- Human handoff,
-- AI Copilot,
-- AI tools,
-- AI permissions,
-- AI auditability,
-- AI failure handling,
-- and AI evaluations.
+- Authentication.
+- Authorization.
+- Role Scope.
+- Branch Isolation.
+- Lead Access.
+- Conversation Access.
+- Field Visibility/Editability.
+- Integration Access.
+- AI Tool Permissions.
+- Payment Permissions.
+- Validation.
+- Business Rules.
 
-The AI must not have unrestricted direct database access for business actions.
+على الـBackend.
 
-Use approved tools/application services with authorization and validation.
+Frontend hiding ليس Security.
 
-Do not allow customer messages, imported content, or knowledge documents to override system rules or expand tool permissions.
-
-Do not rely on self-reported LLM confidence as the only safety mechanism.
-
-Keep AI facts grounded in platform data.
+اختبر Direct URL/API attempts.
 
 ---
 
-## Messaging requirements are mandatory
+# 11. Authentication والحسابات
 
-Implement Customer Conversations as part of Lead Operations.
+نفّذ بشكل Production-ready:
 
-The platform must support the documented separation between:
+- Login.
+- Logout.
+- Forgot/Reset Credentials.
+- Session Expiration.
+- Session Revocation.
+- Disabled Account Behavior.
+- No Public Signup.
+- Authorized User Creation/Invitation.
+- Secure one-time First Super Admin bootstrap بدون Public Signup أو Hardcoded default credentials؛ بعد إنشاء أول Super Admin يتم تعطيل/إبطال bootstrap path أو token حسب التصميم، وتكون العملية قابلة للتدقيق.
+- Safe Error Handling.
+- Abuse/Brute-force Protection المناسب للـStack.
+- Secure Password/Credential handling.
+
+---
+
+# 12. الأدوار
+
+الأدوار الأساسية:
 
 ```text
-Lead Owner
+Super Admin
+Manager
+Agent
 ```
 
-and:
+ولا تضف Roles جديدة بدون Requirement.
+
+## Super Admin
+
+Global Scope حسب المواصفات.
+
+## Manager
+
+Branch-scoped فعليًا.
+
+## Agent
+
+فقط Leads/Conversations/Fields/Actions المسموحة.
+
+---
+
+# 13. Contacts وLeads
+
+حافظ على الفصل:
 
 ```text
-Conversation Controller
+Contact = الشخص
+Lead = فرصة/طلب محدد
 ```
 
-Agents must communicate with authorized Leads from inside the platform.
+نفّذ:
 
-Agents must not see Leads or Conversations belonging to other Agents unless their permissions allow it.
+- Contact Matching.
+- Phone Normalization المناسب.
+- Ambiguous Matching Handling.
+- Multiple Leads per Contact.
+- Source Submission Preservation.
+- Internal Lead Lifecycle:
+  - OPEN
+  - CLOSED
+  - ARCHIVED
+- Manual Lead Creation.
+- Close/Reopen/Archive.
+- Notes.
+- Activity Timeline.
+- History/Audit.
 
-Support the documented:
-
-- inbound/outbound messages,
-- provider message IDs,
-- delivery state,
-- AI/Human identity,
-- handoff,
-- provider policies,
-- consent/do-not-contact state,
-- templates when required,
-- business/sending hours,
-- multiple Messaging Connections/senders.
-
-Do not reduce WhatsApp back to notification-only behavior.
-
----
-
-## Integration setup must be UI-driven
-
-Every operational integration setup defined in the specifications must be manageable from the platform UI according to permissions.
-
-This includes, where applicable:
-
-- Meta connections,
-- Meta Pages/Forms,
-- webhooks,
-- Messaging/WhatsApp,
-- AI providers,
-- AI model profiles,
-- Payment providers,
-- Email,
-- Google integrations,
-- generic API/webhook lead sources.
-
-Provide:
-
-- setup guidance,
-- credential/OAuth flow,
-- test connection,
-- status,
-- last error,
-- reconnect,
-- disable,
-- bindings,
-- and relevant audit history.
-
-If an external provider requires a step that cannot be completed through its API, guide the user through that external step from the platform UI and resume the setup inside the platform.
+لا تعمل Automatic Lead Merge فقط لأن Contact متطابق.
 
 ---
 
-## Preserve the complete product scope
+# 14. Campaigns
 
-Do not remove, postpone, or downgrade documented functionality because it is difficult.
+Campaign هي وحدة تشغيل أساسية.
 
-Do not label documented features as:
+نفّذ:
 
-- V2,
-- future work,
-- optional later,
-- or out of scope,
+- Branch.
+- Source Bindings.
+- Eligible Agents.
+- Routing.
+- Fields.
+- Visibility/Editability.
+- Messaging.
+- AI.
+- Qualification.
+- Follow-up.
+- Automations.
+- Payments.
+- Conversion Definition.
+- Activation/Deactivation.
+- Readiness.
 
-unless the specification explicitly says so.
+لا تسمح Activation بصمت مع Setup ناقص.
 
-The complete product includes all documented areas such as:
+---
 
+# 15. Dynamic Fields
+
+نفّذ النظام المرن الموثق، بما فيه:
+
+- Add/Edit/Disable.
+- Reorder.
+- Required.
+- Visible.
+- Editable.
+- Table/Details Visibility.
+- Filters.
+- Automation Usage.
+- AI Qualification Usage.
+- Calculated Fields.
+- Options.
+- Field History.
+- Campaign-specific Configuration.
+
+لا تفترض أعمدة ثابتة لكل Campaign.
+
+---
+
+# 16. Lead Sources وMeta
+
+نفّذ:
+
+- Meta Connection Setup.
+- OAuth/API setup المناسب.
+- Pages/Forms Resources حسب Provider Capabilities.
+- Webhook Setup.
+- Signature/Authenticity Verification.
+- Replay/Duplicate Protection.
+- Campaign/Form Binding.
+- Binding Conflict Validation.
+- Field Mapping.
+- Preserve Raw Source Data.
+- Historical Sync إذا كان Provider/المواصفات تسمح.
+- Retry/Failure State.
+- Status/Health.
+
+ودعم:
+
+- Manual.
+- CSV.
+- Excel.
+- Google Sheets.
+- Generic API.
+- Generic Webhook.
+- Future Sources عبر abstraction مناسب.
+
+---
+
+# 17. Routing وAssignment
+
+نفّذ القواعد الموثقة حول:
+
+- Agent Eligibility.
+- Campaign Eligibility.
+- Active/Inactive.
+- Working Hours.
+- Capacity.
+- Routing Method.
+- Weighted behavior عندما يكون جزءًا من الإعداد.
+- Performance-based Routing عندما يفعّل.
+- Fallback.
+- No Eligible Agent.
+- Reassignment.
+- Agent Deactivation.
+- Assignment History.
+- Concurrency Safety.
+
+Performance metrics الخاصة بالـAI لا تُنسب لأداء Human Agent.
+
+---
+
+# 18. Conversations وMessaging
+
+Customer Conversation جزء من Lead Operations وليس Chat System عامًا.
+
+نفّذ:
+
+- Conversation.
+- Messages.
+- Inbound/Outbound.
+- Provider Message IDs.
+- Attachments عند الدعم.
+- Delivery States.
+- AI/Human Sender Identity.
+- Current Controller.
+- Handoff.
+- History.
+- Agent Reply from Platform.
+- Assignment-based Access.
+- Multiple Messaging Connections.
+- Multiple Senders/Numbers.
+
+وطبق المعمارية النهائية للـSender المذكورة في هذا الـPrompt.
+
+---
+
+# 19. Central Messaging Policy
+
+كل Customer-facing Send من:
+
+- AI.
+- Human.
+- Automation.
+- Follow-up.
+
+يمر عبر نفس Policy Layer.
+
+تحقق من:
+
+- Authorization.
+- Conversation Controller.
+- Consent/Opt-in.
+- Do-not-contact.
+- Provider Policy.
+- Template Requirement.
+- Sending Hours.
+- Timezone.
+- Campaign Max Attempts.
+- Frequency.
+- Sender Scope.
+- Connection/Sender Health.
+- Provider Capability.
+- Rate/Throughput Constraints.
+- Duplicate/Idempotency.
+
+لـOutbound Messaging:
+- بعد نجاح Authorization/Policy، Persist الـOutbound Message/Send Intent بحالة `QUEUED` مع idempotency context **قبل** استدعاء Provider.
+- ثم enqueue/send عبر Provider Adapter.
+- حدّث Provider Reference وDelivery State بعد الاستجابة/callbacks.
+- لا تعتمد على Provider call قبل وجود durable internal record.
+
+لا يوجد bypass.
+
+---
+
+# 20. حل الرسائل الواردة
+
+استخدم:
+
+- Connection.
+- Business Sender.
+- Provider Thread.
+- Participant Identity.
+- Contact.
+- Existing Conversation.
+- Active Leads.
+- Campaign Context.
+- External References.
+
+عند Inbound Provider Event:
+
+- Verify authenticity وidempotency أولاً.
+- Persist raw Integration Event / inbound event بشكل آمن قبل routing.
+- ثم Resolve Connection/Sender/Contact/Conversation/Lead/Campaign.
+- إذا بقيت Ambiguous:
+
+```text
+Persist/attach Message or Unmatched record
+→ Needs Attention
+→ Human Resolution
+```
+
+لا تجعل AI يخمن Campaign عشوائيًا.
+
+---
+
+# 21. High-volume Messaging
+
+استخدم حسب الحاجة:
+
+- Queue.
+- Background Workers.
+- Backpressure.
+- Bounded Retry.
+- Backoff.
+- Idempotency.
+- Dead-letter/Recovery.
+- Per-Connection/Per-Sender Isolation.
+- Observability.
+
+لا Hardcode لمحدودية Provider متغيرة كـBusiness Constants.
+
+---
+
+# 22. AI Architecture
+
+الـAI ليس Source of Truth.
+
+يجب تنفيذ المكونات الموثقة كاملة:
+
+- AI Lead Assistant للـCustomer-facing flow.
+- AI Operations Assistant للمستخدمين الداخليين حسب Scope.
+- AI Copilot للـHuman Agent.
+- Campaign Knowledge/Qualification/Handoff/Follow-up/Evaluations.
+
+نفّذ:
+
+```text
+AI
+↓
+Approved Tool
+↓
+Application Service
+↓
+Authorization
+↓
+Validation
+↓
+Business Rules
+↓
+Database / Provider
+```
+
+لا Direct Unrestricted DB Access للـAI.
+
+كل Customer/Knowledge/External Input يعتبر Untrusted Data وليس System Instruction.
+
+---
+
+# 23. AI Configuration Hierarchy
+
+الترتيب:
+
+```text
+Global AI Guardrails
+        ↓
+Branch AI Defaults
+        ↓
+Campaign AI Configuration
+```
+
+Global Guardrails لا يمكن تعطيلها.
+
+Branch Defaults قابلة للوراثة حيث يسمح النظام.
+
+Campaign Configuration تحدد:
+
+- Knowledge.
+- Qualification.
+- Tone/Language.
+- Handoff.
+- Follow-up.
+- Allowed Tools.
+- Messaging Behavior.
+- AI Provider/Profile Override عند السماح.
+
+---
+
+# 24. Campaign AI Isolation
+
+يمكن استخدام Model/Provider/Runtime مشترك.
+
+لكن لكل Execution:
+
+- Current Lead.
+- Current Campaign.
+- Current Conversation.
+- Published Campaign Knowledge.
+- Campaign Qualification.
+- Campaign Rules.
+- Allowed Tools.
+
+ولا يجوز خلط Campaign B داخل Campaign A.
+
+اختبر Cross-Campaign Leakage صراحة.
+
+---
+
+# 25. Campaign Knowledge
+
+نفّذ:
+
+- Draft.
+- Preview.
+- Validation.
+- Publish.
+- Version History.
+- Approved Links.
+- Approved Assets.
+- FAQs.
+- Facts.
+- Prices/Locations/Schedules/Requirements حسب الحملة.
+- Allowed/Prohibited Claims.
+
+Customer-facing AI يستخدم Published Version فقط.
+
+كل Historical AI Execution المهمة تشير إلى Knowledge Version الصحيحة.
+
+---
+
+# 26. Qualification
+
+لكل Campaign Qualification خاصة بها.
+
+نفّذ:
+
+- Questions.
+- Required/Optional.
+- Order.
+- Field Mapping.
+- Structured Data Extraction.
+- Backend Validation.
+- Completion Rules.
+- Handoff Trigger.
+- Audit/Source.
+
+AI لا يكتب Database مباشرة.
+
+---
+
+# 27. AI Unknown Answer
+
+إذا كانت معلومة Company/Campaign غير موجودة بشكل موثوق:
+
+- لا يخترع AI.
+- لا يستخدم Generic Model Knowledge كأنها حقيقة للشركة.
+- يوضح عدم وجود معلومة مؤكدة.
+- يسجل أو يصعد حسب Policy.
+- يعمل Handoff عند الحاجة.
+
+---
+
+# 28. Human Handoff وController
+
+حافظ على:
+
+```text
+Lead Owner != Conversation Controller
+```
+
+ومعاني الـStates الموثقة مثل:
+
+- AI_ACTIVE.
+- AI_WAITING_FOR_LEAD.
+- AI_HANDOFF_REQUIRED.
+- WAITING_FOR_HUMAN.
+- HUMAN_ACTIVE.
+- CLOSED.
+
+عندما HUMAN_ACTIVE:
+
+- AI Auto-send متوقف.
+- AI Copilot يمكن أن يعمل.
+- Takeover Explicit.
+- لا Concurrent Conflicting Replies.
+
+---
+
+# 29. AI Operations Assistant
+
+Internal-facing وPermission-scoped.
+
+يستخدم Platform Queries/Services للحقائق.
+
+يمكنه:
+
+- Summarize.
+- Analyze.
+- Explain.
+- Suggest.
+- Drill-down.
+- Limited Approved Write Actions.
+
+لا يخمن أرقام Operational Metrics.
+
+---
+
+# 30. Follow-ups
+
+نفّذ Human وAI Follow-ups حسب المواصفات.
+
+يشمل:
+
+- Create/Edit/Complete/Cancel/Reschedule.
+- Due/Upcoming/Overdue.
+- AI Delays.
+- Max Attempts.
+- Sending Hours.
+- Stop Conditions.
+- Final Action.
+- No Duplicate Sends.
+- Re-check Policy وقت التنفيذ الفعلي.
+
+---
+
+# 31. Payments
+
+نفّذ:
+
+- Provider Connections.
+- Branch Payment Methods.
+- Payment Links.
+- Trusted Provider Confirmation.
+- Payment Status.
+- Webhook Idempotency.
+- Failure States.
+- Permission Checks.
+
+Customer يقول "دفعت" لا يعني Payment Confirmed.
+
+AI لا يثبت Payment من نفسه.
+
+---
+
+# 32. Enrollment
+
+يبقى Entity منفصلًا عن Payment.
+
+Enrollment يحدث فقط وفق Trusted Confirmation/Business Rule الموثقة.
+
+لا تخلط Payment وEnrollment.
+
+---
+
+# 33. Analytics
+
+نفّذ:
+
+- Global/Branch/Campaign/Agent Analytics حسب الصلاحيات.
+- Date Filters.
+- Source.
+- Custom Fields المناسبة.
+- Conversion Definition.
+- Drill-down.
+- Revenue متعدد العملات بدون Total مضلل.
+- Human vs AI Metrics منفصلة.
+
+خصوصًا:
+
+- First AI Contact.
+- First Human Contact.
+- First Customer Response.
+- AI Attempts.
+- Human Attempts.
+- AI Response Time.
+- Human Response Time.
+- Qualification Source.
+
+---
+
+# 34. Automations
+
+النمط:
+
+```text
+Trigger
+↓
+Conditions
+↓
+Actions
+```
+
+مع:
+
+- Validation.
+- Permissions.
+- Loop Prevention.
+- Idempotency.
+- Failure Handling.
+- Audit.
+- عدم تجاوز Conversation/AI/Payment/Messaging Rules.
+
+---
+
+# 35. Search / Filters / Saved Views / Bulk
+
+نفّذ حسب الصلاحيات:
+
+- Search.
+- Filters.
+- Sorting.
+- Saved Views.
+- Column Selection.
+- Bulk Actions.
+- Server-side Pagination.
+- Permission-safe Results.
+- Hidden Field Protection.
+
+---
+
+# 36. Import / Export / Google Sheets
+
+## Import
+
+- CSV.
+- Excel.
+- Google Sheets عندما يطبق.
+- Branch/Campaign Scope.
+- Mapping.
+- Validation.
+- Preview.
+- Duplicate Review.
+- Result Report.
+- Background Job عند الحجم الكبير.
+
+## Export
+
+- Current Filters.
+- Saved View.
+- Selected Columns.
+- Permissions.
+- No Hidden Fields.
+- Background Job عند الحجم الكبير.
+
+Google Sheets لا تصبح قاعدة البيانات الأساسية.
+
+---
+
+# 37. Notifications
+
+نفّذ:
+
+- In-App.
+- Email/Messaging عندما يكون ضمن الإعداد.
+- Preferences.
+- Critical Notifications عند الحاجة.
+- Assignment.
+- Reassignment.
+- Follow-up.
+- AI Handoff.
+- Payment.
+- Enrollment.
+- Integration/System Alerts.
+
+Customer Conversation منفصلة عن Internal Notification.
+
+---
+
+# 38. UI لكل Role
+
+نفّذ Navigation/Screens الموثقة.
+
+## Super Admin
+
+مثل:
+
+- Dashboard.
+- Leads.
+- Contacts.
 - Branches.
 - Users.
+- Campaigns.
+- Conversations.
+- Fields.
+- Routing.
+- Payments.
+- Enrollments.
+- Analytics.
+- Automations.
+- AI.
+- Integrations.
+- Audit Logs.
+- Settings.
+
+## Manager
+
+كل ما يخص Branch ضمن Scope.
+
+## Agent
+
+- Dashboard.
+- My Leads.
+- My Conversations.
+- Follow-ups.
+- AI Copilot.
+- Notifications.
+- Profile.
+
+التفاصيل النهائية تتبع الوثائق.
+
+---
+
+# 39. UX واللغات
+
+دعم:
+
+- Arabic RTL.
+- French/English LTR.
+- Responsive Desktop/Tablet/Mobile.
+- Empty States.
+- Loading States.
+- Error States.
+- Permission States.
+- Large Data UX.
+- Safe recoverable flows عندما يكون مناسبًا.
+
+أولوية Agent Mobile Experience مهمة.
+
+---
+
+# 40. Integration Setup من داخل المنصة
+
+أي Setup تشغيلي موثق يجب أن يتم من UI حسب الصلاحيات.
+
+لا تجعل المستخدم التشغيلي يعدل:
+
+- Source Code.
+- Server Files.
+- Database Rows.
+- CLI.
+- Hardcoded IDs.
+
+وفر:
+
+- Provider Selection.
+- Prerequisites.
+- Authentication/Credential Flow.
+- Webhook Information.
+- Resource Selection.
+- Test Connection.
+- Status.
+- Health.
+- Last Error.
+- Reconnect.
+- Disable.
+- Branch/Campaign Binding.
+- Help.
+
+---
+
+# 41. Security
+
+طبق حسب الـStack:
+
+- Secure Authentication.
+- Backend Authorization.
+- Branch Isolation.
+- Secret Encryption/Secure Storage.
+- Input Validation.
+- Output Encoding.
+- XSS Protection.
+- CSRF Protection عند الانطباق.
+- Webhook Authenticity.
+- Replay Protection.
+- Rate/Abuse Protection.
+- Safe File Upload.
+- Access-controlled File Download.
+- Safe Logging.
+- No Secrets to AI.
+- No Hidden Data Leakage via Search/Export/API.
+
+---
+
+# 42. Data Integrity وReliability
+
+تعامل مع:
+
+- Duplicate Events.
+- Retries.
+- Partial Failures.
+- Concurrency.
+- Out-of-order Callbacks.
+- Provider Timeouts.
+- Job Retries.
+- Payment Callbacks.
+- Message Delivery Callbacks.
+- AI Tool Execution.
+
+استخدم:
+
+- Idempotency.
+- Transactions المناسبة.
+- Constraints.
+- Recovery Paths.
+- Audit.
+
+---
+
+# 43. Scalability
+
+افترض نموًا حقيقيًا في:
+
+- Branches.
+- Campaigns.
+- Agents.
+- Leads.
+- Conversations.
+- Messages.
+- Webhooks.
+- AI Jobs.
+- Payments.
+- Analytics.
+
+استخدم ما يلزم من:
+
+- Production Database.
+- Proper Indexes.
+- Connection Pooling.
+- Server-side Pagination.
+- Efficient Queries.
+- Background Jobs.
+- Queue Backpressure.
+- Bounded Concurrency.
+- Safe Bulk Processing.
+- Cache عند الحاجة بدون كسر Correctness.
+- Horizontal Scaling عندما يكون مناسبًا.
+- Observability.
+- Load/Performance Tests.
+
+لا تبنِ على Dataset صغيرة.
+
+---
+
+# 44. Timezone وDate/Time correctness
+
+- استخدم تمثيلاً داخلياً غير مبهم للـtimestamps مع الحفاظ على Source/Provider timestamps المهمة.
+- Branch timezone هي الـDefault التشغيلي، وCampaign override يستخدم عندما تسمح المواصفات.
+- Scheduled Messaging/Follow-ups يجب أن تكون DST-safe.
+- Analytics وDate Filters يجب أن تستخدم timezone semantics واضحة.
+- لا تسمح لاختلاف timezone أن يسبب Duplicate send أو موعداً مفقوداً أو اختلافاً صامتاً في Daily metrics.
+
+---
+
+# 45. Observability والتشغيل
+
+اجعل النظام قابلًا للتشغيل الحقيقي.
+
+وفر حسب الـArchitecture:
+
+- Structured Logs.
+- Health Checks.
+- Backup/Restore strategy واختبار قابلية الاستعادة بما يناسب الـDatabase/Object Storage.
+- Environment separation مناسب بين development/staging/production.
+- Queue Visibility.
+- Integration Health.
+- Database/Latency Observability المناسبة.
+- Error Tracking Strategy.
+- Safe Operational Diagnostics بدون Secrets.
+
+---
+
+# 46. Testing جزء من التنفيذ
+
+لا تعتبر Feature مكتملة بدون اختبار مناسب.
+
+نفّذ:
+
+- Unit Tests.
+- Integration Tests.
+- Authorization/Permission Tests.
+- Routing Tests.
+- Webhook/Idempotency Tests.
+- Messaging Tests.
+- AI Evaluations.
+- Payment Tests.
+- Import/Export Tests.
+- Critical E2E/UI Flows.
+- Migration Tests.
+- Build/Type/Lint Checks.
+- Load/Performance Tests أو Scripts للمسارات الحرجة.
+
+---
+
+# 47. End-to-End Scenarios إلزامية
+
+اختبر على الأقل:
+
+## Meta → AI → Human → Payment → Enrollment
+
+```text
+Meta Lead
+→ Campaign
+→ Contact Match/Create
+→ Lead
+→ Routing
+→ AI Initial Contact
+→ Qualification
+→ Handoff
+→ Human Reply
+→ Payment Link
+→ Trusted Payment Confirmation
+→ Enrollment
+→ Analytics
+```
+
+## AI Disabled
+
+```text
+Lead
+→ Campaign
+→ Routing
+→ Human Agent
+→ Follow-up
+→ Payment/Enrollment
+```
+
+## No Eligible Agent
+
+يجب أن يعمل Fallback/Attention الصحيح بدون Random Assignment.
+
+## Multiple Active Leads for Contact
+
+Ambiguous Inbound → Needs Attention، لا تخمين.
+
+## Provider Failure
+
+Data Preserved + Retry/Recovery + Visible Status.
+
+## Permission Attack
+
+Agent يحاول URL/API خارج Scope → Backend Deny.
+
+## Prompt Injection
+
+لا Scope Expansion ولا Secret Leak ولا Unauthorized Tool.
+
+---
+
+# 48. Definition of Done
+
+لا تعتبر المشروع مكتملًا إلا إذا:
+
+- كل Requirement داخلي قابل للتنفيذ تم تنفيذه.
+- لا يوجد Placeholder لمسار Required.
+- لا يوجد Stub/Fake Data في Production Paths المطلوبة.
+- لا توجد TODO حرجة.
+- Migrations تعمل.
+- Critical Indexes/Constraints موجودة.
+- Backend Permissions تعمل.
+- UI المطلوبة موجودة.
+- RTL يعمل.
+- Messaging Sender Resolution مكتملة.
+- Campaign AI Isolation مختبرة.
+- Payment Confirmation موثوقة.
+- Tests الحرجة تمر.
+- Build يمر.
+- Run/Deployment Documentation موجودة.
+- First Super Admin bootstrap موثقة وآمنة ولا تعتمد على Default Password.
+- Backup/Restore strategy موثقة وقابلة للاختبار بما يناسب الـStack.
+- External Integrations غير المتاحة بسبب Credential فقط لديها Adapter + Setup UI + Mock/Sandbox + Tests + واضح أنها لم تُختبر Live.
+
+---
+
+# 49. لا تدّعِ اكتمال Live Integration بدون تحقق
+
+إذا Meta أو WhatsApp أو Payment أو AI Provider يحتاج Production Credential/Approval غير متوفر:
+
+اكمل كل ما يمكن إنجازه تقنيًا.
+
+لكن في التقرير النهائي ميّز بوضوح بين:
+
+```text
+Implemented
+Mock/Sandbox Verified
+Live Provider Verified
+Live Verification Pending External Credential/Approval
+```
+
+لا تستخدم Fake Success.
+
+---
+
+# 50. نظافة الـRepository
+
+حافظ على Repository Production-oriented.
+
+- لا تترك ملفات مؤقتة.
+- لا ترفع Secrets.
+- لا تترك Debug Artifacts.
+- لا تترك Dead Code بلا سبب.
+- لا تكسر Structure بدون حاجة.
+- وثق قرارات Architecture المهمة.
+- حافظ على Migrations/Versioning بشكل سليم.
+
+---
+
+# 51. طريقة العمل
+
+نفّذ بشكل مستمر:
+
+1. اقرأ المواصفات.
+2. افحص الموجود.
+3. وثق Architecture.
+4. ضع Implementation Plan.
+5. نفّذ Milestone.
+6. اختبره.
+7. أصلح الأخطاء.
+8. انتقل لما بعده.
+9. راجع Coverage مقابل كل docs.
+10. لا تتوقف حتى يكتمل النطاق أو يظهر Blocker خارجي حقيقي.
+
+إذا فرضت بيئة التنفيذ Hard execution/context limit قبل اكتمال المشروع، لا تدّعِ الاكتمال. اترك Repository في حالة متسقة قدر الإمكان وأنشئ/حدّث `docs/codex-progress.md` يتضمن بدقة:
+
+- ما تم تنفيذه واختباره.
+- ما هو In Progress.
+- ما بقي من Requirement Coverage Matrix.
+- آخر Test/Build results.
+- أي migrations أو setup state مهمة.
+- Blockers الحقيقية فقط.
+- **Exact next action** لاستكمال العمل في Codex run التالية بدون إعادة اكتشاف المشروع.
+
+لا تنتظر مني Approval على قرارات تقنية عادية.
+
+---
+
+# 52. Requirement Coverage Matrix إلزامية
+
+قبل أن تقول إن المنصة جاهزة، أنشئ Matrix داخل Repository:
+
+```text
+Requirement Area | Source Docs | Implementation | Tests | Status
+```
+
+يجب أن تشمل على الأقل:
+
+- Authentication.
+- Roles/Permissions.
+- Branches.
 - Contacts.
 - Leads.
 - Campaigns.
-- Flexible Fields.
-- Forms/source bindings.
-- Meta intake.
+- Fields.
+- Meta/Sources.
 - Routing.
-- Capacity/working hours.
-- Conversations.
+- Messaging.
 - AI.
 - Follow-ups.
-- Activity/history.
 - Notifications.
 - Payments.
 - Enrollment.
 - Analytics.
 - Automations.
-- Search/filters.
-- Saved Views.
-- Bulk Actions.
-- Import/export.
+- Search/Views/Bulk.
+- Import/Export.
 - Google Sheets.
-- Integrations.
-- Audit Logs.
-- Arabic/French/English.
-- RTL/LTR.
-- Responsive/mobile Agent workflows.
+- Email integration/notifications where documented.
+- Integrations UI.
+- Audit.
 - Security.
-- Failure handling.
+- Languages/RTL.
+- Responsive UI.
 - Scalability.
+- Observability.
+- Testing.
+- Deployment/Runbook.
+
+أي Area ليست مكتملة يجب ألا تكون `Complete`.
 
 ---
 
-## Preserve data integrity
+# 53. التقرير النهائي الذي أريده منك
 
-Design and test for:
+عندما تنتهي، لا تعطِني مجرد "Done".
 
-- duplicate webhook events,
-- retries,
-- concurrent routing,
-- duplicate messages,
-- duplicate payments,
-- out-of-order callbacks,
-- partial provider failures,
-- reassignment,
-- Agent deactivation,
-- Contact ambiguity,
-- multiple Leads for one Contact,
-- historical integrity,
-- and idempotent background jobs.
+أعطني:
 
-Never silently discard source submissions, customer messages, payment events, or important historical activity.
+1. ملخص Architecture.
+2. Stack المختار وسبب الاختيار.
+3. Modules المنفذة.
+4. Database وأهم Migrations.
+5. Authentication/Authorization.
+6. Messaging Architecture.
+7. AI Architecture.
+8. Integrations.
+9. Queues/Background Jobs.
+10. Security Safeguards.
+11. Tests التي شُغلت ونتائجها.
+12. Build/Lint/Type-check Results.
+13. End-to-end Scenarios التي اختبرتها.
+14. Requirement Matrix النهائية.
+15. أي Live External Verification بقيت بسبب Credential/Approval خارجي فقط.
+16. أي Known Issue حقيقية.
 
----
-
-## Testing is part of implementation
-
-A feature is not complete when code merely compiles.
-
-Create and run appropriate:
-
-- unit tests,
-- integration tests,
-- authorization tests,
-- end-to-end tests,
-- provider adapter tests,
-- webhook tests,
-- idempotency tests,
-- concurrency tests,
-- payment tests,
-- AI evaluations,
-- and load/performance tests.
-
-Test happy paths and failure paths.
-
-Fix failures before treating the corresponding feature as complete.
+لا تصف المشروع بأنه جاهز إذا بقي Requirement داخلي قابل للتنفيذ وغير منجز.
 
 ---
 
-## Keep the repository clean and production-oriented
+# 54. المهمة الآن
 
-Do not leave:
+ابدأ من الـRepository الحالي.
 
-- TODO implementations for documented core features,
-- dead code,
-- fake production behavior,
-- hardcoded provider IDs,
-- hardcoded credentials,
-- temporary hacks,
-- duplicated business logic,
-- or unexplained architectural exceptions.
+لا تسألني عن الـStack.
 
-Use migrations for schema changes.
+لا تتوقف عند التخطيط.
 
-Provide seed/demo development data only in a clearly separated non-production way.
+لا تختصر المنتج.
 
-Do not make development fixtures a production dependency.
+ثبّت القرارات النهائية للـMessaging والـAI في الوثائق.
 
----
-
-## Work continuously through the implementation
-
-Organize the work into sensible phases, but continue from one phase to the next without waiting for routine confirmation.
-
-At each phase:
-
-1. inspect the relevant specifications,
-2. implement,
-3. run tests,
-4. verify permissions and failure paths,
-5. fix regressions,
-6. update technical documentation when needed,
-7. continue.
-
-Do not stop merely because the project is large.
-
-If the environment imposes a hard execution limit, leave the repository in a consistent, tested state and create a precise continuation record so the next Codex run can resume from the exact remaining work without rediscovery.
-
----
-
-## Definition of done
-
-The project is complete only when:
-
-- the documented product is implemented end-to-end,
-- the application builds and runs,
-- database migrations work,
-- required screens and workflows exist,
-- permissions are enforced in the backend,
-- integrations have production-ready adapters/setup flows,
-- AI flows and human handoff work,
-- core failure modes are handled,
-- tests pass,
-- critical paths have performance/load coverage,
-- documentation explains local setup and production configuration,
-- no personal provider account is required by the codebase,
-- and the repository is in a state suitable for deployment.
-
-At completion, provide a concise final report containing:
-
-- architecture actually used,
-- major implemented modules,
-- how to run locally,
-- required environment/infrastructure dependencies,
-- how Super Admin connects external providers from the UI,
-- migrations/seeding instructions,
-- test commands and results,
-- deployment guidance,
-- any external provider approvals/credentials that the operator must still supply,
-- and any genuine remaining blocker that cannot be solved inside the codebase.
-
-Start now by reading the files listed at the top, inspecting the repository, documenting the technical architecture and implementation plan, and then proceed directly with the full implementation.
+ثم ابنِ **المنصة الكاملة** وفق جميع المواصفات، شغّلها، اختبرها، أصلح المشاكل، وراجع Coverage حتى تصل إلى Definition of Done أعلاه.

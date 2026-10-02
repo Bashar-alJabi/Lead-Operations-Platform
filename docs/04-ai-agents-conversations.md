@@ -24,6 +24,8 @@
 - `01-domain-model.md`
 - `02-business-rules-permissions.md`
 - `03-integrations-ui-requirements.md`
+- `05-messaging-ai-final-architecture.md` للقرارات النهائية الخاصة بـMessaging Sender وAI configuration isolation.
+- `06-final-completeness-and-acceptance.md` لمعيار الاكتمال والاختبارات النهائية.
 
 ---
 
@@ -213,6 +215,27 @@ Agent Sarah لا تستطيع رؤية Lead أحمد الخاصة بـAgent آخ
 - Approved Tools.
 - Current Conversation.
 - Campaign-specific rules.
+- Resolved Messaging Connection/Sender.
+
+## Effective AI Configuration & Campaign Isolation
+
+الـCustomer-facing AI يستخدم Effective Configuration مبنية بهذا التسلسل:
+
+```text
+Global AI Guardrails
+        ↓
+Branch AI Defaults
+        ↓
+Campaign AI Configuration
+```
+
+- Global Guardrails تشمل Security وPermissions وTool boundaries وno-fabrication rules ولا يمكن للحملة تعطيلها.
+- Branch Defaults توفر Defaults تشغيلية قابلة للوراثة فقط ضمن الحدود المسموحة.
+- Campaign Configuration تحدد Knowledge وQualification وTone/Language وFollow-up وHandoff وAllowed Tools وMessaging behavior.
+- يمكن لعدة Campaigns مشاركة نفس AI Provider/Model/Runtime.
+- Shared runtime لا يعني Shared business context.
+- Campaign A لا تقرأ Knowledge/Instructions/Qualification/Lead/Conversation الخاصة بـCampaign B.
+- AI Execution يجب أن يسجل ما يكفي لتحديد Effective Configuration وKnowledge Version المستخدمة.
 
 ---
 
@@ -272,10 +295,12 @@ Sarah لا تحتاج التدخل حتى:
 2. Campaign تُحدد.
 3. Branch تُحدد.
 4. Routing attempt ينفذ ويحدد Lead Owner إن وجد Agent مؤهل.
-5. Campaign AI configuration تُحمّل.
-6. Current Published Knowledge تُحمّل للسياق.
-7. Conversation تُنشأ/تُربط.
-8. AI يرسل الرسالة الأولى حسب policy.
+5. Effective AI Configuration تُبنى من Global Guardrails + Branch Defaults + Campaign Configuration.
+6. Current Published Campaign Knowledge تُحمّل للسياق.
+7. Messaging Sender يُحل Deterministically من Conversation/Campaign/Branch bindings.
+8. Conversation تُنشأ/تُربط بالSender الصحيح.
+9. AI send request يمر عبر Central Messaging Policy.
+10. الرسالة ترسل فقط إذا مرت Authorization/Consent/Template/Time/Health/Frequency/Provider checks.
 
 الرسالة الأولى يجب أن تكون مرتبطة بالحملة، وليست Generic بلا داعٍ.
 
@@ -655,14 +680,18 @@ Authorized Agent/Manager يمكن أن يأخذ Conversation يدوياً إذا
 - Stop on Closed.
 - Final no-response action.
 
-قبل كل Follow-up يجب التحقق من:
+قبل كل Follow-up يجب المرور عبر نفس Central Messaging Policy المستخدمة لكل Customer-facing send والتحقق من:
 
 - consent/contactability.
 - do-not-contact state.
 - Provider policy.
 - template requirement.
-- Messaging Connection health.
+- Resolved Messaging Connection/Sender health.
 - business/sending hours.
+- Campaign frequency/max-attempt rules.
+- Provider rate/throughput/quality constraints عندما تتوفر.
+- Current Conversation Controller.
+- Deterministic sender scope.
 
 Branch timezone هي default إذا لم يوجد Campaign override.
 
@@ -1230,6 +1259,39 @@ Conversation belongs to Branch A Sender.
 Expected:
 
 - system cannot send via unauthorized Branch B connection.
+- Existing Conversation does not silently switch to another Sender.
+- Blocked reason is visible/auditable.
+
+## Evaluation — Branch Default / Campaign Override
+
+Branch A has Sender A as default. Campaign A2 has explicit allowed Sender A2 override.
+
+Expected:
+
+- Campaign A1 uses Sender A.
+- Campaign A2 uses Sender A2.
+- Campaign without override does not require a dedicated Sender.
+
+## Evaluation — Shared Runtime Campaign Isolation
+
+Campaign A and Campaign B use the same AI Provider/Model/Runtime.
+
+Expected:
+
+- Campaign A receives only Campaign A effective instructions/knowledge/qualification context.
+- no Campaign B knowledge leakage.
+- shared runtime does not expand data/tool scope.
+
+## Evaluation — Ambiguous Inbound Across Campaigns
+
+Same Contact has multiple active Leads/Campaigns on the same Business Sender and no unique thread/context resolves the target.
+
+Expected:
+
+- inbound Message is persisted.
+- no Lead/Campaign is guessed.
+- state becomes Needs Attention/Review or equivalent.
+- AI does not answer using an arbitrarily selected Campaign.
 
 ---
 
@@ -1277,8 +1339,9 @@ Expected:
 Campaign
   → AI
   → Enable AI Lead Assistant
-  → Select AI Provider/Profile
-  → Select Messaging Connection
+  → Review inherited Branch AI Defaults / Effective Configuration
+  → Select/override AI Provider/Profile when allowed
+  → Review Branch Default Sender or configure allowed Campaign Sender Override
   → Enter Knowledge Draft
   → Add Qualification Questions
   → Configure Handoff Rules
@@ -1437,13 +1500,18 @@ Conversation history جزء تشغيلي مهم.
 
 # 82. Customer Identity
 
-النظام يحاول Resolve inbound sender إلى:
+النظام يحاول Resolve inbound sender باستخدام:
 
+- Messaging Connection.
+- Business Sender/Number.
+- Provider thread/conversation reference.
+- External participant identity.
 - Contact.
-- Lead.
-- Conversation.
+- Active Lead(s).
+- Existing Conversation mapping.
+- Campaign/external references عندما تتوفر.
 
-وجود نفس Contact مع عدة Leads يحتاج deterministic resolution rules أو needs-attention state؛ لا يتم الربط العشوائي.
+وجود نفس Contact مع عدة Leads يحتاج deterministic resolution rules أو needs-attention state؛ لا يتم الربط العشوائي. Business Sender وحده لا يكفي دائماً لتحديد Campaign عندما تشترك عدة Leads في نفس القناة.
 
 ---
 
@@ -1519,13 +1587,15 @@ Controlled AI
 
 بحيث يساعد الـAI الـLead والـAgent والإدارة، دون أن يصبح مصدر حقيقة أو طريقاً لتجاوز Business Rules.
 
-# 89. AI at Scale
+# 88. AI at Scale
 
 عند وجود عدد كبير من Leads وConversations:
 
 - لا تستخدم AI call لكل Event صغير بلا قيمة واضحة.
 - العمليات القابلة للتجميع أو التنفيذ في background يمكن تشغيلها بشكل غير متزامن.
 - Provider rate limits يجب التعامل معها بـQueue / Backoff / Retry مناسب.
+- Messaging sends تستخدم Queue/Backpressure بحيث لا يؤدي Sender/Connection متعثر إلى إسقاط الرسائل أو شل بقية النظام بلا داعٍ.
+- Provider sender quality/health/throughput metadata تراقب عندما تكون متاحة ولا Hardcode كأرقام ثابتة.
 - لا تفقد Customer Message إذا كان AI provider saturated أو unavailable.
 - Customer-facing replies العاجلة تأخذ أولوية تشغيلية أعلى من batch analysis غير العاجل.
 - AI Operations Assistant لا يعيد تحليل كامل تاريخ المؤسسة من الصفر لكل سؤال إذا كان يمكن استخدام Analytics/aggregates/filtered retrieval.
