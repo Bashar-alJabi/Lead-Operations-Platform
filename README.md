@@ -739,3 +739,15 @@ INITIAL-CODEX-PROMPT.md
 هذا الملف لا يحدد Technology Stack مسبقاً. المطلوب من Codex قراءة كامل المواصفات بما فيها `05` و`06`، فحص Repository الحالي، اختيار الـArchitecture والـStack الأفضل، توثيق القرارات التقنية، ثم متابعة التنفيذ الكامل مباشرة بدون تحويل المستخدم إلى مصدر للقرارات التقنية اليومية.
 
 النسخة الحالية من `INITIAL-CODEX-PROMPT.md` هي الـPrompt العربي النهائي المعتمد لـCodex. لا تعتبر المنصة مكتملة قبل المرور على Definition of Done وRequirement Coverage Matrix المعرّفة في المواصفات.
+
+## 22. حالة التنفيذ التقني
+
+بدأ التنفيذ البرمجي على الفرع المحلي. حالة العمل الفعلية والفجوات موثقة في:
+
+- `docs/technical-architecture.md`
+- `docs/implementation-plan.md`
+- `docs/codex-progress.md`
+- `docs/requirement-coverage.md`
+- `docs/runbook.md`
+
+وجود Schema أو واجهة أولية لا يعني اكتمال المنتج. المرجع النهائي للجاهزية يبقى `docs/06-final-completeness-and-acceptance.md`.
