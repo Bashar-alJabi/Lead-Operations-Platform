@@ -91,6 +91,10 @@ function App() {
   const [nextLeadCursor, setNextLeadCursor] = useState<string | null>(null);
   const [leadQuery, setLeadQuery] = useState('');
   const [leadColumns, setLeadColumns] = useState<LeadColumn[]>(defaultLeadColumns);
+  const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
+  const [bulkAgentId, setBulkAgentId] = useState('');
+  const [bulkReason, setBulkReason] = useState('');
+  const [bulkResults, setBulkResults] = useState<{ id: string; status: string; error?: string }[]>([]);
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [nextUserCursor, setNextUserCursor] = useState<string | null>(null);
   const [detail, setDetail] = useState<{ lead: Lead; activities: { id: number; event_type: string; created_at: string }[] } | null>(null);
@@ -130,7 +134,7 @@ function App() {
         api<{ items: Lead[]; nextCursor: string | null }>(`/api/leads?${leadQuery ? leadQuery + '&' : ''}limit=50`),
         user.role === 'AGENT' ? Promise.resolve({ items: [] as ManagedUser[], nextCursor: null }) : api<{ items: ManagedUser[]; nextCursor: string | null }>('/api/users'),
       ]);
-      setBranches(branchResult.items); setCampaigns(campaignResult.items); setNextCampaignCursor(campaignResult.nextCursor); setLeads(leadResult.items); setNextLeadCursor(leadResult.nextCursor); setUsers(userResult.items); setNextUserCursor(userResult.nextCursor);
+      setBranches(branchResult.items); setCampaigns(campaignResult.items); setNextCampaignCursor(campaignResult.nextCursor); setLeads(leadResult.items); setNextLeadCursor(leadResult.nextCursor); setUsers(userResult.items); setNextUserCursor(userResult.nextCursor); setSelectedLeadIds([]);
     } catch (failure) { setError(String(failure)); } finally { setBusy(false); }
   }
   useEffect(() => { void refresh(); }, [user?.id]);
@@ -164,7 +168,24 @@ function App() {
 
   async function searchLeads(query: string) {
     const result = await api<{ items: Lead[]; nextCursor: string | null }>(`/api/leads?${query ? query + '&' : ''}limit=50`);
-    setLeadQuery(query); setLeads(result.items); setNextLeadCursor(result.nextCursor);
+    setLeadQuery(query); setLeads(result.items); setNextLeadCursor(result.nextCursor); setSelectedLeadIds([]);
+  }
+
+  async function bulkAssign() {
+    const items = leads.filter((lead) => selectedLeadIds.includes(lead.id)).map((lead) => ({ id: lead.id, version: lead.version }));
+    if (!items.length || items.length > 50) return;
+    const prompt = { ar: `تأكيد إعادة إسناد ${items.length} فرصة؟ ستُراجع صلاحية ونسخة كل فرصة على حدة.`,
+      fr: `Confirmer la réattribution de ${items.length} prospects ?`,
+      en: `Confirm reassignment of ${items.length} leads? Each lead is checked separately.` }[locale];
+    if (!window.confirm(prompt)) return;
+    setBusy(true); setError('');
+    try {
+      const result = await api<{ results: { id: string; status: string; error?: string }[] }>('/api/leads/bulk/assignment', {
+        method: 'POST', body: JSON.stringify({ confirmed: true, items, agentId: bulkAgentId || null, reason: bulkReason }),
+      });
+      setBulkResults(result.results);
+      await refresh();
+    } catch (failure) { setError(String(failure)); } finally { setBusy(false); }
   }
 
   async function submitAuthentication() {
@@ -298,6 +319,20 @@ function App() {
     </section> : <>
       {page === 'leads' && <LeadSearch locale={locale} branches={branches} campaigns={campaigns} users={users} currentUser={user}
         api={api} onSearch={searchLeads} columns={leadColumns} onColumns={setLeadColumns} />}
+      {page === 'leads' && canManage && <section className="panel"><div className="actions">
+        <strong>{locale === 'ar' ? `المحدد: ${selectedLeadIds.length} / 50` : locale === 'fr' ? `Sélection : ${selectedLeadIds.length} / 50` : `Selected: ${selectedLeadIds.length} / 50`}</strong>
+        <button type="button" className="secondary" onClick={() => setSelectedLeadIds(leads.slice(0, 50).map((lead) => lead.id))}>{locale === 'ar' ? 'تحديد أول 50 ظاهرة' : locale === 'fr' ? 'Sélectionner les 50 premiers' : 'Select first 50 shown'}</button>
+        <button type="button" className="secondary" onClick={() => setSelectedLeadIds([])}>{locale === 'ar' ? 'إزالة التحديد' : locale === 'fr' ? 'Effacer' : 'Clear selection'}</button>
+      </div><div className="workflow-form">
+        <label>{t.assign}<select value={bulkAgentId} onChange={(event) => setBulkAgentId(event.target.value)}>
+          <option value="">{locale === 'ar' ? 'بلا إسناد' : locale === 'fr' ? 'Non attribué' : 'Unassigned'}</option>
+          {users.filter((item) => item.role === 'AGENT' && item.active).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+        </select></label>
+        <label>{locale === 'ar' ? 'سبب الإسناد' : locale === 'fr' ? 'Motif' : 'Reason'}<input maxLength={500} value={bulkReason} onChange={(event) => setBulkReason(event.target.value)} /></label>
+        <button type="button" disabled={busy || !selectedLeadIds.length} onClick={() => void bulkAssign()}>{locale === 'ar' ? 'إسناد المحدد' : locale === 'fr' ? 'Attribuer la sélection' : 'Assign selected'}</button>
+      </div>{bulkResults.length > 0 && <div role="status"><h3>{locale === 'ar' ? 'نتيجة كل فرصة' : locale === 'fr' ? 'Résultat par prospect' : 'Result by lead'}</h3>
+        <ul>{bulkResults.map((item) => <li key={item.id}>{item.id}: {item.status}{item.error ? ` (${item.error})` : ''}</li>)}</ul></div>}
+      </section>}
       <div className="toolbar">{canManage && (page !== 'branches' || isAdmin) && <button onClick={() => { setShowForm(!showForm); setForm({}); }}>{page === 'leads' ? t.newLead : page === 'campaigns' ? t.newCampaign : page === 'branches' ? t.newBranch : t.newUser}</button>}</div>
       {showForm && <section className="panel form-panel"><h2>{page === 'leads' ? t.newLead : page === 'campaigns' ? t.newCampaign : page === 'branches' ? t.newBranch : t.newUser}</h2>
         <form onSubmit={(event) => { event.preventDefault(); if (page === 'branches') void submit('/api/branches', { name: form.name, timezone: form.timezone });
@@ -311,12 +346,14 @@ function App() {
              {form.campaignId && <LeadCreationFields campaignId={form.campaignId} locale={locale} api={api} values={leadFieldValues} onChange={setLeadFieldValues} />}</>}
           {page === 'users' && <>{field('name', t.name)}{field('email', t.email, 'email')}{select('role', t.role, (isAdmin ? ['SUPER_ADMIN','MANAGER','AGENT'] : ['AGENT']).map((value) => ({ value, text: value })))}{form.role !== 'SUPER_ADMIN' && select('branchId', t.branch, branchOptions)}</>}
           <button disabled={busy}>{t.save}</button></form></section>}
-      <section className="panel table-panel"><div className="table-scroll"><table><thead><tr>{page === 'leads' ? <>{leadColumns.map((column) =>
+      <section className="panel table-panel"><div className="table-scroll"><table><thead><tr>{page === 'leads' ? <>{canManage && <th>{locale === 'ar' ? 'تحديد' : locale === 'fr' ? 'Choisir' : 'Select'}</th>}{leadColumns.map((column) =>
         <th key={column}>{leadColumnLabels[column]}</th>)}<th>{t.actions}</th></> :
         page === 'campaigns' ? <><th>{t.name}</th><th>{t.branch}</th><th>{t.status}</th><th>{t.routing}</th><th>{t.actions}</th></> :
         page === 'branches' ? <><th>{t.name}</th><th>{t.timezone}</th><th>{t.status}</th></> :
         <><th>{t.name}</th><th>{t.email}</th><th>{t.role}</th><th>{t.branch}</th><th>{t.status}</th><th>{t.actions}</th></>}</tr></thead><tbody>
-        {page === 'leads' && leads.map((lead) => <tr key={lead.id}>{leadColumns.map((column) =>
+        {page === 'leads' && leads.map((lead) => <tr key={lead.id}>{canManage && <td><input type="checkbox" aria-label={`${t.contact}: ${lead.contact_name}`}
+          checked={selectedLeadIds.includes(lead.id)} disabled={selectedLeadIds.length >= 50 && !selectedLeadIds.includes(lead.id)}
+          onChange={(event) => setSelectedLeadIds((current) => event.target.checked ? [...current, lead.id] : current.filter((id) => id !== lead.id))} /></td>}{leadColumns.map((column) =>
           <td key={column}>{leadCell(lead, column)}</td>)}<td><button className="link" onClick={() => setSelectedLead(lead.id)}>{t.details}</button></td></tr>)}
         {page === 'campaigns' && campaigns.map((campaign) => <tr key={campaign.id}><td><strong>{campaign.name}</strong></td><td>{branches.find((item) => item.id === campaign.branch_id)?.name || '—'}</td><td><span className="badge">{campaign.status}</span></td><td>{campaign.routing_method}<small>{campaign.agents?.map((agent) => agent.name).join(', ') || '—'}</small></td><td>{canManage && <button className="link" onClick={() => setSelectedCampaign(campaign.id)}>{t.details}</button>}</td></tr>)}
         {page === 'branches' && branches.map((branch) => <tr key={branch.id}><td><strong>{branch.name}</strong></td><td>{branch.timezone}</td><td>{branch.active ? t.active : t.inactive}</td></tr>)}

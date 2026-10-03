@@ -212,4 +212,34 @@ test('Lead assignment, notes, and human follow-up preserve history and permissio
     filters: { sort: 'INVALID' }, columns: ['contact'] }, managerA)).statusCode, 400);
   assert.equal((await send('POST', '/api/lead-views', { name: 'Invalid columns', scope: 'PERSONAL',
     filters: {}, columns: ['contact','contact'] }, managerA)).statusCode, 400);
+  const bulkItems = [{ id: leadId, version: 1 }, { id: secondLeadId, version: 1 }];
+  assert.equal((await send('POST', '/api/leads/bulk/assignment', { items: bulkItems,
+    agentId: agent2Id }, managerA)).statusCode, 400);
+  assert.equal((await send('POST', '/api/leads/bulk/assignment', { confirmed: true,
+    items: bulkItems, agentId: agent2Id }, agent1)).statusCode, 403);
+  assert.equal((await send('POST', '/api/leads/bulk/assignment', { confirmed: true,
+    items: [bulkItems[0], bulkItems[0]], agentId: agent2Id }, managerA)).statusCode, 400);
+  const foreignBulk = await send('POST', '/api/leads/bulk/assignment', { confirmed: true,
+    items: bulkItems, agentId: agent2Id }, managerB);
+  assert.equal(foreignBulk.statusCode, 200, foreignBulk.body);
+  assert.deepEqual(foreignBulk.json().results.map((item: { error: string }) => item.error), ['LEAD_NOT_FOUND','LEAD_NOT_FOUND']);
+  const invalidTarget = await send('POST', '/api/leads/bulk/assignment', { confirmed: true,
+    items: [{ id: secondLeadId, version: 1 }], agentId: foreignAgentId }, managerA);
+  assert.equal(invalidTarget.json().results[0].error, 'AGENT_NOT_ELIGIBLE');
+  const mixedBulk = await send('POST', '/api/leads/bulk/assignment', { confirmed: true,
+    items: bulkItems, agentId: agent2Id, reason: 'Bulk coverage' }, managerA);
+  assert.equal(mixedBulk.statusCode, 200, mixedBulk.body);
+  assert.deepEqual(mixedBulk.json().results.map((item: { status: string }) => item.status), ['FAILED','UPDATED']);
+  assert.equal((await send('GET', `/api/leads/${secondLeadId}`, undefined, agent1)).statusCode, 404);
+  assert.equal((await send('GET', `/api/leads/${secondLeadId}`, undefined, agent2)).statusCode, 200);
+  const retryBulk = await send('POST', '/api/leads/bulk/assignment', { confirmed: true,
+    items: bulkItems, agentId: agent2Id }, managerA);
+  assert.deepEqual(retryBulk.json().results.map((item: { error: string }) => item.error),
+    ['LEAD_VERSION_CONFLICT','LEAD_VERSION_CONFLICT']);
+  assert.equal((await db`SELECT count(*)::integer AS n FROM assignment_history WHERE lead_id = ${secondLeadId}`)[0]!.n, 2);
+  const concurrent = await Promise.all([agent1Id, null].map((agentId) =>
+    send('POST', '/api/leads/bulk/assignment', { confirmed: true,
+      items: [{ id: secondLeadId, version: 2 }], agentId }, managerA)));
+  assert.deepEqual(concurrent.map((response) => response.json().results[0].status).sort(), ['FAILED','UPDATED']);
+  assert.equal((await db`SELECT count(*)::integer AS n FROM assignment_history WHERE lead_id = ${secondLeadId}`)[0]!.n, 3);
 });
