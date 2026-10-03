@@ -16,17 +16,18 @@ import { registerMessagingSetupRoutes } from './routes/messaging-setup.js';
 import { registerSenderBindingRoutes } from './routes/sender-bindings.js';
 import { registerConversationRoutes } from './routes/conversations.js';
 import { registerMessagingConsentRoutes } from './routes/messaging-consent.js';
+import { registerMessagingPolicyRoutes } from './routes/messaging-policy.js';
 import { smtpEmailAdapter, type IdentityEmailAdapter } from './identity-email.js';
 import type { MessagingProviderAdapter } from './messaging/providers.js';
 
 export async function buildApp(db: Database, options: { logger?: boolean; emailAdapter?: IdentityEmailAdapter;
-  messagingAdapter?: MessagingProviderAdapter } = {}): Promise<FastifyInstance> {
+  messagingAdapter?: MessagingProviderAdapter; globalRateLimitMax?: number } = {}): Promise<FastifyInstance> {
   const app = Fastify({ logger: options.logger === false ? false : { redact: ['req.headers.cookie', 'req.headers.authorization', 'req.body.password', 'req.body.token'] }, bodyLimit: 1024 * 1024,
     ajv: { customOptions: { removeAdditional: false } },
   });
   await app.register(cookie);
   await app.register(helmet);
-  await app.register(rateLimit, { max: 120, timeWindow: '1 minute' });
+  await app.register(rateLimit, { max: options.globalRateLimitMax ?? 120, timeWindow: '1 minute' });
 
   app.addHook('onRequest', async (request) => {
     if (['GET', 'HEAD', 'OPTIONS'].includes(request.method)) return;
@@ -67,6 +68,7 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   registerSenderBindingRoutes(app, db);
   registerConversationRoutes(app, db);
   registerMessagingConsentRoutes(app, db);
+  registerMessagingPolicyRoutes(app, db);
   registerIdentityEmailRoutes(app, db, options.emailAdapter ?? smtpEmailAdapter);
   return app;
 }

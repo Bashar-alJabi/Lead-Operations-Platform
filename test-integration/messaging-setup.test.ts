@@ -25,7 +25,7 @@ test('Messaging setup encrypts credentials, scopes connections, and discovers se
     if (failDiscovery) throw new Error('upstream with secret test-access-token-123456789');
     return [{ externalId: '15550001111', displayName: 'Branch number', qualityRating: 'GREEN' }];
   } };
-  const app = await buildApp(db, { logger: false, messagingAdapter: adapter });
+  const app = await buildApp(db, { logger: false, messagingAdapter: adapter, globalRateLimitMax: 1000 });
   t.after(async () => { await app.close(); await db.end(); });
   await db.begin(async (tx) => { await tx`SET LOCAL client_min_messages TO warning`; await tx`TRUNCATE organization CASCADE`; });
   const send = async (method: 'GET'|'POST'|'PUT'|'PATCH', path: string, body?: object, cookie?: string) => app.inject({
@@ -316,6 +316,52 @@ test('Messaging setup encrypts credentials, scopes connections, and discovers se
   const agentConsent = await send('GET', consentPath, undefined, agent);
   assert.equal(agentConsent.statusCode, 200, agentConsent.body);
   assert.equal(agentConsent.json().editable, false);
+  const branchPolicyPath = `/api/messaging/branches/${branchA}/policy`;
+  assert.equal((await send('GET', branchPolicyPath, undefined, agent)).statusCode, 403);
+  assert.equal((await send('GET', branchPolicyPath, undefined, managerB)).statusCode, 403);
+  assert.equal((await send('PUT', branchPolicyPath, { version: 1, sendingWindow: null }, agent)).statusCode, 403);
+  assert.equal((await send('PUT', branchPolicyPath, { version: 1, sendingWindow: null }, managerB)).statusCode, 403);
+  assert.equal((await send('GET', branchPolicyPath, undefined, managerA)).json().sendingWindow, null);
+  assert.equal((await send('PUT', branchPolicyPath, { version: 1,
+    sendingWindow: { start: '22:00', end: '22:00' } }, managerA)).statusCode, 400);
+  assert.equal((await send('PUT', branchPolicyPath, { version: 1,
+    sendingWindow: { start: '99:00', end: '06:00' } }, managerA)).statusCode, 400);
+  const branchPolicy = await send('PUT', branchPolicyPath,
+    { version: 1, sendingWindow: { start: '22:00', end: '06:00' } }, managerA);
+  assert.equal(branchPolicy.statusCode, 200, branchPolicy.body);
+  assert.equal(branchPolicy.json().version, 2);
+  assert.equal((await send('PUT', branchPolicyPath, { version: 1, sendingWindow: null }, managerA)).statusCode, 409);
+  const campaignPolicyPath = `/api/messaging/campaigns/${campaignId}/policy`;
+  assert.equal((await send('GET', campaignPolicyPath, undefined, agent)).statusCode, 403);
+  assert.equal((await send('GET', campaignPolicyPath, undefined, managerB)).statusCode, 404);
+  const inheritedPolicy = await send('GET', campaignPolicyPath, undefined, managerA);
+  assert.equal(inheritedPolicy.statusCode, 200, inheritedPolicy.body);
+  assert.deepEqual(inheritedPolicy.json().effectiveSendingWindow, { start: '22:00', end: '06:00' });
+  const policyVersion = inheritedPolicy.json().version as number;
+  assert.equal((await send('PUT', campaignPolicyPath, { version: policyVersion,
+    sendingWindow: null, maxAttempts: 0, minIntervalSeconds: 300 }, managerA)).statusCode, 400);
+  assert.equal((await send('PUT', campaignPolicyPath, { version: policyVersion,
+    sendingWindow: null, maxAttempts: 3, minIntervalSeconds: 0 }, managerA)).statusCode, 400);
+  assert.equal((await send('PUT', campaignPolicyPath, { version: policyVersion,
+    sendingWindow: null, maxAttempts: 3, minIntervalSeconds: 300 }, agent)).statusCode, 403);
+  assert.equal((await send('PUT', campaignPolicyPath, { version: policyVersion,
+    sendingWindow: null, maxAttempts: 3, minIntervalSeconds: 300 }, managerB)).statusCode, 404);
+  assert.equal((await send('PUT', campaignPolicyPath, { version: policyVersion,
+    sendingWindow: { start: '10:00', end: '10:00' }, maxAttempts: 3,
+    minIntervalSeconds: 300 }, managerA)).statusCode, 400);
+  const setPolicy = await send('PUT', campaignPolicyPath, { version: policyVersion,
+    sendingWindow: null, maxAttempts: 3, minIntervalSeconds: 300 }, managerA);
+  assert.equal(setPolicy.statusCode, 200, setPolicy.body);
+  assert.deepEqual((await send('GET', campaignPolicyPath, undefined, managerA)).json().effectiveSendingWindow,
+    { start: '22:00', end: '06:00' });
+  const policyRace = await Promise.all([1,2].map(() => send('PUT', campaignPolicyPath,
+    { version: policyVersion + 1, sendingWindow: { start: '10:00', end: '18:00' },
+      maxAttempts: 3, minIntervalSeconds: 300 }, managerA)));
+  assert.deepEqual(policyRace.map((response) => response.statusCode).sort(), [200,409]);
+  assert.deepEqual((await send('GET', campaignPolicyPath, undefined, managerA)).json().effectiveSendingWindow,
+    { start: '10:00', end: '18:00' });
+  assert.ok((await db`SELECT 1 FROM audit_log WHERE action = 'CAMPAIGN_MESSAGING_POLICY_UPDATED'
+    AND target_id = ${campaignId}`).length);
   assert.ok((await db`SELECT 1 FROM audit_log WHERE action = 'CAMPAIGN_SENDER_OVERRIDE_SET'
     AND target_id = ${campaignId}`).length);
   const flood = await Promise.all(Array.from({ length: 12 }, () => send('POST',

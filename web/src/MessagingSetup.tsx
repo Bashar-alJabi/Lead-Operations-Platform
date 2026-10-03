@@ -11,10 +11,12 @@ type Sender = { id: string; external_sender_id: string; display_name: string; he
   provider_status: { qualityRating?: string | null } };
 type AvailableSender = { id: string; display_name: string; connection_name: string; active: boolean;
   operator_enabled: boolean; connection_status: string };
+type SendingWindow = { start: string; end: string } | null;
+type BranchPolicy = { version: number; timezone: string; sendingWindow: SendingWindow };
 const labels = {
-  ar: { title: 'اتصالات الرسائل', explain: 'أنشئ Meta Business Portfolio وWhatsApp Business Account وتطبيق Meta، واحصل على WABA ID ورمز وصول System User وApp Secret. أدخلها هنا واختبر اكتشاف الأرقام. يجب لاحقًا إعداد Webhook واختبار الإرسال قبل تشغيل الرسائل.', add: 'إضافة اتصال', edit: 'تعديل الاتصال', name: 'اسم الاتصال', scope: 'النطاق', organization: 'المؤسسة', branch: 'الفرع', version: 'إصدار Graph API', waba: 'WABA ID', token: 'رمز الوصول', appSecret: 'App Secret', verifyToken: 'Webhook Verify Token', save: 'حفظ', test: 'اختبار واكتشاف الأرقام', disable: 'تعطيل', enable: 'إعادة التهيئة', senders: 'الأرقام المكتشفة', status: 'الحالة', noSenders: 'لا أرقام مكتشفة', noConnections: 'لا اتصالات', more: 'المزيد', warning: 'اكتشاف الأرقام نجح؛ الإرسال والـWebhook غير متحققين بعد.', existingSecret: 'اترك حقول السر فارغة للاحتفاظ بالبيانات المحفوظة؛ لا تُعرض بعد الحفظ.', bind: 'ربط', unbind: 'فك الربط', fallback: 'Fallback مشترك', senderEnable: 'تمكين الرقم', senderDisable: 'إيقاف الرقم', defaultSender: 'الرقم الافتراضي للفرع', noDefault: 'بلا رقم افتراضي', pending: 'الإرسال غير جاهز حتى ينجح فحصه.' },
-  fr: { title: 'Connexions de messagerie', explain: 'Créez un compte WhatsApp Business et une application Meta, puis obtenez le WABA ID, un jeton System User et le secret de l’application. Configurez-les ici. L’envoi et le webhook doivent être vérifiés séparément.', add: 'Ajouter', edit: 'Modifier', name: 'Nom', scope: 'Portée', organization: 'Organisation', branch: 'Agence', version: 'Version Graph API', waba: 'WABA ID', token: 'Jeton d’accès', appSecret: 'Secret de l’application', verifyToken: 'Jeton de vérification', save: 'Enregistrer', test: 'Tester et découvrir les numéros', disable: 'Désactiver', enable: 'Réactiver', senders: 'Numéros découverts', status: 'État', noSenders: 'Aucun numéro', noConnections: 'Aucune connexion', more: 'Plus', warning: 'Numéros découverts ; envoi et webhook non encore vérifiés.', existingSecret: 'Laissez les secrets vides pour conserver ceux enregistrés ; ils ne sont pas réaffichés.', bind: 'Lier', unbind: 'Délier', fallback: 'Secours partagé', senderEnable: 'Activer le numéro', senderDisable: 'Désactiver le numéro', defaultSender: 'Numéro par défaut de l’agence', noDefault: 'Aucun numéro par défaut', pending: 'Envoi indisponible tant que le test d’envoi manque.' },
-  en: { title: 'Messaging connections', explain: 'Create a Meta Business Portfolio, WhatsApp Business Account, and Meta app. Obtain the WABA ID, System User access token, and App Secret. Enter them here and discover senders. Webhook and outbound sending require separate verification.', add: 'Add connection', edit: 'Edit connection', name: 'Connection name', scope: 'Scope', organization: 'Organization', branch: 'Branch', version: 'Graph API version', waba: 'WABA ID', token: 'Access token', appSecret: 'App Secret', verifyToken: 'Webhook Verify Token', save: 'Save', test: 'Test and discover senders', disable: 'Disable', enable: 'Reconfigure', senders: 'Discovered senders', status: 'Status', noSenders: 'No senders discovered', noConnections: 'No connections', more: 'More', warning: 'Sender discovery succeeded; outbound sending and webhook are not yet verified.', existingSecret: 'Leave secrets blank to retain saved values; they are never displayed after saving.', bind: 'Bind', unbind: 'Unbind', fallback: 'Shared fallback', senderEnable: 'Enable sender', senderDisable: 'Disable sender', defaultSender: 'Branch default sender', noDefault: 'No default sender', pending: 'Sending remains unavailable until a send test succeeds.' },
+  ar: { title: 'اتصالات الرسائل', explain: 'أنشئ Meta Business Portfolio وWhatsApp Business Account وتطبيق Meta، واحصل على WABA ID ورمز وصول System User وApp Secret. أدخلها هنا واختبر اكتشاف الأرقام. يجب لاحقًا إعداد Webhook واختبار الإرسال قبل تشغيل الرسائل.', add: 'إضافة اتصال', edit: 'تعديل الاتصال', name: 'اسم الاتصال', scope: 'النطاق', organization: 'المؤسسة', branch: 'الفرع', version: 'إصدار Graph API', waba: 'WABA ID', token: 'رمز الوصول', appSecret: 'App Secret', verifyToken: 'Webhook Verify Token', save: 'حفظ', test: 'اختبار واكتشاف الأرقام', disable: 'تعطيل', enable: 'إعادة التهيئة', senders: 'الأرقام المكتشفة', status: 'الحالة', noSenders: 'لا أرقام مكتشفة', noConnections: 'لا اتصالات', more: 'المزيد', warning: 'اكتشاف الأرقام نجح؛ الإرسال والـWebhook غير متحققين بعد.', existingSecret: 'اترك حقول السر فارغة للاحتفاظ بالبيانات المحفوظة؛ لا تُعرض بعد الحفظ.', bind: 'ربط', unbind: 'فك الربط', fallback: 'Fallback مشترك', senderEnable: 'تمكين الرقم', senderDisable: 'إيقاف الرقم', defaultSender: 'الرقم الافتراضي للفرع', noDefault: 'بلا رقم افتراضي', pending: 'الإرسال غير جاهز حتى ينجح فحصه.', sendingPolicy: 'نافذة إرسال الفرع', allDay: 'بلا تقييد زمني للفرع', starts: 'تبدأ', ends: 'تنتهي', timezone: 'المنطقة الزمنية', policyNote: 'نافذة تعبر منتصف الليل مسموحة. تُطبق قواعد المزود والموافقة عند تنفيذ الإرسال.' },
+  fr: { title: 'Connexions de messagerie', explain: 'Créez un compte WhatsApp Business et une application Meta, puis obtenez le WABA ID, un jeton System User et le secret de l’application. Configurez-les ici. L’envoi et le webhook doivent être vérifiés séparément.', add: 'Ajouter', edit: 'Modifier', name: 'Nom', scope: 'Portée', organization: 'Organisation', branch: 'Agence', version: 'Version Graph API', waba: 'WABA ID', token: 'Jeton d’accès', appSecret: 'Secret de l’application', verifyToken: 'Jeton de vérification', save: 'Enregistrer', test: 'Tester et découvrir les numéros', disable: 'Désactiver', enable: 'Réactiver', senders: 'Numéros découverts', status: 'État', noSenders: 'Aucun numéro', noConnections: 'Aucune connexion', more: 'Plus', warning: 'Numéros découverts ; envoi et webhook non encore vérifiés.', existingSecret: 'Laissez les secrets vides pour conserver ceux enregistrés ; ils ne sont pas réaffichés.', bind: 'Lier', unbind: 'Délier', fallback: 'Secours partagé', senderEnable: 'Activer le numéro', senderDisable: 'Désactiver le numéro', defaultSender: 'Numéro par défaut de l’agence', noDefault: 'Aucun numéro par défaut', pending: 'Envoi indisponible tant que le test d’envoi manque.', sendingPolicy: 'Fenêtre d’envoi de l’agence', allDay: 'Aucune restriction horaire locale', starts: 'Début', ends: 'Fin', timezone: 'Fuseau horaire', policyNote: 'Une fenêtre traversant minuit est autorisée. Les règles du fournisseur et le consentement s’appliquent à l’envoi.' },
+  en: { title: 'Messaging connections', explain: 'Create a Meta Business Portfolio, WhatsApp Business Account, and Meta app. Obtain the WABA ID, System User access token, and App Secret. Enter them here and discover senders. Webhook and outbound sending require separate verification.', add: 'Add connection', edit: 'Edit connection', name: 'Connection name', scope: 'Scope', organization: 'Organization', branch: 'Branch', version: 'Graph API version', waba: 'WABA ID', token: 'Access token', appSecret: 'App Secret', verifyToken: 'Webhook Verify Token', save: 'Save', test: 'Test and discover senders', disable: 'Disable', enable: 'Reconfigure', senders: 'Discovered senders', status: 'Status', noSenders: 'No senders discovered', noConnections: 'No connections', more: 'More', warning: 'Sender discovery succeeded; outbound sending and webhook are not yet verified.', existingSecret: 'Leave secrets blank to retain saved values; they are never displayed after saving.', bind: 'Bind', unbind: 'Unbind', fallback: 'Shared fallback', senderEnable: 'Enable sender', senderDisable: 'Disable sender', defaultSender: 'Branch default sender', noDefault: 'No default sender', pending: 'Sending remains unavailable until a send test succeeds.', sendingPolicy: 'Branch sending window', allDay: 'No local time restriction', starts: 'Starts', ends: 'Ends', timezone: 'Time zone', policyNote: 'A window may cross midnight. Provider rules and consent are enforced at send time.' },
 } as const;
 
 export function MessagingSetup({ locale, role, branchId, branches, api }: {
@@ -36,6 +38,8 @@ export function MessagingSetup({ locale, role, branchId, branches, api }: {
   const [defaultSenderId, setDefaultSenderId] = useState('');
   const [available, setAvailable] = useState<AvailableSender[]>([]);
   const [availableAfter, setAvailableAfter] = useState<string | null>(null);
+  const [branchPolicy, setBranchPolicy] = useState<BranchPolicy | null>(null);
+  const [windowDraft, setWindowDraft] = useState<SendingWindow>(null);
   async function load(next?: string) {
     const page = await api<{ items: Connection[]; nextCursor: string | null }>(
       `/api/messaging/connections${next ? '?cursor=' + encodeURIComponent(next) : ''}`);
@@ -57,6 +61,14 @@ export function MessagingSetup({ locale, role, branchId, branches, api }: {
     setAvailableAfter(page.nextAfter);
   }
   useEffect(() => { void loadDefault(setupBranchId).catch((failure) => setError(String(failure))); }, [setupBranchId]);
+  useEffect(() => {
+    let cancelled = false;
+    setBranchPolicy(null); setWindowDraft(null);
+    if (setupBranchId) void api<BranchPolicy>(`/api/messaging/branches/${setupBranchId}/policy`)
+      .then((policy) => { if (!cancelled) { setBranchPolicy(policy); setWindowDraft(policy.sendingWindow); } })
+      .catch((failure) => { if (!cancelled) setError(String(failure)); });
+    return () => { cancelled = true; };
+  }, [setupBranchId]);
   async function choose(connection: Connection) {
     setSelected(connection); setEditing(false); setError('');
     try {
@@ -131,6 +143,17 @@ export function MessagingSetup({ locale, role, branchId, branches, api }: {
       await loadDefault(setupBranchId);
     } catch (failure) { setError(String(failure)); } finally { setBusy(false); }
   }
+  async function savePolicy() {
+    if (!setupBranchId || !branchPolicy) return;
+    setBusy(true); setError('');
+    try {
+      await api(`/api/messaging/branches/${setupBranchId}/policy`, { method: 'PUT', body: JSON.stringify({
+        version: branchPolicy.version, sendingWindow: windowDraft,
+      }) });
+      const policy = await api<BranchPolicy>(`/api/messaging/branches/${setupBranchId}/policy`);
+      setBranchPolicy(policy); setWindowDraft(policy.sendingWindow);
+    } catch (failure) { setError(String(failure)); } finally { setBusy(false); }
+  }
   return <section className="panel"><h2>{t.title}</h2><p>{t.explain} <a href="https://www.postman.com/meta/whatsapp-business-platform/request/e9ady51/get-phone-numbers" target="_blank" rel="noreferrer">Meta API reference</a></p>
     {error && <p role="alert" className="error">{error}</p>}
     <button className="secondary" onClick={() => { setSelected(null); setEditing(true); setForm({ name: '', branchId: role === 'MANAGER' ? branchId ?? '' : '', wabaId: '', graphVersion: '', accessToken: '', appSecret: '', verifyToken: '' }); }}>{t.add}</button>
@@ -161,7 +184,7 @@ export function MessagingSetup({ locale, role, branchId, branches, api }: {
       {senderAfter && <button className="secondary" onClick={() => void moreSenders().catch((failure) => setError(String(failure)))}>{t.more}</button>}
     </div>}
     {setupBranchId && <section className="panel"><h3>{t.defaultSender}</h3>
-      {role === 'SUPER_ADMIN' && <label>{t.branch}<select value={setupBranchId} onChange={(event) => setSetupBranchId(event.target.value)}>
+      {role === 'SUPER_ADMIN' && <label>{t.branch}<select value={setupBranchId} disabled={busy} onChange={(event) => setSetupBranchId(event.target.value)}>
         {branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>}
       <label>{t.senders}<select value={defaultSenderId} onChange={(event) => setDefaultSenderId(event.target.value)}>
         <option value="">{t.noDefault}</option>{available.map((sender) => <option key={sender.id} value={sender.id}
@@ -169,6 +192,19 @@ export function MessagingSetup({ locale, role, branchId, branches, api }: {
           {sender.display_name} · {sender.connection_name}</option>)}</select></label>
       {availableAfter && <button className="secondary" onClick={() => void loadDefault(setupBranchId, availableAfter).catch((failure) => setError(String(failure)))}>{t.more}</button>}
       <button disabled={busy} onClick={() => void saveDefault()}>{t.save}</button><p>{t.pending}</p>
+    </section>}
+    {setupBranchId && branchPolicy && <section className="panel"><h3>{t.sendingPolicy}</h3>
+      <p>{t.timezone}: {branchPolicy.timezone}</p>
+      <label className="check-row"><input type="checkbox" checked={windowDraft === null} disabled={busy}
+        onChange={(event) => setWindowDraft(event.target.checked ? null : { start: '09:00', end: '18:00' })} />{t.allDay}</label>
+      {windowDraft && <div className="actions">
+        <label>{t.starts}<input type="time" required value={windowDraft.start} disabled={busy}
+          onChange={(event) => setWindowDraft({ ...windowDraft, start: event.target.value })} /></label>
+        <label>{t.ends}<input type="time" required value={windowDraft.end} disabled={busy}
+          onChange={(event) => setWindowDraft({ ...windowDraft, end: event.target.value })} /></label>
+      </div>}
+      <button disabled={busy || Boolean(windowDraft && (!windowDraft.start || !windowDraft.end || windowDraft.start === windowDraft.end))}
+        onClick={() => void savePolicy()}>{t.save}</button><p>{t.policyNote}</p>
     </section>}
     {editing && <form className="workflow-form" onSubmit={(event) => { event.preventDefault(); void save(); }}><h3>{selected ? t.edit : t.add}</h3>
       <label>{t.name}<input required maxLength={100} value={form.name} onChange={(event) => set('name', event.target.value)} /></label>

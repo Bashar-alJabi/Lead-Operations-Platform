@@ -1,5 +1,13 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: إعداد Branch/Campaign sending policy
+
+أضيفت migration `018_messaging_policy.sql` وAPI وواجهة لضبط نافذة إرسال Branch بحسب منطقتها الزمنية، ووراثة Campaign لهذه النافذة أو تجاوزها، مع حد اختياري للمحاولات والفاصل الأدنى بينهما. `null` في Branch يعني عدم فرض نافذة محلية، و`null` في Campaign يعني الوراثة. نافذة تعبر منتصف الليل مسموحة، وتُرفض البداية المطابقة للنهاية والقيم غير الصالحة. للفرع نسخة سياسة مستقلة عن نسخة اختيار Sender؛ سياسة Campaign تستخدم نسختها الحالية. كل تعديل يمر بصلاحيات Super Admin/Manager ضمن الفرع، ويُسجل في Audit؛ Agent لا يغيرها. يظهر Effective Window وIANA timezone في الواجهة. حد الأعداد الأعلى `2147483647` قيد تقني لحفظ أعداد صحيحة، وليس قاعدة تجارية أو حد مزوّد.
+
+التحقق: PostgreSQL عبر Docker Compose بحالة `healthy`؛ migrations `001`–`018` على قاعدتي التطوير والاختبار. نجحت 6/6 مجموعات integration، وتشمل سياسة الرسائل عزل الفرع والدور، الوراثة والتجاوز، النافذة الليلية، رفض الوقت والأرقام غير الصالحة، تعارض النسخ والتعديل المتزامن وAudit. نجحت 18/18 unit، وفحص النوع للـBackend/Web وبناء الواجهة. لا يوجد UI E2E أو إرسال فعلي أو تحقق مزوّد حي؛ إعداد السياسة وحده لا يتيح إرسال رسالة.
+
+قيد التنفيذ التالي: لا تغييرات غير محفوظة ضمن مجموعة جديدة عند هذا checkpoint. الخطوة الدقيقة: بناء خدمة outbound واحدة تستقبل كل Human/AI/Automation/Follow-up send، تفحص Lead access وConversation controller وContact consent/DNC وPinned Sender/connection ونطاقه وصحته والنافذة/الحدود والـtemplate/قدرات المزود، ثم تحفظ Message `QUEUED` وjob مع idempotency داخل معاملة واحدة. اختبر الرفض والتكرار والتزامن على PostgreSQL قبل إضافة worker/adapter ثم inbound webhook/review.
+
 ## آخر حالة مستقرة: Messaging consent/contactability
 
 أضيفت migration `017_messaging_consent.sql` وAPI وواجهة داخل Lead لحالة WhatsApp Consent وDo-not-contact مع source/evidence ووقت آخر تحديث. حالة `UNKNOWN` هي الأصل عند غياب السجل. منح `GRANTED` يتطلب evidence؛ كل تغيير يحفظ نسخة متزايدة في `messaging_consent_history` وAudit، والطلب المتكرر دون تغيير لا يولد تاريخًا جديدًا. Agent يقرأ حالة Lead المسموح بها ولا يعدلها؛ Manager يغير Contact محصورة في فرعه؛ Contact المشتركة بين الفروع يغيرها Super Admin فقط. Do-not-contact مستقل عن حالة opt-in حتى يمكن حفظ طلب المنع دون طمس التاريخ السابق. لا يحدث إرسال في هذا المسار.

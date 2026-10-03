@@ -8,10 +8,13 @@ type Campaign = { id: string; branch_id: string; name: string; status: 'DRAFT'|'
 type Agent = { agent_id: string; name: string; active: boolean; account_active: boolean; weight: number; capacity_override: number | null };
 type Detail = { campaign: Campaign; agents: Agent[]; issues: string[] };
 type User = { id: string; name: string };
+type SendingWindow = { start: string; end: string } | null;
+type MessagingPolicy = { version: number; sendingWindow: SendingWindow; effectiveSendingWindow: SendingWindow;
+  maxAttempts: number | null; minIntervalSeconds: number | null; timezone: string; consentRequired: boolean };
 const text = {
-  ar: { back: 'العودة للحملات', title: 'إعداد الحملة', name: 'الاسم', source: 'مصدر الـLeads', routing: 'التوزيع', conversion: 'تعريف التحويل', none: 'غير محدد', payment: 'تأكيد الدفع', enrollment: 'تأكيد التسجيل', messaging: 'تفعيل مراسلة العميل', ai: 'تفعيل مساعد AI', save: 'حفظ الإعدادات', agents: 'الوكلاء المؤهلون', add: 'إضافة/تحديث الوكيل', remove: 'إزالة', weight: 'الوزن', capacity: 'حد السعة الخاص بالحملة (اختياري)', choose: 'اختر', search: 'ابحث عن وكيل', more: 'المزيد من الوكلاء', readiness: 'الجاهزية', ready: 'جاهزة للتفعيل', activate: 'تفعيل', deactivate: 'تعطيل', disabled: 'عطّل الحملة قبل تعديل إعداداتها.', dependency: 'تفعيل مصدر خارجي أو مراسلة أو AI يبقي الحملة غير جاهزة حتى اكتمال الربط والتحقق.', status: 'الحالة', version: 'نسخة الإعداد', senderOverride: 'تجاوز رقم الإرسال للحملة', inheritedSender: 'وراثة الرقم الافتراضي للفرع', senderPending: 'إعداد الرقم لا يعني جاهزية الإرسال.', effectiveSender: 'الرقم الفعلي للرسائل الجديدة' },
-  fr: { back: 'Retour aux campagnes', title: 'Configuration', name: 'Nom', source: 'Source des prospects', routing: 'Attribution', conversion: 'Définition de conversion', none: 'Non définie', payment: 'Paiement confirmé', enrollment: 'Inscription confirmée', messaging: 'Activer les messages', ai: 'Activer l’assistant IA', save: 'Enregistrer', agents: 'Agents admissibles', add: 'Ajouter/mettre à jour', remove: 'Retirer', weight: 'Poids', capacity: 'Capacité de campagne (facultatif)', choose: 'Choisir', search: 'Chercher un agent', more: 'Plus d’agents', readiness: 'Préparation', ready: 'Prête à activer', activate: 'Activer', deactivate: 'Désactiver', disabled: 'Désactivez la campagne avant de modifier ses paramètres.', dependency: 'Les sources externes, la messagerie et l’IA empêchent l’activation tant que leur configuration n’est pas vérifiée.', status: 'État', version: 'Version', senderOverride: 'Expéditeur propre à la campagne', inheritedSender: 'Hériter du numéro de l’agence', senderPending: 'Le choix du numéro ne valide pas encore l’envoi.', effectiveSender: 'Expéditeur effectif des nouveaux messages' },
-  en: { back: 'Back to campaigns', title: 'Campaign setup', name: 'Name', source: 'Lead source', routing: 'Routing', conversion: 'Conversion definition', none: 'Not defined', payment: 'Payment confirmed', enrollment: 'Enrollment confirmed', messaging: 'Enable customer messaging', ai: 'Enable AI assistant', save: 'Save settings', agents: 'Eligible agents', add: 'Add/update agent', remove: 'Remove', weight: 'Weight', capacity: 'Campaign capacity (optional)', choose: 'Choose', search: 'Search agents', more: 'More agents', readiness: 'Readiness', ready: 'Ready to activate', activate: 'Activate', deactivate: 'Deactivate', disabled: 'Deactivate the campaign before editing its settings.', dependency: 'External sources, messaging, and AI block activation until their setup is verified.', status: 'Status', version: 'Configuration version', senderOverride: 'Campaign sender override', inheritedSender: 'Use branch default sender', senderPending: 'Selecting a sender does not verify sending.', effectiveSender: 'Effective sender for new messages' },
+  ar: { back: 'العودة للحملات', title: 'إعداد الحملة', name: 'الاسم', source: 'مصدر الـLeads', routing: 'التوزيع', conversion: 'تعريف التحويل', none: 'غير محدد', payment: 'تأكيد الدفع', enrollment: 'تأكيد التسجيل', messaging: 'تفعيل مراسلة العميل', ai: 'تفعيل مساعد AI', save: 'حفظ الإعدادات', agents: 'الوكلاء المؤهلون', add: 'إضافة/تحديث الوكيل', remove: 'إزالة', weight: 'الوزن', capacity: 'حد السعة الخاص بالحملة (اختياري)', choose: 'اختر', search: 'ابحث عن وكيل', more: 'المزيد من الوكلاء', readiness: 'الجاهزية', ready: 'جاهزة للتفعيل', activate: 'تفعيل', deactivate: 'تعطيل', disabled: 'عطّل الحملة قبل تعديل إعداداتها.', dependency: 'تفعيل مصدر خارجي أو مراسلة أو AI يبقي الحملة غير جاهزة حتى اكتمال الربط والتحقق.', status: 'الحالة', version: 'نسخة الإعداد', senderOverride: 'تجاوز رقم الإرسال للحملة', inheritedSender: 'وراثة الرقم الافتراضي للفرع', senderPending: 'إعداد الرقم لا يعني جاهزية الإرسال.', effectiveSender: 'الرقم الفعلي للرسائل الجديدة', policy: 'سياسة إرسال الحملة', inheritWindow: 'وراثة نافذة الفرع', starts: 'تبدأ', ends: 'تنتهي', maxAttempts: 'الحد الأقصى للمحاولات (اختياري)', interval: 'الفاصل الأدنى بين المحاولات بالثواني (اختياري)', effectiveWindow: 'النافذة الفعلية', allDay: 'بلا تقييد زمني محلي', consent: 'موافقة العميل مطلوبة دائمًا', policyNote: 'تُطبّق السياسة عند بناء مسار الإرسال؛ هذا الإعداد وحده لا يفعّل الإرسال.' },
+  fr: { back: 'Retour aux campagnes', title: 'Configuration', name: 'Nom', source: 'Source des prospects', routing: 'Attribution', conversion: 'Définition de conversion', none: 'Non définie', payment: 'Paiement confirmé', enrollment: 'Inscription confirmée', messaging: 'Activer les messages', ai: 'Activer l’assistant IA', save: 'Enregistrer', agents: 'Agents admissibles', add: 'Ajouter/mettre à jour', remove: 'Retirer', weight: 'Poids', capacity: 'Capacité de campagne (facultatif)', choose: 'Choisir', search: 'Chercher un agent', more: 'Plus d’agents', readiness: 'Préparation', ready: 'Prête à activer', activate: 'Activer', deactivate: 'Désactiver', disabled: 'Désactivez la campagne avant de modifier ses paramètres.', dependency: 'Les sources externes, la messagerie et l’IA empêchent l’activation tant que leur configuration n’est pas vérifiée.', status: 'État', version: 'Version', senderOverride: 'Expéditeur propre à la campagne', inheritedSender: 'Hériter du numéro de l’agence', senderPending: 'Le choix du numéro ne valide pas encore l’envoi.', effectiveSender: 'Expéditeur effectif des nouveaux messages', policy: 'Politique d’envoi de la campagne', inheritWindow: 'Hériter de la fenêtre de l’agence', starts: 'Début', ends: 'Fin', maxAttempts: 'Nombre maximal de tentatives (facultatif)', interval: 'Intervalle minimal en secondes (facultatif)', effectiveWindow: 'Fenêtre effective', allDay: 'Aucune restriction horaire locale', consent: 'Le consentement du client est toujours requis', policyNote: 'Cette configuration ne permet pas encore l’envoi ; les règles seront appliquées lors de son implémentation.' },
+  en: { back: 'Back to campaigns', title: 'Campaign setup', name: 'Name', source: 'Lead source', routing: 'Routing', conversion: 'Conversion definition', none: 'Not defined', payment: 'Payment confirmed', enrollment: 'Enrollment confirmed', messaging: 'Enable customer messaging', ai: 'Enable AI assistant', save: 'Save settings', agents: 'Eligible agents', add: 'Add/update agent', remove: 'Remove', weight: 'Weight', capacity: 'Campaign capacity (optional)', choose: 'Choose', search: 'Search agents', more: 'More agents', readiness: 'Readiness', ready: 'Ready to activate', activate: 'Activate', deactivate: 'Deactivate', disabled: 'Deactivate the campaign before editing its settings.', dependency: 'External sources, messaging, and AI block activation until their setup is verified.', status: 'Status', version: 'Configuration version', senderOverride: 'Campaign sender override', inheritedSender: 'Use branch default sender', senderPending: 'Selecting a sender does not verify sending.', effectiveSender: 'Effective sender for new messages', policy: 'Campaign sending policy', inheritWindow: 'Inherit branch window', starts: 'Starts', ends: 'Ends', maxAttempts: 'Maximum attempts (optional)', interval: 'Minimum interval in seconds (optional)', effectiveWindow: 'Effective window', allDay: 'No local time restriction', consent: 'Customer consent is always required', policyNote: 'These settings will be enforced by the send path; configuration alone does not enable sending.' },
 } as const;
 const issueLabels: Record<string, Record<Locale, string>> = {
   BRANCH_INACTIVE: { ar: 'الفرع غير نشط', fr: 'Agence inactive', en: 'Branch inactive' },
@@ -41,11 +44,21 @@ export function CampaignWorkspace({ id, locale, api, onBack, onChanged }: {
     active: boolean; operator_enabled: boolean; connection_status: string }[]>([]);
   const [senderAfter, setSenderAfter] = useState<string | null>(null);
   const [effectiveSender, setEffectiveSender] = useState<{ senderId: string | null; reason: string } | null>(null);
+  const [policy, setPolicy] = useState<MessagingPolicy | null>(null);
+  const [policyWindow, setPolicyWindow] = useState<SendingWindow>(null);
+  const [maxAttempts, setMaxAttempts] = useState('');
+  const [minInterval, setMinInterval] = useState('');
   async function load() {
-    const result = await api<Detail>(`/api/campaigns/${id}`);
-    const effective = await api<{ senderId: string | null; reason: string }>(`/api/messaging/campaigns/${id}/effective-sender`);
+    const [result, effective, currentPolicy] = await Promise.all([
+      api<Detail>(`/api/campaigns/${id}`),
+      api<{ senderId: string | null; reason: string }>(`/api/messaging/campaigns/${id}/effective-sender`),
+      api<MessagingPolicy>(`/api/messaging/campaigns/${id}/policy`),
+    ]);
     setDetail(result);
     setEffectiveSender(effective);
+    setPolicy(currentPolicy); setPolicyWindow(currentPolicy.sendingWindow);
+    setMaxAttempts(currentPolicy.maxAttempts?.toString() ?? '');
+    setMinInterval(currentPolicy.minIntervalSeconds?.toString() ?? '');
     const c = result.campaign;
     setForm({ name: c.name, sourceKind: c.source_kind, routingMethod: c.routing_method,
       messagingEnabled: Boolean(c.messaging_config.enabled), aiEnabled: Boolean(c.ai_config.enabled), conversion: c.conversion_config.type ?? '' });
@@ -109,6 +122,29 @@ export function CampaignWorkspace({ id, locale, api, onBack, onChanged }: {
         'PUT', { version: campaign.version, senderId: senderOverrideId || null })}>{t.save}</button>
       <p>{t.effectiveSender}: {effectiveSender?.senderId ?? '—'} ({effectiveSender?.reason ?? '—'})</p><p>{t.senderPending}</p>
     </section>
+    {policy && <section className="panel"><h3>{t.policy}</h3>
+      <label className="check-row"><input type="checkbox" checked={policyWindow === null} disabled={busy}
+        onChange={(event) => setPolicyWindow(event.target.checked ? null : { start: '09:00', end: '18:00' })} />{t.inheritWindow}</label>
+      {policyWindow && <div className="actions">
+        <label>{t.starts}<input type="time" required disabled={busy} value={policyWindow.start}
+          onChange={(event) => setPolicyWindow({ ...policyWindow, start: event.target.value })} /></label>
+        <label>{t.ends}<input type="time" required disabled={busy} value={policyWindow.end}
+          onChange={(event) => setPolicyWindow({ ...policyWindow, end: event.target.value })} /></label>
+      </div>}
+      <label>{t.maxAttempts}<input type="number" min={1} max={2147483647} disabled={busy} value={maxAttempts}
+        onChange={(event) => setMaxAttempts(event.target.value)} /></label>
+      <label>{t.interval}<input type="number" min={1} max={2147483647} disabled={busy} value={minInterval}
+        onChange={(event) => setMinInterval(event.target.value)} /></label>
+      <button disabled={busy || Boolean(policyWindow && (!policyWindow.start || !policyWindow.end || policyWindow.start === policyWindow.end))}
+        onClick={() => void mutate(`/api/messaging/campaigns/${id}/policy`, 'PUT', {
+          version: policy.version, sendingWindow: policyWindow,
+          maxAttempts: maxAttempts === '' ? null : Number(maxAttempts),
+          minIntervalSeconds: minInterval === '' ? null : Number(minInterval),
+        })}>{t.save}</button>
+      <p>{t.effectiveWindow}: {policy.effectiveSendingWindow
+        ? `${policy.effectiveSendingWindow.start}–${policy.effectiveSendingWindow.end}` : t.allDay} ({policy.timezone})</p>
+      <p>{t.consent}. {t.policyNote}</p>
+    </section>}
     <section className="panel"><h3>{t.agents}</h3>
       <div className="table-scroll"><table><thead><tr><th>{t.name}</th><th>{t.weight}</th><th>{t.capacity}</th><th>{t.status}</th><th></th></tr></thead><tbody>
         {detail.agents.map((agent) => <tr key={agent.agent_id}><td>{agent.name}</td><td>{agent.weight}</td><td>{agent.capacity_override ?? '—'}</td>
