@@ -225,6 +225,60 @@ test('Messaging setup encrypts credentials, scopes connections, and discovers se
   assert.equal(fallback.statusCode, 200, fallback.body);
   assert.equal((await send('GET', `/api/messaging/campaigns/${campaignId}/effective-sender`, undefined, managerA))
     .json().reason, 'SHARED_FALLBACK');
+  const agentId = (await db`SELECT id FROM user_account WHERE email = 'agent-a@example.test'`)[0]!.id as string;
+  const contactId = (await db`INSERT INTO contact (organization_id, name, phone, phone_normalized)
+    VALUES (${organizationId}, 'Conversation contact', '+15550003333', '+15550003333') RETURNING id`)[0]!.id as string;
+  const leadId = (await db`INSERT INTO lead (organization_id, branch_id, campaign_id, contact_id, source_kind)
+    VALUES (${organizationId}, ${branchA}, ${campaignId}, ${contactId}, 'MANUAL') RETURNING id`)[0]!.id as string;
+  assert.equal((await send('POST', `/api/leads/${leadId}/conversations`, undefined, agent)).statusCode, 404);
+  assert.equal((await send('POST', `/api/leads/${leadId}/conversations`, undefined, managerB)).statusCode, 404);
+  const opened = await send('POST', `/api/leads/${leadId}/conversations`, undefined, managerA);
+  assert.equal(opened.statusCode, 201, opened.body);
+  assert.equal(opened.json().senderId, sharedSender);
+  const conversationId = opened.json().id as string;
+  assert.equal((await send('POST', `/api/leads/${leadId}/conversations`, undefined, managerA)).json().id,
+    conversationId);
+  assert.equal((await send('GET', `/api/conversations/${conversationId}`, undefined, managerB)).statusCode, 404);
+  assert.equal((await send('GET', `/api/conversations/${conversationId}`, undefined, agent)).statusCode, 404);
+  await db`UPDATE lead SET assigned_agent_id = ${agentId} WHERE id = ${leadId}`;
+  assert.equal((await send('GET', `/api/conversations/${conversationId}`, undefined, agent)).statusCode, 200);
+  assert.equal((await send('GET', `/api/leads/${leadId}/conversations`, undefined, agent)).json().items.length, 1);
+  await db`UPDATE lead SET assigned_agent_id = NULL WHERE id = ${leadId}`;
+  assert.equal((await send('GET', `/api/conversations/${conversationId}`, undefined, agent)).statusCode, 404);
+  assert.equal((await send('GET', `/api/leads/${leadId}/conversations`, undefined, agent)).statusCode, 404);
+  const secondContactId = (await db`INSERT INTO contact (organization_id, name, phone, phone_normalized)
+    VALUES (${organizationId}, 'Concurrent contact', '+15550004444', '+15550004444') RETURNING id`)[0]!.id as string;
+  const secondLeadId = (await db`INSERT INTO lead (organization_id, branch_id, campaign_id, contact_id,
+    assigned_agent_id, source_kind) VALUES (${organizationId}, ${branchA}, ${campaignId}, ${secondContactId},
+    ${agentId}, 'MANUAL') RETURNING id`)[0]!.id as string;
+  const openings = await Promise.all([1,2].map(() => send('POST',
+    `/api/leads/${secondLeadId}/conversations`, undefined, agent)));
+  assert.deepEqual(openings.map((response) => response.statusCode).sort(), [200,201]);
+  assert.equal(openings[0]!.json().id, openings[1]!.json().id);
+  assert.equal((await db`SELECT count(*)::integer AS n FROM conversation WHERE lead_id = ${secondLeadId}`)[0]!.n, 1);
+  const noPhoneContact = (await db`INSERT INTO contact (organization_id, name, email, email_normalized)
+    VALUES (${organizationId}, 'Email only', 'email-only@example.test', 'email-only@example.test') RETURNING id`)[0]!.id as string;
+  const noPhoneLead = (await db`INSERT INTO lead (organization_id, branch_id, campaign_id, contact_id, source_kind)
+    VALUES (${organizationId}, ${branchA}, ${campaignId}, ${noPhoneContact}, 'MANUAL') RETURNING id`)[0]!.id as string;
+  assert.equal((await send('POST', `/api/leads/${noPhoneLead}/conversations`, undefined, managerA)).statusCode, 409);
+  assert.equal((await send('PUT', `/api/messaging/campaigns/${campaignId}/sender-override`,
+    { version: 5, senderId: branchSender }, managerA)).statusCode, 200);
+  await db`UPDATE messaging_sender SET operator_enabled = false WHERE id = ${sharedSender}`;
+  const blockedConversation = await send('POST', `/api/leads/${leadId}/conversations`, undefined, managerA);
+  assert.equal(blockedConversation.statusCode, 409, blockedConversation.body);
+  assert.equal(blockedConversation.json().error, 'PINNED_SENDER_DISABLED');
+  assert.equal((await db`SELECT sender_id, needs_attention_reason FROM conversation WHERE id = ${conversationId}`)[0]!
+    .needs_attention_reason, 'PINNED_SENDER_DISABLED');
+  assert.equal((await db`SELECT count(*)::integer AS n FROM conversation WHERE lead_id = ${leadId}`)[0]!.n, 1);
+  await db`UPDATE contact SET phone_normalized = '+15550009999' WHERE id = ${contactId}`;
+  assert.equal((await send('POST', `/api/leads/${leadId}/conversations`, undefined, managerA)).json().error,
+    'PARTICIPANT_CHANGED');
+  await db`UPDATE contact SET phone_normalized = '+15550003333' WHERE id = ${contactId}`;
+  await db`UPDATE messaging_sender SET operator_enabled = true WHERE id = ${sharedSender}`;
+  await db`UPDATE conversation SET connection_id = ${id} WHERE id = ${conversationId}`;
+  assert.equal((await send('POST', `/api/leads/${leadId}/conversations`, undefined, managerA)).json().error,
+    'CONNECTION_SENDER_MISMATCH');
+  assert.equal((await db`SELECT count(*)::integer AS n FROM audit_log WHERE action = 'CONVERSATION_OPENED'`)[0]!.n, 2);
   assert.ok((await db`SELECT 1 FROM audit_log WHERE action = 'CAMPAIGN_SENDER_OVERRIDE_SET'
     AND target_id = ${campaignId}`).length);
   const flood = await Promise.all(Array.from({ length: 12 }, () => send('POST',

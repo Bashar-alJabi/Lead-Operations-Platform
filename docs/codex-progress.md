@@ -1,10 +1,18 @@
 # تقدم التنفيذ
 
-## آخر حالة مستقرة: DB sender resolution للرسائل الجديدة واختبار Pinned Sender
+## آخر حالة مستقرة: Conversation opening وSender pinning
+
+أضيفت migration `016_conversation_pin.sql` وقيد يمنع أكثر من Conversation نشطة للقناة نفسها على Lead واحدة. مسار فتح محادثة WhatsApp يقفل Lead، يفحص وصول المستخدم وحالة Lead ورقم Contact، ويعيد Conversation القائمة أو ينشئ واحدة بمرسل/اتصال مثبتين من خدمة الحسم. لا يغيّر Controller محادثة قائمة. عند فقد صلاحية الرقم المثبت أو تغير رقم Contact أو اختلاف Connection المحفوظ عن Sender، يُحفظ `needs_attention_reason` ويعاد `409` بلا نقل صامت أو إنشاء بديل. قائمة المحادثات وتفاصيلها تفحصان Lead access في SQL وتدعمان pagination؛ واجهة Lead تعرض المحادثات وتفتحها دون إرسال رسالة.
+
+التحقق: migrations `001`–`016` على قاعدتي التطوير والاختبار، و6/6 مجموعات integration على PostgreSQL بما فيها طلبا فتح متزامنان ينتجان محادثة واحدة، منع Agent قبل الإسناد وبعد فقده، عزل الفروع، غياب الهاتف، وتثبيت Sender عند تعطيله مع وجود Override آخر، وعدم اتساق Connection/Sender. `npm test` 18/18 وBackend/Web typecheck وWeb build ناجحة. لا يختبر هذا الإرسال أو تسليم المزوّد.
+
+الخطوة التالية الدقيقة: إضافة إعداد consent/contactability وCampaign Messaging Policy الموثّق في الواجهة والـBackend، ثم خدمة واحدة لكل outbound send تتحقق من controller وsender والـconsent/النافذة/التردد/template، وتحفظ رسالة `QUEUED` وjob في معاملة مع idempotency. بعد checkpoint، أضف worker/provider send/delivery callbacks والـinbound webhook/review. لا يُعلن Messaging مكتملًا.
+
+## نقطة تحقق سابقة: DB sender resolution للرسائل الجديدة واختبار Pinned Sender
 
 أضيفت خدمة `resolveConfiguredSender` التي تقرأ Branch default وCampaign override وOrganization shared fallback الصريح من PostgreSQL ثم تطبق قاعدة الحسم المركزية. لا تختار Sender عشوائياً، ولا تسقط إلى بديل عند وجود إعداد أعلى أولوية غير صالح. `effective-sender` API محصور في Super Admin/Manager ضمن Branch، وتعرض شاشة الحملة Sender الفعلي أو سبب الحظر. `WARNING/SEND_NOT_TESTED` تمنع إعلان Sender جاهزًا؛ اتصال `CONNECTED` وصحة Sender يختبران بحالة مصطنعة داخل PostgreSQL فقط، وليس بتحقق Live. اختبار Pinned Sender أثبت أن تعطيله يمنع الحسم حتى عند وجود Campaign Override صالح؛ إنشاء/تثبيت Conversation الفعلي لم يُنفذ بعد.
 
-التحقق: 6/6 مجموعات integration على PostgreSQL، تشمل نطاق الدور، عدم جاهزية الاتصال، Override وDefault وFallback، وفشل Pinned Sender بلا انتقال صامت. لا migration جديدة. بوابات unit/typecheck/Web build تُعاد قبل حفظ checkpoint. الخطوة التالية الدقيقة: خدمة إنشاء/استرجاع Conversation بنطاق Lead/participant وبقفل يمنع السباق، وتثبيت Sender/Connection/Thread ومراجعة التباس المحادثات، ثم Central Messaging Policy قبل إرسال أي Message.
+التحقق: 6/6 مجموعات integration على PostgreSQL، تشمل نطاق الدور، عدم جاهزية الاتصال، Override وDefault وFallback، وفشل Pinned Sender بلا انتقال صامت. لا migration جديدة. اجتازت unit/typecheck/Web build. الخطوة التالية حينها كانت فتح Conversation وتثبيت Sender.
 
 ## نقطة تحقق سابقة: Sender bindings وBranch/Campaign sender configuration
 

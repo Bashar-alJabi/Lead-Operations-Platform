@@ -8,6 +8,7 @@ import { CampaignWorkspace } from './CampaignWorkspace.js';
 import { FollowupQueue, LeadWorkflow } from './LeadWorkflow.js';
 import { LeadSearch, defaultLeadColumns, type LeadColumn } from './LeadSearch.js';
 import { MessagingSetup } from './MessagingSetup.js';
+import { LeadConversations } from './LeadConversations.js';
 
 type Role = 'SUPER_ADMIN' | 'MANAGER' | 'AGENT';
 type User = { id: string; organizationId: string; branchId: string | null; role: Role; name: string; email: string };
@@ -321,6 +322,7 @@ function App() {
       <LeadWorkflow lead={detail.lead} role={user.role} locale={locale} api={api}
         onChanged={async () => { const current = await api<typeof detail>(`/api/leads/${selectedLead}`); setDetail(current); }} />
       <LeadFields leadId={selectedLead} locale={locale} api={api} />
+      <LeadConversations leadId={selectedLead} lifecycle={detail.lead.lifecycle} locale={locale} api={api} />
     </section> : <>
       {page === 'leads' && <LeadSearch locale={locale} branches={branches} campaigns={campaigns} users={users} currentUser={user}
         api={api} onSearch={searchLeads} columns={leadColumns} onColumns={setLeadColumns} />}
