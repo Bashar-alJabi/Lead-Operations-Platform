@@ -12,6 +12,7 @@
     "web:typecheck": "tsc -p web/tsconfig.json",
     "start": "node dist/src/server.js",
     "worker:identity": "node dist/src/identity-worker.js",
+    "worker:messaging": "node dist/src/messaging-worker.js",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "npm run build && node --test dist/test/*.test.js",

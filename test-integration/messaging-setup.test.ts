@@ -5,7 +5,9 @@ import { buildApp } from '../src/app.js';
 import { createDatabase } from '../src/db.js';
 import { passwordHash } from '../src/security.js';
 import type { MessagingProviderAdapter } from '../src/messaging/providers.js';
+import { ProviderSendError, type MessagingSendAdapter } from '../src/messaging/providers.js';
 import { resolveConfiguredSender } from '../src/messaging/sender-resolution.js';
+import { processOneMessagingJob } from '../src/messaging/send-worker.js';
 
 const url = process.env.TEST_DATABASE_URL;
 if (!url || new URL(url).pathname !== '/lead_operations_test') throw new Error('Isolated TEST_DATABASE_URL required');
@@ -404,6 +406,35 @@ test('Messaging setup encrypts credentials, scopes connections, and discovers se
     WHERE conversation_id = ${conversationId} AND direction = 'OUTBOUND'`)[0]!.n, 2);
   assert.equal((await db`SELECT count(*)::integer AS n FROM outbound_delivery_job j
     JOIN conversation_message m ON m.id = j.message_id WHERE m.conversation_id = ${conversationId}`)[0]!.n, 2);
+  const secondMessageId = concurrent[0]!.json().id as string;
+  await db`UPDATE background_job SET run_after = now() + interval '1 hour'
+    WHERE id = (SELECT job_id FROM outbound_delivery_job WHERE message_id = ${secondMessageId})`;
+  let providerCalls = 0;
+  const acceptedAdapter: MessagingSendAdapter = { async sendText(input) {
+    providerCalls++;
+    assert.equal(input.body, 'Hello');
+    assert.equal(input.recipient, '+15550003333');
+    assert.equal(input.credentials.accessToken, 'test-access-token-123456789');
+    return { providerMessageId: 'wamid.test-first' };
+  } };
+  assert.equal(await processOneMessagingJob(db, acceptedAdapter), true);
+  assert.equal((await db`SELECT delivery_state, provider_message_id FROM conversation_message
+    WHERE id = ${queued.json().id}`)[0]!.delivery_state, 'SENT');
+  assert.equal((await db`SELECT status FROM background_job WHERE id =
+    (SELECT job_id FROM outbound_delivery_job WHERE message_id = ${queued.json().id})`)[0]!.status, 'SUCCEEDED');
+  assert.ok((await db`SELECT 1 FROM audit_log WHERE action = 'OUTBOUND_MESSAGE_SENT'
+    AND target_id = ${queued.json().id}`).length);
+  await db`UPDATE background_job SET run_after = now()
+    WHERE id = (SELECT job_id FROM outbound_delivery_job WHERE message_id = ${secondMessageId})`;
+  const rateLimitedAdapter: MessagingSendAdapter = { async sendText() {
+    providerCalls++; throw new ProviderSendError('RETRYABLE', 'PROVIDER_RATE_LIMITED', 1);
+  } };
+  assert.equal(await processOneMessagingJob(db, rateLimitedAdapter), true);
+  assert.equal((await db`SELECT status, attempts FROM background_job WHERE id =
+    (SELECT job_id FROM outbound_delivery_job WHERE message_id = ${secondMessageId})`)[0]!.status, 'QUEUED');
+  assert.equal((await db`SELECT delivery_state FROM conversation_message WHERE id = ${secondMessageId}`)[0]!
+    .delivery_state, 'QUEUED');
+  assert.equal(providerCalls, 2);
   assert.equal((await send('GET', messagePath, undefined, managerA)).json().items.length, 3);
   await db`UPDATE lead SET assigned_agent_id = ${agentId} WHERE id = ${leadId}`;
   assert.equal((await send('GET', messagePath, undefined, agent)).statusCode, 200);
@@ -442,10 +473,55 @@ test('Messaging setup encrypts credentials, scopes connections, and discovers se
     evidence: 'Opt-out', source: 'ADMIN' }, admin)).statusCode, 200);
   assert.equal((await send('POST', messagePath,
     { body: 'After opt-out', idempotencyKey: 'send-intent-007' }, managerA)).json().error, 'DO_NOT_CONTACT');
+  await db`UPDATE background_job SET run_after = now()
+    WHERE id = (SELECT job_id FROM outbound_delivery_job WHERE message_id = ${secondMessageId})`;
+  assert.equal(await processOneMessagingJob(db, acceptedAdapter), true);
+  assert.equal(providerCalls, 2);
+  assert.equal((await db`SELECT delivery_state, last_error_code FROM conversation_message
+    WHERE id = ${secondMessageId}`)[0]!.last_error_code, 'DO_NOT_CONTACT');
   assert.equal((await send('POST', messagePath,
     { body: 'Hello', idempotencyKey: firstKey }, managerA)).json().id, queued.json().id);
   assert.equal((await db`SELECT count(*)::integer AS n FROM outbound_delivery_job j
     JOIN conversation_message m ON m.id = j.message_id WHERE m.conversation_id = ${conversationId}`)[0]!.n, 2);
+  assert.equal((await send('PUT', consentPath, { version: 5, status: 'GRANTED', doNotContact: false,
+    evidence: 'Reconfirmed opt-in', source: 'ADMIN' }, admin)).statusCode, 200);
+  const unknownMessage = await send('POST', messagePath,
+    { body: 'Unknown outcome', idempotencyKey: 'send-intent-008' }, managerA);
+  const crashMessage = await send('POST', messagePath,
+    { body: 'Crash recovery', idempotencyKey: 'send-intent-009' }, managerA);
+  assert.equal(unknownMessage.statusCode, 202, unknownMessage.body);
+  assert.equal(crashMessage.statusCode, 202, crashMessage.body);
+  await db`UPDATE background_job SET run_after = now() - interval '1 minute'
+    WHERE id = (SELECT job_id FROM outbound_delivery_job WHERE message_id = ${unknownMessage.json().id})`;
+  let started!: () => void;
+  let release!: () => void;
+  const startedPromise = new Promise<void>((resolve) => { started = resolve; });
+  const releasePromise = new Promise<void>((resolve) => { release = resolve; });
+  const uncertainAdapter: MessagingSendAdapter = { async sendText() {
+    providerCalls++; started(); await releasePromise;
+    throw new ProviderSendError('UNKNOWN', 'PROVIDER_SEND_OUTCOME_UNKNOWN');
+  } };
+  const running = processOneMessagingJob(db, uncertainAdapter);
+  await startedPromise;
+  assert.equal(await processOneMessagingJob(db, acceptedAdapter), false);
+  release();
+  assert.equal(await running, true);
+  assert.equal((await db`SELECT delivery_state FROM conversation_message WHERE id = ${unknownMessage.json().id}`)[0]!
+    .delivery_state, 'UNKNOWN');
+  assert.ok((await db`SELECT 1 FROM audit_log WHERE action = 'OUTBOUND_SEND_OUTCOME_UNKNOWN'
+    AND target_id = ${unknownMessage.json().id}`).length);
+  assert.equal((await db`SELECT needs_attention_reason FROM conversation WHERE id = ${conversationId}`)[0]!
+    .needs_attention_reason, 'SEND_OUTCOME_UNKNOWN');
+  assert.equal(providerCalls, 3);
+  const crashJob = (await db`SELECT job_id FROM outbound_delivery_job WHERE message_id = ${crashMessage.json().id}`)[0]!.job_id;
+  await db`UPDATE background_job SET status = 'RUNNING', attempts = 1,
+    locked_until = now() - interval '1 second' WHERE id = ${crashJob}`;
+  await db`INSERT INTO outbound_send_attempt (message_id, job_id, attempt_number, state)
+    VALUES (${crashMessage.json().id}, ${crashJob}, 1, 'PREPARED')`;
+  assert.equal(await processOneMessagingJob(db, acceptedAdapter), true);
+  assert.equal((await db`SELECT delivery_state FROM conversation_message WHERE id = ${crashMessage.json().id}`)[0]!
+    .delivery_state, 'UNKNOWN');
+  assert.equal(providerCalls, 3);
   assert.ok((await db`SELECT 1 FROM audit_log WHERE action = 'OUTBOUND_MESSAGE_QUEUED'
     AND target_id = ${queued.json().id}`).length);
   assert.ok((await db`SELECT 1 FROM audit_log WHERE action = 'CAMPAIGN_SENDER_OVERRIDE_SET'

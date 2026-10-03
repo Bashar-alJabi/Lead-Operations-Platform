@@ -16,7 +16,8 @@ const labels = {
     save: 'حفظ الحالة', updated: 'آخر تحديث', shared: 'تعديل حالة Contact مشتركة متاح للمسؤول الأعلى فقط.',
     messages: 'الرسائل', showMessages: 'عرض الرسائل', send: 'وضع الرسالة في قائمة الإرسال', draft: 'نص الرسالة',
     queued: 'QUEUED تعني أن الرسالة محفوظة ولم يؤكد المزود إرسالها بعد.', noMessages: 'لا رسائل بعد.',
-    customer: 'العميل', sendBlocked: 'يلزم متحكم بشري نشط ومحادثة بلا سبب مراجعة.' },
+    customer: 'العميل', sendBlocked: 'يلزم متحكم بشري نشط ومحادثة بلا سبب مراجعة.',
+    unknown: 'نتيجة الإرسال غير مؤكدة؛ راجع المزود قبل أي إعادة إرسال.' },
   fr: { title: 'Conversations client', open: 'Ouvrir une conversation WhatsApp',
     explain: 'L’ouverture fixe le numéro d’envoi sans envoyer de message au client.', empty: 'Aucune conversation.',
     sender: 'Expéditeur fixé', controller: 'Contrôleur', state: 'État', attention: 'À examiner', more: 'Plus',
@@ -24,7 +25,8 @@ const labels = {
     save: 'Enregistrer', updated: 'Dernière mise à jour', shared: 'Seul le super administrateur peut modifier un contact partagé.',
     messages: 'Messages', showMessages: 'Voir les messages', send: 'Mettre en file d’envoi', draft: 'Texte du message',
     queued: 'QUEUED signifie que le message est enregistré ; l’envoi n’est pas confirmé.', noMessages: 'Aucun message.',
-    customer: 'Client', sendBlocked: 'Un contrôleur humain actif et aucune alerte sont requis.' },
+    customer: 'Client', sendBlocked: 'Un contrôleur humain actif et aucune alerte sont requis.',
+    unknown: 'Résultat incertain ; vérifiez chez le fournisseur avant toute nouvelle tentative.' },
   en: { title: 'Customer conversations', open: 'Open WhatsApp conversation',
     explain: 'Opening pins the sender and sends no customer message.', empty: 'No conversations.',
     sender: 'Pinned sender', controller: 'Controller', state: 'State', attention: 'Needs attention', more: 'More',
@@ -32,7 +34,8 @@ const labels = {
     save: 'Save state', updated: 'Last updated', shared: 'Only the super admin can edit a shared contact.',
     messages: 'Messages', showMessages: 'View messages', send: 'Queue message', draft: 'Message text',
     queued: 'QUEUED means saved, not confirmed sent by the provider.', noMessages: 'No messages yet.',
-    customer: 'Customer', sendBlocked: 'An active human controller and no attention flag are required.' },
+    customer: 'Customer', sendBlocked: 'An active human controller and no attention flag are required.',
+    unknown: 'Send outcome unknown; check with the provider before trying again.' },
 } as const;
 
 export function LeadConversations({ leadId, lifecycle, locale, api }: { leadId: string; lifecycle: string;
@@ -127,6 +130,7 @@ export function LeadConversations({ leadId, lifecycle, locale, api }: { leadId: 
         <strong>{message.direction === 'INBOUND' ? t.customer : message.author_type}</strong>
         {' · '}{message.delivery_state}{message.last_error_code && ` · ${message.last_error_code}`}
         <p style={{ whiteSpace: 'pre-wrap' }}>{message.body}</p>
+        {message.delivery_state === 'UNKNOWN' && <p role="alert">{t.unknown}</p>}
       </li>)}</ul>
       {messageCursor && <button className="secondary" disabled={busy}
         onClick={() => void loadMessages(selectedId, messageCursor).catch((failure) => setError(String(failure)))}>{t.more}</button>}

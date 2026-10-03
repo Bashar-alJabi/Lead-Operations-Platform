@@ -1,5 +1,13 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: Messaging outbound worker مع fake provider
+
+أضيفت migration `022_messaging_worker.sql` لعقد lease لكل Sender وسجل محاولات الإرسال وحالة `UNKNOWN`. استُخرج فحص السياسة إلى `outbound-policy.ts` كي يعيد عامل الإرسال فحص Lead access وهوية Human الحالية والمتحكم وConsent/DNC والحملة والنافذة والـPinned Sender ونافذة Meta قبل Provider call. عامل `worker:messaging` يختار Jobs عبر `SKIP LOCKED` ويمنع عاملين من الإرسال من Sender واحد في الوقت نفسه، ويفك credential المشفرة في الذاكرة فقط. `metaWhatsAppSendAdapter` يبني طلب Text إلى Cloud API بمهلة محدودة ويتحقق من Provider Message ID دون تسجيل السر أو نص الرسالة. نجاح المزود ينتقل إلى `SENT`، ورفض `429` يعاد بحد محاولات وتأخير، والرفض المؤكد يصبح `FAILED`. Timeout/5xx/استجابة نجاح بلا ID أو انقطاع بعد `PREPARED` تصبح `UNKNOWN` وNeeds Attention بلا إعادة إرسال آلي قد تكرر الرسالة. يسجل Audit والـJob ومحاولة الإرسال السبب دون أسرار.
+
+التحقق: PostgreSQL عبر Docker Compose؛ migrations `001`–`022` على قاعدتي التطوير والاختبار. 20/20 unit و6/6 مجموعات integration، Backend/Web typecheck وWeb build ناجحة. اختبارات fake provider تغطي قبول الإرسال، فك credential، `429` وإعادة الجدولة، منع التسليم بعد تغيير Consent، قفل Sender بين عاملين، النتيجة الملتبسة، واستعادة Job منقطع بعد `PREPARED`. اختبار وحدة يثبت شكل طلب Meta وتصنيف أخطائه. لم يُجر اتصال حي بمزوّد ولا UI E2E. اتصال الاكتشاف يبقى `WARNING/SEND_NOT_TESTED`؛ الاختبارات استخدمت `CONNECTED` اصطناعياً، لذا لا تدّعي هذه المرحلة جاهزية تشغيل الرسائل لدى مزوّد حقيقي.
+
+قيد التنفيذ التالي: لا تغييرات ضمن مجموعة جديدة عند هذا checkpoint. الخطوة الدقيقة: إدارة Meta templates والتحقق من اعتمادها من داخل المنصة، ثم مسار test-send/تأكيد صحة Connection وSender من الواجهة دون تعديل قاعدة البيانات، ثم delivery callbacks وinbound webhook مع Signature/Idempotency/Needs Attention. أبق AI مؤجلًا إلى اكتمال Messaging.
+
 ## آخر حالة مستقرة: Outbound send intent
 
 أضيفت migrations `019`–`021` لربط Message بالـConversation/Sender/Connection المثبتين، ومنع تعديل محتوى الرسالة وهويتها التاريخية أو حذفها، وربط مهمة الإرسال بالرسالة بمفاتيح أجنبية، وفهرسة نافذة آخر Inbound. عُدّل migration runner كي يفهم SQL functions ذات semicolons داخل dollar quotes، مع اختبار وحدة. خدمة `enqueueOutboundMessage` تقفل Lead ثم Contact ثم Conversation، وتتحقق من الصلاحيات والحملة/الفرع النشطين وحالة Lead والمتحكم وConsent/DNC والـSender المثبت وصحة الاتصال والنافذة، وتمنع Meta freeform خارج نافذة خدمة العميل ذات 24 ساعة. مسار Human فقط متاح الآن؛ يحفظ Message `QUEUED` و`background_job` وAudit في معاملة واحدة، ويعيد الطلب بالمفتاح نفسه دون تكرار أو يرفض إعادة استخدامه بمحتوى آخر. واجهة Lead تعرض سجل الرسائل بنطاق الصلاحية وpagination، وتُبقي idempotency key عند إعادة محاولة طلب لم يؤكد نجاحه. `QUEUED` لا تعني إرسالاً أو تسليماً.
