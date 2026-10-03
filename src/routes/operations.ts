@@ -17,6 +17,7 @@ const pageQuery = { type: 'object', additionalProperties: false, properties: {
   lifecycle: { enum: ['OPEN','CLOSED','ARCHIVED'] }, q: { type: 'string', maxLength: 200 },
   sourceKind: { type: 'string', maxLength: 40 }, from: { type: 'string', format: 'date-time' },
   to: { type: 'string', format: 'date-time' }, followup: { enum: ['NONE','OVERDUE','UPCOMING'] },
+  sort: { enum: ['CREATED_DESC','CREATED_ASC'] },
   fieldId: { type: 'string', format: 'uuid' }, fieldValue: { type: 'string', maxLength: 2000 },
 } } as const;
 
@@ -117,13 +118,15 @@ export function registerOperationsRoutes(app: FastifyInstance, db: Database): vo
 
   app.get<{ Querystring: { limit?: number; cursor?: string; branchId?: string; campaignId?: string; contactId?: string;
     assignedAgentId?: string; lifecycle?: string; q?: string; sourceKind?: string; from?: string; to?: string;
-    followup?: 'NONE'|'OVERDUE'|'UPCOMING'; fieldId?: string; fieldValue?: string } }>('/api/leads', {
+    followup?: 'NONE'|'OVERDUE'|'UPCOMING'; fieldId?: string; fieldValue?: string;
+    sort?: 'CREATED_DESC'|'CREATED_ASC' } }>('/api/leads', {
     schema: { querystring: pageQuery },
   }, async (request) => {
     const actor = await principalFromRequest(request, db);
     const q = request.query;
     const cursor = decodeCursor(q.cursor);
     const limit = Math.min(q.limit ?? 30, 100);
+    const ascending = q.sort === 'CREATED_ASC';
     if (q.branchId) requireBranch(actor, q.branchId);
     if (q.from && q.to && Date.parse(q.from) > Date.parse(q.to)) throw new HttpError(400, 'INVALID_DATE_RANGE');
     if (Boolean(q.fieldId) !== Boolean(q.fieldValue)) throw new HttpError(400, 'FIELD_FILTER_INCOMPLETE');
@@ -152,7 +155,8 @@ export function registerOperationsRoutes(app: FastifyInstance, db: Database): vo
     const exactId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(search) ? search : null;
     const rows = await db`
       SELECT l.id, l.branch_id, l.campaign_id, l.assigned_agent_id, l.lifecycle, l.source_kind,
-        l.needs_attention_reason, l.created_at, c.name AS contact_name, c.phone, c.email
+        l.needs_attention_reason, l.created_at, c.name AS contact_name, c.phone, c.email,
+        (SELECT min(f.due_at) FROM follow_up f WHERE f.lead_id = l.id AND f.status = 'OPEN') AS next_followup_at
       FROM lead l JOIN contact c ON c.id = l.contact_id
       WHERE l.organization_id = ${actor.organizationId}
         AND (${actor.role === 'SUPER_ADMIN'} OR (${actor.role === 'MANAGER'} AND l.branch_id = ${actor.branchId})
@@ -175,8 +179,10 @@ export function registerOperationsRoutes(app: FastifyInstance, db: Database): vo
           WHERE fv.lead_id = l.id AND fv.field_id = ${q.fieldId ?? null}
             AND md5(fv.value::text) = md5((${normalizedFieldValue === null ? null : db.json(normalizedFieldValue)}::jsonb)::text)
             AND fv.value = ${normalizedFieldValue === null ? null : db.json(normalizedFieldValue)}::jsonb))
-        AND (${cursor?.timestamp ?? null}::timestamptz IS NULL OR (l.created_at, l.id) < (${cursor?.timestamp ?? null}::timestamptz, ${cursor?.id ?? null}::uuid))
-      ORDER BY l.created_at DESC, l.id DESC LIMIT ${limit + 1}`;
+        AND (${cursor?.timestamp ?? null}::timestamptz IS NULL OR
+          (${ascending} AND (l.created_at, l.id) > (${cursor?.timestamp ?? null}::timestamptz, ${cursor?.id ?? null}::uuid)) OR
+          (NOT ${ascending} AND (l.created_at, l.id) < (${cursor?.timestamp ?? null}::timestamptz, ${cursor?.id ?? null}::uuid)))
+      ORDER BY l.created_at ${db.unsafe(ascending ? 'ASC' : 'DESC')}, l.id ${db.unsafe(ascending ? 'ASC' : 'DESC')} LIMIT ${limit + 1}`;
     const items = rows.slice(0, limit);
     const last = items[items.length - 1];
     return { items, nextCursor: rows.length > limit && last ? encodeCursor({ timestamp: last.created_at.toISOString(), id: last.id }) : null };

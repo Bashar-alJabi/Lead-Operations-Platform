@@ -2,7 +2,7 @@
 
 الحالة هنا تعكس **تنفيذاً مثبتاً**، وليست وعداً. `جزئي` يعني أن المسار المطلوب للإنتاج غير مكتمل. لا توجد منطقة موسومة `Complete` حالياً. اختبارات الـAPI تعمل على PostgreSQL 18 داخل Docker؛ لا تثبت الميزات التي لم تُنفذ.
 
-> نقطة تحقق 2026-10-03: اجتازت مجموعة Lead workflow/Follow-ups/Search/Saved Views migrations `001`–`013` على قاعدتي التطوير والاختبار، و18 اختبار وحدة، و5 مجموعات integration على PostgreSQL 18، وفحص النوع والبناء للـBackend والواجهة. الحالات أدناه تميّز هذا التنفيذ المثبت عن Sorting/Columns/Bulk وبقية المتطلبات غير المبنية.
+> نقطة تحقق 2026-10-03: اجتازت مجموعة Lead workflow/Follow-ups/Search/Saved Views migrations `001`–`013` على قاعدتي التطوير والاختبار، و18 اختبار وحدة و5 مجموعات integration على PostgreSQL 18 وفحص النوع والبناء للـBackend والواجهة. اجتازت مرحلة ترتيب تاريخ الإنشاء واختيار أعمدة العرض بوابات الاختبار نفسها. الحالات أدناه تميّز التنفيذ المثبت عن Bulk وبقية المتطلبات غير المبنية.
 
 | المجال | المراجع | التنفيذ الحالي | الاختبارات | الحالة |
 |---|---|---|---|---|
@@ -23,7 +23,7 @@
 | Enrollment | 00، 01، 06 | لم ينفذ | لا يوجد | غير منفذ |
 | Analytics | 00، 03، 06 | لم ينفذ | لا يوجد | غير منفذ |
 | Automations | 00، 02، 06 | لم ينفذ | لا يوجد | غير منفذ |
-| Search/Views/Bulk | 00، 02، 03، 06 | بحث Leads بالاسم/الهاتف/البريد/ID وفلاتر Branch/Campaign/Agent/Source/Lifecycle/date/follow-up/visible custom field مع pagination؛ Saved Views شخصية/فرع/مؤسسة ونسخة وAPI CRUD وواجهة تطبيق/إنشاء/حذف؛ Sorting/Columns/Bulk وفلاتر Payment/Enrollment/Conversation ناقصة | PostgreSQL API يفحص عزل الفروع والـAgent والحقل المخفي/المرئي، صلاحيات Views والتعارض والقيم الفاسدة، وتقييد النتائج بعد إعادة الإسناد؛ UI E2E غير مشغّل | جزئي: Search وViews الحالية Implemented وPostgreSQL Verified |
+| Search/Views/Bulk | 00، 02، 03، 06 | بحث Leads بالاسم/الهاتف/البريد/ID وفلاتر Branch/Campaign/Agent/Source/Lifecycle/date/follow-up/visible custom field مع pagination وترتيب تاريخ الإنشاء؛ Saved Views شخصية/فرع/مؤسسة ونسخة وAPI CRUD وواجهة تطبيق/إنشاء/حذف واختيار أعمدة العرض وحفظها؛ Bulk وفلاتر Payment/Enrollment/Conversation وSorting بمفاتيح إضافية ناقصة | PostgreSQL API يفحص عزل الفروع والـAgent والحقل المخفي/المرئي، صلاحيات Views والتعارض والقيم الفاسدة، وتقييد النتائج بعد إعادة الإسناد؛ ترتيب الأحدث/الأقدم مع cursor وصفحات متعددة، رفض Sort/Columns فاسدة وحفظ الأعمدة؛ UI E2E غير مشغّل | جزئي: Search وViews الحالية Implemented وPostgreSQL Verified |
 | Import/Export | 00، 03، 06 | لم ينفذ | لا يوجد | غير منفذ |
 | Google Sheets | 00، 03، 06 | لم ينفذ | لا يوجد | غير منفذ |
 | Email integration | 03، 06 | إعداد SMTP لحسابات المنظمة من الواجهة، تشفير credential، test connection، worker/retries/status؛ Email الإشعارات العامة غير منفذ | Identity Email fake integration ناجح؛ SMTP sandbox/live غير متحقق | جزئي |

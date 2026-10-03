@@ -6,13 +6,15 @@ import { LeadFields, LeadCreationFields } from './LeadFields.js';
 import { FieldWorkspace } from './FieldWorkspace.js';
 import { CampaignWorkspace } from './CampaignWorkspace.js';
 import { FollowupQueue, LeadWorkflow } from './LeadWorkflow.js';
-import { LeadSearch } from './LeadSearch.js';
+import { LeadSearch, defaultLeadColumns, type LeadColumn } from './LeadSearch.js';
 
 type Role = 'SUPER_ADMIN' | 'MANAGER' | 'AGENT';
 type User = { id: string; organizationId: string; branchId: string | null; role: Role; name: string; email: string };
 type Branch = { id: string; name: string; timezone: string; active: boolean };
 type Campaign = { id: string; branch_id: string; name: string; status: string; routing_method?: string; agents?: { agentId: string; name: string }[] };
-type Lead = { id: string; branch_id: string; campaign_id: string; assigned_agent_id: string | null; lifecycle: string; contact_name: string; phone: string | null; email: string | null; needs_attention_reason: string | null; created_at: string; version: number };
+type Lead = { id: string; branch_id: string; campaign_id: string; assigned_agent_id: string | null; lifecycle: string; source_kind: string;
+  contact_name: string; phone: string | null; email: string | null; needs_attention_reason: string | null;
+  created_at: string; next_followup_at: string | null; version: number };
 type ManagedUser = { id: string; branch_id: string | null; role: Role; name: string; email: string; active: boolean; credential_state: 'INVITED'|'READY' };
 type EmailConnection = { configured: boolean; id?: string; name?: string; status?: string; hasCredential?: boolean; settings?: { host: string; port: number; secure: boolean; username: string; fromAddress: string } };
 type DeliveryJob = { id: string; kind: string; status: string; attempts: number; max_attempts: number; last_error_code: string | null; email: string; name: string; created_at: string };
@@ -88,6 +90,7 @@ function App() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [nextLeadCursor, setNextLeadCursor] = useState<string | null>(null);
   const [leadQuery, setLeadQuery] = useState('');
+  const [leadColumns, setLeadColumns] = useState<LeadColumn[]>(defaultLeadColumns);
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [nextUserCursor, setNextUserCursor] = useState<string | null>(null);
   const [detail, setDetail] = useState<{ lead: Lead; activities: { id: number; event_type: string; created_at: string }[] } | null>(null);
@@ -229,6 +232,22 @@ function App() {
 
   const isAdmin = user.role === 'SUPER_ADMIN';
   const canManage = user.role !== 'AGENT';
+  const leadColumnLabels: Record<LeadColumn, string> = { contact: t.contact, campaign: t.campaign,
+    branch: t.branch, lifecycle: t.lifecycle, owner: t.assign, source: t.source,
+    created_at: { ar: 'تاريخ الإنشاء', fr: 'Créé le', en: 'Created' }[locale], followup: t.followups };
+  const leadCell = (lead: Lead, column: LeadColumn) => {
+    switch (column) {
+      case 'contact': return <><strong>{lead.contact_name}</strong><small>{lead.phone || lead.email}</small></>;
+      case 'campaign': return campaigns.find((item) => item.id === lead.campaign_id)?.name || lead.campaign_id;
+      case 'branch': return branches.find((item) => item.id === lead.branch_id)?.name || '—';
+      case 'lifecycle': return <><span className="badge">{lead.lifecycle}</span>{lead.needs_attention_reason && <small className="attention">{t.attention}</small>}</>;
+      case 'owner': return users.find((item) => item.id === lead.assigned_agent_id)?.name ||
+        (lead.assigned_agent_id === user.id ? user.name : lead.assigned_agent_id) || '—';
+      case 'source': return lead.source_kind;
+      case 'created_at': return new Date(lead.created_at).toLocaleString(locale);
+      case 'followup': return lead.next_followup_at ? new Date(lead.next_followup_at).toLocaleString(locale) : '—';
+    }
+  };
   return <div className="app-shell"><aside className="sidebar"><div className="brand">{t.app}</div><div className="user-block"><strong>{user.name}</strong><span>{user.role.replace('_', ' ')}</span></div>
     <nav>{(['leads','contacts','contactReviews','followups','campaigns','fields','branches','users','identityEmail','profile'] as Page[]).filter((item) =>
       item === 'identityEmail' || item === 'contactReviews' ? canManage : canManage || item === 'leads' || item === 'contacts' || item === 'profile' || item === 'followups').map((item) =>
@@ -278,7 +297,7 @@ function App() {
       <LeadFields leadId={selectedLead} locale={locale} api={api} />
     </section> : <>
       {page === 'leads' && <LeadSearch locale={locale} branches={branches} campaigns={campaigns} users={users} currentUser={user}
-        api={api} onSearch={searchLeads} />}
+        api={api} onSearch={searchLeads} columns={leadColumns} onColumns={setLeadColumns} />}
       <div className="toolbar">{canManage && (page !== 'branches' || isAdmin) && <button onClick={() => { setShowForm(!showForm); setForm({}); }}>{page === 'leads' ? t.newLead : page === 'campaigns' ? t.newCampaign : page === 'branches' ? t.newBranch : t.newUser}</button>}</div>
       {showForm && <section className="panel form-panel"><h2>{page === 'leads' ? t.newLead : page === 'campaigns' ? t.newCampaign : page === 'branches' ? t.newBranch : t.newUser}</h2>
         <form onSubmit={(event) => { event.preventDefault(); if (page === 'branches') void submit('/api/branches', { name: form.name, timezone: form.timezone });
@@ -292,11 +311,13 @@ function App() {
              {form.campaignId && <LeadCreationFields campaignId={form.campaignId} locale={locale} api={api} values={leadFieldValues} onChange={setLeadFieldValues} />}</>}
           {page === 'users' && <>{field('name', t.name)}{field('email', t.email, 'email')}{select('role', t.role, (isAdmin ? ['SUPER_ADMIN','MANAGER','AGENT'] : ['AGENT']).map((value) => ({ value, text: value })))}{form.role !== 'SUPER_ADMIN' && select('branchId', t.branch, branchOptions)}</>}
           <button disabled={busy}>{t.save}</button></form></section>}
-      <section className="panel table-panel"><div className="table-scroll"><table><thead><tr>{page === 'leads' ? <><th>{t.contact}</th><th>{t.campaign}</th><th>{t.branch}</th><th>{t.lifecycle}</th><th>{t.assign}</th><th>{t.actions}</th></> :
+      <section className="panel table-panel"><div className="table-scroll"><table><thead><tr>{page === 'leads' ? <>{leadColumns.map((column) =>
+        <th key={column}>{leadColumnLabels[column]}</th>)}<th>{t.actions}</th></> :
         page === 'campaigns' ? <><th>{t.name}</th><th>{t.branch}</th><th>{t.status}</th><th>{t.routing}</th><th>{t.actions}</th></> :
         page === 'branches' ? <><th>{t.name}</th><th>{t.timezone}</th><th>{t.status}</th></> :
         <><th>{t.name}</th><th>{t.email}</th><th>{t.role}</th><th>{t.branch}</th><th>{t.status}</th><th>{t.actions}</th></>}</tr></thead><tbody>
-        {page === 'leads' && leads.map((lead) => <tr key={lead.id}><td><strong>{lead.contact_name}</strong><small>{lead.phone || lead.email}</small></td><td>{campaigns.find((item) => item.id === lead.campaign_id)?.name || lead.campaign_id}</td><td>{branches.find((item) => item.id === lead.branch_id)?.name || '—'}</td><td><span className="badge">{lead.lifecycle}</span>{lead.needs_attention_reason && <small className="attention">{t.attention}</small>}</td><td>{users.find((item) => item.id === lead.assigned_agent_id)?.name || '—'}</td><td><button className="link" onClick={() => setSelectedLead(lead.id)}>{t.details}</button></td></tr>)}
+        {page === 'leads' && leads.map((lead) => <tr key={lead.id}>{leadColumns.map((column) =>
+          <td key={column}>{leadCell(lead, column)}</td>)}<td><button className="link" onClick={() => setSelectedLead(lead.id)}>{t.details}</button></td></tr>)}
         {page === 'campaigns' && campaigns.map((campaign) => <tr key={campaign.id}><td><strong>{campaign.name}</strong></td><td>{branches.find((item) => item.id === campaign.branch_id)?.name || '—'}</td><td><span className="badge">{campaign.status}</span></td><td>{campaign.routing_method}<small>{campaign.agents?.map((agent) => agent.name).join(', ') || '—'}</small></td><td>{canManage && <button className="link" onClick={() => setSelectedCampaign(campaign.id)}>{t.details}</button>}</td></tr>)}
         {page === 'branches' && branches.map((branch) => <tr key={branch.id}><td><strong>{branch.name}</strong></td><td>{branch.timezone}</td><td>{branch.active ? t.active : t.inactive}</td></tr>)}
         {page === 'users' && users.map((item) => <tr key={item.id}><td><strong>{item.name}</strong></td><td>{item.email}</td><td>{item.role}</td><td>{branches.find((branch) => branch.id === item.branch_id)?.name || '—'}</td><td>{item.credential_state === 'INVITED' ? t.invited : item.active ? t.active : t.inactive}</td><td>{item.id !== user.id && (isAdmin || (item.role === 'AGENT' && item.branch_id === user.branchId)) && <div className="actions">

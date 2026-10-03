@@ -182,4 +182,34 @@ test('Lead assignment, notes, and human follow-up preserve history and permissio
   const cancelled = await send('PATCH', `/api/followups/${secondId}`, { version: 2, status: 'CANCELLED' }, managerA);
   assert.equal(cancelled.statusCode, 200, cancelled.body);
   assert.equal((await db`SELECT count(*)::integer AS n FROM audit_log WHERE target_id = ${leadId} AND action = 'LEAD_REASSIGNED'`)[0]!.n, 1);
+  const secondLead = await send('POST', '/api/leads', { branchId: branchA, campaignId: campaign,
+    contact: { name: 'Another Customer', phone: '+15550002222' } }, managerA);
+  assert.equal(secondLead.statusCode, 201, secondLead.body);
+  const secondLeadId = secondLead.json().id as string;
+  await db`UPDATE lead SET created_at = '2026-01-01T00:00:00Z' WHERE id = ${leadId}`;
+  await db`UPDATE lead SET created_at = '2026-02-01T00:00:00Z' WHERE id = ${secondLeadId}`;
+  assert.equal((await send('GET', '/api/leads?sort=NOT_ALLOWED', undefined, managerA)).statusCode, 400);
+  const oldest = await send('GET', '/api/leads?sort=CREATED_ASC&limit=1', undefined, managerA);
+  assert.equal(oldest.statusCode, 200, oldest.body);
+  assert.equal(oldest.json().items[0].id, leadId);
+  assert.ok(oldest.json().nextCursor);
+  assert.equal((await send('GET', `/api/leads?sort=CREATED_ASC&limit=1&cursor=${encodeURIComponent(oldest.json().nextCursor)}`,
+    undefined, managerA)).json().items[0].id, secondLeadId);
+  const newest = await send('GET', '/api/leads?sort=CREATED_DESC&limit=1', undefined, managerA);
+  assert.equal(newest.statusCode, 200, newest.body);
+  assert.equal(newest.json().items[0].id, secondLeadId);
+  assert.equal((await send('GET', `/api/leads?sort=CREATED_DESC&limit=1&cursor=${encodeURIComponent(newest.json().nextCursor)}`,
+    undefined, managerA)).json().items[0].id, leadId);
+  assert.deepEqual((await send('GET', '/api/leads?sort=CREATED_ASC', undefined, managerB)).json().items, []);
+  const sortedView = await send('POST', '/api/lead-views', { name: 'Oldest with columns', scope: 'PERSONAL',
+    filters: { sort: 'CREATED_ASC' }, columns: ['contact','created_at','followup'] }, managerA);
+  assert.equal(sortedView.statusCode, 201, sortedView.body);
+  const storedView = (await send('GET', '/api/lead-views', undefined, managerA)).json().items
+    .find((item: { id: string }) => item.id === sortedView.json().id);
+  assert.equal(storedView.filters.sort, 'CREATED_ASC');
+  assert.deepEqual(storedView.columns, ['contact','created_at','followup']);
+  assert.equal((await send('POST', '/api/lead-views', { name: 'Invalid sort', scope: 'PERSONAL',
+    filters: { sort: 'INVALID' }, columns: ['contact'] }, managerA)).statusCode, 400);
+  assert.equal((await send('POST', '/api/lead-views', { name: 'Invalid columns', scope: 'PERSONAL',
+    filters: {}, columns: ['contact','contact'] }, managerA)).statusCode, 400);
 });

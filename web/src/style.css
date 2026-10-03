@@ -4,3 +4,4 @@ textarea{font:inherit;border:1px solid #bdcfc5;border-radius:8px;padding:.7rem;m
 .campaign-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:1rem;align-items:end;margin:1rem 0}.campaign-form button{align-self:end}.campaign-workspace>button.link{margin-bottom:1rem}
 .workflow-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:1rem;align-items:end;margin:1rem 0}.workflow-form button{align-self:end}.workflow-form textarea{width:100%}.lead-workflow>.panel{box-shadow:none}
 .lead-search-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:.8rem;align-items:end}.lead-search-form button{align-self:end}
+.lead-column-options{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:.5rem 1rem;border:1px solid #dce9df;border-radius:8px}.lead-column-options label{display:flex;align-items:center;gap:.4rem}.lead-column-options input{width:auto}

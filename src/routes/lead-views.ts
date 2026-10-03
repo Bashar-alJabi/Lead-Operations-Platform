@@ -5,7 +5,8 @@ import { HttpError, principalFromRequest, requireBranch, type Principal } from '
 import { validateFieldValue, type FieldOption, type FieldType, type FieldValidation } from '../fields.js';
 
 type Filter = { q?: string; branchId?: string; campaignId?: string; assignedAgentId?: string; lifecycle?: string;
-  sourceKind?: string; from?: string; to?: string; followup?: string; fieldId?: string; fieldValue?: string };
+  sourceKind?: string; from?: string; to?: string; followup?: string; fieldId?: string; fieldValue?: string;
+  sort?: 'CREATED_DESC'|'CREATED_ASC' };
 type ViewInput = { name: string; scope: 'PERSONAL'|'BRANCH'|'ORGANIZATION'; branchId?: string;
   filters: Filter; columns: string[] };
 const idParam = { type: 'object', additionalProperties: false, required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } as const;
@@ -13,6 +14,7 @@ const filterSchema = { type: 'object', additionalProperties: false, properties: 
   q: { type: 'string', maxLength: 200 }, branchId: { type: 'string', format: 'uuid' },
   campaignId: { type: 'string', format: 'uuid' }, assignedAgentId: { type: 'string', format: 'uuid' },
   lifecycle: { enum: ['OPEN','CLOSED','ARCHIVED'] }, sourceKind: { type: 'string', maxLength: 40 },
+  sort: { enum: ['CREATED_DESC','CREATED_ASC'] },
   from: { type: 'string', format: 'date-time' }, to: { type: 'string', format: 'date-time' },
   followup: { enum: ['NONE','OVERDUE','UPCOMING'] }, fieldId: { type: 'string', format: 'uuid' },
   fieldValue: { type: 'string', maxLength: 2000 },
