@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { test } from 'node:test';
 import { buildApp } from '../src/app.js';
 import { createDatabase } from '../src/db.js';
@@ -753,4 +753,170 @@ test('Messaging setup encrypts credentials, scopes connections, and discovers se
     `/api/messaging/connections/${id}/test`, undefined, managerA)));
   assert.ok(flood.some((response) => response.statusCode === 429 && response.json().error === 'RATE_LIMITED'));
   assert.ok(flood.every((response) => response.statusCode !== 500));
+});
+
+test('Meta operational test send requires approved template, scopes access, and records uncertain outcomes without retry', async (t) => {
+  process.env.APP_ORIGIN = 'http://127.0.0.1:5173';
+  process.env.BOOTSTRAP_TOKEN = randomBytes(32).toString('base64url');
+  process.env.CREDENTIAL_ENCRYPTION_KEY = randomBytes(32).toString('hex');
+  const db = createDatabase(url);
+  let calls = 0;
+  let mode: 'ACCEPT'|'UNKNOWN'|'AUTH' = 'ACCEPT';
+  let hold: Promise<void> | null = null;
+  let started: (() => void) | null = null;
+  const sendAdapter: MessagingSendAdapter = {
+    async sendText() { throw new Error('test send must use a template'); },
+    async sendTemplate(input) {
+      calls++;
+      assert.equal(input.credentials.accessToken, 'test-access-token-123456789');
+      assert.equal(input.externalSenderId, '15550001111');
+      assert.equal(input.templateName, 'approved_test');
+      assert.equal(input.templateLanguage, 'en_US');
+      assert.equal(input.recipient, '+15550009999');
+      if (hold) { started?.(); await hold; }
+      if (mode === 'UNKNOWN') throw new ProviderSendError('UNKNOWN', 'PROVIDER_SEND_OUTCOME_UNKNOWN');
+      if (mode === 'AUTH') throw new ProviderSendError('REJECTED', 'PROVIDER_AUTH_FAILED');
+      return { providerMessageId: `wamid.test-${calls}` };
+    },
+  };
+  const app = await buildApp(db, { logger: false, globalRateLimitMax: 1000,
+    messagingAdapter: { async discoverSenders() { return [{ externalId: '15550001111',
+      displayName: 'Test sender', qualityRating: 'GREEN' }]; } }, messagingSendAdapter: sendAdapter });
+  t.after(async () => { await app.close(); await db.end(); });
+  await db.begin(async (tx) => { await tx`SET LOCAL client_min_messages TO warning`;
+    await tx`TRUNCATE background_job CASCADE`; await tx`TRUNCATE organization CASCADE`; });
+  const send = (method: 'GET'|'POST'|'PUT'|'PATCH', path: string, payload?: object, cookie?: string) => app.inject({
+    method, url: path, payload, headers: { origin: process.env.APP_ORIGIN!, ...(cookie ? { cookie } : {}) },
+  });
+  const password = 'Test password 12345!';
+  assert.equal((await send('POST', '/api/setup/bootstrap', { token: process.env.BOOTSTRAP_TOKEN,
+    organizationName: 'Test Send Org', name: 'Owner', email: 'owner@example.test', password })).statusCode, 201);
+  const login = async (email: string) => {
+    const response = await send('POST', '/api/auth/login', { email, password });
+    assert.equal(response.statusCode, 200, response.body);
+    return (response.headers['set-cookie'] as string).split(';')[0]!;
+  };
+  const admin = await login('owner@example.test');
+  const branchA = (await send('POST', '/api/branches', { name: 'A', timezone: 'UTC' }, admin)).json().id as string;
+  const branchB = (await send('POST', '/api/branches', { name: 'B', timezone: 'UTC' }, admin)).json().id as string;
+  const orgId = (await db`SELECT id FROM organization LIMIT 1`)[0]!.id as string;
+  const hash = await passwordHash(password);
+  for (const [email, branchId, role] of [
+    ['manager-a@example.test', branchA, 'MANAGER'], ['manager-b@example.test', branchB, 'MANAGER'],
+    ['agent@example.test', branchA, 'AGENT'],
+  ] as const) await db`INSERT INTO user_account (organization_id, branch_id, role, name, email, password_hash)
+    VALUES (${orgId}, ${branchId}, ${role}, ${email}, ${email}, ${hash})`;
+  const managerA = await login('manager-a@example.test');
+  const managerB = await login('manager-b@example.test');
+  const agent = await login('agent@example.test');
+  const setup = { name: 'Branch WhatsApp', config: { wabaId: '123456789012345', graphVersion: 'v25.0' },
+    credentials: { accessToken: 'test-access-token-123456789', appSecret: 'test-app-secret-123456789',
+      verifyToken: 'test-verify-token-123456789' } };
+  const connection = await send('POST', '/api/messaging/connections', setup, managerA);
+  assert.equal(connection.statusCode, 201, connection.body);
+  const connectionId = connection.json().id as string;
+  const path = `/api/messaging/connections/${connectionId}/test-send`;
+  const listPath = `/api/messaging/connections/${connectionId}/test-sends`;
+  const base = { senderId: randomUUID(), templateId: randomUUID(),
+    recipient: '+15550009999', recipientConfirmed: true, idempotencyKey: 'test-send-key-001' };
+  assert.equal((await send('POST', path, base, managerA)).json().error, 'CONNECTION_DISCOVERY_REQUIRED');
+  assert.equal((await send('POST', `/api/messaging/connections/${connectionId}/test`, undefined, managerA)).statusCode, 200);
+  const senderId = (await db`SELECT id FROM messaging_sender WHERE connection_id = ${connectionId}`)[0]!.id as string;
+  const templateId = (await db`INSERT INTO provider_message_template
+    (connection_id, external_template_id, name, language, status, category, components)
+    VALUES (${connectionId}, '9001', 'approved_test', 'en_US', 'APPROVED', 'UTILITY',
+      ${db.json([{ type: 'BODY', text: 'A test message' }])}) RETURNING id`)[0]!.id as string;
+  const input = { ...base, senderId, templateId };
+  assert.equal((await send('POST', path, input, agent)).statusCode, 403);
+  assert.equal((await send('GET', listPath, undefined, agent)).statusCode, 403);
+  assert.equal((await send('POST', path, input, managerB)).statusCode, 404);
+  assert.equal((await send('GET', listPath, undefined, managerB)).statusCode, 404);
+  assert.equal((await send('POST', path, { ...input, recipientConfirmed: false }, managerA)).statusCode, 400);
+  assert.equal((await send('POST', path, { ...input, recipient: '15550009999' }, managerA)).statusCode, 400);
+  assert.equal((await send('POST', path, { ...input, senderId: randomUUID() }, managerA)).json().error,
+    'TEST_SENDER_UNAVAILABLE');
+  const foreignSender = (await db`INSERT INTO messaging_sender
+    (organization_id, connection_id, external_sender_id, display_name)
+    VALUES (${orgId}, ${connectionId}, '15550002222', 'Disabled') RETURNING id`)[0]!.id as string;
+  await db`UPDATE messaging_sender SET active = false WHERE id = ${foreignSender}`;
+  assert.equal((await send('POST', path, { ...input, senderId: foreignSender }, managerA)).json().error,
+    'TEST_SENDER_UNAVAILABLE');
+  await db`UPDATE provider_message_template SET status = 'PENDING' WHERE id = ${templateId}`;
+  assert.equal((await send('POST', path, input, managerA)).json().error, 'TEMPLATE_NOT_APPROVED');
+  await db`UPDATE provider_message_template SET status = 'APPROVED',
+    components = ${db.json([{ type: 'BODY', text: 'Hello {{1}}' }])} WHERE id = ${templateId}`;
+  assert.equal((await send('POST', path, input, managerA)).json().error, 'TEMPLATE_FORMAT_UNSUPPORTED');
+  await db`UPDATE provider_message_template SET components = ${db.json([{ type: 'BODY', text: 'A test message' }])}
+    WHERE id = ${templateId}`;
+  const accepted = await send('POST', path, input, managerA);
+  assert.equal(accepted.statusCode, 200, accepted.body);
+  assert.equal(accepted.json().state, 'SUCCEEDED');
+  assert.equal(accepted.json().outboundReady, true);
+  assert.equal(calls, 1);
+  assert.equal((await send('POST', path, input, managerA)).json().replayed, true);
+  assert.equal(calls, 1);
+  assert.equal((await send('POST', path, { ...input, recipient: '+15550008888' }, managerA)).json().error,
+    'IDEMPOTENCY_KEY_REUSED');
+  const readiness = (await db`SELECT status, capabilities, last_error_code FROM integration_connection
+    WHERE id = ${connectionId}`)[0]!;
+  assert.equal(readiness.status, 'CONNECTED');
+  assert.equal(readiness.capabilities.outboundAccepted, true);
+  assert.equal(readiness.capabilities.webhookVerified, false);
+  assert.equal((await db`SELECT health FROM messaging_sender WHERE id = ${senderId}`)[0]!.health, 'DEGRADED');
+  const history = await send('GET', listPath, undefined, managerA);
+  assert.equal(history.statusCode, 200, history.body);
+  assert.equal(history.json().items[0].recipient_last4, '9999');
+  assert.equal(history.body.includes('+15550009999'), false);
+  assert.equal(history.body.includes(setup.credentials.accessToken), false);
+  mode = 'UNKNOWN';
+  const uncertain = await send('POST', path, { ...input, idempotencyKey: 'test-send-key-002' }, managerA);
+  assert.equal(uncertain.statusCode, 202, uncertain.body);
+  assert.equal(uncertain.json().state, 'UNKNOWN');
+  assert.equal((await send('POST', path, { ...input, idempotencyKey: 'test-send-key-002' }, managerA)).json().error,
+    'TEST_SEND_OUTCOME_UNKNOWN');
+  assert.equal(calls, 2);
+  const staleId = (await db`INSERT INTO messaging_connection_test_send (connection_id, connection_version,
+    sender_id, template_id, idempotency_key, request_hash, recipient_last4, state, created_by, created_at)
+    SELECT connection_id, connection_version, sender_id, template_id, 'stale-test-send', request_hash,
+      recipient_last4, 'IN_PROGRESS', created_by, now() - interval '3 minutes'
+      FROM messaging_connection_test_send WHERE id = ${accepted.json().id} RETURNING id`)[0]!.id as string;
+  assert.equal((await send('POST', path, { ...input, idempotencyKey: 'stale-test-send' }, managerA)).json().error,
+    'TEST_SEND_OUTCOME_UNKNOWN');
+  assert.equal((await db`SELECT state FROM messaging_connection_test_send WHERE id = ${staleId}`)[0]!.state, 'UNKNOWN');
+  mode = 'AUTH';
+  const auth = await send('POST', path, { ...input, idempotencyKey: 'test-send-key-003' }, managerA);
+  assert.equal(auth.statusCode, 200, auth.body);
+  assert.equal(auth.json().state, 'REJECTED');
+  assert.equal((await db`SELECT status FROM integration_connection WHERE id = ${connectionId}`)[0]!.status,
+    'AUTH_EXPIRED');
+  assert.equal((await send('POST', path, { ...input, idempotencyKey: 'test-send-key-004' }, managerA)).json().error,
+    'CONNECTION_DISCOVERY_REQUIRED');
+  assert.ok((await db`SELECT 1 FROM audit_log WHERE action = 'MESSAGING_TEST_SEND_ACCEPTED'
+    AND target_id = ${connectionId}`).length);
+  assert.ok((await db`SELECT 1 FROM audit_log WHERE action = 'MESSAGING_TEST_SEND_UNKNOWN'
+    AND target_id = ${connectionId}`).length);
+  assert.ok((await db`SELECT 1 FROM audit_log WHERE action = 'MESSAGING_TEST_SEND_REJECTED'
+    AND target_id = ${connectionId}`).length);
+  mode = 'ACCEPT';
+  assert.equal((await send('POST', `/api/messaging/connections/${connectionId}/test`, undefined, managerA)).statusCode, 200);
+  let release!: () => void;
+  let begin!: () => void;
+  hold = new Promise<void>((resolve) => { release = resolve; });
+  const began = new Promise<void>((resolve) => { begin = resolve; });
+  started = begin;
+  const raceInput = { ...input, idempotencyKey: 'test-send-key-race' };
+  const running = send('POST', path, raceInput, managerA);
+  await began;
+  assert.equal((await send('POST', path, raceInput, managerA)).json().error, 'TEST_SEND_IN_PROGRESS');
+  const update = await send('PUT', `/api/messaging/connections/${connectionId}`,
+    { name: 'Rotated', config: setup.config, version: 1 }, managerA);
+  assert.equal(update.statusCode, 200, update.body);
+  release();
+  const afterRotation = await running;
+  assert.equal(afterRotation.statusCode, 200, afterRotation.body);
+  assert.equal(afterRotation.json().state, 'SUCCEEDED');
+  assert.equal(afterRotation.json().outboundReady, false);
+  assert.equal((await db`SELECT status FROM integration_connection WHERE id = ${connectionId}`)[0]!.status,
+    'NOT_CONFIGURED');
+  assert.equal(calls, 4);
 });

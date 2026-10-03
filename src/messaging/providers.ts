@@ -36,6 +36,8 @@ async function sendMetaMessage(input: Omit<SendTextInput, 'body'>, content: obje
       const retryAfter = Number.isFinite(parsed) && parsed >= 1 && parsed <= 3600 ? parsed : 30;
       throw new ProviderSendError('RETRYABLE', 'PROVIDER_RATE_LIMITED', retryAfter);
     }
+    if (response.status === 401 || response.status === 403)
+      throw new ProviderSendError('REJECTED', 'PROVIDER_AUTH_FAILED');
     if (response.status >= 500) throw new ProviderSendError('UNKNOWN', 'PROVIDER_SEND_OUTCOME_UNKNOWN');
     if (!response.ok) throw new ProviderSendError('REJECTED', 'PROVIDER_SEND_REJECTED');
     let payload: unknown;

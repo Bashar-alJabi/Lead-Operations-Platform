@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { TemplateSetup } from './TemplateSetup';
+import { MessagingTestSend } from './MessagingTestSend';
 
 type Api = <T>(path: string, options?: RequestInit) => Promise<T>;
 type Locale = 'ar'|'fr'|'en';
@@ -185,6 +186,12 @@ export function MessagingSetup({ locale, role, branchId, branches, api }: {
       {senderAfter && <button className="secondary" onClick={() => void moreSenders().catch((failure) => setError(String(failure)))}>{t.more}</button>}
       {(role === 'SUPER_ADMIN' || selected.branch_id === branchId) &&
         <TemplateSetup connectionId={selected.id} status={selected.status} canManage locale={locale} api={api} />}
+      {(role === 'SUPER_ADMIN' || selected.branch_id === branchId) &&
+        <MessagingTestSend connectionId={selected.id} status={selected.status} senders={senders}
+          locale={locale} api={api} onChanged={async () => {
+            const page = await load(); const current = page.items.find((item) => item.id === selected.id);
+            if (current) await choose(current);
+          }} />}
     </div>}
     {setupBranchId && <section className="panel"><h3>{t.defaultSender}</h3>
       {role === 'SUPER_ADMIN' && <label>{t.branch}<select value={setupBranchId} disabled={busy} onChange={(event) => setSetupBranchId(event.target.value)}>

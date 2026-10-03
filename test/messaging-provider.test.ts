@@ -23,6 +23,9 @@ test('Meta text adapter sends the documented shape and classifies unambiguous an
     globalThis.fetch = async () => new Response('{}', { status: 429, headers: { 'Retry-After': '15' } });
     await assert.rejects(metaWhatsAppSendAdapter.sendText(input), (error) =>
       error instanceof ProviderSendError && error.kind === 'RETRYABLE' && error.retryAfterSeconds === 15);
+    globalThis.fetch = async () => new Response('{}', { status: 401 });
+    await assert.rejects(metaWhatsAppSendAdapter.sendText(input), (error) =>
+      error instanceof ProviderSendError && error.kind === 'REJECTED' && error.code === 'PROVIDER_AUTH_FAILED');
     globalThis.fetch = async () => new Response('{}', { status: 500 });
     await assert.rejects(metaWhatsAppSendAdapter.sendText(input), (error) =>
       error instanceof ProviderSendError && error.kind === 'UNKNOWN');
