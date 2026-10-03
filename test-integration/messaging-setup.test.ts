@@ -616,6 +616,8 @@ test('Messaging setup encrypts credentials, scopes connections, and discovers se
     .needs_attention_reason, 'PINNED_SENDER_DISABLED');
   await db`UPDATE messaging_sender SET operator_enabled = true WHERE id = ${sharedSender}`;
   assert.equal((await send('POST', `/api/leads/${leadId}/conversations`, undefined, managerA)).statusCode, 200);
+  assert.equal((await db`SELECT needs_attention_reason FROM conversation WHERE id = ${conversationId}`)[0]!
+    .needs_attention_reason, null);
   const hour = (new Date().getUTCHours() + 2) % 24;
   const blockedWindow = { start: `${String(hour).padStart(2, '0')}:00`,
     end: `${String((hour + 1) % 24).padStart(2, '0')}:00` };
@@ -684,6 +686,33 @@ test('Messaging setup encrypts credentials, scopes connections, and discovers se
     AND target_id = ${unknownMessage.json().id}`).length);
   assert.equal((await db`SELECT needs_attention_reason FROM conversation WHERE id = ${conversationId}`)[0]!
     .needs_attention_reason, 'SEND_OUTCOME_UNKNOWN');
+  assert.equal((await send('POST', `/api/leads/${leadId}/conversations`, undefined, managerA)).statusCode, 200);
+  assert.equal((await db`SELECT needs_attention_reason FROM conversation WHERE id = ${conversationId}`)[0]!
+    .needs_attention_reason, 'SEND_OUTCOME_UNKNOWN');
+  const attentionPath = `/api/conversations/${conversationId}/attention/acknowledge`;
+  const attentionHistoryPath = `/api/conversations/${conversationId}/attention-reviews`;
+  const attentionVersion = (await send('GET', `/api/conversations/${conversationId}`, undefined, managerA))
+    .json().conversation.version as number;
+  const review = { version: attentionVersion, expectedReason: 'SEND_OUTCOME_UNKNOWN',
+    reviewNote: 'Provider console checked; outcome recorded for manual follow-up.', reviewConfirmed: true };
+  assert.equal((await send('GET', attentionHistoryPath, undefined, agent)).statusCode, 403);
+  assert.equal((await send('GET', attentionHistoryPath, undefined, managerB)).statusCode, 404);
+  assert.equal((await send('POST', attentionPath, review, agent)).statusCode, 403);
+  assert.equal((await send('POST', attentionPath, review, managerB)).statusCode, 404);
+  assert.equal((await send('POST', attentionPath, { ...review, reviewConfirmed: false }, managerA)).statusCode, 400);
+  assert.equal((await send('POST', attentionPath, { ...review, reviewNote: '  ' }, managerA)).statusCode, 400);
+  assert.equal((await send('POST', attentionPath, { ...review,
+    expectedReason: 'DELIVERY_FAILED' }, managerA)).json().error, 'ATTENTION_REASON_CHANGED');
+  const concurrentReviews = await Promise.all([send('POST', attentionPath, review, managerA),
+    send('POST', attentionPath, review, managerA)]);
+  assert.deepEqual(concurrentReviews.map((result) => result.statusCode).sort(), [200,409]);
+  assert.equal((await db`SELECT needs_attention_reason FROM conversation WHERE id = ${conversationId}`)[0]!
+    .needs_attention_reason, null);
+  assert.equal((await db`SELECT delivery_state FROM conversation_message WHERE id = ${unknownMessage.json().id}`)[0]!
+    .delivery_state, 'UNKNOWN');
+  assert.equal((await send('GET', attentionHistoryPath, undefined, managerA)).json().items.length, 1);
+  assert.equal((await db`SELECT count(*)::integer AS n FROM audit_log WHERE action = 'CONVERSATION_ATTENTION_REVIEWED'
+    AND target_id = ${conversationId}`)[0]!.n, 1);
   assert.equal(providerCalls, 3);
   const crashJob = (await db`SELECT job_id FROM outbound_delivery_job WHERE message_id = ${crashMessage.json().id}`)[0]!.job_id;
   await db`UPDATE background_job SET status = 'RUNNING', attempts = 1,
@@ -823,7 +852,18 @@ test('Messaging setup encrypts credentials, scopes connections, and discovers se
   assert.equal(dynamicCalls, 1);
   assert.equal((await db`SELECT last_error_code FROM conversation_message WHERE id = ${changedDynamic.json().id}`)[0]!
     .last_error_code, 'TEMPLATE_CHANGED');
-  await db`UPDATE conversation SET needs_attention_reason = NULL WHERE id = ${secondConversationId}`;
+  const acknowledgeTemplateChange = async () => {
+    const version = (await send('GET', `/api/conversations/${secondConversationId}`, undefined, managerA))
+      .json().conversation.version as number;
+    const reviewed = await send('POST', `/api/conversations/${secondConversationId}/attention/acknowledge`,
+      { version, expectedReason: 'TEMPLATE_CHANGED',
+        reviewNote: 'Reviewed changed provider template before another send.', reviewConfirmed: true }, managerA);
+    assert.equal(reviewed.statusCode, 200, reviewed.body);
+  };
+  assert.equal((await send('POST', `/api/leads/${secondLeadId}/conversations`, undefined, managerA)).statusCode, 200);
+  assert.equal((await db`SELECT needs_attention_reason FROM conversation WHERE id = ${secondConversationId}`)[0]!
+    .needs_attention_reason, 'TEMPLATE_CHANGED');
+  await acknowledgeTemplateChange();
   assert.equal((await send('PUT', bindingPath, { version: 1, bound: false }, admin)).statusCode, 200);
   assert.equal((await send('POST', templateMessagePath,
     { templateId: orgTemplateId, idempotencyKey: 'template-unbound' }, agent)).json().error,
@@ -844,7 +884,7 @@ test('Messaging setup encrypts credentials, scopes connections, and discovers se
     AND target_id = ${campaignId}`).length);
   await db`UPDATE provider_message_template SET components = ${db.json([{ type: 'BODY', text: 'Approved notice' }])}
     WHERE id = ${orgTemplateId}`;
-  await db`UPDATE conversation SET needs_attention_reason = NULL WHERE id = ${secondConversationId}`;
+  await acknowledgeTemplateChange();
   const authQueued = await send('POST', templateMessagePath,
     { templateId: orgTemplateId, idempotencyKey: 'template-auth-fail-001' }, agent);
   const authPending = await send('POST', templateMessagePath,

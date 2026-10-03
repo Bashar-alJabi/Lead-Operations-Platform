@@ -1,11 +1,16 @@
 import type { FastifyInstance } from 'fastify';
 import type { Database } from '../db.js';
-import { HttpError, principalFromRequest, requireLead } from '../security.js';
+import { HttpError, principalFromRequest, requireLead, requireRole } from '../security.js';
 import { resolveConfiguredSender } from '../messaging/sender-resolution.js';
 import { decodeCursor, encodeCursor } from '../pagination.js';
 
 const idParam = { type: 'object', additionalProperties: false, required: ['id'],
   properties: { id: { type: 'string', format: 'uuid' } } } as const;
+
+function recheckableAttention(reason: string | null): boolean {
+  return Boolean(reason?.startsWith('PINNED_') || reason === 'PARTICIPANT_CHANGED'
+    || reason === 'CONNECTION_SENDER_MISMATCH');
+}
 
 export function registerConversationRoutes(app: FastifyInstance, db: Database): void {
   app.post<{ Params: { id: string } }>('/api/leads/:id/conversations', {
@@ -32,6 +37,9 @@ export function registerConversationRoutes(app: FastifyInstance, db: Database): 
         return { blocked: 'AMBIGUOUS_ACTIVE_CONVERSATIONS' } as const;
       }
       const current = prior[0];
+      if (current?.needs_attention_reason && !recheckableAttention(current.needs_attention_reason))
+        return { id: current.id, senderId: current.sender_id, connectionId: current.connection_id,
+          state: current.state, existing: true } as const;
       if (current && current.participant_ref !== lead.phone_normalized) {
         await tx`UPDATE conversation SET needs_attention_reason = 'PARTICIPANT_CHANGED' WHERE id = ${current.id}`;
         return { blocked: 'PARTICIPANT_CHANGED' } as const;
@@ -47,7 +55,8 @@ export function registerConversationRoutes(app: FastifyInstance, db: Database): 
         return { blocked: 'CONNECTION_SENDER_MISMATCH' } as const;
       }
       if (current) {
-        if (current.needs_attention_reason) await tx`UPDATE conversation SET needs_attention_reason = NULL WHERE id = ${current.id}`;
+        if (recheckableAttention(current.needs_attention_reason))
+          await tx`UPDATE conversation SET needs_attention_reason = NULL WHERE id = ${current.id}`;
         return { id: current.id, senderId: current.sender_id, connectionId: current.connection_id,
           state: current.state, existing: true } as const;
       }
@@ -108,6 +117,71 @@ export function registerConversationRoutes(app: FastifyInstance, db: Database): 
     if (!conversation) throw new HttpError(404, 'CONVERSATION_NOT_FOUND');
     return { conversation };
   });
+
+  app.get<{ Params: { id: string }; Querystring: { limit?: number; before?: string } }>(
+    '/api/conversations/:id/attention-reviews', { schema: { params: idParam,
+      querystring: { type: 'object', additionalProperties: false, properties: {
+        limit: { type: 'integer', minimum: 1, maximum: 100 },
+        before: { type: 'string', pattern: '^[1-9][0-9]{0,18}$' },
+      } } } }, async (request) => {
+      const actor = await principalFromRequest(request, db);
+      requireRole(actor, 'SUPER_ADMIN', 'MANAGER');
+      const authorized = await db`SELECT 1 FROM conversation cv JOIN lead l ON l.id = cv.lead_id
+        WHERE cv.id = ${request.params.id} AND l.organization_id = ${actor.organizationId}
+          AND (${actor.role === 'SUPER_ADMIN'} OR l.branch_id = ${actor.branchId})`;
+      if (!authorized.length) throw new HttpError(404, 'CONVERSATION_NOT_FOUND');
+      const limit = request.query.limit ?? 30;
+      const rows = await db`SELECT r.id, r.previous_reason, r.review_note,
+          r.reviewed_by, u.name AS reviewer_name, r.created_at
+        FROM conversation_attention_review r JOIN user_account u ON u.id = r.reviewed_by
+        WHERE r.conversation_id = ${request.params.id}
+          AND (${request.query.before ?? null}::bigint IS NULL OR r.id < ${request.query.before ?? null}::bigint)
+        ORDER BY r.id DESC LIMIT ${limit + 1}`;
+      const items = rows.slice(0, limit);
+      return { items, nextBefore: rows.length > limit ? items.at(-1)!.id : null };
+    });
+
+  app.post<{ Params: { id: string }; Body: { version: number; expectedReason: string;
+    reviewNote: string; reviewConfirmed: true } }>(
+    '/api/conversations/:id/attention/acknowledge', { schema: { params: idParam,
+      body: { type: 'object', additionalProperties: false,
+        required: ['version','expectedReason','reviewNote','reviewConfirmed'], properties: {
+          version: { type: 'integer', minimum: 1 },
+          expectedReason: { type: 'string', enum: ['SEND_OUTCOME_UNKNOWN','DELIVERY_FAILED','TEMPLATE_CHANGED'] },
+          reviewNote: { type: 'string', minLength: 10, maxLength: 2000 },
+          reviewConfirmed: { type: 'boolean', const: true },
+        } },
+    } }, async (request) => {
+      const actor = await principalFromRequest(request, db);
+      requireRole(actor, 'SUPER_ADMIN', 'MANAGER');
+      if (request.body.reviewNote.trim().length < 10) throw new HttpError(400, 'REVIEW_NOTE_REQUIRED');
+      return db.begin(async (tx) => {
+        const lead = (await tx`SELECT l.id, l.branch_id FROM conversation cv
+          JOIN lead l ON l.id = cv.lead_id WHERE cv.id = ${request.params.id}
+            AND l.organization_id = ${actor.organizationId}
+            AND (${actor.role === 'SUPER_ADMIN'} OR l.branch_id = ${actor.branchId})
+          FOR UPDATE OF l`)[0];
+        if (!lead) throw new HttpError(404, 'CONVERSATION_NOT_FOUND');
+        const current = (await tx`SELECT version, state, needs_attention_reason FROM conversation
+          WHERE id = ${request.params.id} FOR UPDATE`)[0]!;
+        if (current.version !== request.body.version) throw new HttpError(409, 'CONVERSATION_VERSION_CONFLICT');
+        if (current.state === 'CLOSED') throw new HttpError(409, 'CONVERSATION_CLOSED');
+        if (current.needs_attention_reason !== request.body.expectedReason)
+          throw new HttpError(409, 'ATTENTION_REASON_CHANGED');
+        const reviewed = (await tx`INSERT INTO conversation_attention_review
+          (conversation_id, previous_reason, review_note, reviewed_by)
+          VALUES (${request.params.id}, ${request.body.expectedReason},
+            ${request.body.reviewNote.trim()}, ${actor.id}) RETURNING id`)[0]!;
+        const changed = (await tx`UPDATE conversation SET needs_attention_reason = NULL,
+          version = version + 1 WHERE id = ${request.params.id} RETURNING version`)[0]!;
+        await tx`INSERT INTO audit_log (organization_id, branch_id, actor_user_id, action,
+          target_type, target_id, detail) VALUES (${actor.organizationId}, ${lead.branch_id},
+            ${actor.id}, 'CONVERSATION_ATTENTION_REVIEWED', 'CONVERSATION', ${request.params.id},
+            ${tx.json({ reviewId: reviewed.id, previousReason: request.body.expectedReason })})`;
+        return { version: changed.version, reviewId: reviewed.id,
+          acknowledgedReason: request.body.expectedReason };
+      });
+    });
 
   app.post<{ Params: { id: string }; Body: { version: number; reason: string } }>(
     '/api/conversations/:id/takeover', { schema: { params: idParam, body: {

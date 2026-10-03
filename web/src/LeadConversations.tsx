@@ -10,6 +10,8 @@ type Consent = { status: 'GRANTED'|'REVOKED'|'UNKNOWN'; do_not_contact: boolean;
 type Message = { id: string; direction: 'INBOUND'|'OUTBOUND'; author_type: string; body: string;
   message_kind: 'TEXT'|'TEMPLATE'; delivery_state: string; last_error_code: string | null; created_at: string };
 type AvailableTemplate = { id: string; name: string; language: string; body: string; parameterCount: number };
+type AttentionReview = { id: string; previous_reason: string; review_note: string;
+  reviewer_name: string; created_at: string };
 const labels = {
   ar: { title: 'محادثات العميل', open: 'فتح محادثة WhatsApp', explain: 'فتح المحادثة يثبت رقم الإرسال ولا يرسل رسالة للعميل.',
     empty: 'لا توجد محادثات.', sender: 'الرقم المثبت', controller: 'المتحكم', state: 'الحالة', attention: 'تحتاج مراجعة', more: 'المزيد',
@@ -42,8 +44,8 @@ const labels = {
     mode: 'Message type', textMode: 'Freeform text in reply window', templateMode: 'Approved template', template: 'Template', noTemplates: 'No approved templates allowed for this campaign.', templateNote: 'Template approval and sending policy are checked again before contacting the provider.', takeover: 'Take over conversation', takeoverReason: 'Takeover reason' },
 } as const;
 
-export function LeadConversations({ leadId, lifecycle, locale, api }: { leadId: string; lifecycle: string;
-  locale: Locale; api: Api }) {
+export function LeadConversations({ leadId, lifecycle, role, locale, api }: { leadId: string; lifecycle: string;
+  role: 'SUPER_ADMIN'|'MANAGER'|'AGENT'; locale: Locale; api: Api }) {
   const t = labels[locale];
   const [items, setItems] = useState<Conversation[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -67,6 +69,10 @@ export function LeadConversations({ leadId, lifecycle, locale, api }: { leadId: 
   const [sendKey, setSendKey] = useState(() => crypto.randomUUID());
   const [submitted, setSubmitted] = useState(false);
   const [takeoverReason, setTakeoverReason] = useState('');
+  const [reviewNote, setReviewNote] = useState('');
+  const [reviewConfirmed, setReviewConfirmed] = useState(false);
+  const [attentionReviews, setAttentionReviews] = useState<AttentionReview[]>([]);
+  const [reviewBefore, setReviewBefore] = useState<string | null>(null);
   async function load(next?: string) {
     const page = await api<{ items: Conversation[]; nextCursor: string | null }>(
       `/api/leads/${leadId}/conversations${next ? '?cursor=' + encodeURIComponent(next) : ''}`);
@@ -81,6 +87,7 @@ export function LeadConversations({ leadId, lifecycle, locale, api }: { leadId: 
   useEffect(() => {
     setItems([]); setConsent(null); setCursor(null); setError('');
     selectedRef.current = null; setSelectedId(null); setMessages([]); setMessageCursor(null);
+    setAttentionReviews([]); setReviewBefore(null);
     void load().catch((failure) => setError(String(failure)));
     void loadConsent().catch((failure) => setError(String(failure)));
   }, [leadId]);
@@ -101,8 +108,17 @@ export function LeadConversations({ leadId, lifecycle, locale, api }: { leadId: 
     selectedRef.current = id; setSelectedId(id); setMessages([]); setMessageCursor(null);
     setDraft(''); setSendMode('TEXT'); setTemplates([]); setTemplateAfter(null); setTemplateId('');
     setTemplateParameters([]);
+    setAttentionReviews([]); setReviewBefore(null); setReviewNote(''); setReviewConfirmed(false);
     setSendKey(crypto.randomUUID()); setSubmitted(false); setError('');
-    await Promise.all([loadMessages(id), loadTemplates(id)]);
+    await Promise.all([loadMessages(id), loadTemplates(id),
+      role === 'AGENT' ? Promise.resolve() : loadAttentionReviews(id)]);
+  }
+  async function loadAttentionReviews(id: string, before?: string) {
+    const page = await api<{ items: AttentionReview[]; nextBefore: string | null }>(
+      `/api/conversations/${id}/attention-reviews${before ? '?before=' + encodeURIComponent(before) : ''}`);
+    if (selectedRef.current !== id) return;
+    setAttentionReviews((current) => before ? [...current, ...page.items] : page.items);
+    setReviewBefore(page.nextBefore);
   }
   async function loadTemplates(id: string, next?: string) {
     const page = await api<{ items: AvailableTemplate[]; nextAfter: string | null }>(
@@ -126,6 +142,20 @@ export function LeadConversations({ leadId, lifecycle, locale, api }: { leadId: 
     } catch (failure) { setError(String(failure)); } finally { setBusy(false); }
   }
   const selected = items.find((item) => item.id === selectedId);
+  const reviewable = selected && ['SEND_OUTCOME_UNKNOWN','DELIVERY_FAILED','TEMPLATE_CHANGED']
+    .includes(selected.needs_attention_reason ?? '') && role !== 'AGENT';
+  async function acknowledgeAttention() {
+    if (!selected || !reviewable || !reviewConfirmed || reviewNote.trim().length < 10) return;
+    setBusy(true); setError('');
+    try {
+      await api(`/api/conversations/${selected.id}/attention/acknowledge`, { method: 'POST',
+        body: JSON.stringify({ version: selected.version,
+          expectedReason: selected.needs_attention_reason, reviewNote: reviewNote.trim(), reviewConfirmed: true }),
+      });
+      setReviewNote(''); setReviewConfirmed(false);
+      await Promise.all([load(), loadAttentionReviews(selected.id)]);
+    } catch (failure) { setError(String(failure)); } finally { setBusy(false); }
+  }
   async function takeover() {
     if (!selected || !takeoverReason.trim()) return;
     setBusy(true); setError('');
@@ -157,6 +187,25 @@ export function LeadConversations({ leadId, lifecycle, locale, api }: { leadId: 
           onClick={() => void chooseConversation(item.id).catch((failure) => setError(String(failure)))}>{t.showMessages}</button></td></tr>)}</tbody></table></div>
     {cursor && <button className="secondary" onClick={() => void load(cursor).catch((failure) => setError(String(failure)))}>{t.more}</button>}
     {selectedId && <div className="panel"><h4>{t.messages}</h4>
+      {reviewable && <div className="panel"><h5>{locale === 'ar' ? 'مراجعة سبب المنع' : locale === 'fr' ? 'Examen du blocage' : 'Review attention'}</h5>
+        <p>{selected.needs_attention_reason} · {locale === 'ar' ? 'تحقق من حالة الرسالة لدى المزود قبل الإقرار. لا يعيد هذا الإجراء إرسالها ولا يغير سجل التسليم.' :
+          locale === 'fr' ? 'Vérifiez le résultat chez le fournisseur. Cette action ne renvoie pas le message et ne change pas son historique.' :
+            'Check the provider outcome first. This action neither resends the message nor changes its delivery record.'}</p>
+        <label>{locale === 'ar' ? 'ملاحظة المراجعة' : locale === 'fr' ? 'Note de vérification' : 'Review note'}
+          <textarea value={reviewNote} minLength={10} maxLength={2000} disabled={busy}
+            onChange={(event) => setReviewNote(event.target.value)} /></label>
+        <label className="check-row"><input type="checkbox" checked={reviewConfirmed} disabled={busy}
+          onChange={(event) => setReviewConfirmed(event.target.checked)} />
+          {locale === 'ar' ? 'راجعت النتيجة وأقر بإزالة سبب المنع' : locale === 'fr' ? 'J’ai vérifié le résultat' : 'I reviewed the outcome'}</label>
+        <button disabled={busy || !reviewConfirmed || reviewNote.trim().length < 10}
+          onClick={() => void acknowledgeAttention()}>{locale === 'ar' ? 'حفظ المراجعة' : locale === 'fr' ? 'Enregistrer' : 'Record review'}</button>
+      </div>}
+      {role !== 'AGENT' && attentionReviews.length > 0 && <div className="panel"><h5>{locale === 'ar' ? 'سجل المراجعات' : locale === 'fr' ? 'Historique des examens' : 'Review history'}</h5>
+        <ul>{attentionReviews.map((review) => <li key={review.id}>{review.previous_reason} · {review.reviewer_name} · {new Date(review.created_at).toLocaleString(locale)}
+          <p>{review.review_note}</p></li>)}</ul>
+        {reviewBefore && <button className="secondary" disabled={busy}
+          onClick={() => void loadAttentionReviews(selectedId, reviewBefore).catch((failure) => setError(String(failure)))}>{t.more}</button>}
+      </div>}
       {selected?.state !== 'CLOSED' && <div className="actions"><label>{t.takeoverReason}
         <input value={takeoverReason} minLength={3} maxLength={500} onChange={(event) => setTakeoverReason(event.target.value)} />
       </label><button className="secondary" disabled={busy || takeoverReason.trim().length < 3}

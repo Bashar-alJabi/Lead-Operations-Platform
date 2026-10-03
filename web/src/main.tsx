@@ -322,7 +322,8 @@ function App() {
       <LeadWorkflow lead={detail.lead} role={user.role} locale={locale} api={api}
         onChanged={async () => { const current = await api<typeof detail>(`/api/leads/${selectedLead}`); setDetail(current); }} />
       <LeadFields leadId={selectedLead} locale={locale} api={api} />
-      <LeadConversations key={selectedLead} leadId={selectedLead} lifecycle={detail.lead.lifecycle} locale={locale} api={api} />
+      <LeadConversations key={selectedLead} leadId={selectedLead} lifecycle={detail.lead.lifecycle}
+        role={user.role} locale={locale} api={api} />
     </section> : <>
       {page === 'leads' && <LeadSearch locale={locale} branches={branches} campaigns={campaigns} users={users} currentUser={user}
         api={api} onSearch={searchLeads} columns={leadColumns} onColumns={setLeadColumns} />}
