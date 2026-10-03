@@ -12,9 +12,12 @@ import { registerContactRoutes } from './routes/contacts.js';
 import { registerFieldRoutes } from './routes/fields.js';
 import { registerLeadWorkflowRoutes } from './routes/lead-workflow.js';
 import { registerLeadViewRoutes } from './routes/lead-views.js';
+import { registerMessagingSetupRoutes } from './routes/messaging-setup.js';
 import { smtpEmailAdapter, type IdentityEmailAdapter } from './identity-email.js';
+import type { MessagingProviderAdapter } from './messaging/providers.js';
 
-export async function buildApp(db: Database, options: { logger?: boolean; emailAdapter?: IdentityEmailAdapter } = {}): Promise<FastifyInstance> {
+export async function buildApp(db: Database, options: { logger?: boolean; emailAdapter?: IdentityEmailAdapter;
+  messagingAdapter?: MessagingProviderAdapter } = {}): Promise<FastifyInstance> {
   const app = Fastify({ logger: options.logger === false ? false : { redact: ['req.headers.cookie', 'req.headers.authorization', 'req.body.password', 'req.body.token'] }, bodyLimit: 1024 * 1024,
     ajv: { customOptions: { removeAdditional: false } },
   });
@@ -32,6 +35,10 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof HttpError) {
       reply.code(error.statusCode).send({ error: error.code, message: error.message });
+      return;
+    }
+    if (error instanceof Error && 'statusCode' in error && error.statusCode === 429) {
+      reply.code(429).send({ error: 'RATE_LIMITED' });
       return;
     }
     if (error instanceof Error && ('validation' in error || ('statusCode' in error && error.statusCode === 400))) {
@@ -53,6 +60,7 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   registerFieldRoutes(app, db);
   registerLeadWorkflowRoutes(app, db);
   registerLeadViewRoutes(app, db);
+  registerMessagingSetupRoutes(app, db, options.messagingAdapter);
   registerIdentityEmailRoutes(app, db, options.emailAdapter ?? smtpEmailAdapter);
   return app;
 }

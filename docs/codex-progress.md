@@ -1,6 +1,16 @@
 # تقدم التنفيذ
 
-## آخر نقطة تحقق: Bulk assignment محدود العدد
+## آخر حالة مستقرة: Messaging Connection setup واكتشاف Senders
+
+أضيفت migration `014_messaging_setup.sql` وAPI وواجهة متعددة اللغات لإدارة اتصال Meta WhatsApp Cloud ضمن Organization أو Branch، مع تشفير credential وعدم إعادتها للواجهة، تدويرها، فحص نسخة الإعداد، تعطيل/إعادة تهيئة، واكتشاف الأرقام عبر Provider adapter. نتيجة اكتشاف الأرقام تبقى `WARNING` مع `SEND_NOT_TESTED`؛ لا تدّعي نجاح الإرسال أو Webhook. أرقام Organization المشتركة لا تظهر لManager إلا عند وجود binding لفرعه، ولا تظهر له أرقام أخرى في الاتصال نفسه. عملية إعادة الاكتشاف توقف الأرقام الغائبة، وتعديل الاتصال يوقف أرقامه إلى حين إعادة الاكتشاف. أحداث الإنشاء والتعديل والفحص والفشل والتعطيل محفوظة في Audit. لا يوجد Live Provider verification.
+
+نقطة التحقق: migrations `001`–`014` اجتازت على قاعدتي التطوير والاختبار؛ `npm test` **18/18**، و`npm run test:integration` **6/6 suites** على PostgreSQL الحقيقي مع fake adapter، وBackend/Web typecheck وWeb build ناجحة. اختبارات API السلبية تفحص عزل Agent/Manager والفروع، عدم تسريب الأسرار، منع تعديل الاتصال المعطّل، تعارض النسخة والتعديل المتزامن، فشل المزود، وإخفاء الأرقام غير المربوطة. UI E2E والاختبار مع Meta sandbox/live لم يُجرَيا. ظهر خلل عام في تحويل `429` إلى `500` وأُصلح.
+
+## قيد التنفيذ التالي: Sender bindings والافتراضات التشغيلية
+
+الخطوة الدقيقة: إضافة API وUI وصلاحيات وAudit لتفعيل/تعطيل Sender وربطه بفروع مسموحة، تعيين Branch default وCampaign override وOrganization shared fallback الصريح، ثم ربط خدمة sender resolution/pinning بقاعدة البيانات واختبارات PostgreSQL للانقطاع والتعارض بين الفروع. بعد checkpoint مستقر، انتقل إلى Central Messaging Policy ثم queue/worker وwebhook/review. لا يعتبر Messaging مكتملًا بعد.
+
+## نقطة تحقق سابقة: Bulk assignment محدود العدد
 
 - مجموعة Lead workflow/Follow-ups/Search/Saved Views محفوظة في `e1e68ef`، ومرحلة Sorting/Columns محفوظة في `24715f6`. مرحلة Bulk assignment التالية اختُبرت وتُحفظ في commit محلي مرافق لهذه الوثيقة. لا Push أو Merge أو نشر.
 - التنفيذ المثبت: migrations `011`–`013`، سجل نشاط وإسناد وإعادة إسناد مع version وAudit، ملاحظات داخلية، متابعات Human مع تاريخ ونسخة وحالات الإكمال/الإلغاء، بحث Leads بنطاق الدور وفلاتر المتابعة والحقول الديناميكية المرئية، ومشاهد محفوظة بنطاقات شخصية/فرع/مؤسسة وعمليات إنشاء/تعديل/حذف وواجهة تطبيق/إنشاء/حذف.

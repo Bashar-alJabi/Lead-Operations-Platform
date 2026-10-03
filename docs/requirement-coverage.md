@@ -2,7 +2,7 @@
 
 الحالة هنا تعكس **تنفيذاً مثبتاً**، وليست وعداً. `جزئي` يعني أن المسار المطلوب للإنتاج غير مكتمل. لا توجد منطقة موسومة `Complete` حالياً. اختبارات الـAPI تعمل على PostgreSQL 18 داخل Docker؛ لا تثبت الميزات التي لم تُنفذ.
 
-> نقطة تحقق 2026-10-03: اجتازت مجموعة Lead workflow/Follow-ups/Search/Saved Views migrations `001`–`013` على قاعدتي التطوير والاختبار، و18 اختبار وحدة و5 مجموعات integration على PostgreSQL 18 وفحص النوع والبناء للـBackend والواجهة. اجتازت مرحلتا ترتيب تاريخ الإنشاء/اختيار الأعمدة وBulk assignment المحدود بوابات الاختبار نفسها. الحالات أدناه تميّز التنفيذ المثبت عن بقية إجراءات Bulk والمتطلبات غير المبنية.
+> نقطة تحقق 2026-10-03: migrations `001`–`014` على قاعدتي التطوير والاختبار، و18 اختبار وحدة و6 مجموعات integration على PostgreSQL، وفحص النوع والبناء للـBackend والواجهة. مرحلة Messaging Connection setup مختبرة مع fake adapter فقط؛ لا إرسال أو Webhook أو تحقق حي. الحالات أدناه تميّز التنفيذ المثبت عن الوحدات غير المكتملة.
 
 | المجال | المراجع | التنفيذ الحالي | الاختبارات | الحالة |
 |---|---|---|---|---|
@@ -15,7 +15,7 @@
 | Dynamic Fields | 00، 01، 02، 03، 06 | تعريفات Global/Branch/Campaign، ربط وإعداد حملة، الأنواع الموثقة، خيارات/ترتيب/تعطيل، واجهة Field Builder وLead Details وإنشاء Lead، تحقق Backend من النوع والرؤية والتحرير، version/history، required عند الإنشاء والإغلاق، سجل Calculated queries موثوقة؛ فلتر Search للقيم المرئية | 2 unit وPostgreSQL integration للتعريف والربط والقيم والتاريخ وصلاحيات الفروع والـAgent، المحاولات المتزامنة، required stages، Source Submission عند review، وعدّ AI/Human منفصل؛ اختبار Search يرفض الحقل المخفي ويقبل المرئي؛ UI E2E وExport وSource mapping وEnrollment gate لم تتحقق بعد | جزئي: Implemented وPostgreSQL Verified للعمليات الحالية؛ تكامل المجموعات اللاحقة مطلوب |
 | Meta/Sources | 00، 02، 03 | Source Submission schema فقط | لا يوجد | غير منفذ تشغيلياً |
 | Routing | 00، 02، 06 | Round Robin/Weighted/Manual أولي وPerformance fallback، سعة وساعات | Unit 4؛ API concurrent intake/capacity/no eligible ناجح | جزئي |
-| Messaging | 02، 03، 05، 06 | Schema، pure sender/policy/inbound rules؛ لا webhook/send worker أو UI | Unit 5؛ integration غير مختبر | جزئي |
+| Messaging | 02، 03، 05، 06 | Schema، قواعد sender/policy/inbound مستقلة؛ API وUI لاتصال Meta WhatsApp Cloud بنطاق Organization/Branch وcredential مشفرة وتدويرها وحالة التعطيل واكتشاف الأرقام، مع `WARNING/SEND_NOT_TESTED`. Sender bindings/default/override، خدمة resolution الفعلية، outbound queue/worker، webhook والمحادثات لم تُنفذ بعد | 5 unit للقواعد، وPostgreSQL API مع fake adapter يختبر النطاق والأسرار والفشل والتزامن وAudit والأرقام المشتركة؛ لا UI E2E أو تحقق حي | جزئي: Connection setup Mock Verified؛ بقية المسار غير مكتملة |
 | AI | 04، 05، 06 | حدود معمارية موثقة فقط | لا evaluations | غير منفذ تشغيلياً |
 | Follow-ups | 00، 02، 06 | مهام Human بموعد وأولوية ومالك، إنشاء/تعديل/إعادة جدولة/إكمال/إلغاء، قوائم due وLead، version/history/Audit وواجهة؛ policy الآلية والإرسال والتنبيهات لم تُنفذ | PostgreSQL API يفحص CRUD والتاريخ والتعارض ونطاق Agent/Manager ونقل ملكية المهام عند إعادة الإسناد؛ UI E2E غير مشغّل | جزئي: Human workflow Implemented وPostgreSQL Verified |
 | Notifications | 00، 02، 03 | لم ينفذ | لا يوجد | غير منفذ |
@@ -27,12 +27,12 @@
 | Import/Export | 00، 03، 06 | لم ينفذ | لا يوجد | غير منفذ |
 | Google Sheets | 00، 03، 06 | لم ينفذ | لا يوجد | غير منفذ |
 | Email integration | 03، 06 | إعداد SMTP لحسابات المنظمة من الواجهة، تشفير credential، test connection، worker/retries/status؛ Email الإشعارات العامة غير منفذ | Identity Email fake integration ناجح؛ SMTP sandbox/live غير متحقق | جزئي |
-| Integrations UI | 03، 05، 06 | Schema وsecret crypto فقط؛ Setup UI غير منفذة | AES-GCM unit | جزئي |
-| Audit | 00، 02، 06 | Schema وأحداث الإدارة والهوية وContacts وLeads، وإعادة الإسناد والمتابعات وSaved Views؛ Audit UI/coverage أوسع ناقص | Identity وContact وLead workflow DB integration يفحصان أحداثاً مختارة؛ لا coverage شامل لكل وحدة | جزئي |
+| Integrations UI | 03، 05، 06 | صفحة إعداد اتصال Meta Messaging مع إرشادات المتطلبات الخارجية وإدخال الأسرار واختبار اكتشاف الأرقام والحالة؛ بقية Provider setup غير منفذ | AES-GCM unit وPostgreSQL API fake provider؛ Web build/typecheck، بلا UI E2E | جزئي |
+| Audit | 00، 02، 06 | Schema وأحداث الإدارة والهوية وContacts وLeads، وإعادة الإسناد والمتابعات وSaved Views وMessaging connection setup؛ Audit UI/coverage أوسع ناقص | Identity وContact وLead workflow وMessaging setup DB integration تفحص أحداثاً مختارة؛ لا coverage شامل لكل وحدة | جزئي |
 | Security | AGENTS، 02، 06 | Hash/session/Origin/roles/secret crypto وIdentity token/SMTP secret boundaries؛ الملفات وسائر المسارات ناقصة | Unit وIdentity negative API tests | جزئي |
 | Languages/RTL | README، 03، 06 | واجهة الأجزاء الحالية بالعربية والفرنسية والإنجليزية | Web build فقط، لا visual QA | جزئي |
 | Responsive UI | 03، 06 | CSS للشاشات الحالية | Web build فقط | جزئي |
 | Scalability | AGENTS، 00، 06 | فهارس وkeyset للقوائم المنفذة وrouting lock وIdentity Email worker؛ backpressure العام غير منفذ | لا يوجد load test | جزئي |
 | Observability | AGENTS، 06 | Health endpoints وlogs أولية | لا smoke فعلي | جزئي |
-| Testing | AGENTS، 06 | 18 unit tests و5 API integration suites وbuild/typecheck | 18 unit و5 suites ناجحة على PostgreSQL؛ migrations 001-013 ناجحة بقاعدتي التطوير والاختبار؛ لا UI E2E/load | جزئي |
+| Testing | AGENTS، 06 | 18 unit tests و6 API integration suites وbuild/typecheck | 18 unit و6 suites ناجحة على PostgreSQL؛ migrations 001-014 ناجحة بقاعدتي التطوير والاختبار؛ لا UI E2E/load | جزئي |
 | Deployment/Runbook | AGENTS، 06 | Compose وملف env نموذجي ومعمارية | Docker PostgreSQL وAPI health تحققا محلياً؛ لم يجر تشغيل production | جزئي |
