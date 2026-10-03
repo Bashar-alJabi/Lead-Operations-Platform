@@ -12,7 +12,10 @@ type Connection = { id: string; branch_id: string | null; name: string; provider
   last_success_at: string | null; last_failure_at: string | null; last_error_code: string | null };
 type Sender = { id: string; external_sender_id: string; display_name: string; health: string; active: boolean;
   operator_enabled: boolean; version: number; bindings: { branchId: string; allowSharedFallback: boolean }[];
-  provider_status: { qualityRating?: string | null } };
+  provider_status: { qualityRating?: string | null }; cooldown_until: string | null;
+  last_provider_error_code: string | null };
+type QueueHealth = { status: string; cooldownUntil: string | null; lastErrorCode: string | null;
+  queued: number; running: number; oldest_queued_at: string | null };
 type AvailableSender = { id: string; display_name: string; connection_name: string; active: boolean;
   operator_enabled: boolean; connection_status: string };
 type SendingWindow = { start: string; end: string } | null;
@@ -32,6 +35,7 @@ export function MessagingSetup({ locale, role, branchId, branches, api }: {
   const [selected, setSelected] = useState<Connection | null>(null);
   const [senders, setSenders] = useState<Sender[]>([]);
   const [senderAfter, setSenderAfter] = useState<string | null>(null);
+  const [queueHealth, setQueueHealth] = useState<QueueHealth | null>(null);
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({ name: '', branchId: role === 'MANAGER' ? branchId ?? '' : '',
     wabaId: '', graphVersion: '', accessToken: '', appSecret: '', verifyToken: '' });
@@ -74,10 +78,14 @@ export function MessagingSetup({ locale, role, branchId, branches, api }: {
     return () => { cancelled = true; };
   }, [setupBranchId]);
   async function choose(connection: Connection) {
-    setSelected(connection); setEditing(false); setError('');
+    setSelected(connection); setEditing(false); setError(''); setQueueHealth(null);
     try {
-      const page = await api<{ items: Sender[]; nextAfter: string | null }>(`/api/messaging/connections/${connection.id}/senders`);
+      const [page, queue] = await Promise.all([
+        api<{ items: Sender[]; nextAfter: string | null }>(`/api/messaging/connections/${connection.id}/senders`),
+        api<QueueHealth>(`/api/messaging/connections/${connection.id}/queue-health`),
+      ]);
       setSenders(page.items); setSenderAfter(page.nextAfter);
+      setQueueHealth(queue);
     }
     catch (failure) { setError(String(failure)); }
   }
@@ -166,6 +174,14 @@ export function MessagingSetup({ locale, role, branchId, branches, api }: {
         <td>{item.status}{item.last_error_code && <small>{item.last_error_code}</small>}</td><td><button className="link" onClick={() => void choose(item)}>{t.senders}</button></td></tr>)}</tbody></table></div>
     {!items.length && <p>{t.noConnections}</p>}{cursor && <button className="secondary" onClick={() => void load(cursor).catch((failure) => setError(String(failure)))}>{t.more}</button>}
     {selected && <div className="panel"><h3>{selected.name}</h3><p>{t.status}: {selected.status}</p>{selected.status === 'WARNING' && <p>{t.warning}</p>}
+      {queueHealth && <div className="panel"><h4>{locale === 'ar' ? 'صحة طابور الإرسال' : locale === 'fr' ? 'File d’envoi' : 'Outbound queue health'}</h4>
+        <p>{locale === 'ar' ? 'بانتظار الإرسال' : locale === 'fr' ? 'En attente' : 'Queued'}: {queueHealth.queued} · {locale === 'ar' ? 'قيد التنفيذ' : locale === 'fr' ? 'En cours' : 'Running'}: {queueHealth.running}</p>
+        {queueHealth.oldest_queued_at && <p>{locale === 'ar' ? 'أقدم رسالة' : locale === 'fr' ? 'Plus ancien message' : 'Oldest queued'}: {new Date(queueHealth.oldest_queued_at).toLocaleString(locale)}</p>}
+        {queueHealth.cooldownUntil && new Date(queueHealth.cooldownUntil) > new Date() &&
+          <p>{locale === 'ar' ? 'توقف المزود مؤقتًا حتى' : locale === 'fr' ? 'Pause du fournisseur jusqu’à' : 'Provider cooldown until'} {new Date(queueHealth.cooldownUntil).toLocaleString(locale)}</p>}
+        {queueHealth.lastErrorCode && <p>{queueHealth.lastErrorCode}</p>}
+        <button className="secondary" onClick={() => void choose(selected)}>{locale === 'ar' ? 'تحديث' : locale === 'fr' ? 'Actualiser' : 'Refresh'}</button>
+      </div>}
       {(role === 'SUPER_ADMIN' || selected.branch_id === branchId) && <div className="actions"><button disabled={busy || selected.status === 'DISABLED'} onClick={() => void action(selected, 'test')}>{t.test}</button>
         <button className="secondary" disabled={busy} onClick={() => void action(selected, selected.status === 'DISABLED' ? 'enable' : 'disable')}>{selected.status === 'DISABLED' ? t.enable : t.disable}</button>
         <button className="secondary" onClick={() => {
@@ -173,6 +189,9 @@ export function MessagingSetup({ locale, role, branchId, branches, api }: {
             graphVersion: selected.config.graphVersion, accessToken: '', appSecret: '', verifyToken: '' }); }}>{t.edit}</button></div>}
       <h4>{t.senders}</h4><ul>{senders.map((sender) => <li key={sender.id}>{sender.display_name} ({sender.external_sender_id}) — {sender.health}
         {sender.provider_status.qualityRating && ` · ${sender.provider_status.qualityRating}`}
+        {sender.cooldown_until && new Date(sender.cooldown_until) > new Date() &&
+          ` · ${locale === 'ar' ? 'متوقف حتى' : locale === 'fr' ? 'Pause jusqu’à' : 'Paused until'} ${new Date(sender.cooldown_until).toLocaleString(locale)}`}
+        {sender.last_provider_error_code && ` · ${sender.last_provider_error_code}`}
         {(role === 'SUPER_ADMIN' || selected.branch_id === branchId) && <button className="link" disabled={busy}
           onClick={() => void senderAction(sender, sender.operator_enabled ? 'disable' : 'enable')}>
           {sender.operator_enabled ? t.senderDisable : t.senderEnable}</button>}

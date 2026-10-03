@@ -26,8 +26,13 @@ async function claimOne(db: Database): Promise<Claimed | null> {
         m.id AS message_id, m.sender_id, m.conversation_id, m.delivery_state
       FROM background_job j JOIN outbound_delivery_job link ON link.job_id = j.id
       JOIN conversation_message m ON m.id = link.message_id
+      JOIN messaging_sender s ON s.id = m.sender_id
+      JOIN integration_connection c ON c.id = m.connection_id
       WHERE j.queue = 'messaging' AND j.kind = 'SEND_MESSAGE'
-        AND ((j.status = 'QUEUED' AND j.run_after <= now()) OR
+        AND ((j.status = 'QUEUED' AND j.run_after <= now()
+          AND c.status = 'CONNECTED' AND (c.cooldown_until IS NULL OR c.cooldown_until <= now())
+          AND s.active AND s.operator_enabled AND s.health IN ('HEALTHY','DEGRADED')
+          AND (s.cooldown_until IS NULL OR s.cooldown_until <= now())) OR
           (j.status = 'RUNNING' AND j.locked_until < now()))
         AND NOT EXISTS (SELECT 1 FROM sender_outbound_lease lease
           WHERE lease.sender_id = m.sender_id AND lease.locked_until > now())
@@ -108,7 +113,8 @@ async function finishWithoutSend(db: Database, claimed: Claimed, code: string): 
 
 type Prepared = { kind: 'TEXT'; input: SendTextInput; connectionId: string }
   | { kind: 'TEMPLATE'; input: SendTemplateInput; connectionId: string };
-async function prepare(db: Database, claimed: Claimed): Promise<Prepared | { blocked: string }> {
+async function prepare(db: Database, claimed: Claimed): Promise<Prepared | { blocked: string } |
+  { deferredUntil: Date | null }> {
   const message = (await db`SELECT m.conversation_id, m.connection_id, m.sender_id, m.author_type,
       m.author_user_id, m.body, m.delivery_state, m.message_kind, m.template_id,
       m.template_snapshot, u.organization_id, u.branch_id, u.role,
@@ -122,6 +128,18 @@ async function prepare(db: Database, claimed: Claimed): Promise<Prepared | { blo
     branchId: message.branch_id, role: message.role, name: message.name, email: message.email };
   try {
     return await db.begin(async (tx) => {
+      const readiness = (await tx`SELECT c.status, c.cooldown_until AS connection_cooldown,
+          s.active, s.operator_enabled, s.health, s.cooldown_until AS sender_cooldown
+        FROM integration_connection c JOIN messaging_sender s ON s.connection_id = c.id
+        WHERE c.id = ${message.connection_id} AND s.id = ${message.sender_id}
+        FOR SHARE OF c, s`)[0];
+      if (!readiness || readiness.status !== 'CONNECTED' || !readiness.active ||
+          !readiness.operator_enabled || !['HEALTHY','DEGRADED'].includes(readiness.health))
+        return { deferredUntil: null };
+      const until = [readiness.connection_cooldown, readiness.sender_cooldown]
+        .filter((value): value is Date => value instanceof Date)
+        .reduce<Date | null>((latest, value) => !latest || value > latest ? value : latest, null);
+      if (until && until > new Date()) return { deferredUntil: until };
       const locked = await lockOutboundScope(tx, actor, message.conversation_id);
       const decision = await checkCurrentOutbound(tx, locked, actor, 'HUMAN',
         claimed.messageId, message.template_id);
@@ -164,6 +182,17 @@ async function prepare(db: Database, claimed: Claimed): Promise<Prepared | { blo
   }
 }
 
+async function deferClaim(db: Database, claimed: Claimed, until: Date | null): Promise<void> {
+  await db.begin(async (tx) => {
+    await tx`UPDATE background_job SET status = 'QUEUED', attempts = attempts - 1,
+      run_after = GREATEST(now(), ${until}::timestamptz), locked_until = NULL,
+      updated_at = now() WHERE id = ${claimed.jobId} AND status = 'RUNNING'
+        AND attempts = ${claimed.attemptNo}`;
+    await tx`DELETE FROM sender_outbound_lease WHERE sender_id = ${claimed.senderId}
+      AND job_id = ${claimed.jobId}`;
+  });
+}
+
 async function finishAttempt(db: Database, claimed: Claimed, connectionId: string,
   result: { providerMessageId: string } | ProviderSendError): Promise<void> {
   await db.begin(async (tx) => {
@@ -181,6 +210,8 @@ async function finishAttempt(db: Database, claimed: Claimed, connectionId: strin
         last_error_code = NULL, updated_at = now() WHERE id = ${claimed.jobId}`;
       await tx`UPDATE integration_connection SET last_success_at = now(), last_error_code = NULL
         WHERE id = ${connectionId}`;
+      await tx`UPDATE messaging_sender SET last_provider_error_code = NULL
+        WHERE id = ${claimed.senderId}`;
       await auditWorkerEvent(tx, claimed.messageId, 'OUTBOUND_MESSAGE_SENT',
         { attempt: claimed.attemptNo });
     } else {
@@ -188,6 +219,18 @@ async function finishAttempt(db: Database, claimed: Claimed, connectionId: strin
       const unknown = result.kind === 'UNKNOWN';
       const delay = Math.min(3600, Math.max(result.retryAfterSeconds ?? 30,
         30 * 2 ** Math.min(claimed.attemptNo, 6)));
+      if (result.code === 'PROVIDER_RATE_LIMITED') {
+        await tx`UPDATE integration_connection SET cooldown_until = GREATEST(
+          COALESCE(cooldown_until, now()), now() + (${delay} * interval '1 second'))
+          WHERE id = ${connectionId}`;
+        await tx`UPDATE messaging_sender SET cooldown_until = GREATEST(
+          COALESCE(cooldown_until, now()), now() + (${delay} * interval '1 second')),
+          last_provider_error_code = ${result.code} WHERE id = ${claimed.senderId}`;
+      }
+      if (result.code === 'PROVIDER_AUTH_FAILED') {
+        await tx`UPDATE messaging_sender SET health = 'UNKNOWN',
+          last_provider_error_code = ${result.code} WHERE connection_id = ${connectionId}`;
+      }
       await tx`UPDATE outbound_send_attempt SET state = ${unknown ? 'UNKNOWN' : 'REJECTED'},
         error_code = ${result.code}, finished_at = now()
         WHERE job_id = ${claimed.jobId} AND attempt_number = ${claimed.attemptNo}`;
@@ -200,7 +243,8 @@ async function finishAttempt(db: Database, claimed: Claimed, connectionId: strin
       if (unknown) await tx`UPDATE conversation SET needs_attention_reason = 'SEND_OUTCOME_UNKNOWN'
         WHERE id = (SELECT conversation_id FROM conversation_message WHERE id = ${claimed.messageId})`;
       await tx`UPDATE integration_connection SET last_failure_at = now(), last_error_code = ${result.code},
-        status = CASE WHEN ${unknown} THEN 'WARNING' ELSE status END WHERE id = ${connectionId}`;
+        status = CASE WHEN ${result.code === 'PROVIDER_AUTH_FAILED'} THEN 'AUTH_EXPIRED'
+          WHEN ${unknown} THEN 'WARNING' ELSE status END WHERE id = ${connectionId}`;
       await auditWorkerEvent(tx, claimed.messageId,
         unknown ? 'OUTBOUND_SEND_OUTCOME_UNKNOWN' : retry ? 'OUTBOUND_SEND_RETRY_SCHEDULED' : 'OUTBOUND_MESSAGE_FAILED',
         { reason: result.code, attempt: claimed.attemptNo });
@@ -215,6 +259,10 @@ export async function processOneMessagingJob(db: Database,
   if (!claimed) return false;
   if (claimed.recovered) return true;
   const prepared = await prepare(db, claimed);
+  if ('deferredUntil' in prepared) {
+    await deferClaim(db, claimed, prepared.deferredUntil);
+    return true;
+  }
   if ('blocked' in prepared) {
     await finishWithoutSend(db, claimed, prepared.blocked);
     return true;

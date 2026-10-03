@@ -222,7 +222,7 @@ export function registerMessagingSetupRoutes(app: FastifyInstance, db: Database,
     await visibleConnection(db, actor, request.params.id);
     const limit = request.query.limit ?? 50;
     const rows = await db`SELECT id, external_sender_id, display_name, active, operator_enabled, version,
-        health, capabilities, provider_status,
+        health, capabilities, provider_status, cooldown_until, last_provider_error_code,
         (SELECT COALESCE(jsonb_agg(jsonb_build_object('branchId', b.branch_id,
           'allowSharedFallback', b.allow_shared_fallback)), '[]'::jsonb)
           FROM sender_branch_binding b WHERE b.sender_id = messaging_sender.id
@@ -236,5 +236,26 @@ export function registerMessagingSetupRoutes(app: FastifyInstance, db: Database,
       ORDER BY id LIMIT ${limit + 1}`;
     const items = rows.slice(0, limit);
     return { items, nextAfter: rows.length > limit ? items.at(-1)!.id : null };
+  });
+
+  app.get<{ Params: { id: string } }>('/api/messaging/connections/:id/queue-health', {
+    schema: { params: idParam },
+  }, async (request) => {
+    const actor = await principalFromRequest(request, db);
+    await visibleConnection(db, actor, request.params.id);
+    const connection = (await db`SELECT status, cooldown_until, last_error_code
+      FROM integration_connection WHERE id = ${request.params.id}`)[0]!;
+    const depth = (await db`SELECT
+        count(*) FILTER (WHERE j.status = 'QUEUED')::integer AS queued,
+        count(*) FILTER (WHERE j.status = 'RUNNING')::integer AS running,
+        min(j.created_at) FILTER (WHERE j.status = 'QUEUED') AS oldest_queued_at
+      FROM background_job j JOIN outbound_delivery_job link ON link.job_id = j.id
+      JOIN conversation_message m ON m.id = link.message_id
+      JOIN conversation cv ON cv.id = m.conversation_id JOIN lead l ON l.id = cv.lead_id
+      WHERE j.queue = 'messaging' AND j.kind = 'SEND_MESSAGE'
+        AND j.status IN ('QUEUED','RUNNING') AND m.connection_id = ${request.params.id}
+        AND (${actor.role === 'SUPER_ADMIN'} OR l.branch_id = ${actor.branchId})`)[0]!;
+    return { status: connection.status, cooldownUntil: connection.cooldown_until,
+      lastErrorCode: connection.last_error_code, ...depth };
   });
 }

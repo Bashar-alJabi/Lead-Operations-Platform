@@ -560,6 +560,9 @@ test('Messaging setup encrypts credentials, scopes connections, and discovers se
     AND target_id = ${queued.json().id}`).length);
   await db`UPDATE background_job SET run_after = now()
     WHERE id = (SELECT job_id FROM outbound_delivery_job WHERE message_id = ${secondMessageId})`;
+  const ratePending = await send('POST', messagePath,
+    { body: 'Wait for provider cooldown', idempotencyKey: 'send-intent-rate-pending' }, managerA);
+  assert.equal(ratePending.statusCode, 202, ratePending.body);
   const rateLimitedAdapter: MessagingSendAdapter = { async sendText() {
     providerCalls++; throw new ProviderSendError('RETRYABLE', 'PROVIDER_RATE_LIMITED', 1);
   } };
@@ -569,7 +572,20 @@ test('Messaging setup encrypts credentials, scopes connections, and discovers se
   assert.equal((await db`SELECT delivery_state FROM conversation_message WHERE id = ${secondMessageId}`)[0]!
     .delivery_state, 'QUEUED');
   assert.equal(providerCalls, 2);
-  assert.equal((await send('GET', messagePath, undefined, managerA)).json().items.length, 3);
+  const queuePath = `/api/messaging/connections/${orgConnection.json().id}/queue-health`;
+  assert.equal((await send('GET', queuePath, undefined, agent)).statusCode, 403);
+  const otherBranchQueue = await send('GET', queuePath, undefined, managerB);
+  assert.equal(otherBranchQueue.statusCode, 200);
+  assert.equal(otherBranchQueue.json().queued, 0);
+  const queueHealth = await send('GET', queuePath, undefined, managerA);
+  assert.equal(queueHealth.statusCode, 200, queueHealth.body);
+  assert.equal(queueHealth.json().queued, 2);
+  assert.ok(new Date(queueHealth.json().cooldownUntil) > new Date());
+  assert.equal((await db`SELECT last_provider_error_code, cooldown_until FROM messaging_sender
+    WHERE id = ${sharedSender}`)[0]!.last_provider_error_code, 'PROVIDER_RATE_LIMITED');
+  assert.equal(await processOneMessagingJob(db, acceptedAdapter), false);
+  assert.equal(providerCalls, 2);
+  assert.equal((await send('GET', messagePath, undefined, managerA)).json().items.length, 4);
   await db`UPDATE lead SET assigned_agent_id = ${agentId} WHERE id = ${leadId}`;
   assert.equal((await send('GET', messagePath, undefined, agent)).statusCode, 200);
   assert.equal((await send('POST', messagePath, { body: 'Agent reply', idempotencyKey: 'send-intent-003' }, agent))
@@ -609,14 +625,25 @@ test('Messaging setup encrypts credentials, scopes connections, and discovers se
     { body: 'After opt-out', idempotencyKey: 'send-intent-007' }, managerA)).json().error, 'DO_NOT_CONTACT');
   await db`UPDATE background_job SET run_after = now()
     WHERE id = (SELECT job_id FROM outbound_delivery_job WHERE message_id = ${secondMessageId})`;
+  await db`UPDATE integration_connection SET status = 'DISABLED', cooldown_until = now() - interval '1 second'
+    WHERE id = ${orgConnection.json().id}`;
+  await db`UPDATE messaging_sender SET cooldown_until = now() - interval '1 second'
+    WHERE id = ${sharedSender}`;
+  assert.equal(await processOneMessagingJob(db, acceptedAdapter), false);
+  assert.equal((await db`SELECT status, attempts FROM background_job WHERE id =
+    (SELECT job_id FROM outbound_delivery_job WHERE message_id = ${secondMessageId})`)[0]!.attempts, 1);
+  await db`UPDATE integration_connection SET status = 'CONNECTED' WHERE id = ${orgConnection.json().id}`;
+  assert.equal(await processOneMessagingJob(db, acceptedAdapter), true);
   assert.equal(await processOneMessagingJob(db, acceptedAdapter), true);
   assert.equal(providerCalls, 2);
   assert.equal((await db`SELECT delivery_state, last_error_code FROM conversation_message
     WHERE id = ${secondMessageId}`)[0]!.last_error_code, 'DO_NOT_CONTACT');
+  assert.equal((await db`SELECT last_error_code FROM conversation_message WHERE id = ${ratePending.json().id}`)[0]!
+    .last_error_code, 'DO_NOT_CONTACT');
   assert.equal((await send('POST', messagePath,
     { body: 'Hello', idempotencyKey: firstKey }, managerA)).json().id, queued.json().id);
   assert.equal((await db`SELECT count(*)::integer AS n FROM outbound_delivery_job j
-    JOIN conversation_message m ON m.id = j.message_id WHERE m.conversation_id = ${conversationId}`)[0]!.n, 2);
+    JOIN conversation_message m ON m.id = j.message_id WHERE m.conversation_id = ${conversationId}`)[0]!.n, 3);
   assert.equal((await send('PUT', consentPath, { version: 5, status: 'GRANTED', doNotContact: false,
     evidence: 'Reconfirmed opt-in', source: 'ADMIN' }, admin)).statusCode, 200);
   const unknownMessage = await send('POST', messagePath,
@@ -652,9 +679,11 @@ test('Messaging setup encrypts credentials, scopes connections, and discovers se
     locked_until = now() - interval '1 second' WHERE id = ${crashJob}`;
   await db`INSERT INTO outbound_send_attempt (message_id, job_id, attempt_number, state)
     VALUES (${crashMessage.json().id}, ${crashJob}, 1, 'PREPARED')`;
+  await db`UPDATE integration_connection SET status = 'DISABLED' WHERE id = ${orgConnection.json().id}`;
   assert.equal(await processOneMessagingJob(db, acceptedAdapter), true);
   assert.equal((await db`SELECT delivery_state FROM conversation_message WHERE id = ${crashMessage.json().id}`)[0]!
     .delivery_state, 'UNKNOWN');
+  await db`UPDATE integration_connection SET status = 'CONNECTED' WHERE id = ${orgConnection.json().id}`;
   assert.equal(providerCalls, 3);
   assert.ok((await db`SELECT 1 FROM audit_log WHERE action = 'OUTBOUND_MESSAGE_QUEUED'
     AND target_id = ${queued.json().id}`).length);
@@ -751,6 +780,31 @@ test('Messaging setup encrypts credentials, scopes connections, and discovers se
     WHERE id = ${secondConversationId}`)[0]!.needs_attention_reason, 'TEMPLATE_CHANGED');
   assert.ok((await db`SELECT 1 FROM audit_log WHERE action = 'CAMPAIGN_TEMPLATE_BOUND'
     AND target_id = ${campaignId}`).length);
+  await db`UPDATE provider_message_template SET components = ${db.json([{ type: 'BODY', text: 'Approved notice' }])}
+    WHERE id = ${orgTemplateId}`;
+  await db`UPDATE conversation SET needs_attention_reason = NULL WHERE id = ${secondConversationId}`;
+  const authQueued = await send('POST', templateMessagePath,
+    { templateId: orgTemplateId, idempotencyKey: 'template-auth-fail-001' }, agent);
+  const authPending = await send('POST', templateMessagePath,
+    { templateId: orgTemplateId, idempotencyKey: 'template-auth-pending-002' }, agent);
+  assert.equal(authQueued.statusCode, 202, authQueued.body);
+  assert.equal(authPending.statusCode, 202, authPending.body);
+  let authCalls = 0;
+  assert.equal(await processOneMessagingJob(db, { async sendText() { throw new Error('unexpected'); },
+    async sendTemplate() { authCalls++; throw new ProviderSendError('REJECTED', 'PROVIDER_AUTH_FAILED'); } }), true);
+  assert.equal(authCalls, 1);
+  assert.equal((await db`SELECT status FROM integration_connection WHERE id = ${orgConnection.json().id}`)[0]!.status,
+    'AUTH_EXPIRED');
+  assert.equal((await db`SELECT health FROM messaging_sender WHERE id = ${sharedSender}`)[0]!.health, 'UNKNOWN');
+  assert.equal((await db`SELECT delivery_state FROM conversation_message WHERE id = ${authQueued.json().id}`)[0]!
+    .delivery_state, 'FAILED');
+  assert.equal(await processOneMessagingJob(db, templateSendAdapter), false);
+  assert.equal((await send('GET', queuePath, undefined, managerA)).json().queued, 1);
+  await db`UPDATE integration_connection SET status = 'CONNECTED' WHERE id = ${orgConnection.json().id}`;
+  await db`UPDATE messaging_sender SET health = 'DEGRADED' WHERE id = ${sharedSender}`;
+  assert.equal(await processOneMessagingJob(db, templateSendAdapter), true);
+  assert.equal((await db`SELECT delivery_state FROM conversation_message WHERE id = ${authPending.json().id}`)[0]!
+    .delivery_state, 'SENT');
   const flood = await Promise.all(Array.from({ length: 12 }, () => send('POST',
     `/api/messaging/connections/${id}/test`, undefined, managerA)));
   assert.ok(flood.some((response) => response.statusCode === 429 && response.json().error === 'RATE_LIMITED'));
@@ -763,7 +817,7 @@ test('Meta operational test send requires approved template, scopes access, and 
   process.env.CREDENTIAL_ENCRYPTION_KEY = randomBytes(32).toString('hex');
   const db = createDatabase(url);
   let calls = 0;
-  let mode: 'ACCEPT'|'UNKNOWN'|'AUTH' = 'ACCEPT';
+  let mode: 'ACCEPT'|'UNKNOWN'|'AUTH'|'RATE' = 'ACCEPT';
   let hold: Promise<void> | null = null;
   let started: (() => void) | null = null;
   const sendAdapter: MessagingSendAdapter = {
@@ -778,6 +832,7 @@ test('Meta operational test send requires approved template, scopes access, and 
       if (hold) { started?.(); await hold; }
       if (mode === 'UNKNOWN') throw new ProviderSendError('UNKNOWN', 'PROVIDER_SEND_OUTCOME_UNKNOWN');
       if (mode === 'AUTH') throw new ProviderSendError('REJECTED', 'PROVIDER_AUTH_FAILED');
+      if (mode === 'RATE') throw new ProviderSendError('RETRYABLE', 'PROVIDER_RATE_LIMITED', 120);
       return { providerMessageId: `wamid.test-${calls}` };
     },
   };
@@ -870,13 +925,27 @@ test('Meta operational test send requires approved template, scopes access, and 
   assert.equal(history.json().items[0].recipient_last4, '9999');
   assert.equal(history.body.includes('+15550009999'), false);
   assert.equal(history.body.includes(setup.credentials.accessToken), false);
+  mode = 'RATE';
+  const limitedInput = { ...input, idempotencyKey: 'test-send-rate-001' };
+  const limited = await send('POST', path, limitedInput, managerA);
+  assert.equal(limited.statusCode, 200, limited.body);
+  assert.equal(limited.json().state, 'REJECTED');
+  assert.equal(limited.json().errorCode, 'PROVIDER_RATE_LIMITED');
+  assert.equal((await send('POST', path, limitedInput, managerA)).json().replayed, true);
+  assert.equal((await send('POST', path,
+    { ...input, idempotencyKey: 'test-send-rate-002' }, managerA)).json().error, 'PROVIDER_COOLDOWN_ACTIVE');
+  assert.equal((await send('GET', `/api/messaging/connections/${connectionId}/queue-health`, undefined, managerA))
+    .json().lastErrorCode, 'PROVIDER_RATE_LIMITED');
+  assert.equal(calls, 2);
+  await db`UPDATE integration_connection SET cooldown_until = now() - interval '1 second' WHERE id = ${connectionId}`;
+  await db`UPDATE messaging_sender SET cooldown_until = now() - interval '1 second' WHERE id = ${senderId}`;
   mode = 'UNKNOWN';
   const uncertain = await send('POST', path, { ...input, idempotencyKey: 'test-send-key-002' }, managerA);
   assert.equal(uncertain.statusCode, 202, uncertain.body);
   assert.equal(uncertain.json().state, 'UNKNOWN');
   assert.equal((await send('POST', path, { ...input, idempotencyKey: 'test-send-key-002' }, managerA)).json().error,
     'TEST_SEND_OUTCOME_UNKNOWN');
-  assert.equal(calls, 2);
+  assert.equal(calls, 3);
   const staleId = (await db`INSERT INTO messaging_connection_test_send (connection_id, connection_version,
     sender_id, template_id, idempotency_key, request_hash, recipient_last4, state, created_by, created_at)
     SELECT connection_id, connection_version, sender_id, template_id, 'stale-test-send', request_hash,
@@ -922,7 +991,7 @@ test('Meta operational test send requires approved template, scopes access, and 
     'NOT_CONFIGURED');
   assert.deepEqual((await db`SELECT capabilities FROM integration_connection WHERE id = ${connectionId}`)[0]!
     .capabilities, {});
-  assert.equal(calls, 4);
+  assert.equal(calls, 5);
 });
 
 test('signed Meta callbacks preserve delivery history and never regress on replay or out-of-order status', async (t) => {

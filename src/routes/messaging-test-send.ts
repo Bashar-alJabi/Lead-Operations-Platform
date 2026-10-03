@@ -105,14 +105,17 @@ export function registerMessagingTestSendRoutes(app: FastifyInstance, db: Databa
       if (!adapter.sendTemplate) throw new HttpError(409, 'PROVIDER_TEMPLATE_SEND_UNSUPPORTED');
 
       const claimed = await db.begin(async (tx) => {
-        const current = (await tx`SELECT status, version FROM integration_connection
+        const current = (await tx`SELECT status, version, cooldown_until FROM integration_connection
           WHERE id = ${connection.id} FOR SHARE`)[0]!;
         if (current.version !== connection.version) throw new HttpError(409, 'CONNECTION_VERSION_CONFLICT');
         if (!['WARNING','CONNECTED'].includes(current.status)) throw new HttpError(409, 'CONNECTION_DISCOVERY_REQUIRED');
-        const sender = (await tx`SELECT external_sender_id, active, operator_enabled
+        const sender = (await tx`SELECT external_sender_id, active, operator_enabled, cooldown_until
           FROM messaging_sender WHERE id = ${input.senderId} AND connection_id = ${connection.id}
             AND organization_id = ${actor.organizationId} FOR SHARE`)[0];
         if (!sender || !sender.active || !sender.operator_enabled) throw new HttpError(409, 'TEST_SENDER_UNAVAILABLE');
+        if ((current.cooldown_until && current.cooldown_until > new Date()) ||
+          (sender.cooldown_until && sender.cooldown_until > new Date()))
+          throw new HttpError(409, 'PROVIDER_COOLDOWN_ACTIVE');
         const template = (await tx`SELECT name, language, components, active, status
           FROM provider_message_template WHERE id = ${input.templateId} AND connection_id = ${connection.id}
           FOR SHARE`)[0];
@@ -137,6 +140,7 @@ export function registerMessagingTestSendRoutes(app: FastifyInstance, db: Databa
       let state: 'SUCCEEDED'|'REJECTED'|'UNKNOWN' = 'SUCCEEDED';
       let providerMessageId: string | null = null;
       let errorCode: string | null = null;
+      let providerFailure: ProviderSendError | null = null;
       try {
         const result = await adapter.sendTemplate({ config: connection.config as MessagingConnectionConfig,
           credentials, externalSenderId: claimed.sender, recipient: input.recipient,
@@ -145,7 +149,8 @@ export function registerMessagingTestSendRoutes(app: FastifyInstance, db: Databa
           throw new ProviderSendError('UNKNOWN', 'PROVIDER_RESPONSE_AMBIGUOUS');
         providerMessageId = result.providerMessageId;
       } catch (error) {
-        state = error instanceof ProviderSendError && error.kind === 'REJECTED' ? 'REJECTED' : 'UNKNOWN';
+        providerFailure = error instanceof ProviderSendError ? error : null;
+        state = providerFailure && providerFailure.kind !== 'UNKNOWN' ? 'REJECTED' : 'UNKNOWN';
         errorCode = error instanceof ProviderSendError ? error.code : 'PROVIDER_SEND_OUTCOME_UNKNOWN';
       }
       const readiness = await db.begin(async (tx) => {
@@ -163,11 +168,21 @@ export function registerMessagingTestSendRoutes(app: FastifyInstance, db: Databa
             capabilities = capabilities || ${tx.json({ outboundAccepted: true, webhookVerified: false })}::jsonb,
             last_success_at = now(), last_error_code = 'WEBHOOK_NOT_TESTED', updated_at = now()
             WHERE id = ${connection.id}`;
-          await tx`UPDATE messaging_sender SET health = 'DEGRADED' WHERE id = ${input.senderId}`;
+          await tx`UPDATE messaging_sender SET health = 'DEGRADED', last_provider_error_code = NULL
+            WHERE id = ${input.senderId}`;
         } else if (validVersion && state !== 'SUCCEEDED') {
           await tx`UPDATE integration_connection SET last_failure_at = now(), last_error_code = ${errorCode},
             status = CASE WHEN ${errorCode} = 'PROVIDER_AUTH_FAILED' THEN 'AUTH_EXPIRED' ELSE status END,
             updated_at = now() WHERE id = ${connection.id}`;
+          if (providerFailure?.code === 'PROVIDER_RATE_LIMITED') {
+            const delay = Math.min(3600, Math.max(1, providerFailure.retryAfterSeconds ?? 30));
+            await tx`UPDATE integration_connection SET cooldown_until = GREATEST(
+              COALESCE(cooldown_until, now()), now() + (${delay} * interval '1 second'))
+              WHERE id = ${connection.id}`;
+            await tx`UPDATE messaging_sender SET cooldown_until = GREATEST(
+              COALESCE(cooldown_until, now()), now() + (${delay} * interval '1 second')),
+              last_provider_error_code = 'PROVIDER_RATE_LIMITED' WHERE id = ${input.senderId}`;
+          }
           if (errorCode === 'PROVIDER_AUTH_FAILED')
             await tx`UPDATE messaging_sender SET health = 'UNKNOWN' WHERE connection_id = ${connection.id}`;
         }
