@@ -7,11 +7,14 @@ type Connection = { id: string; branch_id: string | null; name: string; provider
   version: number; config: { wabaId: string; graphVersion: string }; has_credential: boolean;
   last_success_at: string | null; last_failure_at: string | null; last_error_code: string | null };
 type Sender = { id: string; external_sender_id: string; display_name: string; health: string; active: boolean;
+  operator_enabled: boolean; version: number; bindings: { branchId: string; allowSharedFallback: boolean }[];
   provider_status: { qualityRating?: string | null } };
+type AvailableSender = { id: string; display_name: string; connection_name: string; active: boolean;
+  operator_enabled: boolean; connection_status: string };
 const labels = {
-  ar: { title: 'اتصالات الرسائل', explain: 'أنشئ Meta Business Portfolio وWhatsApp Business Account وتطبيق Meta، واحصل على WABA ID ورمز وصول System User وApp Secret. أدخلها هنا واختبر اكتشاف الأرقام. يجب لاحقًا إعداد Webhook واختبار الإرسال قبل تشغيل الرسائل.', add: 'إضافة اتصال', edit: 'تعديل الاتصال', name: 'اسم الاتصال', scope: 'النطاق', organization: 'المؤسسة', branch: 'الفرع', version: 'إصدار Graph API', waba: 'WABA ID', token: 'رمز الوصول', appSecret: 'App Secret', verifyToken: 'Webhook Verify Token', save: 'حفظ', test: 'اختبار واكتشاف الأرقام', disable: 'تعطيل', enable: 'إعادة التهيئة', senders: 'الأرقام المكتشفة', status: 'الحالة', noSenders: 'لا أرقام مكتشفة', noConnections: 'لا اتصالات', more: 'المزيد', warning: 'اكتشاف الأرقام نجح؛ الإرسال والـWebhook غير متحققين بعد.', existingSecret: 'اترك حقول السر فارغة للاحتفاظ بالبيانات المحفوظة؛ لا تُعرض بعد الحفظ.' },
-  fr: { title: 'Connexions de messagerie', explain: 'Créez un compte WhatsApp Business et une application Meta, puis obtenez le WABA ID, un jeton System User et le secret de l’application. Configurez-les ici. L’envoi et le webhook doivent être vérifiés séparément.', add: 'Ajouter', edit: 'Modifier', name: 'Nom', scope: 'Portée', organization: 'Organisation', branch: 'Agence', version: 'Version Graph API', waba: 'WABA ID', token: 'Jeton d’accès', appSecret: 'Secret de l’application', verifyToken: 'Jeton de vérification', save: 'Enregistrer', test: 'Tester et découvrir les numéros', disable: 'Désactiver', enable: 'Réactiver', senders: 'Numéros découverts', status: 'État', noSenders: 'Aucun numéro', noConnections: 'Aucune connexion', more: 'Plus', warning: 'Numéros découverts ; envoi et webhook non encore vérifiés.', existingSecret: 'Laissez les secrets vides pour conserver ceux enregistrés ; ils ne sont pas réaffichés.' },
-  en: { title: 'Messaging connections', explain: 'Create a Meta Business Portfolio, WhatsApp Business Account, and Meta app. Obtain the WABA ID, System User access token, and App Secret. Enter them here and discover senders. Webhook and outbound sending require separate verification.', add: 'Add connection', edit: 'Edit connection', name: 'Connection name', scope: 'Scope', organization: 'Organization', branch: 'Branch', version: 'Graph API version', waba: 'WABA ID', token: 'Access token', appSecret: 'App Secret', verifyToken: 'Webhook Verify Token', save: 'Save', test: 'Test and discover senders', disable: 'Disable', enable: 'Reconfigure', senders: 'Discovered senders', status: 'Status', noSenders: 'No senders discovered', noConnections: 'No connections', more: 'More', warning: 'Sender discovery succeeded; outbound sending and webhook are not yet verified.', existingSecret: 'Leave secrets blank to retain saved values; they are never displayed after saving.' },
+  ar: { title: 'اتصالات الرسائل', explain: 'أنشئ Meta Business Portfolio وWhatsApp Business Account وتطبيق Meta، واحصل على WABA ID ورمز وصول System User وApp Secret. أدخلها هنا واختبر اكتشاف الأرقام. يجب لاحقًا إعداد Webhook واختبار الإرسال قبل تشغيل الرسائل.', add: 'إضافة اتصال', edit: 'تعديل الاتصال', name: 'اسم الاتصال', scope: 'النطاق', organization: 'المؤسسة', branch: 'الفرع', version: 'إصدار Graph API', waba: 'WABA ID', token: 'رمز الوصول', appSecret: 'App Secret', verifyToken: 'Webhook Verify Token', save: 'حفظ', test: 'اختبار واكتشاف الأرقام', disable: 'تعطيل', enable: 'إعادة التهيئة', senders: 'الأرقام المكتشفة', status: 'الحالة', noSenders: 'لا أرقام مكتشفة', noConnections: 'لا اتصالات', more: 'المزيد', warning: 'اكتشاف الأرقام نجح؛ الإرسال والـWebhook غير متحققين بعد.', existingSecret: 'اترك حقول السر فارغة للاحتفاظ بالبيانات المحفوظة؛ لا تُعرض بعد الحفظ.', bind: 'ربط', unbind: 'فك الربط', fallback: 'Fallback مشترك', senderEnable: 'تمكين الرقم', senderDisable: 'إيقاف الرقم', defaultSender: 'الرقم الافتراضي للفرع', noDefault: 'بلا رقم افتراضي', pending: 'الإرسال غير جاهز حتى ينجح فحصه.' },
+  fr: { title: 'Connexions de messagerie', explain: 'Créez un compte WhatsApp Business et une application Meta, puis obtenez le WABA ID, un jeton System User et le secret de l’application. Configurez-les ici. L’envoi et le webhook doivent être vérifiés séparément.', add: 'Ajouter', edit: 'Modifier', name: 'Nom', scope: 'Portée', organization: 'Organisation', branch: 'Agence', version: 'Version Graph API', waba: 'WABA ID', token: 'Jeton d’accès', appSecret: 'Secret de l’application', verifyToken: 'Jeton de vérification', save: 'Enregistrer', test: 'Tester et découvrir les numéros', disable: 'Désactiver', enable: 'Réactiver', senders: 'Numéros découverts', status: 'État', noSenders: 'Aucun numéro', noConnections: 'Aucune connexion', more: 'Plus', warning: 'Numéros découverts ; envoi et webhook non encore vérifiés.', existingSecret: 'Laissez les secrets vides pour conserver ceux enregistrés ; ils ne sont pas réaffichés.', bind: 'Lier', unbind: 'Délier', fallback: 'Secours partagé', senderEnable: 'Activer le numéro', senderDisable: 'Désactiver le numéro', defaultSender: 'Numéro par défaut de l’agence', noDefault: 'Aucun numéro par défaut', pending: 'Envoi indisponible tant que le test d’envoi manque.' },
+  en: { title: 'Messaging connections', explain: 'Create a Meta Business Portfolio, WhatsApp Business Account, and Meta app. Obtain the WABA ID, System User access token, and App Secret. Enter them here and discover senders. Webhook and outbound sending require separate verification.', add: 'Add connection', edit: 'Edit connection', name: 'Connection name', scope: 'Scope', organization: 'Organization', branch: 'Branch', version: 'Graph API version', waba: 'WABA ID', token: 'Access token', appSecret: 'App Secret', verifyToken: 'Webhook Verify Token', save: 'Save', test: 'Test and discover senders', disable: 'Disable', enable: 'Reconfigure', senders: 'Discovered senders', status: 'Status', noSenders: 'No senders discovered', noConnections: 'No connections', more: 'More', warning: 'Sender discovery succeeded; outbound sending and webhook are not yet verified.', existingSecret: 'Leave secrets blank to retain saved values; they are never displayed after saving.', bind: 'Bind', unbind: 'Unbind', fallback: 'Shared fallback', senderEnable: 'Enable sender', senderDisable: 'Disable sender', defaultSender: 'Branch default sender', noDefault: 'No default sender', pending: 'Sending remains unavailable until a send test succeeds.' },
 } as const;
 
 export function MessagingSetup({ locale, role, branchId, branches, api }: {
@@ -22,11 +25,17 @@ export function MessagingSetup({ locale, role, branchId, branches, api }: {
   const [cursor, setCursor] = useState<string | null>(null);
   const [selected, setSelected] = useState<Connection | null>(null);
   const [senders, setSenders] = useState<Sender[]>([]);
+  const [senderAfter, setSenderAfter] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({ name: '', branchId: role === 'MANAGER' ? branchId ?? '' : '',
     wabaId: '', graphVersion: '', accessToken: '', appSecret: '', verifyToken: '' });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [setupBranchId, setSetupBranchId] = useState(role === 'MANAGER' ? branchId ?? '' : branches[0]?.id ?? '');
+  const [defaultVersion, setDefaultVersion] = useState(1);
+  const [defaultSenderId, setDefaultSenderId] = useState('');
+  const [available, setAvailable] = useState<AvailableSender[]>([]);
+  const [availableAfter, setAvailableAfter] = useState<string | null>(null);
   async function load(next?: string) {
     const page = await api<{ items: Connection[]; nextCursor: string | null }>(
       `/api/messaging/connections${next ? '?cursor=' + encodeURIComponent(next) : ''}`);
@@ -36,10 +45,31 @@ export function MessagingSetup({ locale, role, branchId, branches, api }: {
     return page;
   }
   useEffect(() => { void load().catch((failure) => setError(String(failure))); }, []);
+  async function loadDefault(id: string, after?: string) {
+    if (!id) return;
+    const [current, page] = await Promise.all([
+      api<{ sender_version: number; default_sender_id: string | null }>(`/api/messaging/branches/${id}/default-sender`),
+      api<{ items: AvailableSender[]; nextAfter: string | null }>(
+        `/api/messaging/branches/${id}/senders${after ? '?after=' + encodeURIComponent(after) : ''}`),
+    ]);
+    setDefaultVersion(current.sender_version); setDefaultSenderId(current.default_sender_id ?? '');
+    setAvailable((old) => after ? [...old, ...page.items] : page.items);
+    setAvailableAfter(page.nextAfter);
+  }
+  useEffect(() => { void loadDefault(setupBranchId).catch((failure) => setError(String(failure))); }, [setupBranchId]);
   async function choose(connection: Connection) {
     setSelected(connection); setEditing(false); setError('');
-    try { setSenders((await api<{ items: Sender[] }>(`/api/messaging/connections/${connection.id}/senders`)).items); }
+    try {
+      const page = await api<{ items: Sender[]; nextAfter: string | null }>(`/api/messaging/connections/${connection.id}/senders`);
+      setSenders(page.items); setSenderAfter(page.nextAfter);
+    }
     catch (failure) { setError(String(failure)); }
+  }
+  async function moreSenders() {
+    if (!selected || !senderAfter) return;
+    const page = await api<{ items: Sender[]; nextAfter: string | null }>(
+      `/api/messaging/connections/${selected.id}/senders?after=${encodeURIComponent(senderAfter)}`);
+    setSenders((current) => [...current, ...page.items]); setSenderAfter(page.nextAfter);
   }
   const set = (key: keyof typeof form, value: string) => setForm((current) => ({ ...current, [key]: value }));
   async function save() {
@@ -73,6 +103,34 @@ export function MessagingSetup({ locale, role, branchId, branches, api }: {
       if (selected?.id === connection.id && current) await choose(current);
     } catch (failure) { setError(String(failure)); } finally { setBusy(false); }
   }
+  async function senderAction(sender: Sender, operation: 'enable'|'disable'|'bind'|'unbind'|'fallback', targetBranchId?: string) {
+    if (!selected) return;
+    setBusy(true); setError('');
+    try {
+      if (operation === 'enable' || operation === 'disable') {
+        await api(`/api/messaging/senders/${sender.id}`, { method: 'PATCH', body: JSON.stringify({
+          version: sender.version, operatorEnabled: operation === 'enable',
+        }) });
+      } else if (targetBranchId) {
+        const binding = sender.bindings.find((item) => item.branchId === targetBranchId);
+        await api(`/api/messaging/senders/${sender.id}/bindings/${targetBranchId}`, { method: 'PUT', body: JSON.stringify({
+          version: sender.version, bound: operation !== 'unbind',
+          allowSharedFallback: operation === 'fallback' ? !binding?.allowSharedFallback : Boolean(binding?.allowSharedFallback),
+        }) });
+      }
+      await choose(selected); await load(); await loadDefault(setupBranchId);
+    } catch (failure) { setError(String(failure)); } finally { setBusy(false); }
+  }
+  async function saveDefault() {
+    if (!setupBranchId) return;
+    setBusy(true); setError('');
+    try {
+      await api(`/api/messaging/branches/${setupBranchId}/default-sender`, { method: 'PUT', body: JSON.stringify({
+        version: defaultVersion, senderId: defaultSenderId || null,
+      }) });
+      await loadDefault(setupBranchId);
+    } catch (failure) { setError(String(failure)); } finally { setBusy(false); }
+  }
   return <section className="panel"><h2>{t.title}</h2><p>{t.explain} <a href="https://www.postman.com/meta/whatsapp-business-platform/request/e9ady51/get-phone-numbers" target="_blank" rel="noreferrer">Meta API reference</a></p>
     {error && <p role="alert" className="error">{error}</p>}
     <button className="secondary" onClick={() => { setSelected(null); setEditing(true); setForm({ name: '', branchId: role === 'MANAGER' ? branchId ?? '' : '', wabaId: '', graphVersion: '', accessToken: '', appSecret: '', verifyToken: '' }); }}>{t.add}</button>
@@ -87,8 +145,31 @@ export function MessagingSetup({ locale, role, branchId, branches, api }: {
           setEditing(true); setForm({ name: selected.name, branchId: selected.branch_id ?? '', wabaId: selected.config.wabaId,
             graphVersion: selected.config.graphVersion, accessToken: '', appSecret: '', verifyToken: '' }); }}>{t.edit}</button></div>}
       <h4>{t.senders}</h4><ul>{senders.map((sender) => <li key={sender.id}>{sender.display_name} ({sender.external_sender_id}) — {sender.health}
-        {sender.provider_status.qualityRating && ` · ${sender.provider_status.qualityRating}`}</li>)}</ul>{!senders.length && <p>{t.noSenders}</p>}
+        {sender.provider_status.qualityRating && ` · ${sender.provider_status.qualityRating}`}
+        {(role === 'SUPER_ADMIN' || selected.branch_id === branchId) && <button className="link" disabled={busy}
+          onClick={() => void senderAction(sender, sender.operator_enabled ? 'disable' : 'enable')}>
+          {sender.operator_enabled ? t.senderDisable : t.senderEnable}</button>}
+        {role === 'SUPER_ADMIN' && selected.branch_id === null && <ul>{branches.map((branch) => {
+          const binding = sender.bindings.find((item) => item.branchId === branch.id);
+          return <li key={branch.id}>{branch.name} · {binding ? t.bind : t.unbind}
+            <button className="link" disabled={busy} onClick={() => void senderAction(sender, binding ? 'unbind' : 'bind', branch.id)}>
+              {binding ? t.unbind : t.bind}</button>
+            {binding && <label className="check-row"><input type="checkbox" disabled={busy}
+              checked={binding.allowSharedFallback} onChange={() => void senderAction(sender, 'fallback', branch.id)} />{t.fallback}</label>}
+          </li>;
+        })}</ul>}</li>)}</ul>{!senders.length && <p>{t.noSenders}</p>}
+      {senderAfter && <button className="secondary" onClick={() => void moreSenders().catch((failure) => setError(String(failure)))}>{t.more}</button>}
     </div>}
+    {setupBranchId && <section className="panel"><h3>{t.defaultSender}</h3>
+      {role === 'SUPER_ADMIN' && <label>{t.branch}<select value={setupBranchId} onChange={(event) => setSetupBranchId(event.target.value)}>
+        {branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>}
+      <label>{t.senders}<select value={defaultSenderId} onChange={(event) => setDefaultSenderId(event.target.value)}>
+        <option value="">{t.noDefault}</option>{available.map((sender) => <option key={sender.id} value={sender.id}
+          disabled={!sender.active || !sender.operator_enabled || sender.connection_status === 'DISABLED'}>
+          {sender.display_name} · {sender.connection_name}</option>)}</select></label>
+      {availableAfter && <button className="secondary" onClick={() => void loadDefault(setupBranchId, availableAfter).catch((failure) => setError(String(failure)))}>{t.more}</button>}
+      <button disabled={busy} onClick={() => void saveDefault()}>{t.save}</button><p>{t.pending}</p>
+    </section>}
     {editing && <form className="workflow-form" onSubmit={(event) => { event.preventDefault(); void save(); }}><h3>{selected ? t.edit : t.add}</h3>
       <label>{t.name}<input required maxLength={100} value={form.name} onChange={(event) => set('name', event.target.value)} /></label>
       {role === 'SUPER_ADMIN' && !selected && <label>{t.scope}<select value={form.branchId} onChange={(event) => set('branchId', event.target.value)}>

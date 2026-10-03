@@ -86,6 +86,10 @@ test('Messaging setup encrypts credentials, scopes connections, and discovers se
   assert.equal((await send('GET', '/api/messaging/connections', undefined, managerA)).json().items.length, 2);
   assert.equal((await send('GET', `/api/messaging/connections/${orgConnection.json().id}/senders`, undefined, managerA)).json().items.length, 1);
   assert.equal((await send('GET', `/api/messaging/connections/${orgConnection.json().id}/senders`, undefined, admin)).json().items.length, 2);
+  const senderPage = (await send('GET', `/api/messaging/connections/${orgConnection.json().id}/senders?limit=1`, undefined, admin)).json();
+  assert.equal(senderPage.items.length, 1);
+  assert.equal((await send('GET', `/api/messaging/connections/${orgConnection.json().id}/senders?limit=1&after=${senderPage.nextAfter}`,
+    undefined, admin)).json().items.length, 1);
   assert.equal((await send('POST', `/api/messaging/connections/${orgConnection.json().id}/test`, undefined, managerA)).statusCode, 404);
   assert.equal((await send('GET', `/api/messaging/connections/${orgConnection.json().id}/senders`, undefined, managerB)).statusCode, 404);
   const testResponse = await send('POST', `/api/messaging/connections/${id}/test`, undefined, managerA);
@@ -123,6 +127,72 @@ test('Messaging setup encrypts credentials, scopes connections, and discovers se
     `/api/messaging/connections/${id}`, { name, config: input.config, version: 4 }, managerA)));
   assert.deepEqual(concurrentUpdates.map((response) => response.statusCode).sort(), [200,409]);
   assert.equal((await db`SELECT count(*)::integer AS n FROM audit_log WHERE target_id = ${id}`)[0]!.n, 8);
+  const branchSender = (await db`SELECT id FROM messaging_sender WHERE connection_id = ${id}`)[0]!.id as string;
+  assert.equal((await send('PATCH', `/api/messaging/senders/${branchSender}`,
+    { version: 1, operatorEnabled: false }, agent)).statusCode, 403);
+  assert.equal((await send('PATCH', `/api/messaging/senders/${sharedSender}`,
+    { version: 1, operatorEnabled: false }, managerA)).statusCode, 404);
+  assert.equal((await send('PUT', `/api/messaging/senders/${sharedSender}/bindings/${branchB}`,
+    { version: 1, bound: true, allowSharedFallback: false }, managerA)).statusCode, 403);
+  const eligibleA = await send('GET', `/api/messaging/branches/${branchA}/senders`, undefined, managerA);
+  assert.equal(eligibleA.statusCode, 200, eligibleA.body);
+  assert.equal(eligibleA.json().items.length, 2);
+  const branchPage = (await send('GET', `/api/messaging/branches/${branchA}/senders?limit=1`, undefined, managerA)).json();
+  assert.equal(branchPage.items.length, 1);
+  assert.equal((await send('GET', `/api/messaging/branches/${branchA}/senders?limit=1&after=${branchPage.nextAfter}`,
+    undefined, managerA)).json().items.length, 1);
+  assert.deepEqual((await send('GET', `/api/messaging/branches/${branchB}/senders`, undefined, managerB)).json().items, []);
+  assert.equal((await send('GET', `/api/messaging/branches/${branchA}/senders`, undefined, agent)).statusCode, 403);
+  const sharedBinding = await send('PUT', `/api/messaging/senders/${sharedSender}/bindings/${branchB}`,
+    { version: 1, bound: true, allowSharedFallback: false }, admin);
+  assert.equal(sharedBinding.statusCode, 200, sharedBinding.body);
+  assert.equal(sharedBinding.json().version, 2);
+  assert.equal((await send('PUT', `/api/messaging/senders/${sharedSender}/bindings/${branchB}`,
+    { version: 1, bound: true, allowSharedFallback: true }, admin)).statusCode, 409);
+  assert.equal((await send('PUT', `/api/messaging/senders/${branchSender}/bindings/${branchB}`,
+    { version: 1, bound: true, allowSharedFallback: false }, admin)).statusCode, 400);
+  const bindingRace = await Promise.all([true, false].map((allowSharedFallback) => send('PUT',
+    `/api/messaging/senders/${sharedSender}/bindings/${branchB}`,
+    { version: 2, bound: true, allowSharedFallback }, admin)));
+  assert.deepEqual(bindingRace.map((response) => response.statusCode).sort(), [200,409]);
+  assert.equal((await send('GET', `/api/messaging/branches/${branchB}/senders`, undefined, managerB)).json().items.length, 1);
+  assert.equal((await send('PUT', `/api/messaging/branches/${branchA}/default-sender`,
+    { version: 1, senderId: sharedSender }, managerB)).statusCode, 403);
+  assert.equal((await send('PUT', `/api/messaging/branches/${branchB}/default-sender`,
+    { version: 1, senderId: branchSender }, managerB)).statusCode, 400);
+  const defaultA = await send('PUT', `/api/messaging/branches/${branchA}/default-sender`,
+    { version: 1, senderId: sharedSender }, managerA);
+  assert.equal(defaultA.statusCode, 200, defaultA.body);
+  assert.equal(defaultA.json().sender_version, 2);
+  assert.equal((await send('PUT', `/api/messaging/branches/${branchA}/default-sender`,
+    { version: 1, senderId: branchSender }, managerA)).statusCode, 409);
+  const inUse = await send('PUT', `/api/messaging/senders/${sharedSender}/bindings/${branchA}`,
+    { version: 3, bound: false, allowSharedFallback: false }, admin);
+  assert.equal(inUse.statusCode, 409, inUse.body);
+  const defaultRace = await Promise.all([1,2].map(() => send('PUT',
+    `/api/messaging/branches/${branchA}/default-sender`, { version: 2, senderId: sharedSender }, managerA)));
+  assert.deepEqual(defaultRace.map((response) => response.statusCode).sort(), [200,409]);
+  const campaign = await send('POST', '/api/campaigns', { branchId: branchA, name: 'Sender test' }, managerA);
+  assert.equal(campaign.statusCode, 201, campaign.body);
+  const campaignId = campaign.json().id as string;
+  assert.equal((await send('PUT', `/api/messaging/campaigns/${campaignId}/sender-override`,
+    { version: 1, senderId: sharedSender }, managerB)).statusCode, 404);
+  const override = await send('PUT', `/api/messaging/campaigns/${campaignId}/sender-override`,
+    { version: 1, senderId: sharedSender }, managerA);
+  assert.equal(override.statusCode, 200, override.body);
+  assert.equal((await send('PUT', `/api/messaging/campaigns/${campaignId}/sender-override`,
+    { version: 1, senderId: branchSender }, managerA)).statusCode, 409);
+  const disabledSender = await send('PATCH', `/api/messaging/senders/${branchSender}`,
+    { version: 1, operatorEnabled: false }, managerA);
+  assert.equal(disabledSender.statusCode, 200, disabledSender.body);
+  assert.equal((await send('PUT', `/api/messaging/campaigns/${campaignId}/sender-override`,
+    { version: 2, senderId: branchSender }, managerA)).statusCode, 400);
+  const overrideRace = await Promise.all([1,2].map(() => send('PUT',
+    `/api/messaging/campaigns/${campaignId}/sender-override`,
+    { version: 2, senderId: sharedSender }, managerA)));
+  assert.deepEqual(overrideRace.map((response) => response.statusCode).sort(), [200,409]);
+  assert.ok((await db`SELECT 1 FROM audit_log WHERE action = 'CAMPAIGN_SENDER_OVERRIDE_SET'
+    AND target_id = ${campaignId}`).length);
   const flood = await Promise.all(Array.from({ length: 12 }, () => send('POST',
     `/api/messaging/connections/${id}/test`, undefined, managerA)));
   assert.ok(flood.some((response) => response.statusCode === 429 && response.json().error === 'RATE_LIMITED'));

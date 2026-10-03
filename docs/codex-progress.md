@@ -1,18 +1,24 @@
 # تقدم التنفيذ
 
-## آخر حالة مستقرة: Messaging Connection setup واكتشاف Senders
+## آخر حالة مستقرة: Sender bindings وBranch/Campaign sender configuration
+
+أضيفت migration `015_sender_bindings.sql` وAPI وواجهة لإيقاف/تمكين Sender تشغيلياً بشكل مستقل عن اكتشافه، ربط Organization Sender بفروع محددة مع خيار shared fallback صريح، اختيار Branch default وCampaign override، وقوائم أرقام مصرح بها مع pagination. يحتفظ كل من Sender وBranch/Campaign بنسخة تمنع فقد التعديل المتزامن؛ يُمنع فك Binding تستخدمها إعدادات Branch/Campaign حتى تُزال صراحة. لا يستطيع Manager إدارة Organization Sender أو تغيير فرع آخر، ولا يستطيع Agent إدارة أي منها. تتضمن الواجهة إدارة الـBindings والافتراضي وOverride الحملة، مع بيان أن الاكتشاف وحده لا يثبت قابلية الإرسال. يُحفظ Audit لكل تعديل.
+
+نقطة التحقق الجديدة: migrations `001`–`015` على قاعدتي التطوير والاختبار؛ اختبارات PostgreSQL في مجموعة Messaging تفحص صلاحيات الفروع والأدوار، binding وfallback، الاختيار الخاطئ، رفض فك رقم مستخدم، وتعادل طلبين متزامنين لنسخة Binding/Branch/Campaign. اجتازت 6/6 مجموعات integration؛ Backend/Web typecheck وWeb build ناجحة. `npm test` **18/18** من checkpoint السابق ويُعاد في بوابة هذا checkpoint. لا UI E2E ولا Provider live.
+
+## قيد التنفيذ التالي: DB sender resolution وConversation pinning
+
+الخطوة الدقيقة: توصيل `resolveSender` بقراءة نطاقات واتصالات وسلامة الـSender من PostgreSQL؛ ثم تثبيت Sender/Thread في Conversation بانتقال ذري، ومنع fallback عند فقدان صلاحية المرسل المثبت. اختبر الفروع والتوقف والتزامن ومسار Needs Attention. بعد توثيق وحفظ هذا checkpoint انتقل إلى Central Messaging Policy والخروج عبر queue/worker ثم inbound webhook/review. لا يعتبر Messaging مكتملًا.
+
+## نقطة تحقق سابقة: Messaging Connection setup واكتشاف Senders
 
 أضيفت migration `014_messaging_setup.sql` وAPI وواجهة متعددة اللغات لإدارة اتصال Meta WhatsApp Cloud ضمن Organization أو Branch، مع تشفير credential وعدم إعادتها للواجهة، تدويرها، فحص نسخة الإعداد، تعطيل/إعادة تهيئة، واكتشاف الأرقام عبر Provider adapter. نتيجة اكتشاف الأرقام تبقى `WARNING` مع `SEND_NOT_TESTED`؛ لا تدّعي نجاح الإرسال أو Webhook. أرقام Organization المشتركة لا تظهر لManager إلا عند وجود binding لفرعه، ولا تظهر له أرقام أخرى في الاتصال نفسه. عملية إعادة الاكتشاف توقف الأرقام الغائبة، وتعديل الاتصال يوقف أرقامه إلى حين إعادة الاكتشاف. أحداث الإنشاء والتعديل والفحص والفشل والتعطيل محفوظة في Audit. لا يوجد Live Provider verification.
 
 نقطة التحقق: migrations `001`–`014` اجتازت على قاعدتي التطوير والاختبار؛ `npm test` **18/18**، و`npm run test:integration` **6/6 suites** على PostgreSQL الحقيقي مع fake adapter، وBackend/Web typecheck وWeb build ناجحة. اختبارات API السلبية تفحص عزل Agent/Manager والفروع، عدم تسريب الأسرار، منع تعديل الاتصال المعطّل، تعارض النسخة والتعديل المتزامن، فشل المزود، وإخفاء الأرقام غير المربوطة. UI E2E والاختبار مع Meta sandbox/live لم يُجرَيا. ظهر خلل عام في تحويل `429` إلى `500` وأُصلح.
 
-## قيد التنفيذ التالي: Sender bindings والافتراضات التشغيلية
-
-الخطوة الدقيقة: إضافة API وUI وصلاحيات وAudit لتفعيل/تعطيل Sender وربطه بفروع مسموحة، تعيين Branch default وCampaign override وOrganization shared fallback الصريح، ثم ربط خدمة sender resolution/pinning بقاعدة البيانات واختبارات PostgreSQL للانقطاع والتعارض بين الفروع. بعد checkpoint مستقر، انتقل إلى Central Messaging Policy ثم queue/worker وwebhook/review. لا يعتبر Messaging مكتملًا بعد.
-
 ## نقطة تحقق سابقة: Bulk assignment محدود العدد
 
-- مجموعة Lead workflow/Follow-ups/Search/Saved Views محفوظة في `e1e68ef`، ومرحلة Sorting/Columns محفوظة في `24715f6`. مرحلة Bulk assignment التالية اختُبرت وتُحفظ في commit محلي مرافق لهذه الوثيقة. لا Push أو Merge أو نشر.
+- مجموعة Lead workflow/Follow-ups/Search/Saved Views محفوظة في `e1e68ef`، ومرحلة Sorting/Columns محفوظة في `24715f6`، وBulk assignment في `d8d40b3`. لم يحدث Merge أو نشر إنتاجي.
 - التنفيذ المثبت: migrations `011`–`013`، سجل نشاط وإسناد وإعادة إسناد مع version وAudit، ملاحظات داخلية، متابعات Human مع تاريخ ونسخة وحالات الإكمال/الإلغاء، بحث Leads بنطاق الدور وفلاتر المتابعة والحقول الديناميكية المرئية، ومشاهد محفوظة بنطاقات شخصية/فرع/مؤسسة وعمليات إنشاء/تعديل/حذف وواجهة تطبيق/إنشاء/حذف.
 - التحقق: Docker Compose يعرض PostgreSQL 18 `healthy`؛ أعيد تشغيل migrations `001`–`013` على قاعدتي التطوير والاختبار؛ Backend/Web typecheck و`npm test` **18/18** و`npm run test:integration` **5/5** و`npm run web:build` ناجحة. الاختبار الجديد يفحص الصلاحيات، إخفاء الحقول، تعارض النسخ والأسماء، التكرار، وتقييد البحث بعد تغير مالك Lead. UI E2E لم يُشغّل.
 - المرحلة المستقرة الجديدة: ترتيب `CREATED_ASC`/`CREATED_DESC` مع keyset pagination، وإرجاع موعد أقرب متابعة مفتوحة، واختيار أعمدة Lead في الواجهة وحفظ ترتيب الأعمدة والفلاتر وتطبيقها في Saved View. يرفض Backend قيمة Sort أو أعمدة غير مسموحة. اجتازت 18/18 unit و5/5 integration مع فحص نوع Backend/Web وWeb build؛ لا migration جديدة. UI E2E لم يُشغّل.
@@ -28,7 +34,7 @@
 ## ما أُنجز
 
 - `technical-architecture.md` و`implementation-plan.md` ومصفوفة `requirement-coverage.md`.
-- مشروع TypeScript/Fastify، React/Vite، إعداد PostgreSQL عبر Compose، وmigrations `001_core.sql` حتى `013_saved_lead_views.sql`.
+- مشروع TypeScript/Fastify، React/Vite، إعداد PostgreSQL عبر Compose، وmigrations `001_core.sql` حتى `015_sender_bindings.sql`.
 - API أولية: secure first-admin bootstrap، login/logout/session، user create/list/disable، branch create/list، campaign create/agent binding/activation validation، manual Lead intake، Lead list/detail/lifecycle.
 - Account lifecycle: تغيير كلمة المرور وإبطال الجلسات، دعوات إنشاء المستخدمين بدل تحديد المسؤول لكلمة مرورهم، إعادة الدعوة، Forgot/Reset برموز عشوائية hashed وأحادية الاستعمال ومحدودة المدة، إبطال الجلسات عند Reset، Audit. إعداد SMTP لحسابات المنظمة من الواجهة مع تشفير credential واختبار اتصال، وworker لإرسال الروابط المشفرة في outbox مع retries/lease/dead state وقائمة حالة تسليم وإعادة محاولة ضمن الصلاحيات.
 - مجموعة Contacts لمسار Manual: تطبيع صارم لهاتف E.164 والبريد مع حفظ الإدخال الأصلي، مطابقة متزامنة بأقفال مرتبة، وإبقاء Leads منفصلة. حالات الالتباس أو التطابق مع Contact خارج فرع Manager تحفظ `source_submission` في `NEEDS_ATTENTION`؛ واجهة مراجعة وحسم صريح وآمن عند التكرار، مع منع Manager من رؤية أو حسم مرشحين خارج نطاقه. قائمة/بحث/تفاصيل/تعديل Contacts في الواجهة والـAPI، و`version` لمنع فقد التعديل المتزامن، وتاريخ تغييرات وAudit. Contact مشتركة بين فروع تُقرأ ضمن Leads المصرح بها ويعدلها Super Admin فقط.

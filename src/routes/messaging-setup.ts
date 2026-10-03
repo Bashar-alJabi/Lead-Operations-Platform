@@ -206,18 +206,29 @@ export function registerMessagingSetupRoutes(app: FastifyInstance, db: Database,
     });
   });
 
-  app.get<{ Params: { id: string } }>('/api/messaging/connections/:id/senders', {
-    schema: { params: idParam },
+  app.get<{ Params: { id: string }; Querystring: { limit?: number; after?: string } }>(
+    '/api/messaging/connections/:id/senders', {
+    schema: { params: idParam, querystring: { type: 'object', additionalProperties: false, properties: {
+      limit: { type: 'integer', minimum: 1, maximum: 100 }, after: { type: 'string', format: 'uuid' },
+    } } },
   }, async (request) => {
     const actor = await principalFromRequest(request, db);
     await visibleConnection(db, actor, request.params.id);
-    const rows = await db`SELECT id, external_sender_id, display_name, active, health, capabilities, provider_status
+    const limit = request.query.limit ?? 50;
+    const rows = await db`SELECT id, external_sender_id, display_name, active, operator_enabled, version,
+        health, capabilities, provider_status,
+        (SELECT COALESCE(jsonb_agg(jsonb_build_object('branchId', b.branch_id,
+          'allowSharedFallback', b.allow_shared_fallback)), '[]'::jsonb)
+          FROM sender_branch_binding b WHERE b.sender_id = messaging_sender.id
+            AND (${actor.role === 'SUPER_ADMIN'} OR b.branch_id = ${actor.branchId})) AS bindings
       FROM messaging_sender WHERE connection_id = ${request.params.id} AND organization_id = ${actor.organizationId}
         AND (${actor.role === 'SUPER_ADMIN'} OR EXISTS (SELECT 1 FROM integration_connection c
           WHERE c.id = messaging_sender.connection_id AND c.branch_id = ${actor.branchId}) OR
           EXISTS (SELECT 1 FROM sender_branch_binding b WHERE b.sender_id = messaging_sender.id
             AND b.branch_id = ${actor.branchId}))
-      ORDER BY display_name, id LIMIT 1000`;
-    return { items: rows };
+        AND (${request.query.after ?? null}::uuid IS NULL OR id > ${request.query.after ?? null}::uuid)
+      ORDER BY id LIMIT ${limit + 1}`;
+    const items = rows.slice(0, limit);
+    return { items, nextAfter: rows.length > limit ? items.at(-1)!.id : null };
   });
 }

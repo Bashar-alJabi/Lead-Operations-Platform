@@ -13,6 +13,7 @@ import { registerFieldRoutes } from './routes/fields.js';
 import { registerLeadWorkflowRoutes } from './routes/lead-workflow.js';
 import { registerLeadViewRoutes } from './routes/lead-views.js';
 import { registerMessagingSetupRoutes } from './routes/messaging-setup.js';
+import { registerSenderBindingRoutes } from './routes/sender-bindings.js';
 import { smtpEmailAdapter, type IdentityEmailAdapter } from './identity-email.js';
 import type { MessagingProviderAdapter } from './messaging/providers.js';
 
@@ -61,6 +62,7 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   registerLeadWorkflowRoutes(app, db);
   registerLeadViewRoutes(app, db);
   registerMessagingSetupRoutes(app, db, options.messagingAdapter);
+  registerSenderBindingRoutes(app, db);
   registerIdentityEmailRoutes(app, db, options.emailAdapter ?? smtpEmailAdapter);
   return app;
 }
