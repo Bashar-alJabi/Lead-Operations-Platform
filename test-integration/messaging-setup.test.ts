@@ -6,6 +6,8 @@ import { createDatabase } from '../src/db.js';
 import { passwordHash } from '../src/security.js';
 import type { MessagingProviderAdapter } from '../src/messaging/providers.js';
 import { ProviderSendError, type MessagingSendAdapter } from '../src/messaging/providers.js';
+import { TemplateProviderError, type MessagingTemplateAdapter,
+  type ProviderTemplate } from '../src/messaging/templates-provider.js';
 import { resolveConfiguredSender } from '../src/messaging/sender-resolution.js';
 import { processOneMessagingJob } from '../src/messaging/send-worker.js';
 
@@ -19,6 +21,29 @@ test('Messaging setup encrypts credentials, scopes connections, and discovers se
   const db = createDatabase(url);
   let failDiscovery = false;
   let discoveryCalls = 0;
+  let createCalls = 0;
+  let failTemplateCreate = false;
+  let failTemplateSync = false;
+  let catalog: ProviderTemplate[] = [];
+  let holdTemplateCreate: Promise<void> | null = null;
+  let templateCreateStarted: (() => void) | null = null;
+  const templateAdapter: MessagingTemplateAdapter = {
+    async list(_config, credentials) {
+      assert.equal(credentials.accessToken, 'test-access-token-123456789');
+      if (failTemplateSync) throw new TemplateProviderError('UNKNOWN', 'UPSTREAM_SECRET');
+      return catalog;
+    },
+    async create(_config, credentials, input) {
+      createCalls++;
+      assert.equal(credentials.accessToken, 'test-access-token-123456789');
+      if (holdTemplateCreate) { templateCreateStarted?.(); await holdTemplateCreate; }
+      if (failTemplateCreate) throw new TemplateProviderError('UNKNOWN', 'UPSTREAM_SECRET');
+      const item = { externalId: String(900000 + createCalls), name: input.name, language: input.language,
+        status: 'PENDING', category: input.category, components: [{ type: 'BODY', text: input.body }] };
+      catalog = [...catalog, item];
+      return item;
+    },
+  };
   const adapter: MessagingProviderAdapter = { async discoverSenders(config, credentials) {
     discoveryCalls++;
     assert.equal(config.wabaId, '123456789012345');
@@ -27,7 +52,8 @@ test('Messaging setup encrypts credentials, scopes connections, and discovers se
     if (failDiscovery) throw new Error('upstream with secret test-access-token-123456789');
     return [{ externalId: '15550001111', displayName: 'Branch number', qualityRating: 'GREEN' }];
   } };
-  const app = await buildApp(db, { logger: false, messagingAdapter: adapter, globalRateLimitMax: 1000 });
+  const app = await buildApp(db, { logger: false, messagingAdapter: adapter,
+    messagingTemplateAdapter: templateAdapter, globalRateLimitMax: 1000 });
   t.after(async () => { await app.close(); await db.end(); });
   await db.begin(async (tx) => { await tx`SET LOCAL client_min_messages TO warning`;
     await tx`TRUNCATE background_job CASCADE`; await tx`TRUNCATE organization CASCADE`; });
@@ -90,6 +116,8 @@ test('Messaging setup encrypts credentials, scopes connections, and discovers se
   assert.equal((await send('GET', '/api/messaging/connections', undefined, managerA)).json().items.length, 2);
   assert.equal((await send('GET', `/api/messaging/connections/${orgConnection.json().id}/senders`, undefined, managerA)).json().items.length, 1);
   assert.equal((await send('GET', `/api/messaging/connections/${orgConnection.json().id}/senders`, undefined, admin)).json().items.length, 2);
+  assert.equal((await send('GET', `/api/messaging/connections/${orgConnection.json().id}/templates`,
+    undefined, managerA)).statusCode, 404);
   const senderPage = (await send('GET', `/api/messaging/connections/${orgConnection.json().id}/senders?limit=1`, undefined, admin)).json();
   assert.equal(senderPage.items.length, 1);
   assert.equal((await send('GET', `/api/messaging/connections/${orgConnection.json().id}/senders?limit=1&after=${senderPage.nextAfter}`,
@@ -131,6 +159,110 @@ test('Messaging setup encrypts credentials, scopes connections, and discovers se
     `/api/messaging/connections/${id}`, { name, config: input.config, version: 4 }, managerA)));
   assert.deepEqual(concurrentUpdates.map((response) => response.statusCode).sort(), [200,409]);
   assert.equal((await db`SELECT count(*)::integer AS n FROM audit_log WHERE target_id = ${id}`)[0]!.n, 8);
+  const templatesPath = `/api/messaging/connections/${id}/templates`;
+  const templateInput = { idempotencyKey: 'template-create-001', name: 'follow_up_notice',
+    language: 'en_US', category: 'UTILITY', body: 'We will contact you soon.' };
+  assert.equal((await send('GET', templatesPath, undefined, agent)).statusCode, 403);
+  assert.equal((await send('GET', templatesPath, undefined, managerB)).statusCode, 404);
+  assert.equal((await send('POST', templatesPath, templateInput, agent)).statusCode, 403);
+  assert.equal((await send('POST', templatesPath, templateInput, managerB)).statusCode, 404);
+  assert.equal((await send('POST', templatesPath, { ...templateInput, body: '{{1}}' }, managerA)).statusCode, 400);
+  assert.equal((await send('POST', templatesPath, { ...templateInput, extra: true }, managerA)).statusCode, 400);
+  const createdTemplate = await send('POST', templatesPath, templateInput, managerA);
+  assert.equal(createdTemplate.statusCode, 201, createdTemplate.body);
+  assert.equal(createdTemplate.json().status, 'PENDING');
+  assert.equal((await send('POST', templatesPath, templateInput, managerA)).statusCode, 200);
+  assert.equal(createCalls, 1);
+  assert.equal((await send('POST', templatesPath, { ...templateInput, body: 'Different' }, managerA)).json().error,
+    'IDEMPOTENCY_KEY_REUSED');
+  assert.equal((await send('POST', templatesPath, { ...templateInput, idempotencyKey: 'template-create-002' }, managerA))
+    .json().error, 'TEMPLATE_ALREADY_EXISTS');
+  const pendingTemplate = (await send('GET', templatesPath, undefined, managerA)).json().items[0];
+  assert.equal(pendingTemplate.status, 'PENDING');
+  assert.equal(pendingTemplate.active, true);
+  catalog = [{ ...catalog[0]!, status: 'APPROVED' }];
+  assert.equal((await send('POST', `${templatesPath}/sync`, undefined, managerB)).statusCode, 404);
+  assert.equal((await send('POST', `${templatesPath}/sync`, undefined, managerA)).statusCode, 200);
+  assert.equal((await send('GET', templatesPath, undefined, managerA)).json().items
+    .find((item: { name: string }) => item.name === 'follow_up_notice').status, 'APPROVED');
+  let releaseTemplateCreate!: () => void;
+  let signalTemplateCreate!: () => void;
+  holdTemplateCreate = new Promise<void>((resolve) => { releaseTemplateCreate = resolve; });
+  const startedTemplateCreate = new Promise<void>((resolve) => { signalTemplateCreate = resolve; });
+  templateCreateStarted = signalTemplateCreate;
+  const raceInput = { ...templateInput, name: 'race_notice', idempotencyKey: 'template-create-race' };
+  const firstCreate = send('POST', templatesPath, raceInput, managerA);
+  await startedTemplateCreate;
+  const runningRequest = (await send('GET', `${templatesPath}/requests`, undefined, managerA)).json().items
+    .find((item: { name: string }) => item.name === 'race_notice');
+  assert.equal((await send('POST', `${templatesPath}/requests/${runningRequest.id}/resolve`,
+    { confirmAbsent: true }, managerA)).json().error, 'TEMPLATE_CREATE_STILL_RUNNING');
+  assert.equal((await send('POST', templatesPath, raceInput, managerA)).json().error,
+    'TEMPLATE_CREATE_IN_PROGRESS');
+  releaseTemplateCreate();
+  assert.equal((await firstCreate).statusCode, 201);
+  holdTemplateCreate = null;
+  templateCreateStarted = null;
+  assert.equal((await send('POST', templatesPath, raceInput, managerA)).statusCode, 200);
+  failTemplateSync = true;
+  const failedSync = await send('POST', `${templatesPath}/sync`, undefined, managerA);
+  assert.equal(failedSync.statusCode, 502, failedSync.body);
+  assert.equal(failedSync.body.includes('UPSTREAM_SECRET'), false);
+  assert.equal((await send('GET', templatesPath, undefined, managerA)).json().items
+    .find((item: { name: string }) => item.name === 'follow_up_notice').status, 'APPROVED');
+  failTemplateSync = false;
+  failTemplateCreate = true;
+  const unknownInput = { ...templateInput, idempotencyKey: 'template-create-003', name: 'unknown_notice' };
+  assert.equal((await send('POST', templatesPath, unknownInput, managerA)).json().error,
+    'TEMPLATE_CREATE_OUTCOME_UNKNOWN');
+  assert.equal((await send('POST', templatesPath, unknownInput, managerA)).json().error,
+    'TEMPLATE_CREATE_OUTCOME_UNKNOWN');
+  assert.equal(createCalls, 3);
+  assert.equal((await send('POST', templatesPath, { ...unknownInput, idempotencyKey: 'template-create-004' }, managerA))
+    .json().error, 'TEMPLATE_CREATE_NEEDS_SYNC');
+  catalog = [...catalog, { externalId: '900009', name: 'unknown_notice', language: 'en_US',
+    status: 'PENDING', category: 'UTILITY', components: [{ type: 'BODY', text: unknownInput.body }] }];
+  assert.equal((await send('POST', `${templatesPath}/sync`, undefined, managerA)).statusCode, 200);
+  assert.equal((await send('POST', templatesPath, unknownInput, managerA)).statusCode, 200);
+  assert.equal(createCalls, 3);
+  const absentInput = { ...templateInput, idempotencyKey: 'template-create-absent', name: 'absent_notice' };
+  assert.equal((await send('POST', templatesPath, absentInput, managerA)).json().error,
+    'TEMPLATE_CREATE_OUTCOME_UNKNOWN');
+  const unresolved = (await send('GET', `${templatesPath}/requests`, undefined, managerA)).json().items
+    .find((item: { name: string }) => item.name === 'absent_notice');
+  assert.ok(unresolved?.id);
+  const resolvePath = `${templatesPath}/requests/${unresolved.id}/resolve`;
+  assert.equal((await send('POST', resolvePath, { confirmAbsent: true }, managerB)).statusCode, 404);
+  assert.equal((await send('POST', resolvePath, { confirmAbsent: false }, managerA)).statusCode, 400);
+  assert.equal((await send('POST', resolvePath, { confirmAbsent: true }, managerA)).json().error,
+    'TEMPLATE_REVIEW_REQUIRES_SYNC');
+  assert.equal((await send('POST', `${templatesPath}/sync`, undefined, managerA)).statusCode, 200);
+  assert.equal((await send('POST', resolvePath, { confirmAbsent: true }, managerA)).statusCode, 200);
+  assert.equal((await send('POST', resolvePath, { confirmAbsent: true }, managerA)).json().error,
+    'TEMPLATE_CREATE_ALREADY_RESOLVED');
+  failTemplateCreate = false;
+  assert.equal((await send('POST', templatesPath, { ...absentInput,
+    idempotencyKey: 'template-create-after-review' }, managerA)).statusCode, 201);
+  assert.ok((await db`SELECT 1 FROM audit_log WHERE action = 'MESSAGING_TEMPLATE_CREATE_REVIEWED_ABSENT'
+    AND target_id = ${id}`).length);
+  const stale = (await db`INSERT INTO messaging_template_create_request
+    (connection_id, idempotency_key, request_hash, name, language, state, created_by, created_at)
+    SELECT ${id}, 'template-create-crashed', 'crashed-hash', 'crashed_notice', 'en_US',
+      'IN_PROGRESS', id, now() - interval '3 minutes' FROM user_account
+    WHERE email = 'manager-a@example.test' RETURNING id`)[0]!.id as string;
+  const stalePath = `${templatesPath}/requests/${stale}/resolve`;
+  await db`UPDATE messaging_template_catalog_sync SET synced_at = now() - interval '4 minutes'
+    WHERE connection_id = ${id}`;
+  assert.equal((await send('POST', stalePath, { confirmAbsent: true }, managerA)).json().error,
+    'TEMPLATE_REVIEW_REQUIRES_SYNC');
+  assert.equal((await send('POST', `${templatesPath}/sync`, undefined, managerA)).statusCode, 200);
+  assert.equal((await send('POST', stalePath, { confirmAbsent: true }, managerA)).statusCode, 200);
+  catalog = catalog.slice(1);
+  assert.equal((await send('POST', `${templatesPath}/sync`, undefined, managerA)).statusCode, 200);
+  assert.equal((await send('GET', templatesPath, undefined, managerA)).json().items
+    .find((item: { name: string }) => item.name === 'follow_up_notice').active, false);
+  assert.ok((await db`SELECT 1 FROM audit_log WHERE action = 'MESSAGING_TEMPLATES_SYNCED'
+    AND target_id = ${id}`).length);
   const branchSender = (await db`SELECT id FROM messaging_sender WHERE connection_id = ${id}`)[0]!.id as string;
   assert.equal((await send('PATCH', `/api/messaging/senders/${branchSender}`,
     { version: 1, operatorEnabled: false }, agent)).statusCode, 403);

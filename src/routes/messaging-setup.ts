@@ -129,6 +129,7 @@ export function registerMessagingSetupRoutes(app: FastifyInstance, db: Database,
         auth_tag = ${sealed.authTag}, key_version = ${sealed.keyVersion}, updated_at = now()
         WHERE connection_id = ${request.params.id}`;
       await tx`UPDATE messaging_sender SET health = 'UNKNOWN', active = false WHERE connection_id = ${request.params.id}`;
+      await tx`UPDATE provider_message_template SET active = false WHERE connection_id = ${request.params.id}`;
       await tx`INSERT INTO audit_log (organization_id, branch_id, actor_user_id, action, target_type, target_id)
         VALUES (${actor.organizationId}, ${old.branch_id}, ${actor.id}, 'MESSAGING_CONNECTION_UPDATED', 'CONNECTION', ${request.params.id})`;
       return { version: updated[0]!.version, status: 'NOT_CONFIGURED' };
@@ -198,6 +199,8 @@ export function registerMessagingSetupRoutes(app: FastifyInstance, db: Database,
         version = version + 1, updated_at = now() WHERE id = ${connection.id} AND version = ${request.body.version} RETURNING version`;
       if (!updated.length) throw new HttpError(409, 'CONNECTION_VERSION_CONFLICT');
       await tx`UPDATE messaging_sender SET health = 'UNKNOWN' WHERE connection_id = ${connection.id}`;
+      if (request.body.disabled) await tx`UPDATE provider_message_template SET active = false
+        WHERE connection_id = ${connection.id}`;
       await tx`INSERT INTO audit_log (organization_id, branch_id, actor_user_id, action, target_type, target_id)
         VALUES (${actor.organizationId}, ${connection.branch_id}, ${actor.id},
           ${request.body.disabled ? 'MESSAGING_CONNECTION_DISABLED' : 'MESSAGING_CONNECTION_ENABLED'},
