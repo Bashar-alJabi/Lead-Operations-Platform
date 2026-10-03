@@ -4,7 +4,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { openSecret } from '../credentials.js';
 import { HttpError, type Principal } from '../security.js';
 import { checkCurrentOutbound, lockOutboundScope } from './outbound-policy.js';
-import { approvedStaticTemplate } from './approved-template.js';
+import { approvedBodyTemplate } from './approved-template.js';
 import { metaWhatsAppSendAdapter, ProviderSendError, type MessagingConnectionConfig,
   type MessagingCredentials, type MessagingSendAdapter, type SendTextInput,
   type SendTemplateInput } from './providers.js';
@@ -146,8 +146,9 @@ async function prepare(db: Database, claimed: Claimed): Promise<Prepared | { blo
       if (!decision.allowed) return { blocked: decision.reason };
       if (decision.provider !== 'META_WHATSAPP_CLOUD') return { blocked: 'PROVIDER_SEND_NOT_SUPPORTED' };
       const template = message.message_kind === 'TEMPLATE'
-        ? await approvedStaticTemplate(tx, message.connection_id,
-          locked.scope.campaign_id, message.template_id) : null;
+        ? await approvedBodyTemplate(tx, message.connection_id,
+          locked.scope.campaign_id, message.template_id,
+          message.template_snapshot?.bodyParameters ?? []) : null;
       if (template && (!isDeepStrictEqual(template.snapshot, message.template_snapshot)
         || template.body !== message.body)) return { blocked: 'TEMPLATE_CHANGED' };
       const job = (await tx`SELECT status, attempts FROM background_job WHERE id = ${claimed.jobId} FOR UPDATE`)[0];
@@ -171,7 +172,8 @@ async function prepare(db: Database, claimed: Claimed): Promise<Prepared | { blo
       const common = { config: connection.config as MessagingConnectionConfig, credentials,
         externalSenderId: connection.external_sender_id, recipient: decision.recipient };
       return template ? { kind: 'TEMPLATE', input: { ...common,
-        templateName: template.snapshot.name, templateLanguage: template.snapshot.language },
+        templateName: template.snapshot.name, templateLanguage: template.snapshot.language,
+        bodyParameters: template.snapshot.bodyParameters ?? [] },
         connectionId: message.connection_id as string } : { kind: 'TEXT',
         input: { ...common, body: message.body }, connectionId: message.connection_id as string };
     });

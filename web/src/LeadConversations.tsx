@@ -9,7 +9,7 @@ type Consent = { status: 'GRANTED'|'REVOKED'|'UNKNOWN'; do_not_contact: boolean;
   source: string | null; updated_at: string | null; version: number; editable: boolean };
 type Message = { id: string; direction: 'INBOUND'|'OUTBOUND'; author_type: string; body: string;
   message_kind: 'TEXT'|'TEMPLATE'; delivery_state: string; last_error_code: string | null; created_at: string };
-type AvailableTemplate = { id: string; name: string; language: string; body: string };
+type AvailableTemplate = { id: string; name: string; language: string; body: string; parameterCount: number };
 const labels = {
   ar: { title: 'محادثات العميل', open: 'فتح محادثة WhatsApp', explain: 'فتح المحادثة يثبت رقم الإرسال ولا يرسل رسالة للعميل.',
     empty: 'لا توجد محادثات.', sender: 'الرقم المثبت', controller: 'المتحكم', state: 'الحالة', attention: 'تحتاج مراجعة', more: 'المزيد',
@@ -63,6 +63,7 @@ export function LeadConversations({ leadId, lifecycle, locale, api }: { leadId: 
   const [templates, setTemplates] = useState<AvailableTemplate[]>([]);
   const [templateAfter, setTemplateAfter] = useState<string | null>(null);
   const [templateId, setTemplateId] = useState('');
+  const [templateParameters, setTemplateParameters] = useState<string[]>([]);
   const [sendKey, setSendKey] = useState(() => crypto.randomUUID());
   const [submitted, setSubmitted] = useState(false);
   const [takeoverReason, setTakeoverReason] = useState('');
@@ -99,6 +100,7 @@ export function LeadConversations({ leadId, lifecycle, locale, api }: { leadId: 
   async function chooseConversation(id: string) {
     selectedRef.current = id; setSelectedId(id); setMessages([]); setMessageCursor(null);
     setDraft(''); setSendMode('TEXT'); setTemplates([]); setTemplateAfter(null); setTemplateId('');
+    setTemplateParameters([]);
     setSendKey(crypto.randomUUID()); setSubmitted(false); setError('');
     await Promise.all([loadMessages(id), loadTemplates(id)]);
   }
@@ -110,14 +112,16 @@ export function LeadConversations({ leadId, lifecycle, locale, api }: { leadId: 
     setTemplateAfter(page.nextAfter);
   }
   async function sendMessage() {
-    if (!selectedId || (sendMode === 'TEXT' ? !draft.trim() : !templateId)) return;
+    if (!selectedId || (sendMode === 'TEXT' ? !draft.trim() : !templateId ||
+      templateParameters.some((value) => !value.trim()))) return;
     setBusy(true); setError('');
     setSubmitted(true);
     try {
       await api(`/api/conversations/${selectedId}/messages`, { method: 'POST', body: JSON.stringify({
-        ...(sendMode === 'TEXT' ? { body: draft } : { templateId }), idempotencyKey: sendKey,
+        ...(sendMode === 'TEXT' ? { body: draft } : { templateId,
+          templateParameters }), idempotencyKey: sendKey,
       }) });
-      setDraft(''); setTemplateId(''); setSendKey(crypto.randomUUID()); setSubmitted(false);
+      setDraft(''); setTemplateId(''); setTemplateParameters([]); setSendKey(crypto.randomUUID()); setSubmitted(false);
       await loadMessages(selectedId);
     } catch (failure) { setError(String(failure)); } finally { setBusy(false); }
   }
@@ -174,13 +178,21 @@ export function LeadConversations({ leadId, lifecycle, locale, api }: { leadId: 
           onChange={(event) => { setDraft(event.target.value);
             if (submitted) { setSendKey(crypto.randomUUID()); setSubmitted(false); } }} /></label>
           : <label>{t.template}<select required value={templateId} disabled={busy} onChange={(event) => {
-            setTemplateId(event.target.value); setSendKey(crypto.randomUUID()); setSubmitted(false);
+            setTemplateId(event.target.value);
+            setTemplateParameters(Array(templates.find((item) => item.id === event.target.value)?.parameterCount ?? 0).fill(''));
+            setSendKey(crypto.randomUUID()); setSubmitted(false);
           }}><option value="">{t.template}</option>{templates.map((item) => <option key={item.id} value={item.id}>
             {item.name} · {item.language}</option>)}</select></label>}
         {sendMode === 'TEMPLATE' && <p>{templates.find((item) => item.id === templateId)?.body ?? t.noTemplates} {t.templateNote}</p>}
+        {sendMode === 'TEMPLATE' && templateParameters.map((value, index) =>
+          <label key={`${templateId}-${index}`}>{locale === 'ar' ? 'قيمة المتغير' : locale === 'fr' ? 'Valeur du paramètre' : 'Parameter'} {index + 1}
+            <input required maxLength={512} value={value} disabled={busy} onChange={(event) => {
+              setTemplateParameters((current) => current.map((item, position) => position === index ? event.target.value : item));
+              if (submitted) { setSendKey(crypto.randomUUID()); setSubmitted(false); }
+            }} /></label>)}
         {sendMode === 'TEMPLATE' && templateAfter && <button type="button" className="secondary" disabled={busy}
           onClick={() => selectedId && void loadTemplates(selectedId, templateAfter).catch((failure) => setError(String(failure)))}>{t.more}</button>}
-        <button disabled={busy || (sendMode === 'TEXT' ? !draft.trim() : !templateId) || lifecycle !== 'OPEN' || selected?.state !== 'HUMAN_ACTIVE'
+        <button disabled={busy || (sendMode === 'TEXT' ? !draft.trim() : !templateId || templateParameters.some((value) => !value.trim())) || lifecycle !== 'OPEN' || selected?.state !== 'HUMAN_ACTIVE'
           || Boolean(selected.needs_attention_reason)}>{t.send}</button>
       </form><p>{t.queued} {t.sendBlocked}</p>
     </div>}

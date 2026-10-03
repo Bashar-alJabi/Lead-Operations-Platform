@@ -41,7 +41,8 @@ test('Messaging setup encrypts credentials, scopes connections, and discovers se
       if (holdTemplateCreate) { templateCreateStarted?.(); await holdTemplateCreate; }
       if (failTemplateCreate) throw new TemplateProviderError('UNKNOWN', 'UPSTREAM_SECRET');
       const item = { externalId: String(900000 + createCalls), name: input.name, language: input.language,
-        status: 'PENDING', category: input.category, components: [{ type: 'BODY', text: input.body }] };
+        status: 'PENDING', category: input.category, components: [{ type: 'BODY', text: input.body,
+          ...(input.examples?.length ? { example: { body_text: [input.examples] } } : {}) }] };
       catalog = [...catalog, item];
       return item;
     },
@@ -263,6 +264,16 @@ test('Messaging setup encrypts credentials, scopes connections, and discovers se
   assert.equal((await send('POST', `${templatesPath}/sync`, undefined, managerA)).statusCode, 200);
   assert.equal((await send('GET', templatesPath, undefined, managerA)).json().items
     .find((item: { name: string }) => item.name === 'follow_up_notice').active, false);
+  const dynamicCreate = { ...templateInput, idempotencyKey: 'template-create-dynamic',
+    name: 'dynamic_notice', body: 'Hello {{1}}, see you {{2}}', examples: ['Alice', 'Monday'] };
+  assert.equal((await send('POST', templatesPath, { ...dynamicCreate, examples: ['Alice'] }, managerA))
+    .json().error, 'TEMPLATE_EXAMPLES_INVALID');
+  assert.equal((await send('POST', templatesPath, { ...dynamicCreate, body: 'Hello {{1}} {{3}}' }, managerA))
+    .json().error, 'TEMPLATE_BODY_INVALID');
+  assert.equal((await send('POST', templatesPath, dynamicCreate, managerA)).statusCode, 201);
+  assert.deepEqual((await send('GET', templatesPath, undefined, managerA)).json().items
+    .find((item: { name: string }) => item.name === 'dynamic_notice').components[0].example.body_text,
+    [['Alice', 'Monday']]);
   assert.ok((await db`SELECT 1 FROM audit_log WHERE action = 'MESSAGING_TEMPLATES_SYNCED'
     AND target_id = ${id}`).length);
   const branchSender = (await db`SELECT id FROM messaging_sender WHERE connection_id = ${id}`)[0]!.id as string;
@@ -762,6 +773,57 @@ test('Messaging setup encrypts credentials, scopes connections, and discovers se
   assert.equal(templateProviderCalls, 1);
   assert.equal((await db`SELECT delivery_state FROM conversation_message
     WHERE id = ${queuedTemplate.json().id}`)[0]!.delivery_state, 'SENT');
+  const dynamicTemplateId = (await db`INSERT INTO provider_message_template
+    (connection_id, external_template_id, name, language, status, category, components)
+    VALUES (${orgConnection.json().id}, '9090910', 'meeting_notice', 'en_US', 'APPROVED',
+      'UTILITY', ${db.json([{ type: 'BODY', text: 'Hello {{1}}, meeting on {{2}}' }])})
+    RETURNING id`)[0]!.id as string;
+  assert.equal((await send('PUT', `${campaignTemplatesPath}/${dynamicTemplateId}`,
+    { version: 0, bound: true }, admin)).statusCode, 200);
+  const availableDynamic = (await send('GET', availablePath, undefined, agent)).json().items
+    .find((item: { id: string }) => item.id === dynamicTemplateId);
+  assert.equal(availableDynamic.parameterCount, 2);
+  assert.equal((await send('POST', templateMessagePath,
+    { templateId: dynamicTemplateId, idempotencyKey: 'dynamic-missing-001' }, agent)).json().error,
+    'TEMPLATE_PARAMETERS_INVALID');
+  assert.equal((await send('POST', templateMessagePath,
+    { templateId: dynamicTemplateId, templateParameters: ['Alice'],
+      idempotencyKey: 'dynamic-short-001' }, agent)).json().error, 'TEMPLATE_PARAMETERS_INVALID');
+  const dynamicInput = { templateId: dynamicTemplateId,
+    templateParameters: ['Alice', 'Monday'], idempotencyKey: 'dynamic-send-001' };
+  const dynamicMessage = await send('POST', templateMessagePath, dynamicInput, agent);
+  assert.equal(dynamicMessage.statusCode, 202, dynamicMessage.body);
+  assert.equal((await send('POST', templateMessagePath, dynamicInput, agent)).statusCode, 200);
+  assert.equal((await send('POST', templateMessagePath, { ...dynamicInput,
+    templateParameters: ['Bob', 'Monday'] }, agent)).json().error, 'IDEMPOTENCY_KEY_REUSED');
+  const savedDynamic = (await db`SELECT body, template_snapshot FROM conversation_message
+    WHERE id = ${dynamicMessage.json().id}`)[0]!;
+  assert.equal(savedDynamic.body, 'Hello Alice, meeting on Monday');
+  assert.deepEqual(savedDynamic.template_snapshot.bodyParameters, ['Alice', 'Monday']);
+  await assert.rejects(db`UPDATE conversation_message SET template_snapshot = '{}'::jsonb
+    WHERE id = ${dynamicMessage.json().id}`);
+  let dynamicCalls = 0;
+  assert.equal(await processOneMessagingJob(db, { async sendText() { throw new Error('unexpected'); },
+    async sendTemplate(input) {
+      dynamicCalls++;
+      assert.equal(input.templateName, 'meeting_notice');
+      assert.deepEqual(input.bodyParameters, ['Alice', 'Monday']);
+      return { providerMessageId: 'wamid.dynamic-template' };
+    } }), true);
+  assert.equal(dynamicCalls, 1);
+  assert.equal((await db`SELECT delivery_state FROM conversation_message WHERE id = ${dynamicMessage.json().id}`)[0]!
+    .delivery_state, 'SENT');
+  const changedDynamic = await send('POST', templateMessagePath,
+    { ...dynamicInput, idempotencyKey: 'dynamic-changed-002' }, agent);
+  assert.equal(changedDynamic.statusCode, 202, changedDynamic.body);
+  await db`UPDATE provider_message_template SET components = ${db.json([{ type: 'BODY',
+    text: 'Hello {{1}}, rescheduled for {{2}}' }])} WHERE id = ${dynamicTemplateId}`;
+  assert.equal(await processOneMessagingJob(db, { async sendText() { throw new Error('unexpected'); },
+    async sendTemplate() { dynamicCalls++; throw new Error('changed template must be blocked'); } }), true);
+  assert.equal(dynamicCalls, 1);
+  assert.equal((await db`SELECT last_error_code FROM conversation_message WHERE id = ${changedDynamic.json().id}`)[0]!
+    .last_error_code, 'TEMPLATE_CHANGED');
+  await db`UPDATE conversation SET needs_attention_reason = NULL WHERE id = ${secondConversationId}`;
   assert.equal((await send('PUT', bindingPath, { version: 1, bound: false }, admin)).statusCode, 200);
   assert.equal((await send('POST', templateMessagePath,
     { templateId: orgTemplateId, idempotencyKey: 'template-unbound' }, agent)).json().error,

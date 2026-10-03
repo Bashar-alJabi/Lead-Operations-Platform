@@ -2,6 +2,14 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { metaWhatsAppSendAdapter, ProviderSendError } from '../src/messaging/providers.js';
 import { metaTemplateAdapter, TemplateProviderError } from '../src/messaging/templates-provider.js';
+import { bodyParameterCount } from '../src/messaging/approved-template.js';
+
+test('BODY placeholders must be complete, sequential, and bounded', () => {
+  assert.equal(bodyParameterCount('Hello'), 0);
+  assert.equal(bodyParameterCount('Hello {{1}}, your {{2}} is ready for {{1}}'), 2);
+  for (const value of ['{{0}}', '{{01}}', '{{2}}', '{{1}} {{3}}', '{{x}}', '{{1', '{{1}} {{11}}', ''])
+    assert.equal(bodyParameterCount(value), null, value);
+});
 
 const input = { config: { wabaId: '1234567890', graphVersion: 'v25.0' },
   credentials: { accessToken: 'sandbox-only-token', appSecret: 'sandbox-secret', verifyToken: 'verify-token' },
@@ -60,6 +68,14 @@ test('Meta template adapter paginates catalog and creates a static text template
     assert.equal(templates[0]!.status, 'APPROVED');
     assert.equal((await metaTemplateAdapter.create(input.config, input.credentials,
       { name: 'notice', language: 'en_US', category: 'UTILITY', body: 'Hello' })).status, 'PENDING');
+    globalThis.fetch = async (_url, options) => {
+      assert.deepEqual(JSON.parse(String(options?.body)).components,
+        [{ type: 'BODY', text: 'Hello {{1}}', example: { body_text: [['Alice']] } }]);
+      return new Response(JSON.stringify({ id: '124', status: 'PENDING', category: 'UTILITY' }), { status: 200 });
+    };
+    assert.equal((await metaTemplateAdapter.create(input.config, input.credentials,
+      { name: 'notice_dynamic', language: 'en_US', category: 'UTILITY', body: 'Hello {{1}}',
+        examples: ['Alice'] })).externalId, '124');
     globalThis.fetch = async () => new Response('{}', { status: 400 });
     await assert.rejects(metaTemplateAdapter.create(input.config, input.credentials,
       { name: 'notice', language: 'en_US', category: 'UTILITY', body: 'Hello' }),
@@ -84,6 +100,15 @@ test('Meta send adapter sends an approved template by name and language', async 
     };
     assert.equal((await metaWhatsAppSendAdapter.sendTemplate!({ ...input,
       templateName: 'follow_up_notice', templateLanguage: 'en_US' })).providerMessageId, 'wamid.template');
+    globalThis.fetch = async (_url, options) => {
+      assert.deepEqual(JSON.parse(String(options?.body)).template.components,
+        [{ type: 'body', parameters: [{ type: 'text', text: 'Alice' },
+          { type: 'text', text: 'Monday' }] }]);
+      return new Response(JSON.stringify({ messages: [{ id: 'wamid.dynamic' }] }), { status: 200 });
+    };
+    assert.equal((await metaWhatsAppSendAdapter.sendTemplate!({ ...input,
+      templateName: 'follow_up_notice', templateLanguage: 'en_US',
+      bodyParameters: ['Alice', 'Monday'] })).providerMessageId, 'wamid.dynamic');
     await assert.rejects(metaWhatsAppSendAdapter.sendTemplate!({ ...input,
       templateName: 'INVALID NAME', templateLanguage: 'en_US' }),
     (error) => error instanceof ProviderSendError && error.kind === 'REJECTED');

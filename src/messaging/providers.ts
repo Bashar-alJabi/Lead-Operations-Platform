@@ -8,7 +8,8 @@ export interface MessagingProviderAdapter {
 
 export type SendTextInput = { config: MessagingConnectionConfig; credentials: MessagingCredentials;
   externalSenderId: string; recipient: string; body: string };
-export type SendTemplateInput = Omit<SendTextInput, 'body'> & { templateName: string; templateLanguage: string };
+export type SendTemplateInput = Omit<SendTextInput, 'body'> & { templateName: string;
+  templateLanguage: string; bodyParameters?: string[] };
 export interface MessagingSendAdapter {
   sendText(input: SendTextInput): Promise<{ providerMessageId: string }>;
   sendTemplate?(input: SendTemplateInput): Promise<{ providerMessageId: string }>;
@@ -55,10 +56,15 @@ export const metaWhatsAppSendAdapter: MessagingSendAdapter = {
   },
   async sendTemplate(input) {
     if (!/^[a-z0-9_]{1,512}$/.test(input.templateName)
-      || !/^[a-z]{2,3}(?:_[A-Z]{2})?$/.test(input.templateLanguage))
+      || !/^[a-z]{2,3}(?:_[A-Z]{2})?$/.test(input.templateLanguage)
+      || !Array.isArray(input.bodyParameters ?? []) || (input.bodyParameters?.length ?? 0) > 10
+      || (input.bodyParameters ?? []).some((value) => typeof value !== 'string' || !value.trim()
+        || value.length > 512 || /[\x00-\x1f\x7f]/.test(value)))
       throw new ProviderSendError('REJECTED', 'PROVIDER_TEMPLATE_INVALID');
     return sendMetaMessage(input, { type: 'template', template: {
       name: input.templateName, language: { code: input.templateLanguage },
+      ...(input.bodyParameters?.length ? { components: [{ type: 'body',
+        parameters: input.bodyParameters.map((text) => ({ type: 'text', text })) }] } : {}),
     } });
   },
 };

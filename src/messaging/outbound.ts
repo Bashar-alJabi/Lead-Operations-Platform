@@ -1,11 +1,12 @@
 import type { Database } from '../db.js';
+import { isDeepStrictEqual } from 'node:util';
 import { HttpError, type Principal } from '../security.js';
 import type { SendAuthor } from './policy.js';
 import { checkCurrentOutbound, lockOutboundScope } from './outbound-policy.js';
-import { approvedStaticTemplate } from './approved-template.js';
+import { approvedBodyTemplate } from './approved-template.js';
 
 export type OutboundRequest = { actor: Principal; conversationId: string; author: SendAuthor;
-  body?: string; templateId?: string; idempotencyKey: string };
+  body?: string; templateId?: string; templateParameters?: string[]; idempotencyKey: string };
 
 // Every caller, including future AI and automation tools, must enter here with an authorized principal.
 export async function enqueueOutboundMessage(db: Database, input: OutboundRequest): Promise<{
@@ -16,15 +17,21 @@ export async function enqueueOutboundMessage(db: Database, input: OutboundReques
     throw new HttpError(400, 'TEMPLATE_ID_INVALID');
   if (kind === 'TEMPLATE' && input.body !== undefined) throw new HttpError(400, 'TEMPLATE_BODY_NOT_ALLOWED');
   if (kind === 'TEXT' && !input.body?.trim()) throw new HttpError(400, 'MESSAGE_BODY_REQUIRED');
+  if (kind === 'TEXT' && input.templateParameters !== undefined)
+    throw new HttpError(400, 'TEMPLATE_PARAMETERS_NOT_ALLOWED');
   const outcome = await db.begin(async (tx) => {
     const locked = await lockOutboundScope(tx, input.actor, input.conversationId);
     const { scope, conversation } = locked;
-    const prior = (await tx`SELECT id, body, message_kind, template_id, author_type, author_user_id, delivery_state
+    const prior = (await tx`SELECT id, body, message_kind, template_id, template_snapshot,
+        author_type, author_user_id, delivery_state
       FROM conversation_message WHERE conversation_id = ${conversation.id}
         AND idempotency_key = ${input.idempotencyKey}`)[0];
     if (prior) {
       if (prior.message_kind !== kind || prior.template_id !== (input.templateId ?? null)
-          || (kind === 'TEXT' && prior.body !== input.body) || prior.author_type !== input.author ||
+          || (kind === 'TEXT' && prior.body !== input.body)
+          || (kind === 'TEMPLATE' && !isDeepStrictEqual(
+            prior.template_snapshot?.bodyParameters ?? [], input.templateParameters ?? []))
+          || prior.author_type !== input.author ||
           prior.author_user_id !== (input.author === 'HUMAN' ? input.actor.id : null))
         throw new HttpError(409, 'IDEMPOTENCY_KEY_REUSED');
       return { id: prior.id as string, deliveryState: prior.delivery_state as string, existing: true };
@@ -32,8 +39,8 @@ export async function enqueueOutboundMessage(db: Database, input: OutboundReques
     const decision = await checkCurrentOutbound(tx, locked, input.actor, input.author,
       undefined, input.templateId);
     if (!decision.allowed) return { blocked: decision.reason } as const;
-    const template = input.templateId ? await approvedStaticTemplate(tx,
-      conversation.connection_id, scope.campaign_id, input.templateId) : null;
+    const template = input.templateId ? await approvedBodyTemplate(tx,
+      conversation.connection_id, scope.campaign_id, input.templateId, input.templateParameters) : null;
     const body = template?.body ?? input.body!;
     const message = (await tx`INSERT INTO conversation_message (conversation_id, connection_id,
         sender_id, direction, author_type, author_user_id, body, delivery_state, idempotency_key,

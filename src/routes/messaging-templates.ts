@@ -6,6 +6,7 @@ import { HttpError, principalFromRequest, requireRole, type Principal } from '..
 import { metaTemplateAdapter, TemplateProviderError, type MessagingTemplateAdapter,
   type CreateTemplateInput, type ProviderTemplate } from '../messaging/templates-provider.js';
 import type { MessagingConnectionConfig, MessagingCredentials } from '../messaging/providers.js';
+import { bodyParameterCount } from '../messaging/approved-template.js';
 
 const params = { type: 'object', additionalProperties: false, required: ['id'],
   properties: { id: { type: 'string', format: 'uuid' } } } as const;
@@ -16,6 +17,8 @@ const createSchema = { type: 'object', additionalProperties: false,
     language: { type: 'string', pattern: '^[a-z]{2,3}(_[A-Z]{2})?$' },
     category: { type: 'string', enum: ['MARKETING','UTILITY'] },
     body: { type: 'string', minLength: 1, maxLength: 1024 },
+    examples: { type: 'array', maxItems: 10, items: {
+      type: 'string', minLength: 1, maxLength: 512 } },
   } } as const;
 
 async function connectionFor(db: Database, actor: Principal, id: string) {
@@ -188,7 +191,11 @@ export function registerMessagingTemplateRoutes(app: FastifyInstance, db: Databa
       const connection = await connectionFor(db, actor, request.params.id);
       if (connection.status === 'DISABLED') throw new HttpError(409, 'CONNECTION_DISABLED');
       const { idempotencyKey, ...input } = request.body;
-      if (!input.body.trim() || /\{\{|\}\}/.test(input.body)) throw new HttpError(400, 'TEMPLATE_BODY_INVALID');
+      const count = bodyParameterCount(input.body);
+      if (count === null) throw new HttpError(400, 'TEMPLATE_BODY_INVALID');
+      if ((input.examples?.length ?? 0) !== count || input.examples?.some((value) =>
+        !value.trim() || /[\x00-\x1f\x7f]/.test(value)))
+        throw new HttpError(400, 'TEMPLATE_EXAMPLES_INVALID');
       const credentials = await credentialsFor(db, connection.id);
       const hash = createHash('sha256').update(JSON.stringify(input)).digest('hex');
       const reservation = await db.begin(async (tx) => {

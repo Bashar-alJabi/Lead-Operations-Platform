@@ -3,6 +3,7 @@ import type { Database } from '../db.js';
 import { HttpError, principalFromRequest } from '../security.js';
 import { decodeCursor, encodeCursor } from '../pagination.js';
 import { enqueueOutboundMessage } from '../messaging/outbound.js';
+import { bodyParameterCount } from '../messaging/approved-template.js';
 
 const idParam = { type: 'object', additionalProperties: false, required: ['id'],
   properties: { id: { type: 'string', format: 'uuid' } } } as const;
@@ -67,25 +68,31 @@ export function registerConversationMessageRoutes(app: FastifyInstance, db: Data
               AND b.campaign_id = ${authorized.campaign_id} AND b.active)
           AND components->0->>'type' = 'BODY'
           AND length(components->0->>'text') BETWEEN 1 AND 1024
-          AND components->0->>'text' NOT LIKE '%{{%'
-          AND components->0->>'text' NOT LIKE '%}}%'
           AND (${request.query.after ?? null}::uuid IS NULL OR id > ${request.query.after ?? null}::uuid)
         ORDER BY id LIMIT ${limit + 1}`;
-      const items = rows.slice(0, limit);
-      return { items, nextAfter: rows.length > limit ? items.at(-1)!.id : null };
+      const page = rows.slice(0, limit);
+      const items = page.flatMap((row) => {
+        const parameterCount = bodyParameterCount(row.body);
+        return parameterCount === null ? [] : [{ ...row, parameterCount }];
+      });
+      return { items, nextAfter: rows.length > limit ? page.at(-1)!.id : null };
     });
 
-  app.post<{ Params: { id: string }; Body: { body?: string; templateId?: string; idempotencyKey: string } }>(
+  app.post<{ Params: { id: string }; Body: { body?: string; templateId?: string;
+    templateParameters?: string[]; idempotencyKey: string } }>(
     '/api/conversations/:id/messages', { schema: { params: idParam, body: {
       type: 'object', additionalProperties: false, required: ['idempotencyKey'], properties: {
         body: { type: 'string', minLength: 1, maxLength: 20000 },
         templateId: { type: 'string', format: 'uuid' },
+        templateParameters: { type: 'array', maxItems: 10, items: {
+          type: 'string', minLength: 1, maxLength: 512 } },
         idempotencyKey: { type: 'string', pattern: '^[A-Za-z0-9._:-]{8,128}$' },
       },
     } } }, async (request, reply) => {
       const actor = await principalFromRequest(request, db);
       const result = await enqueueOutboundMessage(db, { actor, conversationId: request.params.id,
         author: 'HUMAN', body: request.body.body, templateId: request.body.templateId,
+        templateParameters: request.body.templateParameters,
         idempotencyKey: request.body.idempotencyKey });
       reply.code(result.existing ? 200 : 202);
       return result;
