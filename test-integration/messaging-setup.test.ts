@@ -279,6 +279,43 @@ test('Messaging setup encrypts credentials, scopes connections, and discovers se
   assert.equal((await send('POST', `/api/leads/${leadId}/conversations`, undefined, managerA)).json().error,
     'CONNECTION_SENDER_MISMATCH');
   assert.equal((await db`SELECT count(*)::integer AS n FROM audit_log WHERE action = 'CONVERSATION_OPENED'`)[0]!.n, 2);
+  const consentPath = `/api/leads/${leadId}/messaging-consent`;
+  assert.equal((await send('GET', consentPath, undefined, agent)).statusCode, 404);
+  assert.equal((await send('GET', consentPath, undefined, managerA)).json().version, 0);
+  assert.equal((await send('PUT', consentPath, { version: 0, status: 'GRANTED',
+    doNotContact: false, evidence: 'Form checkbox', source: 'WEB_FORM' }, agent)).statusCode, 403);
+  assert.equal((await send('PUT', consentPath, { version: 0, status: 'GRANTED',
+    doNotContact: false, evidence: null, source: 'WEB_FORM' }, managerA)).statusCode, 400);
+  const granted = await send('PUT', consentPath, { version: 0, status: 'GRANTED',
+    doNotContact: false, evidence: 'Form checkbox', source: 'WEB_FORM' }, managerA);
+  assert.equal(granted.statusCode, 200, granted.body);
+  assert.equal(granted.json().version, 1);
+  assert.equal((await send('PUT', consentPath, { version: 1, status: 'GRANTED',
+    doNotContact: false, evidence: 'Form checkbox', source: 'WEB_FORM' }, managerA)).json().unchanged, true);
+  const consentRace = await Promise.all(['GRANTED','REVOKED'].map((status) => send('PUT', consentPath,
+    { version: 1, status, doNotContact: true, evidence: 'Customer request', source: 'CALL' }, managerA)));
+  assert.deepEqual(consentRace.map((response) => response.statusCode).sort(), [200,409]);
+  assert.equal((await db`SELECT count(*)::integer AS n FROM messaging_consent_history
+    WHERE contact_id = ${contactId}`)[0]!.n, 2);
+  assert.equal((await send('GET', consentPath, undefined, managerA)).json().do_not_contact, true);
+  const branchBCampaign = await send('POST', '/api/campaigns', { branchId: branchB, name: 'B shared' }, managerB);
+  assert.equal(branchBCampaign.statusCode, 201, branchBCampaign.body);
+  const branchBLeadId = (await db`INSERT INTO lead (organization_id, branch_id, campaign_id, contact_id, source_kind)
+    VALUES (${organizationId}, ${branchB}, ${branchBCampaign.json().id}, ${contactId}, 'MANUAL') RETURNING id`)[0]!.id as string;
+  assert.equal((await send('GET', `/api/leads/${branchBLeadId}/messaging-consent`, undefined, managerB))
+    .json().do_not_contact, true);
+  assert.equal((await send('PUT', consentPath, { version: 2, status: 'REVOKED',
+    doNotContact: true, evidence: 'Customer request', source: 'CALL' }, managerA)).statusCode, 403);
+  assert.equal((await send('PUT', `/api/leads/${branchBLeadId}/messaging-consent`, { version: 2,
+    status: 'REVOKED', doNotContact: true, evidence: 'Customer request', source: 'CALL' }, managerB)).statusCode, 403);
+  assert.equal((await send('PUT', consentPath, { version: 2, status: 'UNKNOWN',
+    doNotContact: true, evidence: 'Admin review', source: 'ADMIN' }, admin)).statusCode, 200);
+  assert.equal((await db`SELECT count(*)::integer AS n FROM messaging_consent_history
+    WHERE contact_id = ${contactId}`)[0]!.n, 3);
+  await db`UPDATE lead SET assigned_agent_id = ${agentId} WHERE id = ${leadId}`;
+  const agentConsent = await send('GET', consentPath, undefined, agent);
+  assert.equal(agentConsent.statusCode, 200, agentConsent.body);
+  assert.equal(agentConsent.json().editable, false);
   assert.ok((await db`SELECT 1 FROM audit_log WHERE action = 'CAMPAIGN_SENDER_OVERRIDE_SET'
     AND target_id = ${campaignId}`).length);
   const flood = await Promise.all(Array.from({ length: 12 }, () => send('POST',

@@ -1,6 +1,14 @@
 # تقدم التنفيذ
 
-## آخر حالة مستقرة: Conversation opening وSender pinning
+## آخر حالة مستقرة: Messaging consent/contactability
+
+أضيفت migration `017_messaging_consent.sql` وAPI وواجهة داخل Lead لحالة WhatsApp Consent وDo-not-contact مع source/evidence ووقت آخر تحديث. حالة `UNKNOWN` هي الأصل عند غياب السجل. منح `GRANTED` يتطلب evidence؛ كل تغيير يحفظ نسخة متزايدة في `messaging_consent_history` وAudit، والطلب المتكرر دون تغيير لا يولد تاريخًا جديدًا. Agent يقرأ حالة Lead المسموح بها ولا يعدلها؛ Manager يغير Contact محصورة في فرعه؛ Contact المشتركة بين الفروع يغيرها Super Admin فقط. Do-not-contact مستقل عن حالة opt-in حتى يمكن حفظ طلب المنع دون طمس التاريخ السابق. لا يحدث إرسال في هذا المسار.
+
+التحقق: migrations `001`–`017` على قاعدتي التطوير والاختبار؛ 6/6 مجموعات integration على PostgreSQL تفحص evidence والنطاق والمشاركة بين الفروع والنسخة والتكرار وسباق طلبين والتاريخ، وBackend/Web typecheck/build ناجحة. يعاد `npm test` قبل commit. UI E2E غير مشغّل.
+
+الخطوة التالية الدقيقة: إعداد Branch/Campaign sending window/timezone وfrequency/max-attempt والـtemplate/consent requirements في Backend والواجهة مع نسخ/Audit واختبارات سلبية؛ ثم خدمة outbound واحدة تتحقق من هذه القواعد والـcontroller والـsender وتكتب Message `QUEUED` وjob atomically مع idempotency. بعد checkpoint آخر، worker/provider send/delivery ثم inbound webhook/review.
+
+## نقطة تحقق سابقة: Conversation opening وSender pinning
 
 أضيفت migration `016_conversation_pin.sql` وقيد يمنع أكثر من Conversation نشطة للقناة نفسها على Lead واحدة. مسار فتح محادثة WhatsApp يقفل Lead، يفحص وصول المستخدم وحالة Lead ورقم Contact، ويعيد Conversation القائمة أو ينشئ واحدة بمرسل/اتصال مثبتين من خدمة الحسم. لا يغيّر Controller محادثة قائمة. عند فقد صلاحية الرقم المثبت أو تغير رقم Contact أو اختلاف Connection المحفوظ عن Sender، يُحفظ `needs_attention_reason` ويعاد `409` بلا نقل صامت أو إنشاء بديل. قائمة المحادثات وتفاصيلها تفحصان Lead access في SQL وتدعمان pagination؛ واجهة Lead تعرض المحادثات وتفتحها دون إرسال رسالة.
 
