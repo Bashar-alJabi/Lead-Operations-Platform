@@ -124,7 +124,8 @@ export function registerMessagingSetupRoutes(app: FastifyInstance, db: Database,
       if (rows[0]!.status === 'DISABLED') throw new HttpError(409, 'CONNECTION_DISABLED');
       const updated = await tx`UPDATE integration_connection SET name = ${request.body.name.trim()},
         config = ${tx.json(request.body.config)}, status = 'NOT_CONFIGURED', version = version + 1,
-        last_error_code = NULL, updated_at = now() WHERE id = ${request.params.id} RETURNING version`;
+        capabilities = '{}'::jsonb, last_error_code = NULL, updated_at = now()
+        WHERE id = ${request.params.id} RETURNING version`;
       if (sealed) await tx`UPDATE connection_secret SET ciphertext = ${sealed.ciphertext}, nonce = ${sealed.nonce},
         auth_tag = ${sealed.authTag}, key_version = ${sealed.keyVersion}, updated_at = now()
         WHERE connection_id = ${request.params.id}`;
@@ -197,7 +198,8 @@ export function registerMessagingSetupRoutes(app: FastifyInstance, db: Database,
     const connection = await managedConnection(db, actor, request.params.id);
     return db.begin(async (tx) => {
       const updated = await tx`UPDATE integration_connection SET status = ${request.body.disabled ? 'DISABLED' : 'NOT_CONFIGURED'},
-        version = version + 1, updated_at = now() WHERE id = ${connection.id} AND version = ${request.body.version} RETURNING version`;
+        capabilities = '{}'::jsonb, version = version + 1, updated_at = now()
+        WHERE id = ${connection.id} AND version = ${request.body.version} RETURNING version`;
       if (!updated.length) throw new HttpError(409, 'CONNECTION_VERSION_CONFLICT');
       await tx`UPDATE messaging_sender SET health = 'UNKNOWN' WHERE connection_id = ${connection.id}`;
       if (request.body.disabled) await tx`UPDATE provider_message_template SET active = false

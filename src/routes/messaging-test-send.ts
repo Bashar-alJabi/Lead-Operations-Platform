@@ -44,7 +44,8 @@ export function registerMessagingTestSendRoutes(app: FastifyInstance, db: Databa
       if (!connection) throw new HttpError(404, 'MESSAGING_CONNECTION_NOT_FOUND');
       const limit = request.query.limit ?? 30;
       const rows = await db`SELECT r.id, r.connection_version, r.sender_id, r.template_id,
-          r.recipient_last4, r.state, r.provider_message_id, r.error_code, r.created_at, r.updated_at
+          r.recipient_last4, r.state, r.delivery_state, r.provider_message_id, r.error_code,
+          r.created_at, r.updated_at
         FROM messaging_connection_test_send r WHERE r.connection_id = ${connection.id}
           AND (${request.query.before ?? null}::uuid IS NULL OR (r.created_at, r.id) <
             (SELECT created_at, id FROM messaging_connection_test_send WHERE id = ${request.query.before ?? null}::uuid
@@ -155,6 +156,7 @@ export function registerMessagingTestSendRoutes(app: FastifyInstance, db: Databa
         const validVersion = current.version === connection.version && current.status !== 'DISABLED';
         const ready = state === 'SUCCEEDED' && validVersion && sender.active && sender.operator_enabled;
         await tx`UPDATE messaging_connection_test_send SET state = ${state}, provider_message_id = ${providerMessageId},
+          delivery_state = ${state === 'SUCCEEDED' ? 'SENT' : null},
           error_code = ${errorCode}, updated_at = now() WHERE id = ${claimed.id}`;
         if (ready) {
           await tx`UPDATE integration_connection SET status = 'CONNECTED',

@@ -14,6 +14,7 @@ import { registerLeadWorkflowRoutes } from './routes/lead-workflow.js';
 import { registerLeadViewRoutes } from './routes/lead-views.js';
 import { registerMessagingSetupRoutes } from './routes/messaging-setup.js';
 import { registerMessagingTestSendRoutes } from './routes/messaging-test-send.js';
+import { registerMetaMessagingWebhookRoutes } from './routes/meta-messaging-webhook.js';
 import { registerMessagingTemplateRoutes } from './routes/messaging-templates.js';
 import { registerCampaignTemplateRoutes } from './routes/campaign-templates.js';
 import { registerSenderBindingRoutes } from './routes/sender-bindings.js';
@@ -73,6 +74,7 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   registerLeadViewRoutes(app, db);
   registerMessagingSetupRoutes(app, db, options.messagingAdapter);
   registerMessagingTestSendRoutes(app, db, options.messagingSendAdapter);
+  registerMetaMessagingWebhookRoutes(app, db);
   registerMessagingTemplateRoutes(app, db, options.messagingTemplateAdapter);
   registerCampaignTemplateRoutes(app, db);
   registerSenderBindingRoutes(app, db);

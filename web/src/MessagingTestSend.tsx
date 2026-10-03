@@ -5,7 +5,8 @@ type Sender = { id: string; display_name: string; active: boolean; operator_enab
 type Template = { id: string; name: string; language: string; status: string; active: boolean;
   components: unknown };
 type Attempt = { id: string; sender_id: string; template_id: string; recipient_last4: string;
-  state: string; error_code: string | null; provider_message_id: string | null; created_at: string };
+  state: string; delivery_state: string | null; error_code: string | null;
+  provider_message_id: string | null; created_at: string };
 const labels = {
   ar: { title: 'اختبار الإرسال', note: 'استخدم رقم اختبار تتحكم به ومسموح بمراسلته. قبول المزود يثبت مسار الإرسال لهذا الرقم فقط؛ التسليم والـWebhook لم يُتحققا بعد.',
     sender: 'رقم الإرسال', template: 'قالب معتمد', recipient: 'رقم المستلم بصيغة + الدولية',
@@ -101,6 +102,7 @@ export function MessagingTestSend({ connectionId, status, senders, locale, api, 
     <h4>{t.history}</h4>{!attempts.length && <p>{t.none}</p>}
     {attempts.length > 0 && <ul>{attempts.map((attempt) => <li key={attempt.id}>
       {new Date(attempt.created_at).toLocaleString(locale)} · …{attempt.recipient_last4} · {attempt.state}
+      {attempt.delivery_state && ` · ${attempt.delivery_state}`}
       {attempt.error_code && ` · ${attempt.error_code}`}
     </li>)}</ul>}
     {attemptBefore && <button className="secondary" onClick={() => void loadAttempts(attemptBefore).catch((failure) => setError(String(failure)))}>{t.more}</button>}

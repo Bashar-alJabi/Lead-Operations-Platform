@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { test } from 'node:test';
 import { buildApp } from '../src/app.js';
 import { createDatabase } from '../src/db.js';
@@ -10,6 +10,7 @@ import { TemplateProviderError, type MessagingTemplateAdapter,
   type ProviderTemplate } from '../src/messaging/templates-provider.js';
 import { resolveConfiguredSender } from '../src/messaging/sender-resolution.js';
 import { processOneMessagingJob } from '../src/messaging/send-worker.js';
+import { processOnePendingDeliveryEvent } from '../src/messaging/delivery-events.js';
 
 const url = process.env.TEST_DATABASE_URL;
 if (!url || new URL(url).pathname !== '/lead_operations_test') throw new Error('Isolated TEST_DATABASE_URL required');
@@ -918,5 +919,183 @@ test('Meta operational test send requires approved template, scopes access, and 
   assert.equal(afterRotation.json().outboundReady, false);
   assert.equal((await db`SELECT status FROM integration_connection WHERE id = ${connectionId}`)[0]!.status,
     'NOT_CONFIGURED');
+  assert.deepEqual((await db`SELECT capabilities FROM integration_connection WHERE id = ${connectionId}`)[0]!
+    .capabilities, {});
   assert.equal(calls, 4);
+});
+
+test('signed Meta callbacks preserve delivery history and never regress on replay or out-of-order status', async (t) => {
+  process.env.APP_ORIGIN = 'http://127.0.0.1:5173';
+  process.env.BOOTSTRAP_TOKEN = randomBytes(32).toString('base64url');
+  process.env.CREDENTIAL_ENCRYPTION_KEY = randomBytes(32).toString('hex');
+  const db = createDatabase(url);
+  const app = await buildApp(db, { logger: false, globalRateLimitMax: 1000,
+    messagingAdapter: { async discoverSenders() { return [{ externalId: '15550001111',
+      displayName: 'Test sender', qualityRating: 'GREEN' }]; } } });
+  t.after(async () => { await app.close(); await db.end(); });
+  await db.begin(async (tx) => { await tx`SET LOCAL client_min_messages TO warning`;
+    await tx`TRUNCATE background_job CASCADE`; await tx`TRUNCATE organization CASCADE`; });
+  const api = (method: 'GET'|'POST', path: string, payload?: object, cookie?: string) => app.inject({
+    method, url: path, payload, headers: { origin: process.env.APP_ORIGIN!, ...(cookie ? { cookie } : {}) },
+  });
+  const password = 'Test password 12345!';
+  assert.equal((await api('POST', '/api/setup/bootstrap', { token: process.env.BOOTSTRAP_TOKEN,
+    organizationName: 'Webhook Org', name: 'Owner', email: 'owner@example.test', password })).statusCode, 201);
+  const login = async (email: string) => {
+    const response = await api('POST', '/api/auth/login', { email, password });
+    assert.equal(response.statusCode, 200, response.body);
+    return (response.headers['set-cookie'] as string).split(';')[0]!;
+  };
+  const admin = await login('owner@example.test');
+  const branchId = (await api('POST', '/api/branches', { name: 'A', timezone: 'UTC' }, admin)).json().id as string;
+  const otherBranchId = (await api('POST', '/api/branches', { name: 'B', timezone: 'UTC' }, admin)).json().id as string;
+  const orgId = (await db`SELECT id FROM organization LIMIT 1`)[0]!.id as string;
+  const hash = await passwordHash(password);
+  for (const [email, branch, role] of [
+    ['manager@example.test', branchId, 'MANAGER'], ['other@example.test', otherBranchId, 'MANAGER'],
+    ['agent@example.test', branchId, 'AGENT'],
+  ] as const) await db`INSERT INTO user_account (organization_id, branch_id, role, name, email, password_hash)
+    VALUES (${orgId}, ${branch}, ${role}, ${email}, ${email}, ${hash})`;
+  const manager = await login('manager@example.test');
+  const other = await login('other@example.test');
+  const agent = await login('agent@example.test');
+  const managerId = (await db`SELECT id FROM user_account WHERE email = 'manager@example.test'`)[0]!.id as string;
+  const appSecret = 'test-app-secret-123456789';
+  const verifyToken = 'test-verify-token-123456789';
+  const setup = await api('POST', '/api/messaging/connections', { name: 'Webhook sender',
+    config: { wabaId: '123456789012345', graphVersion: 'v25.0' },
+    credentials: { accessToken: 'test-access-token-123456789', appSecret, verifyToken } }, manager);
+  assert.equal(setup.statusCode, 201, setup.body);
+  const connectionId = setup.json().id as string;
+  assert.equal((await api('POST', `/api/messaging/connections/${connectionId}/test`, undefined, manager)).statusCode, 200);
+  const senderId = (await db`SELECT id FROM messaging_sender WHERE connection_id = ${connectionId}`)[0]!.id as string;
+  const campaignId = (await db`INSERT INTO campaign (organization_id, branch_id, name)
+    VALUES (${orgId}, ${branchId}, 'Callbacks') RETURNING id`)[0]!.id as string;
+  const contactId = (await db`INSERT INTO contact (organization_id, name, phone, phone_normalized)
+    VALUES (${orgId}, 'Recipient', '+15550009999', '+15550009999') RETURNING id`)[0]!.id as string;
+  const leadId = (await db`INSERT INTO lead (organization_id, branch_id, campaign_id, contact_id, source_kind)
+    VALUES (${orgId}, ${branchId}, ${campaignId}, ${contactId}, 'MANUAL') RETURNING id`)[0]!.id as string;
+  const conversationId = (await db`INSERT INTO conversation (lead_id, connection_id, sender_id, channel,
+    participant_ref, controller_type, controller_user_id, state)
+    VALUES (${leadId}, ${connectionId}, ${senderId}, 'WHATSAPP', '+15550009999',
+      'HUMAN', ${managerId}, 'HUMAN_ACTIVE') RETURNING id`)[0]!.id as string;
+  const messageId = (await db`INSERT INTO conversation_message (conversation_id, connection_id, sender_id,
+    direction, author_type, author_user_id, body, provider_message_id, delivery_state, delivery_rank, sent_at)
+    VALUES (${conversationId}, ${connectionId}, ${senderId}, 'OUTBOUND', 'HUMAN', ${managerId},
+      'Hello', 'wamid.callback-1', 'SENT', 1, now()) RETURNING id`)[0]!.id as string;
+  const path = `/api/webhooks/messaging/meta/${connectionId}`;
+  const infoPath = `/api/messaging/connections/${connectionId}/webhook`;
+  const eventsPath = `/api/messaging/connections/${connectionId}/events`;
+  assert.equal((await api('GET', infoPath, undefined, agent)).statusCode, 403);
+  assert.equal((await api('GET', eventsPath, undefined, other)).statusCode, 404);
+  assert.equal((await api('GET', infoPath, undefined, manager)).json().signedCallbackVerified, false);
+  const verify = (token: string) => app.inject({ method: 'GET',
+    url: `${path}?hub.mode=subscribe&hub.verify_token=${encodeURIComponent(token)}&hub.challenge=challenge-123` });
+  assert.equal((await verify('wrong-token')).statusCode, 403);
+  const verified = await verify(verifyToken);
+  assert.equal(verified.statusCode, 200, verified.body);
+  assert.equal(verified.body, 'challenge-123');
+  assert.equal((await api('GET', infoPath, undefined, manager)).json().handshakeVerified, true);
+  const callback = (payload: object, signed = true) => {
+    const raw = JSON.stringify(payload);
+    const signature = `sha256=${createHmac('sha256', appSecret).update(raw).digest('hex')}`;
+    return app.inject({ method: 'POST', url: path, payload: raw, headers: {
+      'content-type': 'application/json', ...(signed ? { 'x-hub-signature-256': signature } : {}),
+    } });
+  };
+  const epoch = Math.floor(Date.now() / 1000);
+  const payload = (status: string, timestamp: number, id = 'wamid.callback-1',
+    sender = '15550001111') => ({ object: 'whatsapp_business_account', entry: [{ id: '123456789012345',
+      changes: [{ field: 'messages', value: { messaging_product: 'whatsapp',
+        metadata: { phone_number_id: sender }, statuses: [{ id, status,
+          timestamp: String(timestamp), recipient_id: '15550009999' }] } }] }] });
+  const delivered = payload('delivered', epoch);
+  assert.equal((await callback(delivered, false)).statusCode, 403);
+  const badSignature = await app.inject({ method: 'POST', url: path, payload: JSON.stringify(delivered),
+    headers: { 'content-type': 'application/json', 'x-hub-signature-256': 'sha256=' + '0'.repeat(64) } });
+  assert.equal(badSignature.statusCode, 403);
+  assert.equal((await callback({ ...delivered, entry: [{ id: 'wrong-waba', changes: delivered.entry[0]!.changes }] }))
+    .statusCode, 400);
+  assert.equal((await callback({ bad: 'payload' })).statusCode, 400);
+  const first = await callback(delivered);
+  assert.equal(first.statusCode, 200, first.body);
+  assert.equal(first.json().created, 1);
+  assert.equal((await db`SELECT delivery_state, delivery_rank FROM conversation_message WHERE id = ${messageId}`)[0]!
+    .delivery_state, 'DELIVERED');
+  assert.equal((await callback(delivered)).json().created, 0);
+  assert.equal((await callback(payload('read', epoch + 20))).statusCode, 200);
+  assert.equal((await callback(payload('sent', epoch - 20))).statusCode, 200);
+  assert.equal((await callback(payload('failed', epoch + 30))).statusCode, 200);
+  const current = (await db`SELECT delivery_state, delivery_rank FROM conversation_message WHERE id = ${messageId}`)[0]!;
+  assert.equal(current.delivery_state, 'READ');
+  assert.equal(current.delivery_rank, 4);
+  assert.equal((await db`SELECT count(*)::integer AS n FROM message_delivery_event
+    WHERE message_id = ${messageId}`)[0]!.n, 4);
+  assert.equal((await api('GET', infoPath, undefined, manager)).json().signedCallbackVerified, true);
+  assert.equal((await db`SELECT health FROM messaging_sender WHERE id = ${senderId}`)[0]!.health, 'HEALTHY');
+  const unknown = await callback(payload('delivered', epoch + 40, 'wamid.late'));
+  assert.equal(unknown.statusCode, 200, unknown.body);
+  assert.equal((await db`SELECT state, failure_code FROM integration_event
+    WHERE connection_id = ${connectionId} AND payload->>'providerMessageId' = 'wamid.late'`)[0]!
+    .failure_code, 'MESSAGE_NOT_FOUND');
+  const lateMessageId = (await db`INSERT INTO conversation_message (conversation_id, connection_id, sender_id,
+    direction, author_type, author_user_id, body, provider_message_id, delivery_state, delivery_rank, sent_at)
+    VALUES (${conversationId}, ${connectionId}, ${senderId}, 'OUTBOUND', 'HUMAN', ${managerId},
+      'Late', 'wamid.late', 'SENT', 1, now()) RETURNING id`)[0]!.id as string;
+  assert.equal(await processOnePendingDeliveryEvent(db), true);
+  assert.equal((await db`SELECT delivery_state FROM conversation_message WHERE id = ${lateMessageId}`)[0]!
+    .delivery_state, 'DELIVERED');
+  assert.equal(await processOnePendingDeliveryEvent(db), false);
+  const templateId = (await db`INSERT INTO provider_message_template
+    (connection_id, external_template_id, name, language, status, components)
+    VALUES (${connectionId}, '991', 'callback_test', 'en_US', 'APPROVED',
+      ${db.json([{ type: 'BODY', text: 'Test' }])}) RETURNING id`)[0]!.id as string;
+  await db`INSERT INTO messaging_connection_test_send (connection_id, connection_version,
+    sender_id, template_id, idempotency_key, request_hash, recipient_last4, state,
+    provider_message_id, delivery_state, created_by)
+    VALUES (${connectionId}, 1, ${senderId}, ${templateId}, 'webhook-test-attempt', 'test-hash',
+      '9999', 'SUCCEEDED', 'wamid.test-callback', 'SENT', ${managerId})`;
+  assert.equal((await callback(payload('delivered', epoch + 50, 'wamid.test-callback'))).statusCode, 200);
+  assert.equal((await db`SELECT delivery_state FROM messaging_connection_test_send
+    WHERE provider_message_id = 'wamid.test-callback'`)[0]!.delivery_state, 'DELIVERED');
+  const failedMessageId = (await db`INSERT INTO conversation_message (conversation_id, connection_id, sender_id,
+    direction, author_type, author_user_id, body, provider_message_id, delivery_state, delivery_rank, sent_at)
+    VALUES (${conversationId}, ${connectionId}, ${senderId}, 'OUTBOUND', 'HUMAN', ${managerId},
+      'Failed', 'wamid.failed-then-delivered', 'SENT', 1, now()) RETURNING id`)[0]!.id as string;
+  assert.equal((await callback(payload('failed', epoch + 60, 'wamid.failed-then-delivered'))).statusCode, 200);
+  assert.equal((await db`SELECT delivery_state FROM conversation_message WHERE id = ${failedMessageId}`)[0]!
+    .delivery_state, 'FAILED');
+  assert.equal((await callback(payload('sent', epoch + 55, 'wamid.failed-then-delivered'))).statusCode, 200);
+  assert.equal((await db`SELECT delivery_state FROM conversation_message WHERE id = ${failedMessageId}`)[0]!
+    .delivery_state, 'FAILED');
+  assert.equal((await callback(payload('delivered', epoch + 70, 'wamid.failed-then-delivered'))).statusCode, 200);
+  assert.equal((await db`SELECT delivery_state FROM conversation_message WHERE id = ${failedMessageId}`)[0]!
+    .delivery_state, 'DELIVERED');
+  const secondSender = (await db`INSERT INTO messaging_sender
+    (organization_id, connection_id, external_sender_id, display_name)
+    VALUES (${orgId}, ${connectionId}, '15550002222', 'Other sender') RETURNING id`)[0]!.id as string;
+  assert.ok(secondSender);
+  assert.equal((await callback(payload('read', epoch + 80, 'wamid.callback-1', '15550002222'))).statusCode, 200);
+  assert.equal((await db`SELECT failure_code FROM integration_event WHERE connection_id = ${connectionId}
+    AND sender_id = ${secondSender}`)[0]!.failure_code, 'SENDER_MISMATCH');
+  const wrongRecipient = payload('read', epoch + 90);
+  wrongRecipient.entry[0]!.changes[0]!.value.statuses[0]!.recipient_id = '15550008888';
+  assert.equal((await callback(wrongRecipient)).statusCode, 200);
+  assert.ok((await db`SELECT 1 FROM integration_event WHERE connection_id = ${connectionId}
+    AND failure_code = 'PARTICIPANT_MISMATCH'`).length);
+  assert.equal(await processOnePendingDeliveryEvent(db), false);
+  const inbound = { object: 'whatsapp_business_account', entry: [{ id: '123456789012345',
+    changes: [{ field: 'messages', value: { messaging_product: 'whatsapp',
+      metadata: { phone_number_id: '15550001111' }, messages: [{ id: 'wamid.inbound-1',
+        from: '15550009999', timestamp: String(epoch), type: 'text', text: { body: '<script>alert(1)</script>' } }] } }] }] };
+  assert.equal((await callback(inbound)).statusCode, 200);
+  assert.equal((await callback(inbound)).json().created, 0);
+  const attention = (await api('GET', infoPath, undefined, manager)).json();
+  assert.equal(attention.needsAttention, 3);
+  const events = await api('GET', eventsPath, undefined, manager);
+  assert.equal(events.statusCode, 200, events.body);
+  assert.equal(events.body.includes('15550009999'), false);
+  assert.equal(events.body.includes('<script>'), false);
+  assert.ok(events.json().items.some((event: { event_kind: string; state: string }) =>
+    event.event_kind === 'INBOUND_MESSAGE' && event.state === 'NEEDS_ATTENTION'));
 });
