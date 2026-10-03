@@ -4,6 +4,7 @@ import './style.css';
 import { ContactWorkspace } from './ContactWorkspace.js';
 import { LeadFields, LeadCreationFields } from './LeadFields.js';
 import { FieldWorkspace } from './FieldWorkspace.js';
+import { CampaignWorkspace } from './CampaignWorkspace.js';
 
 type Role = 'SUPER_ADMIN' | 'MANAGER' | 'AGENT';
 type User = { id: string; organizationId: string; branchId: string | null; role: Role; name: string; email: string };
@@ -76,6 +77,7 @@ function App() {
   const [selectedLead, setSelectedLead] = useState<string | null>(null);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [nextCampaignCursor, setNextCampaignCursor] = useState<string | null>(null);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [nextLeadCursor, setNextLeadCursor] = useState<string | null>(null);
   const [users, setUsers] = useState<ManagedUser[]>([]);
@@ -86,7 +88,7 @@ function App() {
   const [form, setForm] = useState<Record<string, string>>({});
   const [leadFieldValues, setLeadFieldValues] = useState<Record<string, unknown>>({});
   const [showForm, setShowForm] = useState(false);
-  const [campaignAgentChoice, setCampaignAgentChoice] = useState<Record<string, string>>({});
+  const [selectedCampaign, setSelectedCampaign] = useState<string | null>(null);
   const [emailConnection, setEmailConnection] = useState<EmailConnection | null>(null);
   const [deliveryJobs, setDeliveryJobs] = useState<DeliveryJob[]>([]);
   const [nextDeliveryCursor, setNextDeliveryCursor] = useState<string | null>(null);
@@ -113,11 +115,11 @@ function App() {
     setBusy(true); setError('');
     try {
       const [branchResult, campaignResult, leadResult, userResult] = await Promise.all([
-        api<{ items: Branch[] }>('/api/branches'), api<{ items: Campaign[] }>('/api/campaigns'),
+        api<{ items: Branch[] }>('/api/branches'), api<{ items: Campaign[]; nextCursor: string | null }>('/api/campaigns'),
         api<{ items: Lead[]; nextCursor: string | null }>('/api/leads?limit=50'),
         user.role === 'AGENT' ? Promise.resolve({ items: [] as ManagedUser[], nextCursor: null }) : api<{ items: ManagedUser[]; nextCursor: string | null }>('/api/users'),
       ]);
-      setBranches(branchResult.items); setCampaigns(campaignResult.items); setLeads(leadResult.items); setNextLeadCursor(leadResult.nextCursor); setUsers(userResult.items); setNextUserCursor(userResult.nextCursor);
+      setBranches(branchResult.items); setCampaigns(campaignResult.items); setNextCampaignCursor(campaignResult.nextCursor); setLeads(leadResult.items); setNextLeadCursor(leadResult.nextCursor); setUsers(userResult.items); setNextUserCursor(userResult.nextCursor);
     } catch (failure) { setError(String(failure)); } finally { setBusy(false); }
   }
   useEffect(() => { void refresh(); }, [user?.id]);
@@ -217,7 +219,7 @@ function App() {
   return <div className="app-shell"><aside className="sidebar"><div className="brand">{t.app}</div><div className="user-block"><strong>{user.name}</strong><span>{user.role.replace('_', ' ')}</span></div>
     <nav>{(['leads','contacts','contactReviews','campaigns','fields','branches','users','identityEmail','profile'] as Page[]).filter((item) =>
       item === 'identityEmail' || item === 'contactReviews' ? canManage : canManage || item === 'leads' || item === 'contacts' || item === 'profile').map((item) =>
-      <button key={item} className={page === item ? 'selected' : ''} onClick={() => { setPage(item); setSelectedLead(null); setShowForm(false); setForm({}); setNotice(''); }}>{t[item]}</button>)}</nav>
+      <button key={item} className={page === item ? 'selected' : ''} onClick={() => { setPage(item); setSelectedLead(null); setSelectedCampaign(null); setShowForm(false); setForm({}); setNotice(''); }}>{t[item]}</button>)}</nav>
     <div className="sidebar-bottom">{language}<button onClick={() => { void api('/api/auth/logout', { method: 'POST' }).then(() => setUser(null)); }}>{t.logout}</button></div>
   </aside><main className="content"><header><div><small>Lead Operations</small><h1>{selectedLead ? t.details : t[page]}</h1></div><button className="secondary" onClick={() => void (page === 'identityEmail' ? refreshDeliveryJobs() : page === 'contacts' || page === 'contactReviews' || page === 'fields' ? setWorkspaceRefresh((value) => value + 1) : refresh())} disabled={busy}>{t.retry}</button></header>
     {error && <div role="alert" className="error">{error}</div>}
@@ -244,6 +246,8 @@ function App() {
           .catch((failure) => setError(String(failure))).finally(() => setBusy(false)); }}>{locale === 'ar' ? 'تحميل المزيد' : locale === 'fr' ? 'Afficher plus' : 'Load more'}</button>}
     </section> : page === 'contacts' || page === 'contactReviews' ? <ContactWorkspace key={`${page}-${workspaceRefresh}`} mode={page === 'contacts' ? 'contacts' : 'reviews'} locale={locale} canManage={canManage} api={api} onOpenLead={(id) => { setPage('leads'); setSelectedLead(id); setNotice(''); }} />
       : page === 'fields' ? <FieldWorkspace key={`fields-${workspaceRefresh}`} locale={locale} campaigns={campaigns} role={user.role} api={api} />
+      : page === 'campaigns' && selectedCampaign ? <CampaignWorkspace id={selectedCampaign} locale={locale} api={api}
+        onBack={() => setSelectedCampaign(null)} onChanged={refresh} />
       : page === 'profile' ? <section className="panel form-panel"><h2>{t.profile}</h2><p>{t.passwordChanged}</p>
       <form onSubmit={(event) => { event.preventDefault(); setBusy(true); setError('');
         void api('/api/auth/password', { method: 'POST', body: JSON.stringify({ currentPassword: form.currentPassword, newPassword: form.newPassword }) })
@@ -276,16 +280,7 @@ function App() {
         page === 'branches' ? <><th>{t.name}</th><th>{t.timezone}</th><th>{t.status}</th></> :
         <><th>{t.name}</th><th>{t.email}</th><th>{t.role}</th><th>{t.branch}</th><th>{t.status}</th><th>{t.actions}</th></>}</tr></thead><tbody>
         {page === 'leads' && leads.map((lead) => <tr key={lead.id}><td><strong>{lead.contact_name}</strong><small>{lead.phone || lead.email}</small></td><td>{campaigns.find((item) => item.id === lead.campaign_id)?.name || lead.campaign_id}</td><td>{branches.find((item) => item.id === lead.branch_id)?.name || '—'}</td><td><span className="badge">{lead.lifecycle}</span>{lead.needs_attention_reason && <small className="attention">{t.attention}</small>}</td><td>{users.find((item) => item.id === lead.assigned_agent_id)?.name || '—'}</td><td><button className="link" onClick={() => setSelectedLead(lead.id)}>{t.details}</button></td></tr>)}
-        {page === 'campaigns' && campaigns.map((campaign) => <tr key={campaign.id}><td><strong>{campaign.name}</strong></td><td>{branches.find((item) => item.id === campaign.branch_id)?.name || '—'}</td><td><span className="badge">{campaign.status}</span></td><td>{campaign.routing_method}<small>{campaign.agents?.map((agent) => agent.name).join(', ') || '—'}</small></td><td>{canManage && <div className="actions">
-          {campaign.status !== 'ACTIVE' && <button className="link" onClick={() => void submit(`/api/campaigns/${campaign.id}/activate`, {})}>{t.activate}</button>}
-          <select aria-label={t.assignAgent} value={campaignAgentChoice[campaign.id] ?? ''} onChange={(event) => setCampaignAgentChoice({ ...campaignAgentChoice, [campaign.id]: event.target.value })}>
-            <option value="">{t.select}</option>{users.filter((item) => item.role === 'AGENT' && item.active && item.branch_id === campaign.branch_id && !campaign.agents?.some((agent) => agent.agentId === item.id))
-              .map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-          </select><button className="link" disabled={!campaignAgentChoice[campaign.id] || busy} onClick={() => { setBusy(true); setError('');
-            void api(`/api/campaigns/${campaign.id}/agents`, { method: 'PUT', body: JSON.stringify({ agentId: campaignAgentChoice[campaign.id] }) })
-              .then(() => { setCampaignAgentChoice({ ...campaignAgentChoice, [campaign.id]: '' }); return refresh(); })
-              .catch((failure) => setError(String(failure))).finally(() => setBusy(false)); }}>{t.assignAgent}</button>
-        </div>}</td></tr>)}
+        {page === 'campaigns' && campaigns.map((campaign) => <tr key={campaign.id}><td><strong>{campaign.name}</strong></td><td>{branches.find((item) => item.id === campaign.branch_id)?.name || '—'}</td><td><span className="badge">{campaign.status}</span></td><td>{campaign.routing_method}<small>{campaign.agents?.map((agent) => agent.name).join(', ') || '—'}</small></td><td>{canManage && <button className="link" onClick={() => setSelectedCampaign(campaign.id)}>{t.details}</button>}</td></tr>)}
         {page === 'branches' && branches.map((branch) => <tr key={branch.id}><td><strong>{branch.name}</strong></td><td>{branch.timezone}</td><td>{branch.active ? t.active : t.inactive}</td></tr>)}
         {page === 'users' && users.map((item) => <tr key={item.id}><td><strong>{item.name}</strong></td><td>{item.email}</td><td>{item.role}</td><td>{branches.find((branch) => branch.id === item.branch_id)?.name || '—'}</td><td>{item.credential_state === 'INVITED' ? t.invited : item.active ? t.active : t.inactive}</td><td>{item.id !== user.id && (isAdmin || (item.role === 'AGENT' && item.branch_id === user.branchId)) && <div className="actions">
           {item.active && item.credential_state === 'INVITED' && <button className="link" disabled={busy} onClick={() => void submit(`/api/users/${item.id}/invitation`, {})}>{t.inviteAgain}</button>}
@@ -296,6 +291,10 @@ function App() {
         {page === 'leads' && nextLeadCursor && <div className="load-more"><button className="secondary" disabled={busy} onClick={() => { setBusy(true);
           api<{ items: Lead[]; nextCursor: string | null }>(`/api/leads?limit=50&cursor=${encodeURIComponent(nextLeadCursor)}`)
             .then((result) => { setLeads((existing) => [...existing, ...result.items]); setNextLeadCursor(result.nextCursor); })
+            .catch((failure) => setError(String(failure))).finally(() => setBusy(false)); }}>{locale === 'ar' ? 'تحميل المزيد' : locale === 'fr' ? 'Afficher plus' : 'Load more'}</button></div>}
+        {page === 'campaigns' && nextCampaignCursor && <div className="load-more"><button className="secondary" disabled={busy} onClick={() => { setBusy(true);
+          void api<{ items: Campaign[]; nextCursor: string | null }>(`/api/campaigns?cursor=${encodeURIComponent(nextCampaignCursor)}`)
+            .then((result) => { setCampaigns((current) => [...current, ...result.items]); setNextCampaignCursor(result.nextCursor); })
             .catch((failure) => setError(String(failure))).finally(() => setBusy(false)); }}>{locale === 'ar' ? 'تحميل المزيد' : locale === 'fr' ? 'Afficher plus' : 'Load more'}</button></div>}
         {page === 'users' && nextUserCursor && <div className="load-more"><button className="secondary" disabled={busy} onClick={() => { setBusy(true);
           void api<{ items: ManagedUser[]; nextCursor: string | null }>(`/api/users?cursor=${encodeURIComponent(nextUserCursor)}`)

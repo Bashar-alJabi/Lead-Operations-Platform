@@ -5,11 +5,13 @@ import { routeLead } from '../routing.js';
 import { decodeCursor, encodeCursor } from '../pagination.js';
 import { identityLockKeys, normalizeContact } from '../contacts.js';
 import { enforceRequiredFieldStage, prepareManualFieldValues, storeManualFieldValues, type ManualFieldInput } from '../field-values.js';
+import { registerCampaignRoutes } from './campaigns.js';
 
 const idParam = { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } as const;
 const pageQuery = { type: 'object', additionalProperties: false, properties: { limit: { type: 'integer', minimum: 1, maximum: 100 }, cursor: { type: 'string', maxLength: 256 }, branchId: { type: 'string', format: 'uuid' }, campaignId: { type: 'string', format: 'uuid' }, contactId: { type: 'string', format: 'uuid' }, assignedAgentId: { type: 'string', format: 'uuid' }, lifecycle: { enum: ['OPEN','CLOSED','ARCHIVED'] } } } as const;
 
 export function registerOperationsRoutes(app: FastifyInstance, db: Database): void {
+  registerCampaignRoutes(app, db);
   app.get('/api/branches', async (request) => {
     const actor = await principalFromRequest(request, db);
     const rows = await db`SELECT id, name, timezone, active, business_hours, ai_defaults, created_at FROM branch
@@ -35,83 +37,6 @@ export function registerOperationsRoutes(app: FastifyInstance, db: Database): vo
     reply.code(201); return { id: rows[0]!.id };
   });
 
-  app.get('/api/campaigns', async (request) => {
-    const actor = await principalFromRequest(request, db);
-    if (actor.role === 'AGENT') {
-      const rows = await db`SELECT c.id, c.branch_id, c.name, c.status
-        FROM campaign c WHERE c.organization_id = ${actor.organizationId}
-          AND EXISTS (SELECT 1 FROM lead l WHERE l.campaign_id = c.id AND l.assigned_agent_id = ${actor.id})
-        ORDER BY c.created_at DESC, c.id DESC LIMIT 100`;
-      return { items: rows };
-    }
-    const rows = await db`SELECT c.id, c.branch_id, c.name, c.status, c.source_kind, c.routing_method, c.created_at,
-      COALESCE(jsonb_agg(jsonb_build_object('agentId', ca.agent_id, 'name', u.name) ORDER BY u.name)
-        FILTER (WHERE ca.active = true AND u.id IS NOT NULL), '[]'::jsonb) AS agents
-      FROM campaign c LEFT JOIN campaign_agent ca ON ca.campaign_id = c.id
-      LEFT JOIN user_account u ON u.id = ca.agent_id
-      WHERE c.organization_id = ${actor.organizationId} AND (${actor.role === 'SUPER_ADMIN'} OR c.branch_id = ${actor.branchId})
-      GROUP BY c.id ORDER BY c.created_at DESC, c.id DESC LIMIT 100`;
-    return { items: rows };
-  });
-
-  app.post<{ Body: { branchId: string; name: string; sourceKind?: string; routingMethod?: 'MANUAL'|'ROUND_ROBIN'|'WEIGHTED'|'PERFORMANCE' } }>('/api/campaigns', {
-    schema: { body: { type: 'object', additionalProperties: false, required: ['branchId','name'], properties: {
-      branchId: { type: 'string', format: 'uuid' }, name: { type: 'string', minLength: 1, maxLength: 200 },
-      sourceKind: { type: 'string', minLength: 1, maxLength: 40 }, routingMethod: { enum: ['MANUAL','ROUND_ROBIN','WEIGHTED','PERFORMANCE'] },
-    } } },
-  }, async (request, reply) => {
-    const actor = await principalFromRequest(request, db);
-    requireRole(actor, 'SUPER_ADMIN', 'MANAGER');
-    requireBranch(actor, request.body.branchId);
-    const branch = await db`SELECT 1 FROM branch WHERE id = ${request.body.branchId} AND organization_id = ${actor.organizationId} AND active`;
-    if (!branch.length) throw new HttpError(404, 'BRANCH_NOT_FOUND');
-    const rows = await db.begin(async (tx) => {
-      const created = await tx`INSERT INTO campaign (organization_id, branch_id, name, source_kind, routing_method)
-        VALUES (${actor.organizationId}, ${request.body.branchId}, ${request.body.name.trim()}, ${request.body.sourceKind ?? 'MANUAL'}, ${request.body.routingMethod ?? 'MANUAL'}) RETURNING id`;
-      await tx`INSERT INTO audit_log (organization_id, branch_id, actor_user_id, action, target_type, target_id)
-        VALUES (${actor.organizationId}, ${request.body.branchId}, ${actor.id}, 'CAMPAIGN_CREATED', 'CAMPAIGN', ${created[0]!.id})`;
-      return created;
-    });
-    reply.code(201); return { id: rows[0]!.id };
-  });
-
-  app.put<{ Params: { id: string }; Body: { agentId: string; weight?: number; capacityOverride?: number } }>('/api/campaigns/:id/agents', {
-    schema: { params: idParam, body: { type: 'object', additionalProperties: false, required: ['agentId'], properties: {
-      agentId: { type: 'string', format: 'uuid' }, weight: { type: 'integer', minimum: 1, maximum: 1000 }, capacityOverride: { type: 'integer', minimum: 0 },
-    } } },
-  }, async (request) => {
-    const actor = await principalFromRequest(request, db);
-    requireRole(actor, 'SUPER_ADMIN', 'MANAGER');
-    const campaigns = await db`SELECT branch_id FROM campaign WHERE id = ${request.params.id} AND organization_id = ${actor.organizationId}`;
-    const campaign = campaigns[0]; if (!campaign) throw new HttpError(404, 'CAMPAIGN_NOT_FOUND');
-    requireBranch(actor, campaign.branch_id);
-    const agents = await db`SELECT 1 FROM user_account WHERE id = ${request.body.agentId} AND branch_id = ${campaign.branch_id} AND role = 'AGENT' AND active`;
-    if (!agents.length) throw new HttpError(400, 'AGENT_NOT_ELIGIBLE');
-    await db`INSERT INTO campaign_agent (campaign_id, agent_id, weight, capacity_override)
-      VALUES (${request.params.id}, ${request.body.agentId}, ${request.body.weight ?? 1}, ${request.body.capacityOverride ?? null})
-      ON CONFLICT (campaign_id, agent_id) DO UPDATE SET active = true, weight = EXCLUDED.weight, capacity_override = EXCLUDED.capacity_override`;
-    return { ok: true };
-  });
-
-  app.post<{ Params: { id: string } }>('/api/campaigns/:id/activate', { schema: { params: idParam } }, async (request) => {
-    const actor = await principalFromRequest(request, db);
-    requireRole(actor, 'SUPER_ADMIN', 'MANAGER');
-    const rows = await db`SELECT id, branch_id, source_kind, routing_method, ai_config, messaging_config FROM campaign WHERE id = ${request.params.id} AND organization_id = ${actor.organizationId}`;
-    const campaign = rows[0]; if (!campaign) throw new HttpError(404, 'CAMPAIGN_NOT_FOUND');
-    requireBranch(actor, campaign.branch_id);
-    const issues: string[] = [];
-    if (campaign.routing_method !== 'MANUAL') {
-      const agents = await db`SELECT 1 FROM campaign_agent WHERE campaign_id = ${campaign.id} AND active LIMIT 1`;
-      if (!agents.length) issues.push('NO_ELIGIBLE_AGENTS_CONFIGURED');
-    }
-    if (campaign.ai_config?.enabled) issues.push('AI_CONFIGURATION_NOT_READY');
-    if (campaign.messaging_config?.enabled) issues.push('MESSAGING_CONFIGURATION_NOT_READY');
-    if (campaign.source_kind !== 'MANUAL') issues.push('SOURCE_BINDING_NOT_READY');
-    if (issues.length) throw new HttpError(409, 'CAMPAIGN_NOT_READY', issues.join(','));
-    await db`UPDATE campaign SET status = 'ACTIVE', updated_at = now() WHERE id = ${campaign.id}`;
-    return { status: 'ACTIVE' };
-  });
-
   app.post<{ Body: { branchId: string; campaignId: string; contact: { name: string; phone?: string; email?: string }; fields?: ManualFieldInput[] } }>('/api/leads', {
     schema: { body: { type: 'object', additionalProperties: false, required: ['branchId','campaignId','contact'], properties: {
       branchId: { type: 'string', format: 'uuid' }, campaignId: { type: 'string', format: 'uuid' },
@@ -126,11 +51,17 @@ export function registerOperationsRoutes(app: FastifyInstance, db: Database): vo
     const actor = await principalFromRequest(request, db);
     requireRole(actor, 'SUPER_ADMIN', 'MANAGER');
     requireBranch(actor, request.body.branchId);
-    const campaigns = await db`SELECT c.id, c.routing_method, b.timezone FROM campaign c JOIN branch b ON b.id = c.branch_id
-      WHERE c.id = ${request.body.campaignId} AND c.branch_id = ${request.body.branchId} AND c.organization_id = ${actor.organizationId} AND c.status = 'ACTIVE'`;
-    const campaign = campaigns[0]; if (!campaign) throw new HttpError(404, 'ACTIVE_CAMPAIGN_NOT_FOUND');
     const normalized = normalizeContact(request.body.contact);
     const result = await db.begin(async (tx) => {
+      // Serialize intake against deactivation so a request checked earlier cannot create a lead afterward.
+      await tx`SELECT id FROM branch WHERE id = ${request.body.branchId} AND organization_id = ${actor.organizationId} FOR NO KEY UPDATE`;
+      const campaigns = await tx`SELECT c.id, c.routing_method, b.timezone FROM campaign c JOIN branch b ON b.id = c.branch_id
+        WHERE c.id = ${request.body.campaignId} AND c.branch_id = ${request.body.branchId}
+          AND c.organization_id = ${actor.organizationId} FOR NO KEY UPDATE OF c`;
+      const campaign = campaigns[0];
+      if (!campaign) throw new HttpError(404, 'ACTIVE_CAMPAIGN_NOT_FOUND');
+      const active = await tx`SELECT 1 FROM campaign WHERE id = ${campaign.id} AND status = 'ACTIVE'`;
+      if (!active.length) throw new HttpError(404, 'ACTIVE_CAMPAIGN_NOT_FOUND');
       const fieldValues = await prepareManualFieldValues(tx, campaign.id, actor, request.body.fields ?? []);
       for (const identity of identityLockKeys(actor.organizationId, normalized)) await tx`SELECT pg_advisory_xact_lock(hashtextextended(${identity}, 0))`;
       const matches = await tx`SELECT id FROM contact WHERE organization_id = ${actor.organizationId}
