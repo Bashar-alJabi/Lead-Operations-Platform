@@ -1,14 +1,16 @@
 # تقدم التنفيذ
 
-## آخر حالة مستقرة: Sender bindings وBranch/Campaign sender configuration
+## آخر حالة مستقرة: DB sender resolution للرسائل الجديدة واختبار Pinned Sender
+
+أضيفت خدمة `resolveConfiguredSender` التي تقرأ Branch default وCampaign override وOrganization shared fallback الصريح من PostgreSQL ثم تطبق قاعدة الحسم المركزية. لا تختار Sender عشوائياً، ولا تسقط إلى بديل عند وجود إعداد أعلى أولوية غير صالح. `effective-sender` API محصور في Super Admin/Manager ضمن Branch، وتعرض شاشة الحملة Sender الفعلي أو سبب الحظر. `WARNING/SEND_NOT_TESTED` تمنع إعلان Sender جاهزًا؛ اتصال `CONNECTED` وصحة Sender يختبران بحالة مصطنعة داخل PostgreSQL فقط، وليس بتحقق Live. اختبار Pinned Sender أثبت أن تعطيله يمنع الحسم حتى عند وجود Campaign Override صالح؛ إنشاء/تثبيت Conversation الفعلي لم يُنفذ بعد.
+
+التحقق: 6/6 مجموعات integration على PostgreSQL، تشمل نطاق الدور، عدم جاهزية الاتصال، Override وDefault وFallback، وفشل Pinned Sender بلا انتقال صامت. لا migration جديدة. بوابات unit/typecheck/Web build تُعاد قبل حفظ checkpoint. الخطوة التالية الدقيقة: خدمة إنشاء/استرجاع Conversation بنطاق Lead/participant وبقفل يمنع السباق، وتثبيت Sender/Connection/Thread ومراجعة التباس المحادثات، ثم Central Messaging Policy قبل إرسال أي Message.
+
+## نقطة تحقق سابقة: Sender bindings وBranch/Campaign sender configuration
 
 أضيفت migration `015_sender_bindings.sql` وAPI وواجهة لإيقاف/تمكين Sender تشغيلياً بشكل مستقل عن اكتشافه، ربط Organization Sender بفروع محددة مع خيار shared fallback صريح، اختيار Branch default وCampaign override، وقوائم أرقام مصرح بها مع pagination. يحتفظ كل من Sender وBranch/Campaign بنسخة تمنع فقد التعديل المتزامن؛ يُمنع فك Binding تستخدمها إعدادات Branch/Campaign حتى تُزال صراحة. لا يستطيع Manager إدارة Organization Sender أو تغيير فرع آخر، ولا يستطيع Agent إدارة أي منها. تتضمن الواجهة إدارة الـBindings والافتراضي وOverride الحملة، مع بيان أن الاكتشاف وحده لا يثبت قابلية الإرسال. يُحفظ Audit لكل تعديل.
 
 نقطة التحقق الجديدة: migrations `001`–`015` على قاعدتي التطوير والاختبار؛ اختبارات PostgreSQL في مجموعة Messaging تفحص صلاحيات الفروع والأدوار، binding وfallback، الاختيار الخاطئ، رفض فك رقم مستخدم، وتعادل طلبين متزامنين لنسخة Binding/Branch/Campaign. اجتازت 6/6 مجموعات integration؛ Backend/Web typecheck وWeb build ناجحة. `npm test` **18/18** من checkpoint السابق ويُعاد في بوابة هذا checkpoint. لا UI E2E ولا Provider live.
-
-## قيد التنفيذ التالي: DB sender resolution وConversation pinning
-
-الخطوة الدقيقة: توصيل `resolveSender` بقراءة نطاقات واتصالات وسلامة الـSender من PostgreSQL؛ ثم تثبيت Sender/Thread في Conversation بانتقال ذري، ومنع fallback عند فقدان صلاحية المرسل المثبت. اختبر الفروع والتوقف والتزامن ومسار Needs Attention. بعد توثيق وحفظ هذا checkpoint انتقل إلى Central Messaging Policy والخروج عبر queue/worker ثم inbound webhook/review. لا يعتبر Messaging مكتملًا.
 
 ## نقطة تحقق سابقة: Messaging Connection setup واكتشاف Senders
 

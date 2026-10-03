@@ -5,6 +5,7 @@ import { buildApp } from '../src/app.js';
 import { createDatabase } from '../src/db.js';
 import { passwordHash } from '../src/security.js';
 import type { MessagingProviderAdapter } from '../src/messaging/providers.js';
+import { resolveConfiguredSender } from '../src/messaging/sender-resolution.js';
 
 const url = process.env.TEST_DATABASE_URL;
 if (!url || new URL(url).pathname !== '/lead_operations_test') throw new Error('Isolated TEST_DATABASE_URL required');
@@ -191,6 +192,39 @@ test('Messaging setup encrypts credentials, scopes connections, and discovers se
     `/api/messaging/campaigns/${campaignId}/sender-override`,
     { version: 2, senderId: sharedSender }, managerA)));
   assert.deepEqual(overrideRace.map((response) => response.statusCode).sort(), [200,409]);
+  assert.equal((await send('GET', `/api/messaging/campaigns/${campaignId}/effective-sender`, undefined, agent)).statusCode, 403);
+  assert.equal((await send('GET', `/api/messaging/campaigns/${campaignId}/effective-sender`, undefined, managerB)).statusCode, 404);
+  const unverified = await send('GET', `/api/messaging/campaigns/${campaignId}/effective-sender`, undefined, managerA);
+  assert.equal(unverified.statusCode, 200, unverified.body);
+  assert.equal(unverified.json().senderId, null);
+  assert.equal(unverified.json().reason, 'CONNECTION_NOT_READY');
+  await db`UPDATE integration_connection SET status = 'CONNECTED' WHERE id = ${orgConnection.json().id}`;
+  await db`UPDATE messaging_sender SET health = 'HEALTHY' WHERE id = ${sharedSender}`;
+  assert.equal((await send('GET', `/api/messaging/campaigns/${campaignId}/effective-sender`, undefined, managerA))
+    .json().senderId, sharedSender);
+  await db`UPDATE integration_connection SET status = 'CONNECTED' WHERE id = ${id}`;
+  await db`UPDATE messaging_sender SET active = true, operator_enabled = true, health = 'HEALTHY'
+    WHERE id = ${branchSender}`;
+  const overrideBranch = await send('PUT', `/api/messaging/campaigns/${campaignId}/sender-override`,
+    { version: 3, senderId: branchSender }, managerA);
+  assert.equal(overrideBranch.statusCode, 200, overrideBranch.body);
+  await db`UPDATE messaging_sender SET operator_enabled = false WHERE id = ${sharedSender}`;
+  const pinned = await resolveConfiguredSender(db, { organizationId, branchId: branchA,
+    campaignId, pinnedSenderId: sharedSender });
+  assert.equal(pinned.sender, null);
+  assert.equal(pinned.reason, 'PINNED_SENDER_DISABLED');
+  assert.equal((await send('GET', `/api/messaging/campaigns/${campaignId}/effective-sender`, undefined, managerA))
+    .json().senderId, branchSender);
+  await db`UPDATE messaging_sender SET operator_enabled = true WHERE id = ${sharedSender}`;
+  assert.equal((await send('PUT', `/api/messaging/campaigns/${campaignId}/sender-override`,
+    { version: 4, senderId: null }, managerA)).statusCode, 200);
+  assert.equal((await send('PUT', `/api/messaging/branches/${branchA}/default-sender`,
+    { version: 3, senderId: null }, managerA)).statusCode, 200);
+  const fallback = await send('PUT', `/api/messaging/senders/${sharedSender}/bindings/${branchA}`,
+    { version: 3, bound: true, allowSharedFallback: true }, admin);
+  assert.equal(fallback.statusCode, 200, fallback.body);
+  assert.equal((await send('GET', `/api/messaging/campaigns/${campaignId}/effective-sender`, undefined, managerA))
+    .json().reason, 'SHARED_FALLBACK');
   assert.ok((await db`SELECT 1 FROM audit_log WHERE action = 'CAMPAIGN_SENDER_OVERRIDE_SET'
     AND target_id = ${campaignId}`).length);
   const flood = await Promise.all(Array.from({ length: 12 }, () => send('POST',

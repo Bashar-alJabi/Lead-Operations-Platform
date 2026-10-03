@@ -14,7 +14,8 @@ export type SenderSelection = { sender: Sender; reason: string } | { sender: nul
 
 function senderProblem(sender: Sender, branchId: string): string | null {
   if (!sender.branchIds.includes(branchId)) return 'SENDER_OUT_OF_SCOPE';
-  if (!sender.active || sender.connectionStatus !== 'CONNECTED') return 'SENDER_DISABLED';
+  if (!sender.active) return 'SENDER_DISABLED';
+  if (sender.connectionStatus !== 'CONNECTED') return 'CONNECTION_NOT_READY';
   if (sender.health === 'UNHEALTHY' || sender.health === 'UNKNOWN') return 'SENDER_UNHEALTHY';
   if (!sender.supportsText) return 'TEXT_NOT_SUPPORTED';
   return null;

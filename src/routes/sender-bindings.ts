@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { Database } from '../db.js';
 import { HttpError, principalFromRequest, requireBranch, requireRole } from '../security.js';
+import { resolveConfiguredSender } from '../messaging/sender-resolution.js';
 
 const idParam = { type: 'object', additionalProperties: false, required: ['id'],
   properties: { id: { type: 'string', format: 'uuid' } } } as const;
@@ -9,6 +10,20 @@ const bindingParam = { type: 'object', additionalProperties: false, required: ['
 const senderId = { anyOf: [{ type: 'string', format: 'uuid' }, { type: 'null' }] } as const;
 
 export function registerSenderBindingRoutes(app: FastifyInstance, db: Database): void {
+  app.get<{ Params: { id: string } }>('/api/messaging/campaigns/:id/effective-sender', {
+    schema: { params: idParam },
+  }, async (request) => {
+    const actor = await principalFromRequest(request, db);
+    requireRole(actor, 'SUPER_ADMIN', 'MANAGER');
+    const campaign = (await db`SELECT branch_id FROM campaign WHERE id = ${request.params.id}
+      AND organization_id = ${actor.organizationId}
+      AND (${actor.role === 'SUPER_ADMIN'} OR branch_id = ${actor.branchId})`)[0];
+    if (!campaign) throw new HttpError(404, 'CAMPAIGN_NOT_FOUND');
+    const result = await resolveConfiguredSender(db, { organizationId: actor.organizationId,
+      branchId: campaign.branch_id, campaignId: request.params.id });
+    return { senderId: result.sender?.id ?? null, reason: result.reason };
+  });
+
   app.patch<{ Params: { id: string }; Body: { version: number; operatorEnabled: boolean } }>(
     '/api/messaging/senders/:id', { schema: { params: idParam, body: { type: 'object', additionalProperties: false,
       required: ['version','operatorEnabled'], properties: { version: { type: 'integer', minimum: 1 },
