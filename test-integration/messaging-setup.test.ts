@@ -658,6 +658,97 @@ test('Messaging setup encrypts credentials, scopes connections, and discovers se
     AND target_id = ${queued.json().id}`).length);
   assert.ok((await db`SELECT 1 FROM audit_log WHERE action = 'CAMPAIGN_SENDER_OVERRIDE_SET'
     AND target_id = ${campaignId}`).length);
+  // A shared sender can serve multiple campaigns; template visibility requires an explicit campaign binding.
+  await db`UPDATE campaign SET sender_override_id = NULL WHERE id = ${campaignId}`;
+  await db`UPDATE integration_connection SET status = 'CONNECTED' WHERE id = ${orgConnection.json().id}`;
+  const orgTemplateId = (await db`INSERT INTO provider_message_template
+    (connection_id, external_template_id, name, language, status, category, components)
+    VALUES (${orgConnection.json().id}, '9090909', 'campaign_notice', 'en_US', 'PENDING',
+      'UTILITY', ${db.json([{ type: 'BODY', text: 'Approved notice' }])}) RETURNING id`)[0]!.id as string;
+  const campaignTemplatesPath = `/api/messaging/campaigns/${campaignId}/templates`;
+  assert.equal((await send('GET', campaignTemplatesPath, undefined, agent)).statusCode, 403);
+  assert.equal((await send('GET', campaignTemplatesPath, undefined, managerB)).statusCode, 404);
+  assert.deepEqual((await send('GET', campaignTemplatesPath, undefined, managerA)).json().items, []);
+  assert.equal((await send('GET', campaignTemplatesPath, undefined, admin)).json().items
+    .find((item: { id: string }) => item.id === orgTemplateId).status, 'PENDING');
+  const bindingPath = `${campaignTemplatesPath}/${orgTemplateId}`;
+  assert.equal((await send('PUT', bindingPath, { version: 0, bound: true }, agent)).statusCode, 403);
+  assert.equal((await send('PUT', bindingPath, { version: 0, bound: true }, managerB)).statusCode, 404);
+  assert.equal((await send('PUT', bindingPath, { version: 0, bound: true }, managerA)).statusCode, 403);
+  assert.equal((await send('PUT', bindingPath, { version: 0, bound: true }, admin)).json().error,
+    'TEMPLATE_NOT_APPROVED');
+  await db`UPDATE provider_message_template SET status = 'APPROVED' WHERE id = ${orgTemplateId}`;
+  const secondConversationId = openings[0]!.json().id as string;
+  const availablePath = `/api/conversations/${secondConversationId}/available-templates`;
+  assert.equal((await send('GET', availablePath, undefined, managerB)).statusCode, 404);
+  assert.deepEqual((await send('GET', availablePath, undefined, agent)).json().items, []);
+  assert.equal((await send('PUT', bindingPath, { version: 0, bound: true }, admin)).statusCode, 200);
+  assert.equal((await send('PUT', bindingPath, { version: 0, bound: true }, admin)).statusCode, 409);
+  assert.equal((await send('GET', campaignTemplatesPath, undefined, managerA)).json().items[0].id,
+    orgTemplateId);
+  assert.equal((await send('GET', availablePath, undefined, agent)).json().items[0].id, orgTemplateId);
+  assert.equal((await send('PUT', `/api/messaging/campaigns/${campaignId}/templates/${createdTemplate.json().id}`,
+    { version: 0, bound: true }, admin)).statusCode, 404);
+  const secondConsentPath = `/api/leads/${secondLeadId}/messaging-consent`;
+  assert.equal((await send('PUT', secondConsentPath, { version: 0, status: 'GRANTED',
+    doNotContact: false, evidence: 'Test opt-in', source: 'ADMIN' }, managerA)).statusCode, 200);
+  const templateMessagePath = `/api/conversations/${secondConversationId}/messages`;
+  assert.equal((await send('POST', templateMessagePath, { body: 'Freeform outside window',
+    idempotencyKey: 'template-freeform-blocked' }, agent)).json().error, 'TEMPLATE_REQUIRED');
+  assert.equal((await send('POST', templateMessagePath, { templateId: orgTemplateId,
+    body: 'Forged body', idempotencyKey: 'template-forged-body' }, agent)).statusCode, 400);
+  assert.equal((await send('POST', templateMessagePath, { templateId: createdTemplate.json().id,
+    idempotencyKey: 'template-wrong-connection' }, agent)).json().error, 'TEMPLATE_NOT_AVAILABLE');
+  await db`UPDATE provider_message_template SET status = 'REJECTED' WHERE id = ${orgTemplateId}`;
+  assert.deepEqual((await send('GET', availablePath, undefined, agent)).json().items, []);
+  assert.equal((await send('POST', templateMessagePath,
+    { templateId: orgTemplateId, idempotencyKey: 'template-not-approved' }, agent)).json().error,
+    'TEMPLATE_NOT_APPROVED');
+  await db`UPDATE provider_message_template SET status = 'APPROVED' WHERE id = ${orgTemplateId}`;
+  const queuedTemplate = await send('POST', templateMessagePath,
+    { templateId: orgTemplateId, idempotencyKey: 'template-send-001' }, agent);
+  assert.equal(queuedTemplate.statusCode, 202, queuedTemplate.body);
+  assert.equal((await send('POST', templateMessagePath,
+    { templateId: orgTemplateId, idempotencyKey: 'template-send-001' }, agent)).statusCode, 200);
+  assert.equal((await send('POST', templateMessagePath,
+    { body: 'Changed', idempotencyKey: 'template-send-001' }, agent)).json().error, 'IDEMPOTENCY_KEY_REUSED');
+  assert.equal((await db`SELECT message_kind, body FROM conversation_message
+    WHERE id = ${queuedTemplate.json().id}`)[0]!.body, 'Approved notice');
+  await assert.rejects(db`UPDATE conversation_message SET template_snapshot = '{}'::jsonb
+    WHERE id = ${queuedTemplate.json().id}`);
+  let templateProviderCalls = 0;
+  const templateSendAdapter: MessagingSendAdapter = {
+    async sendText() { throw new Error('template must not use freeform send'); },
+    async sendTemplate(input) {
+      templateProviderCalls++;
+      assert.equal(input.templateName, 'campaign_notice');
+      assert.equal(input.templateLanguage, 'en_US');
+      assert.equal(input.recipient, '+15550004444');
+      return { providerMessageId: `wamid.template-${templateProviderCalls}` };
+    },
+  };
+  assert.equal(await processOneMessagingJob(db, templateSendAdapter), true);
+  assert.equal(templateProviderCalls, 1);
+  assert.equal((await db`SELECT delivery_state FROM conversation_message
+    WHERE id = ${queuedTemplate.json().id}`)[0]!.delivery_state, 'SENT');
+  assert.equal((await send('PUT', bindingPath, { version: 1, bound: false }, admin)).statusCode, 200);
+  assert.equal((await send('POST', templateMessagePath,
+    { templateId: orgTemplateId, idempotencyKey: 'template-unbound' }, agent)).json().error,
+    'TEMPLATE_NOT_AVAILABLE');
+  assert.equal((await send('PUT', bindingPath, { version: 2, bound: true }, admin)).statusCode, 200);
+  const changedTemplate = await send('POST', templateMessagePath,
+    { templateId: orgTemplateId, idempotencyKey: 'template-send-002' }, agent);
+  assert.equal(changedTemplate.statusCode, 202, changedTemplate.body);
+  await db`UPDATE provider_message_template SET components = ${db.json([{ type: 'BODY', text: 'Changed remotely' }])}
+    WHERE id = ${orgTemplateId}`;
+  assert.equal(await processOneMessagingJob(db, templateSendAdapter), true);
+  assert.equal(templateProviderCalls, 1);
+  assert.equal((await db`SELECT delivery_state, last_error_code FROM conversation_message
+    WHERE id = ${changedTemplate.json().id}`)[0]!.last_error_code, 'TEMPLATE_CHANGED');
+  assert.equal((await db`SELECT needs_attention_reason FROM conversation
+    WHERE id = ${secondConversationId}`)[0]!.needs_attention_reason, 'TEMPLATE_CHANGED');
+  assert.ok((await db`SELECT 1 FROM audit_log WHERE action = 'CAMPAIGN_TEMPLATE_BOUND'
+    AND target_id = ${campaignId}`).length);
   const flood = await Promise.all(Array.from({ length: 12 }, () => send('POST',
     `/api/messaging/connections/${id}/test`, undefined, managerA)));
   assert.ok(flood.some((response) => response.statusCode === 429 && response.json().error === 'RATE_LIMITED'));

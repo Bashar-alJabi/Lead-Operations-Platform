@@ -8,6 +8,7 @@ export type Sender = {
   branchIds: string[];
   sharedFallbackBranchIds: string[];
   supportsText: boolean;
+  supportsTemplate?: boolean;
   requiresTemplate: boolean;
 };
 export type SenderSelection = { sender: Sender; reason: string } | { sender: null; reason: string };
@@ -92,6 +93,7 @@ export function evaluateSend(input: {
   if (input.doNotContact || input.consentStatus === 'REVOKED') return { allowed: false, reason: 'DO_NOT_CONTACT' };
   if (input.consentRequired && input.consentStatus !== 'GRANTED') return { allowed: false, reason: 'CONSENT_REQUIRED' };
   if (input.sender.requiresTemplate && !input.templateId) return { allowed: false, reason: 'TEMPLATE_REQUIRED' };
+  if (input.templateId && !input.sender.supportsTemplate) return { allowed: false, reason: 'TEMPLATE_NOT_SUPPORTED' };
   if (!allowedAt(now, input.timezone, input.sendingWindow)) return { allowed: false, reason: 'OUTSIDE_SENDING_WINDOW' };
   if (input.maxAttempts != null && input.attempts >= input.maxAttempts) return { allowed: false, reason: 'MAX_ATTEMPTS' };
   if (input.minIntervalSeconds != null && input.lastSentAt && now.getTime() - input.lastSentAt.getTime() < input.minIntervalSeconds * 1000)

@@ -33,6 +33,7 @@ export async function resolveConfiguredSender(sql: Sql, input: { organizationId:
       branchIds: inScope ? [input.branchId] : [],
       sharedFallbackBranchIds: row.connection_branch_id === null && row.allow_shared_fallback ? [input.branchId] : [],
       supportsText: row.capabilities?.text === true,
+      supportsTemplate: row.capabilities?.template === true,
       requiresTemplate: row.capabilities?.requiresTemplate === true };
   });
   return resolveSender({ branchId: input.branchId, pinnedSenderId: input.pinnedSenderId,

@@ -68,3 +68,21 @@ test('Meta template adapter paginates catalog and creates a static text template
       && !error.message.includes('sandbox-only-token'));
   } finally { globalThis.fetch = original; }
 });
+
+test('Meta send adapter sends an approved template by name and language', async () => {
+  const original = globalThis.fetch;
+  try {
+    globalThis.fetch = async (url, options) => {
+      assert.equal(String(url), 'https://graph.facebook.com/v25.0/15550001111/messages');
+      assert.deepEqual(JSON.parse(String(options?.body)), { messaging_product: 'whatsapp',
+        recipient_type: 'individual', to: '15550002222', type: 'template',
+        template: { name: 'follow_up_notice', language: { code: 'en_US' } } });
+      return new Response(JSON.stringify({ messages: [{ id: 'wamid.template' }] }), { status: 200 });
+    };
+    assert.equal((await metaWhatsAppSendAdapter.sendTemplate!({ ...input,
+      templateName: 'follow_up_notice', templateLanguage: 'en_US' })).providerMessageId, 'wamid.template');
+    await assert.rejects(metaWhatsAppSendAdapter.sendTemplate!({ ...input,
+      templateName: 'INVALID NAME', templateLanguage: 'en_US' }),
+    (error) => error instanceof ProviderSendError && error.kind === 'REJECTED');
+  } finally { globalThis.fetch = original; }
+});

@@ -8,16 +8,17 @@ export interface MessagingProviderAdapter {
 
 export type SendTextInput = { config: MessagingConnectionConfig; credentials: MessagingCredentials;
   externalSenderId: string; recipient: string; body: string };
+export type SendTemplateInput = Omit<SendTextInput, 'body'> & { templateName: string; templateLanguage: string };
 export interface MessagingSendAdapter {
   sendText(input: SendTextInput): Promise<{ providerMessageId: string }>;
+  sendTemplate?(input: SendTemplateInput): Promise<{ providerMessageId: string }>;
 }
 export class ProviderSendError extends Error {
   constructor(public kind: 'REJECTED'|'RETRYABLE'|'UNKNOWN', public code: string,
     public retryAfterSeconds?: number) { super(code); }
 }
 
-export const metaWhatsAppSendAdapter: MessagingSendAdapter = {
-  async sendText(input) {
+async function sendMetaMessage(input: Omit<SendTextInput, 'body'>, content: object) {
     if (!/^\d{1,30}$/.test(input.externalSenderId) || !/^v\d{1,2}\.\d{1,2}$/.test(input.config.graphVersion)
       || !/^\+[1-9]\d{7,14}$/.test(input.recipient))
       throw new ProviderSendError('REJECTED', 'PROVIDER_SEND_INPUT_INVALID');
@@ -27,7 +28,7 @@ export const metaWhatsAppSendAdapter: MessagingSendAdapter = {
       response = await fetch(url, { method: 'POST', headers: {
         Authorization: `Bearer ${input.credentials.accessToken}`, 'Content-Type': 'application/json',
       }, body: JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual',
-        to: input.recipient.slice(1), type: 'text', text: { preview_url: false, body: input.body } }),
+        to: input.recipient.slice(1), ...content }),
       signal: AbortSignal.timeout(10000) });
     } catch { throw new ProviderSendError('UNKNOWN', 'PROVIDER_SEND_OUTCOME_UNKNOWN'); }
     if (response.status === 429) {
@@ -44,6 +45,19 @@ export const metaWhatsAppSendAdapter: MessagingSendAdapter = {
     if (typeof id !== 'string' || !id || id.length > 255)
       throw new ProviderSendError('UNKNOWN', 'PROVIDER_RESPONSE_AMBIGUOUS');
     return { providerMessageId: id };
+}
+
+export const metaWhatsAppSendAdapter: MessagingSendAdapter = {
+  async sendText(input) {
+    return sendMetaMessage(input, { type: 'text', text: { preview_url: false, body: input.body } });
+  },
+  async sendTemplate(input) {
+    if (!/^[a-z0-9_]{1,512}$/.test(input.templateName)
+      || !/^[a-z]{2,3}(?:_[A-Z]{2})?$/.test(input.templateLanguage))
+      throw new ProviderSendError('REJECTED', 'PROVIDER_TEMPLATE_INVALID');
+    return sendMetaMessage(input, { type: 'template', template: {
+      name: input.templateName, language: { code: input.templateLanguage },
+    } });
   },
 };
 

@@ -27,7 +27,7 @@ export async function lockOutboundScope(tx: postgres.TransactionSql, actor: Prin
 export type LockedOutboundScope = Awaited<ReturnType<typeof lockOutboundScope>>;
 
 export async function checkCurrentOutbound(tx: postgres.TransactionSql, locked: LockedOutboundScope,
-  actor: Principal, author: SendAuthor, excludeMessageId?: string) {
+  actor: Principal, author: SendAuthor, excludeMessageId?: string, templateId?: string | null) {
   const { scope, conversation } = locked;
   if (!scope.branch_active || scope.campaign_status !== 'ACTIVE' || scope.messaging_config?.enabled !== true)
     return { allowed: false as const, reason: 'MESSAGING_NOT_ACTIVE' };
@@ -72,6 +72,7 @@ export async function checkCurrentOutbound(tx: postgres.TransactionSql, locked: 
     doNotContact: consent?.do_not_contact ?? false, consentRequired: true,
     sender: { ...resolved.sender, requiresTemplate: resolved.sender.requiresTemplate ||
       (connection.provider === 'META_WHATSAPP_CLOUD' && !withinMetaServiceWindow) },
+    templateId,
     timezone: scope.timezone, sendingWindow: policy.sendingWindow ??
       (scope.messaging_window?.start ? scope.messaging_window : null),
     attempts: attempt?.attempts ?? 0, maxAttempts: proactive ? policy.maxAttempts : null,

@@ -1,10 +1,13 @@
 import type { Database } from '../db.js';
 import type postgres from 'postgres';
+import { isDeepStrictEqual } from 'node:util';
 import { openSecret } from '../credentials.js';
 import { HttpError, type Principal } from '../security.js';
 import { checkCurrentOutbound, lockOutboundScope } from './outbound-policy.js';
+import { approvedStaticTemplate } from './approved-template.js';
 import { metaWhatsAppSendAdapter, ProviderSendError, type MessagingConnectionConfig,
-  type MessagingCredentials, type MessagingSendAdapter, type SendTextInput } from './providers.js';
+  type MessagingCredentials, type MessagingSendAdapter, type SendTextInput,
+  type SendTemplateInput } from './providers.js';
 
 type Claimed = { jobId: string; messageId: string; senderId: string; attemptNo: number; recovered?: boolean };
 
@@ -90,6 +93,12 @@ async function finishWithoutSend(db: Database, claimed: Claimed, code: string): 
     if (!job || job.status !== 'RUNNING' || job.attempts !== claimed.attemptNo) return;
     await tx`UPDATE conversation_message SET delivery_state = 'FAILED', last_error_code = ${code}
       WHERE id = ${claimed.messageId} AND delivery_state = 'QUEUED'`;
+    await tx`UPDATE outbound_send_attempt SET state = 'REJECTED', error_code = ${code},
+      finished_at = now() WHERE job_id = ${claimed.jobId} AND attempt_number = ${claimed.attemptNo}
+      AND state = 'PREPARED'`;
+    if (code.startsWith('TEMPLATE_')) await tx`UPDATE conversation
+      SET needs_attention_reason = ${code}
+      WHERE id = (SELECT conversation_id FROM conversation_message WHERE id = ${claimed.messageId})`;
     await tx`UPDATE background_job SET status = 'DEAD', locked_until = NULL, last_error_code = ${code},
       updated_at = now() WHERE id = ${claimed.jobId}`;
     await auditWorkerEvent(tx, claimed.messageId, 'OUTBOUND_MESSAGE_BLOCKED', { reason: code });
@@ -97,9 +106,12 @@ async function finishWithoutSend(db: Database, claimed: Claimed, code: string): 
   });
 }
 
-async function prepare(db: Database, claimed: Claimed): Promise<{ input: SendTextInput; connectionId: string } | { blocked: string }> {
+type Prepared = { kind: 'TEXT'; input: SendTextInput; connectionId: string }
+  | { kind: 'TEMPLATE'; input: SendTemplateInput; connectionId: string };
+async function prepare(db: Database, claimed: Claimed): Promise<Prepared | { blocked: string }> {
   const message = (await db`SELECT m.conversation_id, m.connection_id, m.sender_id, m.author_type,
-      m.author_user_id, m.body, m.delivery_state, u.organization_id, u.branch_id, u.role,
+      m.author_user_id, m.body, m.delivery_state, m.message_kind, m.template_id,
+      m.template_snapshot, u.organization_id, u.branch_id, u.role,
       u.name, u.email, u.active
     FROM conversation_message m LEFT JOIN user_account u ON u.id = m.author_user_id
     WHERE m.id = ${claimed.messageId}`)[0];
@@ -111,9 +123,15 @@ async function prepare(db: Database, claimed: Claimed): Promise<{ input: SendTex
   try {
     return await db.begin(async (tx) => {
       const locked = await lockOutboundScope(tx, actor, message.conversation_id);
-      const decision = await checkCurrentOutbound(tx, locked, actor, 'HUMAN', claimed.messageId);
+      const decision = await checkCurrentOutbound(tx, locked, actor, 'HUMAN',
+        claimed.messageId, message.template_id);
       if (!decision.allowed) return { blocked: decision.reason };
       if (decision.provider !== 'META_WHATSAPP_CLOUD') return { blocked: 'PROVIDER_SEND_NOT_SUPPORTED' };
+      const template = message.message_kind === 'TEMPLATE'
+        ? await approvedStaticTemplate(tx, message.connection_id,
+          locked.scope.campaign_id, message.template_id) : null;
+      if (template && (!isDeepStrictEqual(template.snapshot, message.template_snapshot)
+        || template.body !== message.body)) return { blocked: 'TEMPLATE_CHANGED' };
       const job = (await tx`SELECT status, attempts FROM background_job WHERE id = ${claimed.jobId} FOR UPDATE`)[0];
       if (!job || job.status !== 'RUNNING' || job.attempts !== claimed.attemptNo)
         return { blocked: 'JOB_LEASE_LOST' };
@@ -132,12 +150,16 @@ async function prepare(db: Database, claimed: Claimed): Promise<{ input: SendTex
         return { blocked: 'CONNECTION_CREDENTIAL_UNAVAILABLE' };
       await tx`INSERT INTO outbound_send_attempt (message_id, job_id, attempt_number, state)
         VALUES (${claimed.messageId}, ${claimed.jobId}, ${claimed.attemptNo}, 'PREPARED')`;
-      return { input: { config: connection.config as MessagingConnectionConfig, credentials,
-        externalSenderId: connection.external_sender_id, recipient: decision.recipient,
-        body: message.body }, connectionId: message.connection_id as string };
+      const common = { config: connection.config as MessagingConnectionConfig, credentials,
+        externalSenderId: connection.external_sender_id, recipient: decision.recipient };
+      return template ? { kind: 'TEMPLATE', input: { ...common,
+        templateName: template.snapshot.name, templateLanguage: template.snapshot.language },
+        connectionId: message.connection_id as string } : { kind: 'TEXT',
+        input: { ...common, body: message.body }, connectionId: message.connection_id as string };
     });
   } catch (error) {
-    if (error instanceof HttpError) return { blocked: 'AUTHOR_NO_LONGER_AUTHORIZED' };
+    if (error instanceof HttpError) return { blocked: error.code === 'CONVERSATION_NOT_FOUND'
+      ? 'AUTHOR_NO_LONGER_AUTHORIZED' : error.code };
     throw error;
   }
 }
@@ -197,8 +219,13 @@ export async function processOneMessagingJob(db: Database,
     await finishWithoutSend(db, claimed, prepared.blocked);
     return true;
   }
+  if (prepared.kind === 'TEMPLATE' && !adapter.sendTemplate) {
+    await finishWithoutSend(db, claimed, 'TEMPLATE_SEND_NOT_SUPPORTED');
+    return true;
+  }
   let result: { providerMessageId: string } | ProviderSendError;
-  try { result = await adapter.sendText(prepared.input); }
+  try { result = prepared.kind === 'TEMPLATE'
+    ? await adapter.sendTemplate!(prepared.input) : await adapter.sendText(prepared.input); }
   catch (error) { result = error instanceof ProviderSendError ? error
     : new ProviderSendError('UNKNOWN', 'PROVIDER_SEND_OUTCOME_UNKNOWN'); }
   await finishAttempt(db, claimed, prepared.connectionId, result);

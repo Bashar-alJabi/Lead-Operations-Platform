@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { CampaignTemplates } from './CampaignTemplates';
 
 type Api = <T>(path: string, options?: RequestInit) => Promise<T>;
 type Locale = 'ar'|'fr'|'en';
@@ -122,6 +123,7 @@ export function CampaignWorkspace({ id, locale, api, onBack, onChanged }: {
         'PUT', { version: campaign.version, senderId: senderOverrideId || null })}>{t.save}</button>
       <p>{t.effectiveSender}: {effectiveSender?.senderId ?? '—'} ({effectiveSender?.reason ?? '—'})</p><p>{t.senderPending}</p>
     </section>
+    <CampaignTemplates campaignId={id} senderId={effectiveSender?.senderId ?? null} locale={locale} api={api} />
     {policy && <section className="panel"><h3>{t.policy}</h3>
       <label className="check-row"><input type="checkbox" checked={policyWindow === null} disabled={busy}
         onChange={(event) => setPolicyWindow(event.target.checked ? null : { start: '09:00', end: '18:00' })} />{t.inheritWindow}</label>

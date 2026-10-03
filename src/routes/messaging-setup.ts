@@ -176,9 +176,10 @@ export function registerMessagingSetupRoutes(app: FastifyInstance, db: Database,
         await tx`INSERT INTO messaging_sender (organization_id, connection_id, external_sender_id,
           display_name, provider_status, capabilities)
           VALUES (${actor.organizationId}, ${connection.id}, ${sender.externalId}, ${sender.displayName},
-            ${tx.json({ qualityRating: sender.qualityRating })}, ${tx.json({ text: true })})
+          ${tx.json({ qualityRating: sender.qualityRating })}, ${tx.json({ text: true, template: true })})
           ON CONFLICT (connection_id, external_sender_id) DO UPDATE SET display_name = EXCLUDED.display_name,
-            provider_status = EXCLUDED.provider_status, active = true`;
+            provider_status = EXCLUDED.provider_status, capabilities = EXCLUDED.capabilities,
+            active = true`;
       }
       await tx`INSERT INTO audit_log (organization_id, branch_id, actor_user_id, action, target_type, target_id, detail)
         VALUES (${actor.organizationId}, ${connection.branch_id}, ${actor.id}, 'MESSAGING_CONNECTION_DISCOVERED',
