@@ -56,6 +56,23 @@ function checkBinding(input: BindingInput, mode: string): void {
 }
 
 export function registerFieldRoutes(app: FastifyInstance, db: Database): void {
+  app.get<{ Params: { id: string } }>('/api/campaigns/:id/filter-fields', { schema: { params: idParam } }, async (request) => {
+    const actor = await principalFromRequest(request, db);
+    const campaign = await db`SELECT id, branch_id FROM campaign WHERE id = ${request.params.id}
+      AND organization_id = ${actor.organizationId} AND (${actor.role === 'SUPER_ADMIN'} OR branch_id = ${actor.branchId})
+      AND (${actor.role !== 'AGENT'} OR EXISTS
+        (SELECT 1 FROM lead WHERE campaign_id = ${request.params.id} AND assigned_agent_id = ${actor.id}))`;
+    if (!campaign[0]) throw new HttpError(404, 'CAMPAIGN_NOT_FOUND');
+    const rows = await db`SELECT fd.id, fd.key, fd.label, fd.field_type, fd.options
+      FROM campaign_field cf JOIN field_definition fd ON fd.id = cf.field_id
+      WHERE cf.campaign_id = ${request.params.id} AND fd.organization_id = ${actor.organizationId}
+        AND cf.active AND fd.active AND cf.filterable AND fd.value_mode <> 'CALCULATED'
+        AND (${actor.role === 'SUPER_ADMIN'} OR (${actor.role === 'MANAGER'} AND cf.visible_to_manager)
+          OR (${actor.role === 'AGENT'} AND cf.visible_to_agent))
+      ORDER BY cf.position, fd.id`;
+    return { items: rows };
+  });
+
   app.get<{ Querystring: { campaignId?: string; limit?: number; cursor?: string } }>('/api/fields', {
     schema: { querystring: { type: 'object', additionalProperties: false, properties: {
       campaignId: { type: 'string', format: 'uuid' }, limit: { type: 'integer', minimum: 1, maximum: 100 }, cursor: { type: 'string', maxLength: 256 },

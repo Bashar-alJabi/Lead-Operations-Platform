@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import type postgres from 'postgres';
 import type { Database } from '../db.js';
 import { HttpError, principalFromRequest, requireBranch, requireLead, requireRole } from '../security.js';
 import { routeLead } from '../routing.js';
@@ -6,9 +7,18 @@ import { decodeCursor, encodeCursor } from '../pagination.js';
 import { identityLockKeys, normalizeContact } from '../contacts.js';
 import { enforceRequiredFieldStage, prepareManualFieldValues, storeManualFieldValues, type ManualFieldInput } from '../field-values.js';
 import { registerCampaignRoutes } from './campaigns.js';
+import { validateFieldValue, type FieldType, type FieldOption, type FieldValidation } from '../fields.js';
 
 const idParam = { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } as const;
-const pageQuery = { type: 'object', additionalProperties: false, properties: { limit: { type: 'integer', minimum: 1, maximum: 100 }, cursor: { type: 'string', maxLength: 256 }, branchId: { type: 'string', format: 'uuid' }, campaignId: { type: 'string', format: 'uuid' }, contactId: { type: 'string', format: 'uuid' }, assignedAgentId: { type: 'string', format: 'uuid' }, lifecycle: { enum: ['OPEN','CLOSED','ARCHIVED'] } } } as const;
+const pageQuery = { type: 'object', additionalProperties: false, properties: {
+  limit: { type: 'integer', minimum: 1, maximum: 100 }, cursor: { type: 'string', maxLength: 256 },
+  branchId: { type: 'string', format: 'uuid' }, campaignId: { type: 'string', format: 'uuid' },
+  contactId: { type: 'string', format: 'uuid' }, assignedAgentId: { type: 'string', format: 'uuid' },
+  lifecycle: { enum: ['OPEN','CLOSED','ARCHIVED'] }, q: { type: 'string', maxLength: 200 },
+  sourceKind: { type: 'string', maxLength: 40 }, from: { type: 'string', format: 'date-time' },
+  to: { type: 'string', format: 'date-time' }, followup: { enum: ['NONE','OVERDUE','UPCOMING'] },
+  fieldId: { type: 'string', format: 'uuid' }, fieldValue: { type: 'string', maxLength: 2000 },
+} } as const;
 
 export function registerOperationsRoutes(app: FastifyInstance, db: Database): void {
   registerCampaignRoutes(app, db);
@@ -105,7 +115,9 @@ export function registerOperationsRoutes(app: FastifyInstance, db: Database): vo
     reply.code(201); return result;
   });
 
-  app.get<{ Querystring: { limit?: number; cursor?: string; branchId?: string; campaignId?: string; contactId?: string; assignedAgentId?: string; lifecycle?: string } }>('/api/leads', {
+  app.get<{ Querystring: { limit?: number; cursor?: string; branchId?: string; campaignId?: string; contactId?: string;
+    assignedAgentId?: string; lifecycle?: string; q?: string; sourceKind?: string; from?: string; to?: string;
+    followup?: 'NONE'|'OVERDUE'|'UPCOMING'; fieldId?: string; fieldValue?: string } }>('/api/leads', {
     schema: { querystring: pageQuery },
   }, async (request) => {
     const actor = await principalFromRequest(request, db);
@@ -113,6 +125,31 @@ export function registerOperationsRoutes(app: FastifyInstance, db: Database): vo
     const cursor = decodeCursor(q.cursor);
     const limit = Math.min(q.limit ?? 30, 100);
     if (q.branchId) requireBranch(actor, q.branchId);
+    if (q.from && q.to && Date.parse(q.from) > Date.parse(q.to)) throw new HttpError(400, 'INVALID_DATE_RANGE');
+    if (Boolean(q.fieldId) !== Boolean(q.fieldValue)) throw new HttpError(400, 'FIELD_FILTER_INCOMPLETE');
+    let normalizedFieldValue: postgres.JSONValue | null = null;
+    if (q.fieldId) {
+      if (!q.campaignId) throw new HttpError(400, 'FIELD_FILTER_REQUIRES_CAMPAIGN');
+      const fields = await db`SELECT fd.field_type, fd.value_mode, fd.options, fd.validation
+        FROM campaign_field cf JOIN field_definition fd ON fd.id = cf.field_id
+        JOIN campaign campaign ON campaign.id = cf.campaign_id
+        WHERE cf.campaign_id = ${q.campaignId} AND fd.id = ${q.fieldId} AND campaign.organization_id = ${actor.organizationId}
+          AND (${actor.role === 'SUPER_ADMIN'} OR campaign.branch_id = ${actor.branchId})
+          AND cf.active AND fd.active AND cf.filterable
+          AND (${actor.role === 'SUPER_ADMIN'} OR (${actor.role === 'MANAGER'} AND cf.visible_to_manager)
+            OR (${actor.role === 'AGENT'} AND cf.visible_to_agent))`;
+      const field = fields[0];
+      if (!field) throw new HttpError(404, 'FIELD_NOT_FOUND');
+      if (field.value_mode === 'CALCULATED') throw new HttpError(409, 'CALCULATED_FILTER_NOT_READY');
+      let parsed: unknown;
+      try { parsed = JSON.parse(q.fieldValue!); } catch { throw new HttpError(400, 'FIELD_FILTER_INVALID'); }
+      normalizedFieldValue = validateFieldValue(field.field_type as FieldType, parsed,
+        field.options as FieldOption[], field.validation as FieldValidation) as postgres.JSONValue;
+      if (normalizedFieldValue === null) throw new HttpError(400, 'FIELD_FILTER_INVALID');
+    }
+    const search = q.q?.trim().normalize('NFKC').toLowerCase() ?? '';
+    const phoneSearch = search.replace(/[\s().-]/g, '');
+    const exactId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(search) ? search : null;
     const rows = await db`
       SELECT l.id, l.branch_id, l.campaign_id, l.assigned_agent_id, l.lifecycle, l.source_kind,
         l.needs_attention_reason, l.created_at, c.name AS contact_name, c.phone, c.email
@@ -125,6 +162,19 @@ export function registerOperationsRoutes(app: FastifyInstance, db: Database): vo
         AND (${q.contactId ?? null}::uuid IS NULL OR l.contact_id = ${q.contactId ?? null})
         AND (${q.assignedAgentId ?? null}::uuid IS NULL OR l.assigned_agent_id = ${q.assignedAgentId ?? null})
         AND (${q.lifecycle ?? null}::text IS NULL OR l.lifecycle = ${q.lifecycle ?? null})
+        AND (${search} = '' OR starts_with(lower(c.name), ${search}) OR starts_with(c.email_normalized, ${search})
+          OR (${phoneSearch !== ''} AND starts_with(c.phone_normalized, ${phoneSearch})) OR l.id = ${exactId}::uuid)
+        AND (${q.sourceKind ?? null}::text IS NULL OR l.source_kind = ${q.sourceKind ?? null})
+        AND (${q.from ?? null}::timestamptz IS NULL OR l.created_at >= ${q.from ?? null})
+        AND (${q.to ?? null}::timestamptz IS NULL OR l.created_at <= ${q.to ?? null})
+        AND (${q.followup ?? null}::text IS NULL OR
+          (${q.followup === 'NONE'} AND NOT EXISTS (SELECT 1 FROM follow_up f WHERE f.lead_id = l.id AND f.status = 'OPEN')) OR
+          (${q.followup === 'OVERDUE'} AND EXISTS (SELECT 1 FROM follow_up f WHERE f.lead_id = l.id AND f.status = 'OPEN' AND f.due_at < now())) OR
+          (${q.followup === 'UPCOMING'} AND EXISTS (SELECT 1 FROM follow_up f WHERE f.lead_id = l.id AND f.status = 'OPEN' AND f.due_at >= now())))
+        AND (${q.fieldId ?? null}::uuid IS NULL OR EXISTS (SELECT 1 FROM lead_field_value fv
+          WHERE fv.lead_id = l.id AND fv.field_id = ${q.fieldId ?? null}
+            AND md5(fv.value::text) = md5((${normalizedFieldValue === null ? null : db.json(normalizedFieldValue)}::jsonb)::text)
+            AND fv.value = ${normalizedFieldValue === null ? null : db.json(normalizedFieldValue)}::jsonb))
         AND (${cursor?.timestamp ?? null}::timestamptz IS NULL OR (l.created_at, l.id) < (${cursor?.timestamp ?? null}::timestamptz, ${cursor?.id ?? null}::uuid))
       ORDER BY l.created_at DESC, l.id DESC LIMIT ${limit + 1}`;
     const items = rows.slice(0, limit);
@@ -148,7 +198,8 @@ export function registerOperationsRoutes(app: FastifyInstance, db: Database): vo
     await db.begin(async (tx) => {
       const current = await tx`SELECT lifecycle, campaign_id FROM lead WHERE id = ${lead.id} FOR UPDATE`;
       if (request.body.lifecycle === 'CLOSED') await enforceRequiredFieldStage(tx, lead.id, current[0]!.campaign_id, 'CLOSE');
-      await tx`UPDATE lead SET lifecycle = ${request.body.lifecycle}, closed_at = ${request.body.lifecycle === 'OPEN' ? null : new Date()}, updated_at = now() WHERE id = ${lead.id}`;
+      await tx`UPDATE lead SET lifecycle = ${request.body.lifecycle}, closed_at = ${request.body.lifecycle === 'OPEN' ? null : new Date()},
+        version = version + 1, updated_at = now() WHERE id = ${lead.id}`;
       await tx`INSERT INTO lead_activity (lead_id, actor_user_id, event_type, detail) VALUES (${lead.id}, ${actor.id}, 'LIFECYCLE_CHANGED', ${tx.json({ from: current[0]!.lifecycle, to: request.body.lifecycle })})`;
     });
     return { lifecycle: request.body.lifecycle };

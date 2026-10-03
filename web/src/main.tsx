@@ -5,17 +5,19 @@ import { ContactWorkspace } from './ContactWorkspace.js';
 import { LeadFields, LeadCreationFields } from './LeadFields.js';
 import { FieldWorkspace } from './FieldWorkspace.js';
 import { CampaignWorkspace } from './CampaignWorkspace.js';
+import { FollowupQueue, LeadWorkflow } from './LeadWorkflow.js';
+import { LeadSearch } from './LeadSearch.js';
 
 type Role = 'SUPER_ADMIN' | 'MANAGER' | 'AGENT';
 type User = { id: string; organizationId: string; branchId: string | null; role: Role; name: string; email: string };
 type Branch = { id: string; name: string; timezone: string; active: boolean };
 type Campaign = { id: string; branch_id: string; name: string; status: string; routing_method?: string; agents?: { agentId: string; name: string }[] };
-type Lead = { id: string; branch_id: string; campaign_id: string; assigned_agent_id: string | null; lifecycle: string; contact_name: string; phone: string | null; email: string | null; needs_attention_reason: string | null; created_at: string };
+type Lead = { id: string; branch_id: string; campaign_id: string; assigned_agent_id: string | null; lifecycle: string; contact_name: string; phone: string | null; email: string | null; needs_attention_reason: string | null; created_at: string; version: number };
 type ManagedUser = { id: string; branch_id: string | null; role: Role; name: string; email: string; active: boolean; credential_state: 'INVITED'|'READY' };
 type EmailConnection = { configured: boolean; id?: string; name?: string; status?: string; hasCredential?: boolean; settings?: { host: string; port: number; secure: boolean; username: string; fromAddress: string } };
 type DeliveryJob = { id: string; kind: string; status: string; attempts: number; max_attempts: number; last_error_code: string | null; email: string; name: string; created_at: string };
 type Locale = 'ar' | 'fr' | 'en';
-type Page = 'leads' | 'contacts' | 'contactReviews' | 'fields' | 'campaigns' | 'branches' | 'users' | 'profile' | 'identityEmail';
+type Page = 'leads' | 'contacts' | 'contactReviews' | 'fields' | 'campaigns' | 'branches' | 'users' | 'profile' | 'identityEmail' | 'followups';
 type AuthMode = 'login' | 'forgot' | 'reset' | 'invite';
 const linkParameters = new URLSearchParams(window.location.hash.slice(1));
 const initialLinkMode: AuthMode = linkParameters.has('invite') ? 'invite' : linkParameters.has('reset') ? 'reset' : 'login';
@@ -57,6 +59,10 @@ const contactLabels = {
   en: { contacts: 'Contacts', contactReviews: 'Match reviews', reviewSaved: 'Saved for review; no lead was created until a contact is selected.' },
 } as const;
 const fieldLabels = { ar: { fields: 'الحقول الديناميكية' }, fr: { fields: 'Champs dynamiques' }, en: { fields: 'Dynamic fields' } } as const;
+const workflowLabels = { ar: { followups: 'المتابعات' }, fr: { followups: 'Suivis' }, en: { followups: 'Follow-ups' } } as const;
+type LabelKey = keyof typeof labels.en | keyof typeof profileLabels.en | keyof typeof managementLabels.en |
+  keyof typeof identityLabels.en | keyof typeof deliveryLabels.en | keyof typeof contactLabels.en |
+  keyof typeof fieldLabels.en | keyof typeof workflowLabels.en;
 
 async function api<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(path, { credentials: 'same-origin', headers: { 'Content-Type': 'application/json', ...options?.headers }, ...options });
@@ -67,7 +73,8 @@ async function api<T>(path: string, options?: RequestInit): Promise<T> {
 
 function App() {
   const [locale, setLocale] = useState<Locale>(() => (localStorage.getItem('lop-locale') as Locale) || 'ar');
-  const t = { ...labels[locale], ...profileLabels[locale], ...managementLabels[locale], ...identityLabels[locale], ...deliveryLabels[locale], ...contactLabels[locale], ...fieldLabels[locale] };
+  const t: Record<LabelKey, string> = { ...labels[locale], ...profileLabels[locale], ...managementLabels[locale],
+    ...identityLabels[locale], ...deliveryLabels[locale], ...contactLabels[locale], ...fieldLabels[locale], ...workflowLabels[locale] };
   const [user, setUser] = useState<User | null>(null);
   const [authMode, setAuthMode] = useState<AuthMode>(initialLinkMode);
   const [authToken] = useState(initialLinkToken);
@@ -80,6 +87,7 @@ function App() {
   const [nextCampaignCursor, setNextCampaignCursor] = useState<string | null>(null);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [nextLeadCursor, setNextLeadCursor] = useState<string | null>(null);
+  const [leadQuery, setLeadQuery] = useState('');
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [nextUserCursor, setNextUserCursor] = useState<string | null>(null);
   const [detail, setDetail] = useState<{ lead: Lead; activities: { id: number; event_type: string; created_at: string }[] } | null>(null);
@@ -116,7 +124,7 @@ function App() {
     try {
       const [branchResult, campaignResult, leadResult, userResult] = await Promise.all([
         api<{ items: Branch[] }>('/api/branches'), api<{ items: Campaign[]; nextCursor: string | null }>('/api/campaigns'),
-        api<{ items: Lead[]; nextCursor: string | null }>('/api/leads?limit=50'),
+        api<{ items: Lead[]; nextCursor: string | null }>(`/api/leads?${leadQuery ? leadQuery + '&' : ''}limit=50`),
         user.role === 'AGENT' ? Promise.resolve({ items: [] as ManagedUser[], nextCursor: null }) : api<{ items: ManagedUser[]; nextCursor: string | null }>('/api/users'),
       ]);
       setBranches(branchResult.items); setCampaigns(campaignResult.items); setNextCampaignCursor(campaignResult.nextCursor); setLeads(leadResult.items); setNextLeadCursor(leadResult.nextCursor); setUsers(userResult.items); setNextUserCursor(userResult.nextCursor);
@@ -149,6 +157,11 @@ function App() {
       if (result.reviewId) { setNotice(t.reviewSaved); setPage('contactReviews'); setWorkspaceRefresh((value) => value + 1); }
     }
     catch (failure) { setError(String(failure)); } finally { setBusy(false); }
+  }
+
+  async function searchLeads(query: string) {
+    const result = await api<{ items: Lead[]; nextCursor: string | null }>(`/api/leads?${query ? query + '&' : ''}limit=50`);
+    setLeadQuery(query); setLeads(result.items); setNextLeadCursor(result.nextCursor);
   }
 
   async function submitAuthentication() {
@@ -217,8 +230,8 @@ function App() {
   const isAdmin = user.role === 'SUPER_ADMIN';
   const canManage = user.role !== 'AGENT';
   return <div className="app-shell"><aside className="sidebar"><div className="brand">{t.app}</div><div className="user-block"><strong>{user.name}</strong><span>{user.role.replace('_', ' ')}</span></div>
-    <nav>{(['leads','contacts','contactReviews','campaigns','fields','branches','users','identityEmail','profile'] as Page[]).filter((item) =>
-      item === 'identityEmail' || item === 'contactReviews' ? canManage : canManage || item === 'leads' || item === 'contacts' || item === 'profile').map((item) =>
+    <nav>{(['leads','contacts','contactReviews','followups','campaigns','fields','branches','users','identityEmail','profile'] as Page[]).filter((item) =>
+      item === 'identityEmail' || item === 'contactReviews' ? canManage : canManage || item === 'leads' || item === 'contacts' || item === 'profile' || item === 'followups').map((item) =>
       <button key={item} className={page === item ? 'selected' : ''} onClick={() => { setPage(item); setSelectedLead(null); setSelectedCampaign(null); setShowForm(false); setForm({}); setNotice(''); }}>{t[item]}</button>)}</nav>
     <div className="sidebar-bottom">{language}<button onClick={() => { void api('/api/auth/logout', { method: 'POST' }).then(() => setUser(null)); }}>{t.logout}</button></div>
   </aside><main className="content"><header><div><small>Lead Operations</small><h1>{selectedLead ? t.details : t[page]}</h1></div><button className="secondary" onClick={() => void (page === 'identityEmail' ? refreshDeliveryJobs() : page === 'contacts' || page === 'contactReviews' || page === 'fields' ? setWorkspaceRefresh((value) => value + 1) : refresh())} disabled={busy}>{t.retry}</button></header>
@@ -248,6 +261,7 @@ function App() {
       : page === 'fields' ? <FieldWorkspace key={`fields-${workspaceRefresh}`} locale={locale} campaigns={campaigns} role={user.role} api={api} />
       : page === 'campaigns' && selectedCampaign ? <CampaignWorkspace id={selectedCampaign} locale={locale} api={api}
         onBack={() => setSelectedCampaign(null)} onChanged={refresh} />
+      : page === 'followups' ? <FollowupQueue locale={locale} api={api} onOpenLead={(id) => { setPage('leads'); setSelectedLead(id); }} />
       : page === 'profile' ? <section className="panel form-panel"><h2>{t.profile}</h2><p>{t.passwordChanged}</p>
       <form onSubmit={(event) => { event.preventDefault(); setBusy(true); setError('');
         void api('/api/auth/password', { method: 'POST', body: JSON.stringify({ currentPassword: form.currentPassword, newPassword: form.newPassword }) })
@@ -259,9 +273,12 @@ function App() {
       {canManage && <div className="actions">{(['OPEN','CLOSED','ARCHIVED'] as const).filter((state) => state !== detail.lead.lifecycle).map((state) =>
         <button key={state} className="secondary" onClick={() => { setBusy(true); api(`/api/leads/${selectedLead}/lifecycle`, { method: 'POST', body: JSON.stringify({ lifecycle: state }) })
           .then(() => api<typeof detail>(`/api/leads/${selectedLead}`)).then(setDetail).catch((failure) => setError(String(failure))).finally(() => setBusy(false)); }}>{state === 'OPEN' ? t.reopen : state === 'CLOSED' ? t.close : t.archive}</button>)}</div>}
-      <h3>{t.activity}</h3><ul className="timeline">{detail.activities.map((item) => <li key={item.id}><span>{item.event_type}</span><time>{new Date(item.created_at).toLocaleString(locale)}</time></li>)}</ul>
+      <LeadWorkflow lead={detail.lead} role={user.role} locale={locale} api={api}
+        onChanged={async () => { const current = await api<typeof detail>(`/api/leads/${selectedLead}`); setDetail(current); }} />
       <LeadFields leadId={selectedLead} locale={locale} api={api} />
     </section> : <>
+      {page === 'leads' && <LeadSearch locale={locale} branches={branches} campaigns={campaigns} users={users} currentUser={user}
+        api={api} onSearch={searchLeads} />}
       <div className="toolbar">{canManage && (page !== 'branches' || isAdmin) && <button onClick={() => { setShowForm(!showForm); setForm({}); }}>{page === 'leads' ? t.newLead : page === 'campaigns' ? t.newCampaign : page === 'branches' ? t.newBranch : t.newUser}</button>}</div>
       {showForm && <section className="panel form-panel"><h2>{page === 'leads' ? t.newLead : page === 'campaigns' ? t.newCampaign : page === 'branches' ? t.newBranch : t.newUser}</h2>
         <form onSubmit={(event) => { event.preventDefault(); if (page === 'branches') void submit('/api/branches', { name: form.name, timezone: form.timezone });
@@ -289,7 +306,7 @@ function App() {
               .then(() => refresh()).catch((failure) => setError(String(failure))).finally(() => setBusy(false)); }}>{item.active ? t.disable : t.enable}</button></div>}</td></tr>)}
         </tbody></table></div>{(page === 'leads' ? leads : page === 'campaigns' ? campaigns : page === 'branches' ? branches : users).length === 0 && <div className="empty">{t.noData}</div>}
         {page === 'leads' && nextLeadCursor && <div className="load-more"><button className="secondary" disabled={busy} onClick={() => { setBusy(true);
-          api<{ items: Lead[]; nextCursor: string | null }>(`/api/leads?limit=50&cursor=${encodeURIComponent(nextLeadCursor)}`)
+          api<{ items: Lead[]; nextCursor: string | null }>(`/api/leads?${leadQuery ? leadQuery + '&' : ''}limit=50&cursor=${encodeURIComponent(nextLeadCursor)}`)
             .then((result) => { setLeads((existing) => [...existing, ...result.items]); setNextLeadCursor(result.nextCursor); })
             .catch((failure) => setError(String(failure))).finally(() => setBusy(false)); }}>{locale === 'ar' ? 'تحميل المزيد' : locale === 'fr' ? 'Afficher plus' : 'Load more'}</button></div>}
         {page === 'campaigns' && nextCampaignCursor && <div className="load-more"><button className="secondary" disabled={busy} onClick={() => { setBusy(true);

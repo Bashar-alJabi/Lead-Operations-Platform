@@ -10,6 +10,8 @@ import { registerOperationsRoutes } from './routes/operations.js';
 import { registerIdentityEmailRoutes } from './routes/identity-email.js';
 import { registerContactRoutes } from './routes/contacts.js';
 import { registerFieldRoutes } from './routes/fields.js';
+import { registerLeadWorkflowRoutes } from './routes/lead-workflow.js';
+import { registerLeadViewRoutes } from './routes/lead-views.js';
 import { smtpEmailAdapter, type IdentityEmailAdapter } from './identity-email.js';
 
 export async function buildApp(db: Database, options: { logger?: boolean; emailAdapter?: IdentityEmailAdapter } = {}): Promise<FastifyInstance> {
@@ -49,6 +51,8 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   registerOperationsRoutes(app, db);
   registerContactRoutes(app, db);
   registerFieldRoutes(app, db);
+  registerLeadWorkflowRoutes(app, db);
+  registerLeadViewRoutes(app, db);
   registerIdentityEmailRoutes(app, db, options.emailAdapter ?? smtpEmailAdapter);
   return app;
 }

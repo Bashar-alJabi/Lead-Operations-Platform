@@ -49,7 +49,7 @@ export function requireBranch(principal: Principal, branchId: string): void {
 
 export async function requireLead(db: Database, principal: Principal, leadId: string) {
   const rows = await db`
-    SELECT l.id, l.branch_id, l.campaign_id, l.contact_id, l.assigned_agent_id, l.lifecycle,
+    SELECT l.id, l.branch_id, l.campaign_id, l.contact_id, l.assigned_agent_id, l.lifecycle, l.version,
       l.source_kind, l.needs_attention_reason, l.created_at, l.updated_at,
       c.name AS contact_name, c.phone, c.email
     FROM lead l JOIN contact c ON c.id = l.contact_id
