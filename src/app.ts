@@ -17,6 +17,7 @@ import { registerSenderBindingRoutes } from './routes/sender-bindings.js';
 import { registerConversationRoutes } from './routes/conversations.js';
 import { registerMessagingConsentRoutes } from './routes/messaging-consent.js';
 import { registerMessagingPolicyRoutes } from './routes/messaging-policy.js';
+import { registerConversationMessageRoutes } from './routes/conversation-messages.js';
 import { smtpEmailAdapter, type IdentityEmailAdapter } from './identity-email.js';
 import type { MessagingProviderAdapter } from './messaging/providers.js';
 
@@ -69,6 +70,7 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   registerConversationRoutes(app, db);
   registerMessagingConsentRoutes(app, db);
   registerMessagingPolicyRoutes(app, db);
+  registerConversationMessageRoutes(app, db);
   registerIdentityEmailRoutes(app, db, options.emailAdapter ?? smtpEmailAdapter);
   return app;
 }

@@ -1,5 +1,13 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: Outbound send intent
+
+أضيفت migrations `019`–`021` لربط Message بالـConversation/Sender/Connection المثبتين، ومنع تعديل محتوى الرسالة وهويتها التاريخية أو حذفها، وربط مهمة الإرسال بالرسالة بمفاتيح أجنبية، وفهرسة نافذة آخر Inbound. عُدّل migration runner كي يفهم SQL functions ذات semicolons داخل dollar quotes، مع اختبار وحدة. خدمة `enqueueOutboundMessage` تقفل Lead ثم Contact ثم Conversation، وتتحقق من الصلاحيات والحملة/الفرع النشطين وحالة Lead والمتحكم وConsent/DNC والـSender المثبت وصحة الاتصال والنافذة، وتمنع Meta freeform خارج نافذة خدمة العميل ذات 24 ساعة. مسار Human فقط متاح الآن؛ يحفظ Message `QUEUED` و`background_job` وAudit في معاملة واحدة، ويعيد الطلب بالمفتاح نفسه دون تكرار أو يرفض إعادة استخدامه بمحتوى آخر. واجهة Lead تعرض سجل الرسائل بنطاق الصلاحية وpagination، وتُبقي idempotency key عند إعادة محاولة طلب لم يؤكد نجاحه. `QUEUED` لا تعني إرسالاً أو تسليماً.
+
+التحقق: Docker PostgreSQL `healthy`، migrations `001`–`021` على قاعدتي التطوير والاختبار، 19/19 unit و6/6 مجموعات integration، Backend/Web typecheck وWeb build ناجحة. اختبارات PostgreSQL تفحص عزل Agent/Branch، Consent وDNC، اشتراط template عند غياب Inbound، نافذة الوقت، controller، sender invalid/Needs Attention، تعارض المفتاح والتزامن، عدم تكرار Message/Job، وثبات محتوى الرسالة؛ حالة الاتصال `CONNECTED` أُنشئت اصطناعياً في الاختبار فقط. لا UI E2E ولا إرسال مزوّد أو Webhook حي؛ Worker لم ينفذ بعد، لذا لا توجد رسالة مُرسلة فعلياً.
+
+قيد التنفيذ التالي: لا تغييرات ضمن مجموعة جديدة عند هذا checkpoint. الخطوة الدقيقة: تنفيذ عامل الإرسال بمزود Meta adapter وfake adapter، مع lease وretry/backoff وdead-letter، وإعادة فحص Central Messaging Policy عند التنفيذ خصوصاً Consent/Controller/Sender/24h/template والنافذة، ثم delivery callbacks مستقلة مقاومة للأحداث المكررة وخارج الترتيب. أكمل إدارة القوالب من الواجهة ثم inbound webhook/Needs Attention؛ احفظ checkpoint لكل مرحلة مثبتة.
+
 ## آخر حالة مستقرة: إعداد Branch/Campaign sending policy
 
 أضيفت migration `018_messaging_policy.sql` وAPI وواجهة لضبط نافذة إرسال Branch بحسب منطقتها الزمنية، ووراثة Campaign لهذه النافذة أو تجاوزها، مع حد اختياري للمحاولات والفاصل الأدنى بينهما. `null` في Branch يعني عدم فرض نافذة محلية، و`null` في Campaign يعني الوراثة. نافذة تعبر منتصف الليل مسموحة، وتُرفض البداية المطابقة للنهاية والقيم غير الصالحة. للفرع نسخة سياسة مستقلة عن نسخة اختيار Sender؛ سياسة Campaign تستخدم نسختها الحالية. كل تعديل يمر بصلاحيات Super Admin/Manager ضمن الفرع، ويُسجل في Audit؛ Agent لا يغيرها. يظهر Effective Window وIANA timezone في الواجهة. حد الأعداد الأعلى `2147483647` قيد تقني لحفظ أعداد صحيحة، وليس قاعدة تجارية أو حد مزوّد.

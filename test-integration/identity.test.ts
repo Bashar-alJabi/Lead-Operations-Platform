@@ -31,7 +31,7 @@ test('identity invitation and recovery enforce scope, one-time tokens, and retry
   await db.begin(async (tx) => {
     await tx`SET LOCAL client_min_messages TO warning`;
     await tx`TRUNCATE organization CASCADE`;
-    await tx`TRUNCATE background_job`;
+    await tx`TRUNCATE background_job CASCADE`;
   });
   const send = async (method: 'GET'|'POST'|'PUT', path: string, payload?: Record<string, unknown>, cookie?: string) => await app.inject({
     method, url: path, payload, headers: { origin: process.env.APP_ORIGIN!, ...(cookie ? { cookie } : {}) },

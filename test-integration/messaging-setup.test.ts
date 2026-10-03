@@ -27,7 +27,8 @@ test('Messaging setup encrypts credentials, scopes connections, and discovers se
   } };
   const app = await buildApp(db, { logger: false, messagingAdapter: adapter, globalRateLimitMax: 1000 });
   t.after(async () => { await app.close(); await db.end(); });
-  await db.begin(async (tx) => { await tx`SET LOCAL client_min_messages TO warning`; await tx`TRUNCATE organization CASCADE`; });
+  await db.begin(async (tx) => { await tx`SET LOCAL client_min_messages TO warning`;
+    await tx`TRUNCATE background_job CASCADE`; await tx`TRUNCATE organization CASCADE`; });
   const send = async (method: 'GET'|'POST'|'PUT'|'PATCH', path: string, body?: object, cookie?: string) => app.inject({
     method, url: path, payload: body, headers: { origin: process.env.APP_ORIGIN!, ...(cookie ? { cookie } : {}) },
   });
@@ -362,6 +363,91 @@ test('Messaging setup encrypts credentials, scopes connections, and discovers se
     { start: '10:00', end: '18:00' });
   assert.ok((await db`SELECT 1 FROM audit_log WHERE action = 'CAMPAIGN_MESSAGING_POLICY_UPDATED'
     AND target_id = ${campaignId}`).length);
+  // Exercise the send intent against a synthetically healthy sandbox connection; discovery alone stays WARNING.
+  await db`UPDATE conversation SET connection_id = ${orgConnection.json().id}, needs_attention_reason = NULL
+    WHERE id = ${conversationId}`;
+  await db`UPDATE campaign SET status = 'ACTIVE', messaging_config = ${db.json({ enabled: true })}
+    WHERE id = ${campaignId}`;
+  const currentCampaignPolicy = (await send('GET', campaignPolicyPath, undefined, managerA)).json();
+  assert.equal((await send('PUT', campaignPolicyPath, { version: currentCampaignPolicy.version,
+    sendingWindow: null, maxAttempts: 3, minIntervalSeconds: 300 }, managerA)).statusCode, 200);
+  assert.equal((await send('PUT', branchPolicyPath, { version: 2, sendingWindow: null }, managerA)).statusCode, 200);
+  const messagePath = `/api/conversations/${conversationId}/messages`;
+  const firstKey = 'send-intent-001';
+  await db`UPDATE lead SET assigned_agent_id = NULL WHERE id = ${leadId}`;
+  assert.equal((await send('GET', messagePath, undefined, managerB)).statusCode, 404);
+  assert.equal((await send('POST', messagePath, { body: 'Hello', idempotencyKey: firstKey }, agent)).statusCode, 404);
+  assert.equal((await send('POST', messagePath, { body: 'Hello', idempotencyKey: firstKey }, managerB)).statusCode, 404);
+  const dncBlocked = await send('POST', messagePath, { body: 'Hello', idempotencyKey: firstKey }, managerA);
+  assert.equal(dncBlocked.statusCode, 409, dncBlocked.body);
+  assert.equal(dncBlocked.json().error, 'DO_NOT_CONTACT');
+  assert.equal((await send('PUT', consentPath, { version: 3, status: 'GRANTED', doNotContact: false,
+    evidence: 'Verified opt-in', source: 'ADMIN' }, admin)).statusCode, 200);
+  const templateBlocked = await send('POST', messagePath, { body: 'Hello', idempotencyKey: firstKey }, managerA);
+  assert.equal(templateBlocked.statusCode, 409, templateBlocked.body);
+  assert.equal(templateBlocked.json().error, 'TEMPLATE_REQUIRED');
+  await db`INSERT INTO conversation_message (conversation_id, connection_id, sender_id, direction,
+    author_type, body, delivery_state, received_at) VALUES (${conversationId}, ${orgConnection.json().id},
+      ${sharedSender}, 'INBOUND', 'CUSTOMER', 'Customer message', 'RECEIVED', now())`;
+  const queued = await send('POST', messagePath, { body: 'Hello', idempotencyKey: firstKey }, managerA);
+  assert.equal(queued.statusCode, 202, queued.body);
+  assert.equal(queued.json().deliveryState, 'QUEUED');
+  const replayed = await send('POST', messagePath, { body: 'Hello', idempotencyKey: firstKey }, managerA);
+  assert.equal(replayed.statusCode, 200, replayed.body);
+  assert.equal(replayed.json().id, queued.json().id);
+  assert.equal((await send('POST', messagePath, { body: 'Changed', idempotencyKey: firstKey }, managerA)).statusCode, 409);
+  const concurrent = await Promise.all([1,2].map(() => send('POST', messagePath,
+    { body: 'Concurrent', idempotencyKey: 'send-intent-002' }, managerA)));
+  assert.deepEqual(concurrent.map((response) => response.statusCode).sort(), [200,202]);
+  assert.equal(concurrent[0]!.json().id, concurrent[1]!.json().id);
+  assert.equal((await db`SELECT count(*)::integer AS n FROM conversation_message
+    WHERE conversation_id = ${conversationId} AND direction = 'OUTBOUND'`)[0]!.n, 2);
+  assert.equal((await db`SELECT count(*)::integer AS n FROM outbound_delivery_job j
+    JOIN conversation_message m ON m.id = j.message_id WHERE m.conversation_id = ${conversationId}`)[0]!.n, 2);
+  assert.equal((await send('GET', messagePath, undefined, managerA)).json().items.length, 3);
+  await db`UPDATE lead SET assigned_agent_id = ${agentId} WHERE id = ${leadId}`;
+  assert.equal((await send('GET', messagePath, undefined, agent)).statusCode, 200);
+  assert.equal((await send('POST', messagePath, { body: 'Agent reply', idempotencyKey: 'send-intent-003' }, agent))
+    .json().error, 'HUMAN_CONTROLLER_REQUIRED');
+  await db`UPDATE lead SET assigned_agent_id = NULL WHERE id = ${leadId}`;
+  assert.equal((await send('GET', messagePath, undefined, agent)).statusCode, 404);
+  await assert.rejects(db`UPDATE conversation_message SET body = 'edited' WHERE id = ${queued.json().id}`);
+  await assert.rejects(db`UPDATE conversation SET connection_id = ${id} WHERE id = ${conversationId}`);
+  assert.equal((await send('POST', messagePath, { body: '   ', idempotencyKey: 'send-intent-003' }, managerA)).statusCode, 400);
+  assert.equal((await send('POST', messagePath, { body: 'Hello', idempotencyKey: 'x' }, managerA)).statusCode, 400);
+  await db`UPDATE messaging_sender SET operator_enabled = false WHERE id = ${sharedSender}`;
+  const invalidPinned = await send('POST', messagePath,
+    { body: 'Blocked sender', idempotencyKey: 'send-intent-004' }, managerA);
+  assert.equal(invalidPinned.statusCode, 409, invalidPinned.body);
+  assert.equal(invalidPinned.json().error, 'PINNED_SENDER_DISABLED');
+  assert.equal((await db`SELECT needs_attention_reason FROM conversation WHERE id = ${conversationId}`)[0]!
+    .needs_attention_reason, 'PINNED_SENDER_DISABLED');
+  await db`UPDATE messaging_sender SET operator_enabled = true WHERE id = ${sharedSender}`;
+  assert.equal((await send('POST', `/api/leads/${leadId}/conversations`, undefined, managerA)).statusCode, 200);
+  const hour = (new Date().getUTCHours() + 2) % 24;
+  const blockedWindow = { start: `${String(hour).padStart(2, '0')}:00`,
+    end: `${String((hour + 1) % 24).padStart(2, '0')}:00` };
+  assert.equal((await send('PUT', branchPolicyPath, { version: 3,
+    sendingWindow: blockedWindow }, managerA)).statusCode, 200);
+  const timeBlocked = await send('POST', messagePath,
+    { body: 'Outside window', idempotencyKey: 'send-intent-005' }, managerA);
+  assert.equal(timeBlocked.statusCode, 409, timeBlocked.body);
+  assert.equal(timeBlocked.json().error, 'OUTSIDE_SENDING_WINDOW');
+  assert.equal((await send('PUT', branchPolicyPath, { version: 4, sendingWindow: null }, managerA)).statusCode, 200);
+  await db`UPDATE campaign SET status = 'INACTIVE' WHERE id = ${campaignId}`;
+  assert.equal((await send('POST', messagePath,
+    { body: 'Inactive', idempotencyKey: 'send-intent-006' }, managerA)).json().error, 'MESSAGING_NOT_ACTIVE');
+  await db`UPDATE campaign SET status = 'ACTIVE' WHERE id = ${campaignId}`;
+  assert.equal((await send('PUT', consentPath, { version: 4, status: 'REVOKED', doNotContact: true,
+    evidence: 'Opt-out', source: 'ADMIN' }, admin)).statusCode, 200);
+  assert.equal((await send('POST', messagePath,
+    { body: 'After opt-out', idempotencyKey: 'send-intent-007' }, managerA)).json().error, 'DO_NOT_CONTACT');
+  assert.equal((await send('POST', messagePath,
+    { body: 'Hello', idempotencyKey: firstKey }, managerA)).json().id, queued.json().id);
+  assert.equal((await db`SELECT count(*)::integer AS n FROM outbound_delivery_job j
+    JOIN conversation_message m ON m.id = j.message_id WHERE m.conversation_id = ${conversationId}`)[0]!.n, 2);
+  assert.ok((await db`SELECT 1 FROM audit_log WHERE action = 'OUTBOUND_MESSAGE_QUEUED'
+    AND target_id = ${queued.json().id}`).length);
   assert.ok((await db`SELECT 1 FROM audit_log WHERE action = 'CAMPAIGN_SENDER_OVERRIDE_SET'
     AND target_id = ${campaignId}`).length);
   const flood = await Promise.all(Array.from({ length: 12 }, () => send('POST',

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 type Api = <T>(path: string, options?: RequestInit) => Promise<T>;
 type Locale = 'ar'|'fr'|'en';
@@ -7,21 +7,32 @@ type Conversation = { id: string; sender_id: string; sender_name: string; partic
   needs_attention_reason: string | null; started_at: string };
 type Consent = { status: 'GRANTED'|'REVOKED'|'UNKNOWN'; do_not_contact: boolean; evidence: string | null;
   source: string | null; updated_at: string | null; version: number; editable: boolean };
+type Message = { id: string; direction: 'INBOUND'|'OUTBOUND'; author_type: string; body: string;
+  delivery_state: string; last_error_code: string | null; created_at: string };
 const labels = {
   ar: { title: 'محادثات العميل', open: 'فتح محادثة WhatsApp', explain: 'فتح المحادثة يثبت رقم الإرسال ولا يرسل رسالة للعميل.',
     empty: 'لا توجد محادثات.', sender: 'الرقم المثبت', controller: 'المتحكم', state: 'الحالة', attention: 'تحتاج مراجعة', more: 'المزيد',
     consent: 'إذن التواصل عبر WhatsApp', dnc: 'عدم التواصل', source: 'مصدر الإذن', evidence: 'دليل/مرجع الإذن',
-    save: 'حفظ الحالة', updated: 'آخر تحديث', shared: 'تعديل حالة Contact مشتركة متاح للمسؤول الأعلى فقط.' },
+    save: 'حفظ الحالة', updated: 'آخر تحديث', shared: 'تعديل حالة Contact مشتركة متاح للمسؤول الأعلى فقط.',
+    messages: 'الرسائل', showMessages: 'عرض الرسائل', send: 'وضع الرسالة في قائمة الإرسال', draft: 'نص الرسالة',
+    queued: 'QUEUED تعني أن الرسالة محفوظة ولم يؤكد المزود إرسالها بعد.', noMessages: 'لا رسائل بعد.',
+    customer: 'العميل', sendBlocked: 'يلزم متحكم بشري نشط ومحادثة بلا سبب مراجعة.' },
   fr: { title: 'Conversations client', open: 'Ouvrir une conversation WhatsApp',
     explain: 'L’ouverture fixe le numéro d’envoi sans envoyer de message au client.', empty: 'Aucune conversation.',
     sender: 'Expéditeur fixé', controller: 'Contrôleur', state: 'État', attention: 'À examiner', more: 'Plus',
     consent: 'Consentement WhatsApp', dnc: 'Ne pas contacter', source: 'Source', evidence: 'Preuve/référence',
-    save: 'Enregistrer', updated: 'Dernière mise à jour', shared: 'Seul le super administrateur peut modifier un contact partagé.' },
+    save: 'Enregistrer', updated: 'Dernière mise à jour', shared: 'Seul le super administrateur peut modifier un contact partagé.',
+    messages: 'Messages', showMessages: 'Voir les messages', send: 'Mettre en file d’envoi', draft: 'Texte du message',
+    queued: 'QUEUED signifie que le message est enregistré ; l’envoi n’est pas confirmé.', noMessages: 'Aucun message.',
+    customer: 'Client', sendBlocked: 'Un contrôleur humain actif et aucune alerte sont requis.' },
   en: { title: 'Customer conversations', open: 'Open WhatsApp conversation',
     explain: 'Opening pins the sender and sends no customer message.', empty: 'No conversations.',
     sender: 'Pinned sender', controller: 'Controller', state: 'State', attention: 'Needs attention', more: 'More',
     consent: 'WhatsApp consent', dnc: 'Do not contact', source: 'Consent source', evidence: 'Evidence/reference',
-    save: 'Save state', updated: 'Last updated', shared: 'Only the super admin can edit a shared contact.' },
+    save: 'Save state', updated: 'Last updated', shared: 'Only the super admin can edit a shared contact.',
+    messages: 'Messages', showMessages: 'View messages', send: 'Queue message', draft: 'Message text',
+    queued: 'QUEUED means saved, not confirmed sent by the provider.', noMessages: 'No messages yet.',
+    customer: 'Customer', sendBlocked: 'An active human controller and no attention flag are required.' },
 } as const;
 
 export function LeadConversations({ leadId, lifecycle, locale, api }: { leadId: string; lifecycle: string;
@@ -36,6 +47,13 @@ export function LeadConversations({ leadId, lifecycle, locale, api }: { leadId: 
   const [doNotContact, setDoNotContact] = useState(false);
   const [source, setSource] = useState('');
   const [evidence, setEvidence] = useState('');
+  const selectedRef = useRef<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [messageCursor, setMessageCursor] = useState<string | null>(null);
+  const [draft, setDraft] = useState('');
+  const [sendKey, setSendKey] = useState(() => crypto.randomUUID());
+  const [submitted, setSubmitted] = useState(false);
   async function load(next?: string) {
     const page = await api<{ items: Conversation[]; nextCursor: string | null }>(
       `/api/leads/${leadId}/conversations${next ? '?cursor=' + encodeURIComponent(next) : ''}`);
@@ -49,14 +67,40 @@ export function LeadConversations({ leadId, lifecycle, locale, api }: { leadId: 
   }
   useEffect(() => {
     setItems([]); setConsent(null); setCursor(null); setError('');
+    selectedRef.current = null; setSelectedId(null); setMessages([]); setMessageCursor(null);
     void load().catch((failure) => setError(String(failure)));
     void loadConsent().catch((failure) => setError(String(failure)));
   }, [leadId]);
   async function open() {
     setBusy(true); setError('');
-    try { await api(`/api/leads/${leadId}/conversations`, { method: 'POST' }); await load(); }
+    try { const result = await api<{ id: string }>(`/api/leads/${leadId}/conversations`, { method: 'POST' });
+      await load(); await chooseConversation(result.id); }
     catch (failure) { setError(String(failure)); } finally { setBusy(false); }
   }
+  async function loadMessages(id: string, next?: string) {
+    const page = await api<{ items: Message[]; nextCursor: string | null }>(
+      `/api/conversations/${id}/messages${next ? '?cursor=' + encodeURIComponent(next) : ''}`);
+    if (selectedRef.current !== id) return;
+    setMessages((current) => next ? [...current, ...page.items] : page.items);
+    setMessageCursor(page.nextCursor);
+  }
+  async function chooseConversation(id: string) {
+    selectedRef.current = id; setSelectedId(id); setMessages([]); setMessageCursor(null);
+    setDraft(''); setSendKey(crypto.randomUUID()); setSubmitted(false); setError('');
+    await loadMessages(id);
+  }
+  async function sendMessage() {
+    if (!selectedId || !draft.trim()) return;
+    setBusy(true); setError('');
+    setSubmitted(true);
+    try {
+      await api(`/api/conversations/${selectedId}/messages`, { method: 'POST', body: JSON.stringify({
+        body: draft, idempotencyKey: sendKey,
+      }) });
+      setDraft(''); setSendKey(crypto.randomUUID()); setSubmitted(false); await loadMessages(selectedId);
+    } catch (failure) { setError(String(failure)); } finally { setBusy(false); }
+  }
+  const selected = items.find((item) => item.id === selectedId);
   async function saveConsent() {
     if (!consent) return;
     setBusy(true); setError('');
@@ -71,11 +115,29 @@ export function LeadConversations({ leadId, lifecycle, locale, api }: { leadId: 
     {error && <p role="alert" className="error">{error}</p>}
     <button disabled={busy || lifecycle !== 'OPEN'} onClick={() => void open()}>{t.open}</button>
     {!items.length && <p>{t.empty}</p>}
-    <div className="table-scroll"><table><thead><tr><th>{t.sender}</th><th>{t.controller}</th><th>{t.state}</th><th>{t.attention}</th></tr></thead>
+    <div className="table-scroll"><table><thead><tr><th>{t.sender}</th><th>{t.controller}</th><th>{t.state}</th><th>{t.attention}</th><th></th></tr></thead>
       <tbody>{items.map((item) => <tr key={item.id}><td>{item.sender_name}</td>
         <td>{item.controller_type}{item.controller_name && ` · ${item.controller_name}`}</td>
-        <td>{item.state}</td><td>{item.needs_attention_reason ?? '—'}</td></tr>)}</tbody></table></div>
+        <td>{item.state}</td><td>{item.needs_attention_reason ?? '—'}</td><td><button className="link"
+          onClick={() => void chooseConversation(item.id).catch((failure) => setError(String(failure)))}>{t.showMessages}</button></td></tr>)}</tbody></table></div>
     {cursor && <button className="secondary" onClick={() => void load(cursor).catch((failure) => setError(String(failure)))}>{t.more}</button>}
+    {selectedId && <div className="panel"><h4>{t.messages}</h4>
+      {!messages.length && <p>{t.noMessages}</p>}
+      <ul>{messages.map((message) => <li key={message.id}>
+        <strong>{message.direction === 'INBOUND' ? t.customer : message.author_type}</strong>
+        {' · '}{message.delivery_state}{message.last_error_code && ` · ${message.last_error_code}`}
+        <p style={{ whiteSpace: 'pre-wrap' }}>{message.body}</p>
+      </li>)}</ul>
+      {messageCursor && <button className="secondary" disabled={busy}
+        onClick={() => void loadMessages(selectedId, messageCursor).catch((failure) => setError(String(failure)))}>{t.more}</button>}
+      <form className="workflow-form" onSubmit={(event) => { event.preventDefault(); void sendMessage(); }}>
+        <label>{t.draft}<textarea required maxLength={20000} value={draft} disabled={busy}
+          onChange={(event) => { setDraft(event.target.value);
+            if (submitted) { setSendKey(crypto.randomUUID()); setSubmitted(false); } }} /></label>
+        <button disabled={busy || !draft.trim() || lifecycle !== 'OPEN' || selected?.state !== 'HUMAN_ACTIVE'
+          || Boolean(selected.needs_attention_reason)}>{t.send}</button>
+      </form><p>{t.queued} {t.sendBlocked}</p>
+    </div>}
     {consent && <div className="panel"><h4>{t.consent}</h4>
       <p>{consent.status} · {t.dnc}: {consent.do_not_contact ? '✓' : '—'} · {t.updated}: {consent.updated_at ?? '—'}</p>
       {consent.editable ? <form className="workflow-form" onSubmit={(event) => { event.preventDefault(); void saveConsent(); }}>

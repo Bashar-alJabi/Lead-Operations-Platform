@@ -175,10 +175,11 @@ test('dynamic field definitions, bindings, values, history, and role scope', asy
   const firstHuman = new Date(base - 2 * 3600_000);
   const inbound = new Date(base - 3600_000);
   const reply = new Date(base - 3000_000);
-  await db`INSERT INTO conversation_message (conversation_id, connection_id, sender_id, direction, author_type, body, delivery_state, sent_at)
-    VALUES (${conversation[0]!.id}, ${connection[0]!.id}, ${sender[0]!.id}, 'OUTBOUND', 'AI', 'AI initial', 'SENT', ${firstAi}),
-      (${conversation[0]!.id}, ${connection[0]!.id}, ${sender[0]!.id}, 'OUTBOUND', 'HUMAN', 'Human initial', 'SENT', ${firstHuman}),
-      (${conversation[0]!.id}, ${connection[0]!.id}, ${sender[0]!.id}, 'OUTBOUND', 'HUMAN', 'Human reply', 'SENT', ${reply})`;
+  await db`INSERT INTO conversation_message (conversation_id, connection_id, sender_id, direction, author_type,
+      author_user_id, body, delivery_state, sent_at)
+    VALUES (${conversation[0]!.id}, ${connection[0]!.id}, ${sender[0]!.id}, 'OUTBOUND', 'AI', NULL, 'AI initial', 'SENT', ${firstAi}),
+      (${conversation[0]!.id}, ${connection[0]!.id}, ${sender[0]!.id}, 'OUTBOUND', 'HUMAN', ${agentId}, 'Human initial', 'SENT', ${firstHuman}),
+      (${conversation[0]!.id}, ${connection[0]!.id}, ${sender[0]!.id}, 'OUTBOUND', 'HUMAN', ${agentId}, 'Human reply', 'SENT', ${reply})`;
   await db`INSERT INTO conversation_message (conversation_id, connection_id, sender_id, direction, author_type, body, delivery_state, received_at)
     VALUES (${conversation[0]!.id}, ${connection[0]!.id}, ${sender[0]!.id}, 'INBOUND', 'CUSTOMER', 'Question', 'RECEIVED', ${inbound})`;
   const metrics = (await send('GET', `/api/leads/${leadId}/fields`, undefined, agent)).json().items;
