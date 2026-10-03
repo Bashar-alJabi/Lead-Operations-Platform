@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 type Api = <T>(path: string, options?: RequestInit) => Promise<T>;
 type Locale = 'ar'|'fr'|'en';
 type Conversation = { id: string; sender_id: string; sender_name: string; participant_ref: string;
-  controller_type: string; controller_name: string | null; state: string;
+  controller_type: string; controller_name: string | null; state: string; version: number;
   needs_attention_reason: string | null; started_at: string };
 type Consent = { status: 'GRANTED'|'REVOKED'|'UNKNOWN'; do_not_contact: boolean; evidence: string | null;
   source: string | null; updated_at: string | null; version: number; editable: boolean };
@@ -19,7 +19,7 @@ const labels = {
     queued: 'QUEUED تعني أن الرسالة محفوظة ولم يؤكد المزود إرسالها بعد.', noMessages: 'لا رسائل بعد.',
     customer: 'العميل', sendBlocked: 'يلزم متحكم بشري نشط ومحادثة بلا سبب مراجعة.',
     unknown: 'نتيجة الإرسال غير مؤكدة؛ راجع المزود قبل أي إعادة إرسال.',
-    mode: 'نوع الرسالة', textMode: 'نص حر ضمن نافذة الرد', templateMode: 'قالب معتمد', template: 'القالب', noTemplates: 'لا قوالب معتمدة ومسموحة لهذه الحملة.', templateNote: 'يُفحص اعتماد القالب وسياسة الإرسال مرة أخرى قبل اتصال المزود.' },
+    mode: 'نوع الرسالة', textMode: 'نص حر ضمن نافذة الرد', templateMode: 'قالب معتمد', template: 'القالب', noTemplates: 'لا قوالب معتمدة ومسموحة لهذه الحملة.', templateNote: 'يُفحص اعتماد القالب وسياسة الإرسال مرة أخرى قبل اتصال المزود.', takeover: 'تولّي المحادثة', takeoverReason: 'سبب التولّي' },
   fr: { title: 'Conversations client', open: 'Ouvrir une conversation WhatsApp',
     explain: 'L’ouverture fixe le numéro d’envoi sans envoyer de message au client.', empty: 'Aucune conversation.',
     sender: 'Expéditeur fixé', controller: 'Contrôleur', state: 'État', attention: 'À examiner', more: 'Plus',
@@ -29,7 +29,7 @@ const labels = {
     queued: 'QUEUED signifie que le message est enregistré ; l’envoi n’est pas confirmé.', noMessages: 'Aucun message.',
     customer: 'Client', sendBlocked: 'Un contrôleur humain actif et aucune alerte sont requis.',
     unknown: 'Résultat incertain ; vérifiez chez le fournisseur avant toute nouvelle tentative.',
-    mode: 'Type de message', textMode: 'Texte libre dans la fenêtre de réponse', templateMode: 'Modèle approuvé', template: 'Modèle', noTemplates: 'Aucun modèle approuvé autorisé pour cette campagne.', templateNote: 'L’approbation et la politique sont revérifiées avant l’envoi.' },
+    mode: 'Type de message', textMode: 'Texte libre dans la fenêtre de réponse', templateMode: 'Modèle approuvé', template: 'Modèle', noTemplates: 'Aucun modèle approuvé autorisé pour cette campagne.', templateNote: 'L’approbation et la politique sont revérifiées avant l’envoi.', takeover: 'Prendre la conversation', takeoverReason: 'Motif de prise en charge' },
   en: { title: 'Customer conversations', open: 'Open WhatsApp conversation',
     explain: 'Opening pins the sender and sends no customer message.', empty: 'No conversations.',
     sender: 'Pinned sender', controller: 'Controller', state: 'State', attention: 'Needs attention', more: 'More',
@@ -39,7 +39,7 @@ const labels = {
     queued: 'QUEUED means saved, not confirmed sent by the provider.', noMessages: 'No messages yet.',
     customer: 'Customer', sendBlocked: 'An active human controller and no attention flag are required.',
     unknown: 'Send outcome unknown; check with the provider before trying again.',
-    mode: 'Message type', textMode: 'Freeform text in reply window', templateMode: 'Approved template', template: 'Template', noTemplates: 'No approved templates allowed for this campaign.', templateNote: 'Template approval and sending policy are checked again before contacting the provider.' },
+    mode: 'Message type', textMode: 'Freeform text in reply window', templateMode: 'Approved template', template: 'Template', noTemplates: 'No approved templates allowed for this campaign.', templateNote: 'Template approval and sending policy are checked again before contacting the provider.', takeover: 'Take over conversation', takeoverReason: 'Takeover reason' },
 } as const;
 
 export function LeadConversations({ leadId, lifecycle, locale, api }: { leadId: string; lifecycle: string;
@@ -65,6 +65,7 @@ export function LeadConversations({ leadId, lifecycle, locale, api }: { leadId: 
   const [templateId, setTemplateId] = useState('');
   const [sendKey, setSendKey] = useState(() => crypto.randomUUID());
   const [submitted, setSubmitted] = useState(false);
+  const [takeoverReason, setTakeoverReason] = useState('');
   async function load(next?: string) {
     const page = await api<{ items: Conversation[]; nextCursor: string | null }>(
       `/api/leads/${leadId}/conversations${next ? '?cursor=' + encodeURIComponent(next) : ''}`);
@@ -121,6 +122,16 @@ export function LeadConversations({ leadId, lifecycle, locale, api }: { leadId: 
     } catch (failure) { setError(String(failure)); } finally { setBusy(false); }
   }
   const selected = items.find((item) => item.id === selectedId);
+  async function takeover() {
+    if (!selected || !takeoverReason.trim()) return;
+    setBusy(true); setError('');
+    try {
+      await api(`/api/conversations/${selected.id}/takeover`, { method: 'POST', body: JSON.stringify({
+        version: selected.version, reason: takeoverReason.trim(),
+      }) });
+      setTakeoverReason(''); await load();
+    } catch (failure) { setError(String(failure)); } finally { setBusy(false); }
+  }
   async function saveConsent() {
     if (!consent) return;
     setBusy(true); setError('');
@@ -142,6 +153,10 @@ export function LeadConversations({ leadId, lifecycle, locale, api }: { leadId: 
           onClick={() => void chooseConversation(item.id).catch((failure) => setError(String(failure)))}>{t.showMessages}</button></td></tr>)}</tbody></table></div>
     {cursor && <button className="secondary" onClick={() => void load(cursor).catch((failure) => setError(String(failure)))}>{t.more}</button>}
     {selectedId && <div className="panel"><h4>{t.messages}</h4>
+      {selected?.state !== 'CLOSED' && <div className="actions"><label>{t.takeoverReason}
+        <input value={takeoverReason} minLength={3} maxLength={500} onChange={(event) => setTakeoverReason(event.target.value)} />
+      </label><button className="secondary" disabled={busy || takeoverReason.trim().length < 3}
+        onClick={() => void takeover()}>{t.takeover}</button></div>}
       {!messages.length && <p>{t.noMessages}</p>}
       <ul>{messages.map((message) => <li key={message.id}>
         <strong>{message.direction === 'INBOUND' ? t.customer : message.author_type}</strong>

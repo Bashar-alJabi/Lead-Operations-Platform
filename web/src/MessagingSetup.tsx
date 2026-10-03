@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { TemplateSetup } from './TemplateSetup';
 import { MessagingTestSend } from './MessagingTestSend';
 import { MessagingWebhookSetup } from './MessagingWebhookSetup';
+import { MessagingInboundReview } from './MessagingInboundReview';
 
 type Api = <T>(path: string, options?: RequestInit) => Promise<T>;
 type Locale = 'ar'|'fr'|'en';
@@ -195,6 +196,8 @@ export function MessagingSetup({ locale, role, branchId, branches, api }: {
           }} />}
       {(role === 'SUPER_ADMIN' || selected.branch_id === branchId) &&
         <MessagingWebhookSetup connectionId={selected.id} locale={locale} api={api} />}
+      {(role === 'SUPER_ADMIN' || selected.branch_id === branchId) &&
+        <MessagingInboundReview connectionId={selected.id} locale={locale} api={api} />}
     </div>}
     {setupBranchId && <section className="panel"><h3>{t.defaultSender}</h3>
       {role === 'SUPER_ADMIN' && <label>{t.branch}<select value={setupBranchId} disabled={busy} onChange={(event) => setSetupBranchId(event.target.value)}>

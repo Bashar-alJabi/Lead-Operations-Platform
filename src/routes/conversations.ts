@@ -75,7 +75,7 @@ export function registerConversationRoutes(app: FastifyInstance, db: Database): 
       const limit = request.query.limit ?? 30;
       const cursor = decodeCursor(request.query.cursor);
       const rows = await db`SELECT c.id, c.sender_id, s.display_name AS sender_name, c.connection_id,
-          c.channel, c.participant_ref, c.controller_type, c.controller_user_id,
+          c.channel, c.participant_ref, c.controller_type, c.controller_user_id, c.version,
           u.name AS controller_name, c.state, c.needs_attention_reason, c.started_at, c.last_message_at
         FROM conversation c JOIN lead l ON l.id = c.lead_id
         JOIN messaging_sender s ON s.id = c.sender_id LEFT JOIN user_account u ON u.id = c.controller_user_id
@@ -97,7 +97,7 @@ export function registerConversationRoutes(app: FastifyInstance, db: Database): 
   }, async (request) => {
     const actor = await principalFromRequest(request, db);
     const conversation = (await db`SELECT c.id, c.lead_id, c.sender_id, s.display_name AS sender_name,
-        c.connection_id, c.channel, c.participant_ref, c.controller_type, c.controller_user_id,
+        c.connection_id, c.channel, c.participant_ref, c.controller_type, c.controller_user_id, c.version,
         u.name AS controller_name, c.state, c.needs_attention_reason,
         c.started_at, c.last_message_at FROM conversation c JOIN lead l ON l.id = c.lead_id
         JOIN messaging_sender s ON s.id = c.sender_id LEFT JOIN user_account u ON u.id = c.controller_user_id
@@ -108,4 +108,45 @@ export function registerConversationRoutes(app: FastifyInstance, db: Database): 
     if (!conversation) throw new HttpError(404, 'CONVERSATION_NOT_FOUND');
     return { conversation };
   });
+
+  app.post<{ Params: { id: string }; Body: { version: number; reason: string } }>(
+    '/api/conversations/:id/takeover', { schema: { params: idParam, body: {
+      type: 'object', additionalProperties: false, required: ['version','reason'], properties: {
+        version: { type: 'integer', minimum: 1 }, reason: { type: 'string', minLength: 3, maxLength: 500 },
+      },
+    } } }, async (request) => {
+      const actor = await principalFromRequest(request, db);
+      if (!request.body.reason.trim()) throw new HttpError(400, 'TAKEOVER_REASON_REQUIRED');
+      return db.begin(async (tx) => {
+        const lead = (await tx`SELECT l.id, l.branch_id FROM conversation cv
+          JOIN lead l ON l.id = cv.lead_id WHERE cv.id = ${request.params.id}
+            AND l.organization_id = ${actor.organizationId}
+            AND (${actor.role === 'SUPER_ADMIN'} OR
+              (${actor.role === 'MANAGER'} AND l.branch_id = ${actor.branchId}) OR
+              (${actor.role === 'AGENT'} AND l.assigned_agent_id = ${actor.id}))
+          FOR UPDATE OF l`)[0];
+        if (!lead) throw new HttpError(404, 'CONVERSATION_NOT_FOUND');
+        const cv = (await tx`SELECT id, state, version, controller_type, controller_user_id,
+            needs_attention_reason FROM conversation WHERE id = ${request.params.id} FOR UPDATE`)[0]!;
+        if (cv.state === 'CLOSED') throw new HttpError(409, 'CONVERSATION_CLOSED');
+        if (cv.version !== request.body.version) throw new HttpError(409, 'CONVERSATION_VERSION_CONFLICT');
+        if (cv.controller_type === 'HUMAN' && cv.controller_user_id === actor.id
+          && cv.state === 'HUMAN_ACTIVE') return { state: cv.state, version: cv.version, existing: true };
+        const attention = ['NO_HUMAN_CONTROLLER','AI_PROCESSING_NOT_READY'].includes(cv.needs_attention_reason)
+          ? null : cv.needs_attention_reason;
+        const changed = (await tx`UPDATE conversation SET controller_type = 'HUMAN',
+          controller_user_id = ${actor.id}, state = 'HUMAN_ACTIVE',
+          needs_attention_reason = ${attention}, version = version + 1
+          WHERE id = ${cv.id} RETURNING version`)[0]!;
+        await tx`INSERT INTO conversation_handoff (conversation_id, from_controller, from_user_id,
+          to_controller, to_user_id, reason, requested_by)
+          VALUES (${cv.id}, ${cv.controller_type}, ${cv.controller_user_id}, 'HUMAN', ${actor.id},
+            ${request.body.reason.trim()}, ${actor.id})`;
+        await tx`INSERT INTO audit_log (organization_id, branch_id, actor_user_id, action,
+          target_type, target_id, detail) VALUES (${actor.organizationId}, ${lead.branch_id}, ${actor.id},
+            'CONVERSATION_TAKEN_OVER', 'CONVERSATION', ${cv.id},
+            ${tx.json({ previousController: cv.controller_type, reason: request.body.reason.trim() })})`;
+        return { state: 'HUMAN_ACTIVE', version: changed.version, existing: false };
+      });
+    });
 }

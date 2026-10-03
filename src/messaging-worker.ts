@@ -1,6 +1,7 @@
 import { createDatabase } from './db.js';
 import { processOneMessagingJob } from './messaging/send-worker.js';
 import { processOnePendingDeliveryEvent } from './messaging/delivery-events.js';
+import { processOneInboundEvent } from './messaging/inbound-events.js';
 
 const db = createDatabase();
 let running = false;
@@ -12,6 +13,7 @@ async function tick() {
   try {
     for (let i = 0; i < 10 && await processOneMessagingJob(db); i += 1) { /* bounded batch */ }
     for (let i = 0; i < 50 && await processOnePendingDeliveryEvent(db); i += 1) { /* bounded reconciliation */ }
+    for (let i = 0; i < 50 && await processOneInboundEvent(db); i += 1) { /* bounded inbound resolution */ }
   } catch {
     process.stderr.write('Messaging worker cycle failed; retrying.\n');
   } finally { running = false; }

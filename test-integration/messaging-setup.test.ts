@@ -11,6 +11,7 @@ import { TemplateProviderError, type MessagingTemplateAdapter,
 import { resolveConfiguredSender } from '../src/messaging/sender-resolution.js';
 import { processOneMessagingJob } from '../src/messaging/send-worker.js';
 import { processOnePendingDeliveryEvent } from '../src/messaging/delivery-events.js';
+import { processOneInboundEvent } from '../src/messaging/inbound-events.js';
 
 const url = process.env.TEST_DATABASE_URL;
 if (!url || new URL(url).pathname !== '/lead_operations_test') throw new Error('Isolated TEST_DATABASE_URL required');
@@ -1098,4 +1099,148 @@ test('signed Meta callbacks preserve delivery history and never regress on repla
   assert.equal(events.body.includes('<script>'), false);
   assert.ok(events.json().items.some((event: { event_kind: string; state: string }) =>
     event.event_kind === 'INBOUND_MESSAGE' && event.state === 'NEEDS_ATTENTION'));
+  const inboundEventId = (await db`SELECT id FROM integration_event WHERE connection_id = ${connectionId}
+    AND event_kind = 'INBOUND_MESSAGE' AND payload->'message'->>'id' = 'wamid.inbound-1'`)[0]!.id as string;
+  const reviewPath = `/api/messaging/connections/${connectionId}/inbound-review`;
+  assert.equal((await api('GET', reviewPath, undefined, agent)).statusCode, 403);
+  assert.equal((await api('GET', reviewPath, undefined, other)).statusCode, 404);
+  assert.equal(await processOneInboundEvent(db), true);
+  const attached = (await db`SELECT cv.id AS conversation_id, m.body FROM conversation_message m
+    JOIN conversation cv ON cv.id = m.conversation_id WHERE m.provider_message_id = 'wamid.inbound-1'`)[0]!;
+  assert.equal(attached.conversation_id, conversationId);
+  assert.equal(attached.body, '<script>alert(1)</script>');
+  assert.equal((await db`SELECT state FROM integration_event WHERE id = ${inboundEventId}`)[0]!.state, 'PROCESSED');
+  assert.equal(await processOneInboundEvent(db), false);
+  const reviewDetailPath = `${reviewPath}/${inboundEventId}`;
+  assert.equal((await api('GET', reviewDetailPath, undefined, agent)).statusCode, 403);
+  assert.equal((await api('GET', reviewDetailPath, undefined, other)).statusCode, 404);
+  assert.equal((await api('GET', reviewDetailPath, undefined, manager)).json().event.body,
+    '<script>alert(1)</script>');
+  assert.equal((await api('POST', `${reviewDetailPath}/resolve`, { leadId }, manager)).json().existing, true);
+  assert.equal((await callback(inbound)).json().created, 0);
+  assert.equal((await db`SELECT count(*)::integer AS n FROM conversation_message
+    WHERE provider_message_id = 'wamid.inbound-1'`)[0]!.n, 1);
+
+  await db`UPDATE branch SET default_sender_id = ${senderId} WHERE id = ${branchId}`;
+  const makeInbound = (id: string, phone: string, type = 'text', contextId?: string) => ({
+    object: 'whatsapp_business_account', entry: [{ id: '123456789012345', changes: [{
+      field: 'messages', value: { messaging_product: 'whatsapp',
+        metadata: { phone_number_id: '15550001111' }, messages: [{ id, from: phone,
+          timestamp: String(epoch), type, ...(type === 'text' ? { text: { body: `Inbound ${id}` } } : {}),
+          ...(contextId ? { context: { id: contextId } } : {}) }] },
+    }] }],
+  });
+  assert.equal((await callback(makeInbound('wamid.context', '15550009999', 'text',
+    'wamid.callback-1'))).statusCode, 200);
+  const contextEventId = (await db`SELECT id FROM integration_event WHERE connection_id = ${connectionId}
+    AND payload->'message'->>'id' = 'wamid.context'`)[0]!.id as string;
+  assert.equal((await api('POST', `${reviewPath}/${contextEventId}/resolve`,
+    { leadId: randomUUID() }, manager)).json().error, 'INBOUND_CONTEXT_TARGET_CONFLICT');
+  assert.equal(await processOneInboundEvent(db), true);
+  assert.equal((await db`SELECT conversation_id FROM integration_event WHERE id = ${contextEventId}`)[0]!
+    .conversation_id, conversationId);
+  const loneContact = (await db`INSERT INTO contact (organization_id, name, phone, phone_normalized)
+    VALUES (${orgId}, 'Lone', '+15550006666', '+15550006666') RETURNING id`)[0]!.id as string;
+  const loneLead = (await db`INSERT INTO lead (organization_id, branch_id, campaign_id, contact_id, source_kind)
+    VALUES (${orgId}, ${branchId}, ${campaignId}, ${loneContact}, 'MANUAL') RETURNING id`)[0]!.id as string;
+  assert.equal((await callback(makeInbound('wamid.new-lead', '15550006666'))).statusCode, 200);
+  assert.equal(await processOneInboundEvent(db), true);
+  const newConversation = (await db`SELECT cv.id, cv.controller_type, cv.state, cv.needs_attention_reason
+    FROM conversation cv WHERE cv.lead_id = ${loneLead}`)[0]!;
+  assert.equal(newConversation.controller_type, 'NONE');
+  assert.equal(newConversation.state, 'WAITING_FOR_HUMAN');
+  assert.equal(newConversation.needs_attention_reason, 'NO_HUMAN_CONTROLLER');
+  assert.equal((await db`SELECT count(*)::integer AS n FROM conversation_message
+    WHERE conversation_id = ${newConversation.id} AND direction = 'INBOUND'`)[0]!.n, 1);
+  const takeoverPath = `/api/conversations/${newConversation.id}/takeover`;
+  const takeoverInput = { version: 1, reason: 'Manager accepted inbound conversation' };
+  assert.equal((await api('POST', takeoverPath, takeoverInput, agent)).statusCode, 404);
+  assert.equal((await api('POST', takeoverPath, takeoverInput, other)).statusCode, 404);
+  assert.equal((await api('POST', takeoverPath, { version: 1, reason: ' ' }, manager)).statusCode, 400);
+  const takeover = await api('POST', takeoverPath, takeoverInput, manager);
+  assert.equal(takeover.statusCode, 200, takeover.body);
+  assert.equal(takeover.json().state, 'HUMAN_ACTIVE');
+  assert.equal((await api('POST', takeoverPath, takeoverInput, manager)).statusCode, 409);
+  assert.equal((await api('POST', takeoverPath, { ...takeoverInput, version: 2 }, manager)).json().existing, true);
+  assert.equal((await db`SELECT controller_type, controller_user_id, needs_attention_reason FROM conversation
+    WHERE id = ${newConversation.id}`)[0]!.controller_user_id, managerId);
+  assert.equal((await db`SELECT count(*)::integer AS n FROM conversation_handoff
+    WHERE conversation_id = ${newConversation.id}`)[0]!.n, 1);
+  const sharedContact = (await db`INSERT INTO contact (organization_id, name, phone, phone_normalized)
+    VALUES (${orgId}, 'Shared', '+15550008888', '+15550008888') RETURNING id`)[0]!.id as string;
+  const leadOne = (await db`INSERT INTO lead (organization_id, branch_id, campaign_id, contact_id, source_kind)
+    VALUES (${orgId}, ${branchId}, ${campaignId}, ${sharedContact}, 'MANUAL') RETURNING id`)[0]!.id as string;
+  const leadTwo = (await db`INSERT INTO lead (organization_id, branch_id, campaign_id, contact_id, source_kind)
+    VALUES (${orgId}, ${branchId}, ${campaignId}, ${sharedContact}, 'MANUAL') RETURNING id`)[0]!.id as string;
+  assert.equal((await callback(makeInbound('wamid.ambiguous', '15550008888'))).statusCode, 200);
+  assert.equal(await processOneInboundEvent(db), true);
+  const ambiguousId = (await db`SELECT id FROM integration_event WHERE connection_id = ${connectionId}
+    AND payload->'message'->>'id' = 'wamid.ambiguous'`)[0]!.id as string;
+  assert.equal((await db`SELECT failure_code FROM integration_event WHERE id = ${ambiguousId}`)[0]!
+    .failure_code, 'MULTIPLE_ACTIVE_LEADS');
+  assert.equal(await processOneInboundEvent(db), false);
+  const detail = await api('GET', `${reviewPath}/${ambiguousId}`, undefined, manager);
+  assert.equal(detail.statusCode, 200, detail.body);
+  assert.deepEqual(detail.json().leads.map((lead: { id: string }) => lead.id).sort(), [leadOne, leadTwo].sort());
+  assert.equal(detail.body.includes('15550008888'), false);
+  const resolvePath = `${reviewPath}/${ambiguousId}/resolve`;
+  assert.equal((await api('POST', resolvePath, { leadId: leadOne }, agent)).statusCode, 403);
+  assert.equal((await api('POST', resolvePath, { leadId: leadOne }, other)).statusCode, 404);
+  const competing = await Promise.all([leadOne, leadTwo].map((target) =>
+    api('POST', resolvePath, { leadId: target }, manager)));
+  assert.deepEqual(competing.map((response) => response.statusCode).sort(), [200,409]);
+  const chosenLead = competing[0]!.statusCode === 200 ? leadOne : leadTwo;
+  assert.equal((await db`SELECT lead_id, state FROM integration_event WHERE id = ${ambiguousId}`)[0]!
+    .lead_id, chosenLead);
+  assert.equal((await db`SELECT count(*)::integer AS n FROM conversation_message
+    WHERE provider_message_id = 'wamid.ambiguous'`)[0]!.n, 1);
+  assert.ok((await db`SELECT 1 FROM audit_log WHERE action = 'INBOUND_MESSAGE_ATTACHED'
+    AND detail->>'eventId' = ${ambiguousId}`).length);
+  assert.equal((await api('POST', resolvePath, { leadId: chosenLead }, manager)).json().existing, true);
+  assert.equal((await callback(makeInbound('wamid.unsupported', '15550007777', 'image'))).statusCode, 200);
+  assert.equal(await processOneInboundEvent(db), true);
+  const unsupportedId = (await db`SELECT id FROM integration_event WHERE connection_id = ${connectionId}
+    AND payload->'message'->>'id' = 'wamid.unsupported'`)[0]!.id as string;
+  assert.equal((await db`SELECT failure_code FROM integration_event WHERE id = ${unsupportedId}`)[0]!
+    .failure_code, 'INBOUND_CONTENT_UNSUPPORTED');
+  assert.equal((await api('POST', `${reviewPath}/${unsupportedId}/ignore`, { reason: 'Unsupported media' }, manager))
+    .json().state, 'IGNORED');
+  assert.equal((await api('POST', `${reviewPath}/${unsupportedId}/ignore`, { reason: 'Unsupported media' }, manager))
+    .json().existing, true);
+  assert.equal((await api('POST', `${reviewPath}/${unsupportedId}/resolve`, { leadId: loneLead }, manager))
+    .statusCode, 409);
+  assert.equal((await db`SELECT review_note FROM integration_event WHERE id = ${unsupportedId}`)[0]!
+    .review_note, 'Unsupported media');
+  const concurrentContact = (await db`INSERT INTO contact (organization_id, name, phone, phone_normalized)
+    VALUES (${orgId}, 'Concurrent', '+15550005555', '+15550005555') RETURNING id`)[0]!.id as string;
+  const concurrentLead = (await db`INSERT INTO lead (organization_id, branch_id, campaign_id, contact_id, source_kind)
+    VALUES (${orgId}, ${branchId}, ${campaignId}, ${concurrentContact}, 'MANUAL') RETURNING id`)[0]!.id as string;
+  assert.equal((await callback(makeInbound('wamid.concurrent-1', '15550005555'))).statusCode, 200);
+  assert.equal((await callback(makeInbound('wamid.concurrent-2', '15550005555'))).statusCode, 200);
+  assert.deepEqual(await Promise.all([processOneInboundEvent(db), processOneInboundEvent(db)]), [true, true]);
+  assert.equal((await db`SELECT count(*)::integer AS n FROM conversation
+    WHERE lead_id = ${concurrentLead} AND state <> 'CLOSED'`)[0]!.n, 1);
+  assert.equal((await db`SELECT count(*)::integer AS n FROM conversation_message m
+    JOIN conversation cv ON cv.id = m.conversation_id WHERE cv.lead_id = ${concurrentLead}
+      AND m.direction = 'INBOUND'`)[0]!.n, 2);
+  await db`UPDATE messaging_sender SET operator_enabled = false WHERE id = ${senderId}`;
+  assert.equal((await callback(makeInbound('wamid.disabled-sender', '15550009999'))).statusCode, 200);
+  assert.equal(await processOneInboundEvent(db), true);
+  assert.equal((await db`SELECT failure_code FROM integration_event WHERE connection_id = ${connectionId}
+    AND payload->'message'->>'id' = 'wamid.disabled-sender'`)[0]!.failure_code, 'SENDER_DISABLED');
+  assert.equal((await db`SELECT count(*)::integer AS n FROM conversation_message
+    WHERE provider_message_id = 'wamid.disabled-sender'`)[0]!.n, 0);
+  const sharedSetup = await api('POST', '/api/messaging/connections', { name: 'Shared webhook',
+    config: { wabaId: '123456789012345', graphVersion: 'v25.0' },
+    credentials: { accessToken: 'test-access-token-123456789', appSecret, verifyToken } }, admin);
+  assert.equal(sharedSetup.statusCode, 201, sharedSetup.body);
+  const sharedId = sharedSetup.json().id as string;
+  assert.equal((await api('POST', `/api/messaging/connections/${sharedId}/test`, undefined, admin)).statusCode, 200);
+  const sharedSenderId = (await db`SELECT id FROM messaging_sender WHERE connection_id = ${sharedId}`)[0]!.id as string;
+  await db`INSERT INTO sender_branch_binding (sender_id, branch_id, allow_shared_fallback)
+    VALUES (${sharedSenderId}, ${branchId}, true)`;
+  assert.equal((await api('GET', `/api/messaging/connections/${sharedId}/inbound-review`, undefined, manager))
+    .statusCode, 404);
+  assert.equal((await api('GET', `/api/messaging/connections/${sharedId}/inbound-review`, undefined, admin))
+    .statusCode, 200);
 });
