@@ -3,6 +3,7 @@ import type { Database } from '../db.js';
 import { decodeCursor, encodeCursor } from '../pagination.js';
 import { identityLockKeys, normalizeContact } from '../contacts.js';
 import { routeLead } from '../routing.js';
+import { prepareManualFieldValues, storeManualFieldValues, type ManualFieldInput } from '../field-values.js';
 import { HttpError, principalFromRequest, requireBranch, requireRole } from '../security.js';
 
 const idParam = { type: 'object', additionalProperties: false, required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } as const;
@@ -161,9 +162,12 @@ export function registerContactRoutes(app: FastifyInstance, db: Database): void 
         WHERE c.id = ${submission.campaign_id} AND c.branch_id = ${submission.branch_id} AND c.organization_id = ${actor.organizationId}`;
       const campaign = campaigns[0];
       if (!campaign) throw new HttpError(409, 'CAMPAIGN_NOT_AVAILABLE');
+      const fieldValues = await prepareManualFieldValues(tx, campaign.id, actor,
+        (submission.raw_payload.fields ?? []) as ManualFieldInput[]);
       const lead = await tx`INSERT INTO lead (organization_id, branch_id, campaign_id, contact_id, source_kind)
         VALUES (${actor.organizationId}, ${submission.branch_id}, ${campaign.id}, ${request.body.contactId}, 'MANUAL') RETURNING id`;
       const leadId = lead[0]!.id as string;
+      await storeManualFieldValues(tx, leadId, actor.id, fieldValues);
       await tx`UPDATE source_submission SET lead_id = ${leadId}, resolution_contact_id = ${request.body.contactId}, state = 'PROCESSED', failure_code = NULL WHERE id = ${submission.id}`;
       await tx`INSERT INTO lead_activity (lead_id, actor_user_id, event_type, detail)
         VALUES (${leadId}, ${actor.id}, 'LEAD_CREATED_AFTER_CONTACT_REVIEW', ${tx.json({ submissionId: submission.id })})`;

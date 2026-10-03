@@ -4,6 +4,7 @@ import { HttpError, principalFromRequest, requireBranch, requireLead, requireRol
 import { routeLead } from '../routing.js';
 import { decodeCursor, encodeCursor } from '../pagination.js';
 import { identityLockKeys, normalizeContact } from '../contacts.js';
+import { enforceRequiredFieldStage, prepareManualFieldValues, storeManualFieldValues, type ManualFieldInput } from '../field-values.js';
 
 const idParam = { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } as const;
 const pageQuery = { type: 'object', additionalProperties: false, properties: { limit: { type: 'integer', minimum: 1, maximum: 100 }, cursor: { type: 'string', maxLength: 256 }, branchId: { type: 'string', format: 'uuid' }, campaignId: { type: 'string', format: 'uuid' }, contactId: { type: 'string', format: 'uuid' }, assignedAgentId: { type: 'string', format: 'uuid' }, lifecycle: { enum: ['OPEN','CLOSED','ARCHIVED'] } } } as const;
@@ -111,12 +112,15 @@ export function registerOperationsRoutes(app: FastifyInstance, db: Database): vo
     return { status: 'ACTIVE' };
   });
 
-  app.post<{ Body: { branchId: string; campaignId: string; contact: { name: string; phone?: string; email?: string } } }>('/api/leads', {
+  app.post<{ Body: { branchId: string; campaignId: string; contact: { name: string; phone?: string; email?: string }; fields?: ManualFieldInput[] } }>('/api/leads', {
     schema: { body: { type: 'object', additionalProperties: false, required: ['branchId','campaignId','contact'], properties: {
       branchId: { type: 'string', format: 'uuid' }, campaignId: { type: 'string', format: 'uuid' },
       contact: { type: 'object', additionalProperties: false, required: ['name'], properties: {
         name: { type: 'string', minLength: 1, maxLength: 200 }, phone: { type: 'string', maxLength: 50 }, email: { type: 'string', maxLength: 320 },
       } },
+      fields: { type: 'array', maxItems: 200, items: { type: 'object', additionalProperties: false, required: ['fieldId','value'], properties: {
+        fieldId: { type: 'string', format: 'uuid' }, value: {},
+      } } },
     } } },
   }, async (request, reply) => {
     const actor = await principalFromRequest(request, db);
@@ -127,6 +131,7 @@ export function registerOperationsRoutes(app: FastifyInstance, db: Database): vo
     const campaign = campaigns[0]; if (!campaign) throw new HttpError(404, 'ACTIVE_CAMPAIGN_NOT_FOUND');
     const normalized = normalizeContact(request.body.contact);
     const result = await db.begin(async (tx) => {
+      const fieldValues = await prepareManualFieldValues(tx, campaign.id, actor, request.body.fields ?? []);
       for (const identity of identityLockKeys(actor.organizationId, normalized)) await tx`SELECT pg_advisory_xact_lock(hashtextextended(${identity}, 0))`;
       const matches = await tx`SELECT id FROM contact WHERE organization_id = ${actor.organizationId}
         AND ((${normalized.phoneNormalized}::text IS NOT NULL AND phone_normalized = ${normalized.phoneNormalized})
@@ -139,7 +144,7 @@ export function registerOperationsRoutes(app: FastifyInstance, db: Database): vo
         const review = await tx`INSERT INTO source_submission
           (organization_id, branch_id, campaign_id, source_kind, raw_payload, state, failure_code)
           VALUES (${actor.organizationId}, ${request.body.branchId}, ${campaign.id}, 'MANUAL',
-            ${tx.json({ contact: request.body.contact, candidateContactIds: matches.map((item) => item.id) })}, 'NEEDS_ATTENTION', ${reason})
+            ${tx.json({ contact: request.body.contact, fields: request.body.fields ?? [], candidateContactIds: matches.map((item) => item.id) })}, 'NEEDS_ATTENTION', ${reason})
           RETURNING id`;
         await tx`INSERT INTO audit_log (organization_id, branch_id, actor_user_id, action, target_type, target_id, detail)
           VALUES (${actor.organizationId}, ${request.body.branchId}, ${actor.id}, 'CONTACT_MATCH_REVIEW_CREATED', 'SOURCE_SUBMISSION', ${review[0]!.id}, ${tx.json({ reason })})`;
@@ -156,8 +161,9 @@ export function registerOperationsRoutes(app: FastifyInstance, db: Database): vo
       const leads = await tx`INSERT INTO lead (organization_id, branch_id, campaign_id, contact_id, source_kind)
         VALUES (${actor.organizationId}, ${request.body.branchId}, ${campaign.id}, ${contactId}, 'MANUAL') RETURNING id`;
       const leadId = leads[0]!.id as string;
+      await storeManualFieldValues(tx, leadId, actor.id, fieldValues);
       await tx`INSERT INTO source_submission (organization_id, branch_id, campaign_id, lead_id, source_kind, raw_payload, state)
-        VALUES (${actor.organizationId}, ${request.body.branchId}, ${campaign.id}, ${leadId}, 'MANUAL', ${tx.json({ contact: request.body.contact })}, 'PROCESSED')`;
+        VALUES (${actor.organizationId}, ${request.body.branchId}, ${campaign.id}, ${leadId}, 'MANUAL', ${tx.json({ contact: request.body.contact, fields: request.body.fields ?? [] })}, 'PROCESSED')`;
       await tx`INSERT INTO lead_activity (lead_id, actor_user_id, event_type) VALUES (${leadId}, ${actor.id}, 'LEAD_CREATED')`;
       await tx`INSERT INTO audit_log (organization_id, branch_id, actor_user_id, action, target_type, target_id)
         VALUES (${actor.organizationId}, ${request.body.branchId}, ${actor.id}, 'LEAD_CREATED', 'LEAD', ${leadId})`;
@@ -209,8 +215,10 @@ export function registerOperationsRoutes(app: FastifyInstance, db: Database): vo
     requireRole(actor, 'SUPER_ADMIN', 'MANAGER');
     const lead = await requireLead(db, actor, request.params.id);
     await db.begin(async (tx) => {
+      const current = await tx`SELECT lifecycle, campaign_id FROM lead WHERE id = ${lead.id} FOR UPDATE`;
+      if (request.body.lifecycle === 'CLOSED') await enforceRequiredFieldStage(tx, lead.id, current[0]!.campaign_id, 'CLOSE');
       await tx`UPDATE lead SET lifecycle = ${request.body.lifecycle}, closed_at = ${request.body.lifecycle === 'OPEN' ? null : new Date()}, updated_at = now() WHERE id = ${lead.id}`;
-      await tx`INSERT INTO lead_activity (lead_id, actor_user_id, event_type, detail) VALUES (${lead.id}, ${actor.id}, 'LIFECYCLE_CHANGED', ${tx.json({ from: lead.lifecycle, to: request.body.lifecycle })})`;
+      await tx`INSERT INTO lead_activity (lead_id, actor_user_id, event_type, detail) VALUES (${lead.id}, ${actor.id}, 'LIFECYCLE_CHANGED', ${tx.json({ from: current[0]!.lifecycle, to: request.body.lifecycle })})`;
     });
     return { lifecycle: request.body.lifecycle };
   });
