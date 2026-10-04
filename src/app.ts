@@ -20,6 +20,7 @@ import { registerMessagingAttachmentRoutes } from './routes/messaging-attachment
 import type { MediaStorage } from './media/storage.js';
 import type { MediaScanner } from './media/scanner.js';
 import { registerMessagingTemplateRoutes } from './routes/messaging-templates.js';
+import { registerMessagingTemplateSampleRoutes } from './routes/messaging-template-samples.js';
 import { registerCampaignTemplateRoutes } from './routes/campaign-templates.js';
 import { registerSenderBindingRoutes } from './routes/sender-bindings.js';
 import { registerConversationRoutes } from './routes/conversations.js';
@@ -91,6 +92,7 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   registerMessagingInboundReviewRoutes(app, db);
   registerMessagingAttachmentRoutes(app, db, options.mediaStorage, options.mediaScanner);
   registerMessagingTemplateRoutes(app, db, options.messagingTemplateAdapter);
+  registerMessagingTemplateSampleRoutes(app, db, options.mediaStorage, options.mediaScanner);
   registerCampaignTemplateRoutes(app, db);
   registerSenderBindingRoutes(app, db);
   registerConversationRoutes(app, db);

@@ -366,6 +366,36 @@ test('Manager creates and binds an approved composite text template; Agent sends
   expect(errors).toEqual([]);
 });
 
+test('approval sample setup uploads scanned video, reviews provider failure, retries and downloads safely without sending a customer message',async({ page })=> {
+  const errors:string[]=[];page.on('pageerror',(error)=>errors.push(error.message));await login(page,'manager');
+  await page.getByRole('button',{ name:'Messaging setup',exact:true }).click();
+  await page.getByRole('row').filter({ hasText:'Browser Media Connection' }).getByRole('button').click();
+  const samples=page.getByRole('heading',{ name:'Template approval samples',exact:true }).locator('..');
+  await expect(samples).toBeVisible();const before=await control(page);
+  await samples.getByLabel('Template sample type',{ exact:true }).selectOption('video');
+  await samples.getByLabel('Approval sample file',{ exact:true }).setInputFiles(resolve('test-fixtures/media/clip.mp4'));
+  await samples.getByRole('button',{ name:'Refresh samples',exact:true }).click();
+  await expect(samples.getByRole('button',{ name:'Upload sample for scanning',exact:true })).toBeEnabled();
+  await samples.getByRole('button',{ name:'Upload sample for scanning',exact:true }).click();await expect(samples).toContainText('QUEUED');
+  await control(page,{ processSample:true,rejectSample:true });await samples.getByRole('button',{ name:'Refresh samples',exact:true }).click();
+  await expect(samples).toContainText('FAILED');await expect(samples).toContainText('SAMPLE_PROVIDER_AUTH_FAILED');
+  await expect(samples.getByRole('button',{ name:'Retry sample provider upload',exact:true })).toBeDisabled();
+  await samples.getByLabel('Reason after fixing sample failure',{ exact:true }).fill('Browser provider upload authentication repaired');
+  await samples.getByRole('button',{ name:'Retry sample provider upload',exact:true }).click();await expect(samples).toContainText('QUEUED');
+  await control(page,{ processSample:true });await samples.getByRole('button',{ name:'Refresh samples',exact:true }).click();
+  await expect(samples).toContainText('Provider reference ready');await expect(samples).not.toContainText('browser-private-sample-handle');
+  await samples.getByRole('button',{ name:'Sample upload attempts',exact:true }).click();await expect(samples).toContainText('READY');await expect(samples).toContainText('FAILED');
+  const downloaded=page.waitForEvent('download');await samples.getByRole('button',{ name:'Download scanned sample',exact:true }).click();
+  const file=await downloaded;expect(file.suggestedFilename()).toMatch(/^sample-[0-9a-f-]+\.mp4$/);
+  const path=await file.path();expect(await readFile(path!)).toEqual(await readFile('test-fixtures/media/clip.mp4'));
+  const after=await control(page);expect(after.sampleUploads).toBe(before.sampleUploads+2);expect(after.providerCalls).toBe(before.providerCalls);
+  expect(after.messages).toHaveLength(before.messages.length);
+  await page.setViewportSize({ width:390,height:844 });await page.getByRole('combobox',{ name:'Language' }).selectOption('ar');
+  await expect(page.locator('html')).toHaveAttribute('dir','rtl');expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
+  await page.getByRole('heading',{ name:'عينات اعتماد القوالب',exact:true }).scrollIntoViewIfNeeded();await page.screenshot({ path:'.local/e2e/template-sample-ar.png' });
+  expect(errors).toEqual([]);
+});
+
 test('Quick Reply templates send approved labels, correlate signed customer replies and retain duplicate-safe history in the browser',async({ page,browser })=> {
   const errors:string[]=[];page.on('pageerror',(error)=>errors.push(error.message));await login(page,'manager');
   await page.getByRole('button',{ name:'Messaging setup',exact:true }).click();

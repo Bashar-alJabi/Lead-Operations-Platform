@@ -14,6 +14,8 @@ import { localMediaStorage } from '../src/media/storage.js';
 import type { ProviderTemplate } from '../src/messaging/templates-provider.js';
 import { renderTemplateUrl } from '../src/messaging/approved-template.js';
 import { processOneInboundEvent } from '../src/messaging/inbound-events.js';
+import { processOneTemplateSample } from '../src/media/template-sample-worker.js';
+import { MediaError } from '../src/media/validation.js';
 
 const connectionUrl = requireLocalE2ETarget(process.env.TEST_DATABASE_URL,process.env.E2E_RESET_TEST_DATABASE,process.env.NODE_ENV);
 
@@ -79,7 +81,7 @@ const mediaCv=(await db`INSERT INTO conversation (lead_id,connection_id,sender_i
 await db`INSERT INTO conversation_message
   (conversation_id,connection_id,sender_id,direction,author_type,body,provider_message_id,delivery_state,received_at)
   VALUES (${mediaCv},${mediaConnection},${mediaSender},'INBOUND','CUSTOMER','Browser media request','wamid.browser-media-inbound','RECEIVED',now()-interval '1 second')`;
-let mode: 'accept'|'reject'|'unknown' = 'reject'; let providerCalls = 0;let mediaUploads=0;
+let mode: 'accept'|'reject'|'unknown' = 'reject'; let providerCalls = 0;let mediaUploads=0;let sampleUploads=0;
 const templates:ProviderTemplate[]=[{ externalId:'7000',name:'header_only_template',language:'en_US',category:'UTILITY',status:'APPROVED',
   components:[{ type:'HEADER',format:'TEXT',text:'Welcome {{1}}',example:{ header_text:['Approval sample only'] } },
     { type:'BODY',text:'Fixed body' }] },
@@ -111,11 +113,12 @@ app.get<{ Params:{ name:string } }>('/assets/:name',async (request,reply)=> {
   const type = request.params.name.endsWith('.js') ? 'text/javascript' : 'text/css';
   return reply.type(type).send(await readFile(resolve('dist-web/assets',request.params.name)));
 });
-app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:boolean; assigned?:'agent'|'second'; approveTemplates?:boolean;replyTo?:string;replyIndex?:number } }>(
+app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:boolean; assigned?:'agent'|'second'; approveTemplates?:boolean;replyTo?:string;replyIndex?:number;processSample?:boolean;rejectSample?:boolean } }>(
   '/__test__/control', { schema: { body:{ type:'object',additionalProperties:false,properties: {
     process:{ type:'boolean' },mode:{ type:'string',enum:['accept','reject','unknown'] },
     dnc:{ type:'boolean' },assigned:{ type:'string',enum:['agent','second'] },
     approveTemplates:{ type:'boolean' },
+    processSample:{ type:'boolean' },rejectSample:{ type:'boolean' },
     replyTo:{ type:'string',format:'uuid' },replyIndex:{ type:'integer',minimum:0,maximum:2 },
   } } } },async (request)=> {
     const header = request.headers.authorization;
@@ -133,6 +136,11 @@ app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:bool
     };
     if (request.body.process) await processOneMessagingJob(db,{ sendText:send,sendMedia:send,sendTemplate:send,
       uploadMedia:async()=> { mediaUploads++;return { providerMediaId:'12345' }; } },{ mediaStorage:storage });
+    if (request.body.processSample) await processOneTemplateSample(db,{ storage,
+      scanner:{ scan:async()=>({ clean:true,version:'BrowserFakeScanner/test-only' }) },adapter:{ upload:async()=> {
+        sampleUploads++;if (request.body.rejectSample) throw new MediaError('SAMPLE_PROVIDER_AUTH_FAILED');
+        return { handle:'2:synthetic:browser-private-sample-handle' };
+      } } });
     if (request.body.replyTo) {
       const source=(await db`SELECT id,provider_message_id,template_snapshot FROM conversation_message
         WHERE id=${request.body.replyTo} AND conversation_id=${mediaCv} AND direction='OUTBOUND'`)[0];
@@ -150,7 +158,7 @@ app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:bool
     const messages = await db`SELECT id,body,delivery_state,message_kind,conversation_id FROM conversation_message WHERE direction='OUTBOUND' ORDER BY created_at,id`;
     const recoveries = (await db`SELECT count(*)::integer AS n FROM outbound_message_recovery`)[0]!.n;
     const replies=await db`SELECT id,body,reply_to_message_id,reply_button_index FROM conversation_message WHERE conversation_id=${mediaCv} AND reply_to_message_id IS NOT NULL`;
-    return { providerCalls,mediaUploads,messages,recoveries,replies };
+    return { providerCalls,mediaUploads,sampleUploads,messages,recoveries,replies };
   });
 await mkdir(resolve('.local/e2e'),{ recursive:true });
 await writeFile(resolve('.local/e2e/fixture.json'),JSON.stringify({ password,testToken,leadId:lead,conversationId:cv,untrusted,mediaLeadId:mediaLead,mediaConversationId:mediaCv }),{ mode:0o600 });

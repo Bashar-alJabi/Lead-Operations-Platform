@@ -1,11 +1,16 @@
 import { createDatabase } from './db.js';
 import { processOneInboundAttachment } from './media/inbound-worker.js';
+import { processOneTemplateSample } from './media/template-sample-worker.js';
 const db = createDatabase();
 let running = false; let stopping = false;
 async function tick() {
   if (running || stopping) return;
   running = true;
-  try { for (let i = 0; i < 5 && !stopping && await processOneInboundAttachment(db); i++) { /* bounded batch */ } }
+  try { for (let i = 0; i < 5 && !stopping; i++) {
+    const inbound=await processOneInboundAttachment(db);
+    const sample=!stopping && await processOneTemplateSample(db);
+    if (!inbound && !sample) break;
+  } }
   catch { process.stderr.write('Media worker cycle failed; retrying.\n'); }
   finally { running = false; }
 }

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { TemplateSetup } from './TemplateSetup';
+import { TemplateSamples } from './TemplateSamples';
 import { MessagingTestSend } from './MessagingTestSend';
 import { MessagingWebhookSetup } from './MessagingWebhookSetup';
 import { MessagingInboundReview } from './MessagingInboundReview';
@@ -205,6 +206,8 @@ export function MessagingSetup({ locale, role, branchId, branches, api }: {
           </li>;
         })}</ul>}</li>)}</ul>{!senders.length && <p>{t.noSenders}</p>}
       {senderAfter && <button className="secondary" onClick={() => void moreSenders().catch((failure) => setError(String(failure)))}>{t.more}</button>}
+      {(role === 'SUPER_ADMIN' || selected.branch_id === branchId) &&
+        <TemplateSamples key={selected.id} connectionId={selected.id} status={selected.status} locale={locale} api={api} />}
       {(role === 'SUPER_ADMIN' || selected.branch_id === branchId) &&
         <TemplateSetup connectionId={selected.id} status={selected.status} canManage locale={locale} api={api} />}
       {(role === 'SUPER_ADMIN' || selected.branch_id === branchId) &&
