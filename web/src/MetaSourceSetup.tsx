@@ -1,4 +1,5 @@
 import { useEffect,useRef,useState } from 'react';
+import { SourceResourceAccess } from './SourceResourceAccess';
 type Locale='ar'|'fr'|'en';type Api=<T>(path:string,options?:RequestInit)=>Promise<T>;
 type Connection={ id:string;name:string;branch_id:string|null;status:string;version:number;config:{ graphVersion:string };
   last_success_at:string|null;last_failure_at:string|null;last_error_code:string|null };
@@ -96,6 +97,7 @@ export function MetaSourceSetup({ locale,role,branches,api }: { locale:Locale;ro
       {formAfter && <button disabled={busy} onClick={()=>void run(()=>resources(selected.id,'FORM',pageId,formAfter))}>{t.more}</button>}
       {form && <section className="panel"><h4>{t.questions}</h4><ul>{form.questions.map((q,index)=><li key={index}>{q.label ?? q.key ?? q.type} · {q.type} · {q.key ?? '—'}
         {!!q.options.length && <ul>{q.options.map((o,i)=><li key={i}>{o.key ?? '—'}: {o.value ?? '—'}</li>)}</ul>}</li>)}</ul></section>}
+      {role==='SUPER_ADMIN' && !selected.branch_id && form && <SourceResourceAccess key={form.id} connectionId={selected.id} formId={form.id} locale={locale} branches={branches} api={api}/>}
       <h4>{t.history}</h4><ul>{history.map((item)=><li key={item.id}>{item.resource_kind} · {item.state} · {item.resource_count ?? '—'} · {item.started_at}{item.error_code && ` · ${item.error_code}`}</li>)}</ul>
       {historyCursor && <button disabled={busy} onClick={()=>void run(()=>syncHistory(selected.id,historyCursor))}>{t.more}</button>}
     </section>}

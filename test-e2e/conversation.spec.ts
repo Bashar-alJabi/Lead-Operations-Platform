@@ -1,7 +1,7 @@
 import { test, expect, type Page,type BrowserContext } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-type Fixture = { password:string;testToken:string;leadId:string;conversationId:string;untrusted:string;mediaLeadId:string;mediaConversationId:string };
+type Fixture = { password:string;testToken:string;leadId:string;conversationId:string;untrusted:string;mediaLeadId:string;mediaConversationId:string;sourceCampaignId:string };
 let fixture:Fixture;
 let agentStorageState:Awaited<ReturnType<BrowserContext['storageState']>>|undefined;
 let managerStorageState:Awaited<ReturnType<BrowserContext['storageState']>>|undefined;
@@ -396,6 +396,7 @@ test('approval sample setup uploads scanned video, reviews provider failure, ret
   await expect(page.locator('html')).toHaveAttribute('dir','rtl');expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
   await page.getByRole('heading',{ name:'عينات اعتماد القوالب',exact:true }).scrollIntoViewIfNeeded();await page.screenshot({ path:'.local/e2e/template-sample-ar.png' });
   expect(errors).toEqual([]);
+  managerStorageState=await page.context().storageState();
 });
 
 test('Quick Reply templates send approved labels, correlate signed customer replies and retain duplicate-safe history in the browser',async({ page,browser })=> {
@@ -446,7 +447,8 @@ test('Quick Reply templates send approved labels, correlate signed customer repl
 });
 
 test('approved video template uses a ready approval sample and a separate scanned customer file with immutable browser recovery and history',async({ page,browser })=> {
-  const errors:string[]=[];page.on('pageerror',(error)=>errors.push(error.message));await login(page,'manager');
+  const errors:string[]=[];page.on('pageerror',(error)=>errors.push(error.message));expect(managerStorageState).toBeTruthy();
+  await page.context().addCookies(managerStorageState!.cookies);await page.goto('/');await page.getByRole('combobox',{ name:'Language' }).selectOption('en');
   await page.getByRole('button',{ name:'Messaging setup',exact:true }).click();
   await page.getByRole('row').filter({ hasText:'Browser Media Connection' }).getByRole('button').click();
   const setup=page.getByRole('heading',{ name:'Meta templates',exact:true }).locator('..');const name='browser_video_notice';
@@ -542,5 +544,63 @@ test('Meta source setup creates encrypted credentials, discovers scoped Pages an
     await page.setViewportSize({ width:390,height:844 });await page.getByRole('combobox',{ name:'Language' }).selectOption('ar');
     await expect(page.locator('html')).toHaveAttribute('dir','rtl');expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
     await setup.getByRole('heading',{ name:'مصادر Meta',exact:true }).scrollIntoViewIfNeeded();await page.screenshot({ path:'.local/e2e/meta-source-ar.png' });expect(errors).toEqual([]);
+  } finally { await context.close(); }
+});
+
+test('shared Form grants and campaign bindings enforce explicit scope, conflicts, history and revoke/restore in the browser',async({ page,browser })=> {
+  const errors:string[]=[];page.on('pageerror',(error)=>errors.push(error.message));await login(page,'admin');
+  await page.getByRole('button',{ name:'Meta sources',exact:true }).click();const setup=page.locator('.meta-source-setup');
+  await setup.getByRole('button',{ name:'Add Meta source',exact:true }).click();await setup.getByLabel('Source name',{ exact:true }).fill('Browser Shared Intake');
+  await setup.getByLabel('Source Graph API version',{ exact:true }).fill('v25.0');await setup.getByLabel('Meta access token',{ exact:true }).fill('synthetic-shared-intake-token');
+  await setup.getByLabel('Source App Secret',{ exact:true }).fill('synthetic-shared-intake-secret');await setup.getByLabel('Source verification token',{ exact:true }).fill('synthetic-shared-intake-verify');
+  await setup.getByRole('button',{ name:'Save source',exact:true }).click();await expect(setup.getByRole('heading',{ name:'Browser Shared Intake',exact:true })).toBeVisible();
+  await setup.getByRole('button',{ name:'Test and discover Pages',exact:true }).click();const pages=setup.getByLabel('Select Page',{ exact:true });
+  await expect(pages.locator('option')).toHaveCount(2);await pages.selectOption((await pages.locator('option').nth(1).getAttribute('value'))!);
+  await setup.getByRole('button',{ name:'Discover Forms',exact:true }).click();const forms=setup.getByLabel('Select Form',{ exact:true });
+  await expect(forms.locator('option')).toHaveCount(2);await forms.selectOption((await forms.locator('option').nth(1).getAttribute('value'))!);
+  const access=setup.locator('.source-resource-access');await expect(access.getByRole('heading',{ name:'Share Form with branches',exact:true })).toBeVisible();
+  await access.getByLabel('Authorized source branch',{ exact:true }).selectOption({ label:'Browser Branch' });
+  await access.getByLabel('Source access change reason',{ exact:true }).fill('Browser authorize this Form');await access.getByRole('button',{ name:'Save source access',exact:true }).click();
+  await expect(access.getByRole('listitem').filter({ hasText:'Browser Branch' })).toContainText('ACTIVE');
+  const context=await browser.newContext({ storageState:managerStorageState });const manager=await context.newPage();manager.on('pageerror',(error)=>errors.push(error.message));
+  try {
+    await manager.goto('/');await manager.getByRole('combobox',{ name:'Language' }).selectOption('en');await manager.getByRole('button',{ name:'Campaigns',exact:true }).click();
+    await manager.getByRole('row').filter({ hasText:'Browser Intake Campaign' }).getByRole('button',{ name:'Details',exact:true }).click();const bindings=manager.locator('.campaign-sources');
+    await expect(bindings.getByRole('heading',{ name:'Campaign source bindings',exact:true })).toBeVisible();await bindings.getByRole('button',{ name:'Bind another Form',exact:true }).click();
+    await bindings.getByLabel('Campaign source connection',{ exact:true }).selectOption({ label:'Browser Shared Intake · WARNING · Shared source authorized for this branch' });
+    const campaignPage=bindings.getByLabel('Campaign source Page',{ exact:true });await expect(campaignPage.locator('option')).toHaveCount(2);
+    await campaignPage.selectOption((await campaignPage.locator('option').nth(1).getAttribute('value'))!);const campaignForm=bindings.getByLabel('Campaign source Form',{ exact:true });
+    await expect(campaignForm.locator('option')).toHaveCount(2);const formId=(await campaignForm.locator('option').nth(1).getAttribute('value'))!;await campaignForm.selectOption(formId);
+    await expect(bindings).toContainText('Interest <img src=x onerror=alert(1)>');expect(await bindings.locator('img,b').count()).toBe(0);
+    await bindings.getByLabel('External Campaign ID (optional)',{ exact:true }).fill('555');await bindings.getByLabel('Enable source selection',{ exact:true }).check();
+    await bindings.getByLabel('Binding change reason',{ exact:true }).fill('Browser explicit selector');await bindings.getByRole('button',{ name:'Save source binding',exact:true }).click();
+    const binding=bindings.locator('[data-binding-id]');await expect(binding).toHaveCount(1);await expect(binding).toContainText('ACTIVE');await expect(binding).toContainText('Campaign: 555');
+    await expect(binding).toContainText('SOURCE_MAPPING_NOT_CONFIGURED');const bindingId=await binding.getAttribute('data-binding-id');
+    const connections=await manager.request.get(`/api/sources/campaigns/${fixture.sourceCampaignId}/connections`);expect(connections.ok()).toBeTruthy();const connection=(await connections.json()).items.find((c:{ name:string })=>c.name==='Browser Shared Intake');
+    expect(JSON.stringify(connection)).not.toContain('synthetic-shared');expect((await manager.request.get(`/api/sources/meta/connections/${connection.id}/resources?kind=FORM`)).status()).toBe(404);
+    const data={ connectionId:connection.id,formId,requestId:crypto.randomUUID(),connectionVersion:1,
+      externalCampaignId:null,externalAdSetId:null,externalAdId:null,active:true,reason:'Browser overlapping wildcard' };
+    const conflict=await manager.request.post(`/api/sources/campaigns/${fixture.sourceCampaignId}/bindings`,{ headers:{ origin:'http://127.0.0.1:4100' },data });expect(conflict.status()).toBe(409);
+    expect(await conflict.text()).toContain('SOURCE_BINDING_CONTEXT_CONFLICT');expect(await conflict.text()).not.toContain(bindingId!);
+    await binding.getByRole('button',{ name:'Edit binding',exact:true }).click();await bindings.getByLabel('External Ad ID (optional)',{ exact:true }).fill('777');
+    await bindings.getByLabel('Binding change reason',{ exact:true }).fill('Browser narrow ad');await bindings.getByRole('button',{ name:'Save source binding',exact:true }).click();
+    await expect(binding).toContainText('Ad: 777');await binding.getByRole('button',{ name:'Binding history',exact:true }).click();await expect(bindings).toContainText('Browser explicit selector');
+    await expect(bindings).toContainText('Browser narrow ad');await expect(manager.getByRole('button',{ name:'Activate',exact:true })).toBeDisabled();
+    await access.getByLabel('Allow Form use',{ exact:true }).uncheck();await access.getByLabel('Source access change reason',{ exact:true }).fill('Browser revoke Form');
+    await access.getByRole('button',{ name:'Save source access',exact:true }).click();await expect(access.getByRole('listitem').filter({ hasText:'Browser Branch' })).toContainText('INACTIVE');
+    await bindings.getByRole('button',{ name:'Refresh bindings',exact:true }).click();await expect(binding).toContainText('INACTIVE');await expect(binding).toContainText('SOURCE_RESOURCE_ACCESS_REQUIRED');
+    const hidden=await manager.request.get(`/api/sources/campaigns/${fixture.sourceCampaignId}/connections/${connection.id}/resources?kind=FORM`);expect(hidden.status()).toBe(404);
+    await access.getByLabel('Allow Form use',{ exact:true }).check();await access.getByLabel('Source access change reason',{ exact:true }).fill('Browser restore Form');
+    await access.getByRole('button',{ name:'Save source access',exact:true }).click();await expect(access.getByRole('listitem').filter({ hasText:'Browser Branch' })).toContainText('ACTIVE');
+    await bindings.getByRole('button',{ name:'Refresh bindings',exact:true }).click();await expect(binding).toContainText('INACTIVE');
+    await binding.getByRole('button',{ name:'Edit binding',exact:true }).click();await bindings.getByLabel('Enable source selection',{ exact:true }).check();
+    await bindings.getByLabel('Binding change reason',{ exact:true }).fill('Browser explicitly reactivate');await bindings.getByRole('button',{ name:'Save source binding',exact:true }).click();await expect(binding).toContainText('ACTIVE');
+    const agent=await browser.newContext({ storageState:agentStorageState });try { const tab=await agent.newPage();expect((await tab.request.get(`/api/sources/campaigns/${fixture.sourceCampaignId}/bindings`)).status()).toBe(403); } finally { await agent.close(); }
+    await manager.setViewportSize({ width:390,height:844 });await manager.getByRole('combobox',{ name:'Language' }).selectOption('ar');await expect(manager.locator('html')).toHaveAttribute('dir','rtl');
+    await bindings.getByRole('heading',{ name:'ربط مصادر الحملة',exact:true }).scrollIntoViewIfNeeded();expect(await manager.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
+    await manager.screenshot({ path:'.local/e2e/source-binding-ar.png' });
+    await page.setViewportSize({ width:390,height:844 });await page.getByRole('combobox',{ name:'Language' }).selectOption('ar');
+    await access.getByRole('heading',{ name:'مشاركة Form مع الفروع',exact:true }).scrollIntoViewIfNeeded();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
+    await page.screenshot({ path:'.local/e2e/source-access-ar.png' });expect(errors).toEqual([]);
   } finally { await context.close(); }
 });

@@ -32,6 +32,7 @@ import { smtpEmailAdapter, type IdentityEmailAdapter } from './identity-email.js
 import type { MessagingProviderAdapter, MessagingSendAdapter } from './messaging/providers.js';
 import type { MessagingTemplateAdapter } from './messaging/templates-provider.js';
 import { registerMetaSourceRoutes } from './routes/meta-sources.js';
+import { registerSourceBindingRoutes } from './routes/source-bindings.js';
 import type { LeadSourceCatalogAdapter } from './sources/meta-provider.js';
 
 export async function buildApp(db: Database, options: { logger?: boolean; emailAdapter?: IdentityEmailAdapter;
@@ -105,5 +106,6 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   registerMessageDeliveryRoutes(app, db);
   registerIdentityEmailRoutes(app, db, options.emailAdapter ?? smtpEmailAdapter);
   registerMetaSourceRoutes(app,db,options.leadSourceCatalogAdapter);
+  registerSourceBindingRoutes(app,db);
   return app;
 }

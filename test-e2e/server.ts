@@ -37,6 +37,8 @@ for (const [name,role,branchId] of [['admin','SUPER_ADMIN',null],['manager','MAN
     VALUES (${org},${branchId},${'Browser '+name},${role},${name+'@browser.test'},${hash}) RETURNING id`)[0]!.id;
 const campaign = (await db`INSERT INTO campaign (organization_id,branch_id,name,status,messaging_config)
   VALUES (${org},${branch},'Browser Campaign','ACTIVE','{"enabled":true}'::jsonb) RETURNING id`)[0]!.id;
+const sourceCampaign=(await db`INSERT INTO campaign (organization_id,branch_id,name,source_kind)
+  VALUES (${org},${branch},'Browser Intake Campaign','META') RETURNING id`)[0]!.id;
 const connection = (await db`INSERT INTO integration_connection (organization_id,branch_id,kind,provider,name,status,config)
   VALUES (${org},${branch},'MESSAGING','META_WHATSAPP_CLOUD','Browser Connection','CONNECTED',
     '{"graphVersion":"v25.0","wabaId":"123456789"}'::jsonb) RETURNING id`)[0]!.id;
@@ -173,7 +175,7 @@ app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:bool
     return { providerCalls,mediaUploads,sampleUploads,sourceCatalogCalls,messages,recoveries,replies };
   });
 await mkdir(resolve('.local/e2e'),{ recursive:true });
-await writeFile(resolve('.local/e2e/fixture.json'),JSON.stringify({ password,testToken,leadId:lead,conversationId:cv,untrusted,mediaLeadId:mediaLead,mediaConversationId:mediaCv }),{ mode:0o600 });
+await writeFile(resolve('.local/e2e/fixture.json'),JSON.stringify({ password,testToken,leadId:lead,conversationId:cv,untrusted,mediaLeadId:mediaLead,mediaConversationId:mediaCv,sourceCampaignId:sourceCampaign }),{ mode:0o600 });
 app.post('/__test__/stop',async(request,reply)=> {
   const header=request.headers.authorization;
   if (typeof header !== 'string' || !safeTokenEqual(header,'Bearer '+testToken)) throw new HttpError(403,'TEST_CONTROL_DENIED');
