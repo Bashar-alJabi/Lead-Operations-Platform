@@ -17,6 +17,7 @@ import { processOneInboundEvent } from '../src/messaging/inbound-events.js';
 import { processOneTemplateSample } from '../src/media/template-sample-worker.js';
 import { MediaError } from '../src/media/validation.js';
 import { SourceProviderError } from '../src/sources/meta-provider.js';
+import { processOneSourceRetrieval } from '../src/sources/retrieval-worker.js';
 
 const connectionUrl = requireLocalE2ETarget(process.env.TEST_DATABASE_URL,process.env.E2E_RESET_TEST_DATABASE,process.env.NODE_ENV);
 
@@ -91,6 +92,7 @@ await db`INSERT INTO conversation_message
 let mode: 'accept'|'reject'|'unknown' = 'reject'; let providerCalls = 0;let mediaUploads=0;let sampleUploads=0;
 let sourceFailure=false;let sourceCatalogCalls=0;
 let sourceSubscribed=false;let sourceSubscriptionFailure=false;
+let sourceRetrievalFailure=false;let sourceRetrievalCalls=0;
 const templates:ProviderTemplate[]=[{ externalId:'7000',name:'header_only_template',language:'en_US',category:'UTILITY',status:'APPROVED',
   components:[{ type:'HEADER',format:'TEXT',text:'Welcome {{1}}',example:{ header_text:['Approval sample only'] } },
     { type:'BODY',text:'Fixed body' }] },
@@ -137,7 +139,7 @@ app.get<{ Params:{ name:string } }>('/assets/:name',async (request,reply)=> {
   const type = request.params.name.endsWith('.js') ? 'text/javascript' : 'text/css';
   return reply.type(type).send(await readFile(resolve('dist-web/assets',request.params.name)));
 });
-app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:boolean; assigned?:'agent'|'second'; approveTemplates?:boolean;replyTo?:string;replyIndex?:number;processSample?:boolean;rejectSample?:boolean;sourceFailure?:boolean;sourceSubscriptionFailure?:boolean;sourceNotification?:string } }>(
+app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:boolean; assigned?:'agent'|'second'; approveTemplates?:boolean;replyTo?:string;replyIndex?:number;processSample?:boolean;rejectSample?:boolean;sourceFailure?:boolean;sourceSubscriptionFailure?:boolean;sourceNotification?:string;retrieveSource?:boolean;sourceRetrievalFailure?:boolean } }>(
   '/__test__/control', { schema: { body:{ type:'object',additionalProperties:false,properties: {
     process:{ type:'boolean' },mode:{ type:'string',enum:['accept','reject','unknown'] },
     dnc:{ type:'boolean' },assigned:{ type:'string',enum:['agent','second'] },
@@ -145,6 +147,7 @@ app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:bool
     processSample:{ type:'boolean' },rejectSample:{ type:'boolean' },
     sourceFailure:{ type:'boolean' },
     sourceSubscriptionFailure:{ type:'boolean' },sourceNotification:{ type:'string',format:'uuid' },
+    retrieveSource:{ type:'boolean' },sourceRetrievalFailure:{ type:'boolean' },
     replyTo:{ type:'string',format:'uuid' },replyIndex:{ type:'integer',minimum:0,maximum:2 },
   } } } },async (request)=> {
     const header = request.headers.authorization;
@@ -152,12 +155,18 @@ app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:bool
     if (request.body.mode) mode=request.body.mode;
     if (typeof request.body.sourceFailure==='boolean') sourceFailure=request.body.sourceFailure;
     if (typeof request.body.sourceSubscriptionFailure==='boolean') sourceSubscriptionFailure=request.body.sourceSubscriptionFailure;
+    if (typeof request.body.sourceRetrievalFailure==='boolean') sourceRetrievalFailure=request.body.sourceRetrievalFailure;
     if (request.body.sourceNotification) {
       const raw=JSON.stringify({ object:'page',entry:[{ id:'100001',time:1700000000,changes:[{ field:'leadgen',value:{ page_id:'100001',form_id:'200001',leadgen_id:'300001',created_time:1699999999 } }] }] });
       const received=await app.inject({ method:'POST',url:'/api/webhooks/sources/meta/'+request.body.sourceNotification,payload:raw,
         headers:{ 'content-type':'application/json','x-hub-signature-256':'sha256='+createHmac('sha256','synthetic-browser-webhook-secret').update(raw).digest('hex') } });
       if (received.statusCode!==200) throw new HttpError(500,'TEST_SOURCE_NOTIFICATION_FAILED');
     }
+    if (request.body.retrieveSource) await processOneSourceRetrieval(db,{ retrieve:async(input)=> {
+      sourceRetrievalCalls++;if (sourceRetrievalFailure) throw new Error('synthetic-browser-source-private-error');
+      return { id:input.leadId,form_id:input.formId,created_time:'2023-11-14T22:13:19+0000',ad_id:'500001',adset_id:'400001',campaign_id:'555',
+        field_data:[{ name:'full_name',values:['<img src=x onerror=alert(1)> Browser source customer'] },{ name:'phone',values:['+15550008888'] },{ name:'interest',values:['12.5'] }] };
+    } });
     if (request.body.approveTemplates) for (const template of templates) template.status='APPROVED';
     if (typeof request.body.dnc === 'boolean')
       await db`UPDATE messaging_consent SET do_not_contact=${request.body.dnc} WHERE contact_id=${contact}`;
@@ -192,7 +201,8 @@ app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:bool
     const messages = await db`SELECT id,body,delivery_state,message_kind,conversation_id FROM conversation_message WHERE direction='OUTBOUND' ORDER BY created_at,id`;
     const recoveries = (await db`SELECT count(*)::integer AS n FROM outbound_message_recovery`)[0]!.n;
     const replies=await db`SELECT id,body,reply_to_message_id,reply_button_index FROM conversation_message WHERE conversation_id=${mediaCv} AND reply_to_message_id IS NOT NULL`;
-    return { providerCalls,mediaUploads,sampleUploads,sourceCatalogCalls,messages,recoveries,replies };
+    const sourceSubmissions=(await db`SELECT count(*)::integer AS n FROM source_submission WHERE source_kind='META'`)[0]!.n;
+    return { providerCalls,mediaUploads,sampleUploads,sourceCatalogCalls,sourceRetrievalCalls,sourceSubmissions,messages,recoveries,replies };
   });
 await mkdir(resolve('.local/e2e'),{ recursive:true });
 await writeFile(resolve('.local/e2e/fixture.json'),JSON.stringify({ password,testToken,leadId:lead,conversationId:cv,untrusted,mediaLeadId:mediaLead,mediaConversationId:mediaCv,sourceCampaignId:sourceCampaign }),{ mode:0o600 });

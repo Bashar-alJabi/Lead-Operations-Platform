@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type { Database } from '../db.js';
 import { HttpError,principalFromRequest } from '../security.js';
-import { managedSourceConnection } from '../sources/catalog-sync.js';
+import { managedSourceConnection,recheckSourceActor } from '../sources/catalog-sync.js';
 import { sourceCredentials,checkSourceSubscription } from '../sources/subscription.js';
 import { metaLeadSourceSubscriptionAdapter,type LeadSourceSubscriptionAdapter } from '../sources/meta-subscription.js';
 import { parseSourceWebhook,sourceSecretEqual,verifySourceSignature } from '../sources/webhook.js';
@@ -26,13 +26,17 @@ export function registerMetaSourceWebhookRoutes(app:FastifyInstance,db:Database,
     const latest=request.query.pageId ? (await db`SELECT state,subscribed,error_code,started_at,finished_at,connection_version,page_version
       FROM source_subscription_attempt WHERE connection_id=${connection.id} AND page_id=${request.query.pageId} ORDER BY started_at DESC,id DESC LIMIT 1`)[0] : null;
     const page=request.query.pageId ? (await db`SELECT active,version,connection_version FROM source_resource WHERE id=${request.query.pageId}`)[0] : null;
-    const health=(await db`SELECT count(*)::integer AS pending,min(received_at) AS oldest_pending_at,max(received_at) AS last_incoming_at
-      FROM source_webhook_event WHERE connection_id=${connection.id}`)[0]!;
+    const health=(await db`SELECT count(*) FILTER (WHERE j.state='PENDING')::integer AS pending,
+      count(*) FILTER (WHERE j.state='RUNNING')::integer AS running,count(*) FILTER (WHERE j.state='FAILED')::integer AS failed,
+      count(*) FILTER (WHERE j.state='BLOCKED')::integer AS blocked,count(*) FILTER (WHERE j.state='SUCCEEDED')::integer AS retrieved,
+      min(e.received_at) FILTER (WHERE j.state IN ('PENDING','RUNNING')) AS oldest_pending_at,max(e.received_at) AS last_incoming_at
+      FROM source_webhook_event e JOIN source_retrieval_job j ON j.event_id=e.id WHERE e.connection_id=${connection.id}`)[0]!;
     return { callbackPath:`/api/webhooks/sources/meta/${connection.id}`,handshakeVerified:capability.sourceHandshakeVerified===true,
       signedCallbackVerified:capability.sourceSignedCallbackVerified===true,handshakeAt:capability.sourceHandshakeAt ?? null,
       lastIncomingAt:health.last_incoming_at,pending:health.pending,oldestPendingAt:health.oldest_pending_at,
+      running:health.running,failed:health.failed,blocked:health.blocked,retrieved:health.retrieved,
       subscription:latest ? { ...latest,current:!!page?.active && connection.status!=='DISABLED' && latest.connection_version===connection.version && latest.page_version===page.version } : null,
-      appIdConfigured:!!connection.config.appId,intakeReady:false,processingStatus:'SOURCE_RETRIEVAL_NOT_CONFIGURED' };
+      appIdConfigured:!!connection.config.appId,intakeReady:false,processingStatus:'SOURCE_INTAKE_NOT_CONFIGURED' };
   });
   app.post<{ Params:{ id:string };Body:{ version:number;pageId:string;pageVersion:number;subscribe:boolean } }>(root+'/:id/subscription',{
     schema:{ params,body:{ type:'object',additionalProperties:false,required:['version','pageId','pageVersion','subscribe'],properties:{
@@ -60,11 +64,48 @@ export function registerMetaSourceWebhookRoutes(app:FastifyInstance,db:Database,
     const actor=await principalFromRequest(request,db);const connection=await managedSourceConnection(db,actor,request.params.id);
     const cursor=decodeCursor(request.query.cursor);const limit=request.query.limit ?? 20;
     // Operational telemetry only. Raw untrusted payloads and customer data never leave this setup route.
-    const rows=await db`SELECT id,external_page_id,external_form_id,external_lead_id,source_created_at,received_at
-      FROM source_webhook_event WHERE connection_id=${connection.id}
-        AND (${cursor?.timestamp ?? null}::timestamptz IS NULL OR (received_at,id)<(${cursor?.timestamp ?? null}::timestamptz,${cursor?.id ?? null}::uuid))
-      ORDER BY received_at DESC,id DESC LIMIT ${limit+1}`;
+    const rows=await db`SELECT e.id,e.external_page_id,e.external_form_id,e.external_lead_id,e.source_created_at,e.received_at,
+      j.state,j.version,j.attempts,j.failures,j.recoveries,j.error_code,j.available_at,j.submission_id
+      FROM source_webhook_event e JOIN source_retrieval_job j ON j.event_id=e.id WHERE e.connection_id=${connection.id}
+        AND (${cursor?.timestamp ?? null}::timestamptz IS NULL OR (e.received_at,e.id)<(${cursor?.timestamp ?? null}::timestamptz,${cursor?.id ?? null}::uuid))
+      ORDER BY e.received_at DESC,e.id DESC LIMIT ${limit+1}`;
     const items=rows.slice(0,limit);const last=items.at(-1);return { items,nextCursor:rows.length>limit && last ? encodeCursor({ timestamp:last.received_at.toISOString(),id:last.id }) : null };
+  });
+  const eventParams={ ...params,required:['id','eventId'],properties:{ ...params.properties,eventId:{ type:'string',format:'uuid' } } } as const;
+  app.get<{ Params:{ id:string;eventId:string };Querystring:{ beforeAttempt?:number;limit?:number } }>(root+'/:id/webhook-events/:eventId/attempts',{
+    schema:{ params:eventParams,querystring:{ type:'object',additionalProperties:false,properties:{ beforeAttempt:{ type:'integer',minimum:1 },limit:{ type:'integer',minimum:1,maximum:100 } } } },
+  },async(request)=> {
+    const actor=await principalFromRequest(request,db);await managedSourceConnection(db,actor,request.params.id);
+    if (!(await db`SELECT 1 FROM source_webhook_event WHERE id=${request.params.eventId} AND connection_id=${request.params.id}`).length)
+      throw new HttpError(404,'SOURCE_EVENT_NOT_FOUND');
+    const limit=request.query.limit ?? 20;
+    const rows=await db`SELECT attempt_number,state,error_code,connection_version,page_version,started_at,finished_at FROM source_retrieval_attempt
+      WHERE event_id=${request.params.eventId} AND (${request.query.beforeAttempt ?? null}::integer IS NULL OR attempt_number<${request.query.beforeAttempt ?? null})
+      ORDER BY attempt_number DESC LIMIT ${limit+1}`;
+    const items=rows.slice(0,limit);return { items,nextBeforeAttempt:rows.length>limit ? items.at(-1)!.attempt_number : null };
+  });
+  app.post<{ Params:{ id:string;eventId:string };Body:{ version:number;reason:string } }>(root+'/:id/webhook-events/:eventId/retry',{
+    schema:{ params:eventParams,body:{ type:'object',additionalProperties:false,required:['version','reason'],properties:{ version:{ type:'integer',minimum:1 },reason:{ type:'string',minLength:1,maxLength:500 } } } },
+    config:{ rateLimit:{ max:10,timeWindow:'15 minutes' } },
+  },async(request)=> {
+    const actor=await principalFromRequest(request,db);const connection=await managedSourceConnection(db,actor,request.params.id);
+    if (!request.body.reason.trim()) throw new HttpError(400,'SOURCE_RETRY_REASON_REQUIRED');
+    return db.begin(async(tx)=> {
+      const current=(await tx`SELECT status,version FROM integration_connection WHERE id=${connection.id} FOR UPDATE`)[0]!;
+      await recheckSourceActor(tx as unknown as Database,actor);
+      const job=(await tx`SELECT j.*,r.active,r.connection_version FROM source_retrieval_job j JOIN source_webhook_event e ON e.id=j.event_id
+        JOIN source_resource r ON r.id=e.page_id WHERE j.event_id=${request.params.eventId} AND j.connection_id=${connection.id} FOR UPDATE OF j`)[0];
+      if (!job) throw new HttpError(404,'SOURCE_EVENT_NOT_FOUND');
+      if (job.version!==request.body.version) throw new HttpError(409,'SOURCE_EVENT_VERSION_CONFLICT');
+      if (!['FAILED','BLOCKED'].includes(job.state)) throw new HttpError(409,'SOURCE_RETRIEVAL_NOT_RETRYABLE');
+      if (['DISABLED','AUTH_EXPIRED'].includes(current.status) || !job.active || job.connection_version!==current.version)
+        throw new HttpError(409,'SOURCE_CONNECTION_NOT_READY');
+      await tx`UPDATE source_retrieval_job SET state='PENDING',failures=0,recoveries=recoveries+1,error_code=NULL,version=version+1,
+        available_at=now(),updated_at=now() WHERE event_id=${job.event_id}`;
+      await tx`INSERT INTO audit_log (organization_id,branch_id,actor_user_id,action,target_type,target_id,detail)
+        VALUES (${actor.organizationId},${connection.branch_id},${actor.id},'SOURCE_RETRIEVAL_RECOVERED','SOURCE_EVENT',${job.event_id},${tx.json({ reason:request.body.reason.trim(),previousFailures:job.failures })})`;
+      return { state:'PENDING',version:job.version+1 };
+    });
   });
   app.register(async(webhook)=> {
     webhook.addContentTypeParser('application/json',{ parseAs:'buffer' },(_request,body,done)=>done(null,body));

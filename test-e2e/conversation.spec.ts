@@ -626,7 +626,7 @@ test('shared Form grants and campaign bindings enforce explicit scope, conflicts
   } finally { await context.close(); }
 });
 
-test('source Webhook setup tests and subscribes a Page, preserves signed replays and shows failures, history and Arabic mobile state',async({ browser })=> {
+test('source Webhook and retrieval preserve signed replays, source submissions and scoped failure recovery with Arabic mobile history',async({ browser })=> {
   const context=await browser.newContext({ storageState:adminStorageState });const page=await context.newPage();
   const errors:string[]=[];page.on('pageerror',(error)=>errors.push(error.message));
   try {
@@ -650,10 +650,20 @@ test('source Webhook setup tests and subscribes a Page, preserves signed replays
     await control(page,{ sourceSubscriptionFailure:true });await webhook.getByRole('button',{ name:'Test Page subscription',exact:true }).click();await expect(webhook.getByRole('alert')).toContainText('SOURCE_PROVIDER_AUTH_FAILED');
     await expect(webhook).toContainText('FAILED');await control(page,{ sourceSubscriptionFailure:false });await webhook.getByRole('button',{ name:'Test Page subscription',exact:true }).click();
     await expect(webhook.getByText('Selected Page subscription: Subscribed',{ exact:true })).toBeVisible();await expect(webhook.getByRole('alert')).toHaveCount(0);
+    const failedRetrieval=await control(page,{ retrieveSource:true,sourceRetrievalFailure:true });expect(failedRetrieval.sourceRetrievalCalls).toBe(1);expect(failedRetrieval.sourceSubmissions).toBe(0);
+    await webhook.getByRole('button',{ name:'Refresh Webhook status',exact:true }).click();const notification=webhook.locator('li').filter({ hasText:'Lead 300001' });
+    await expect(notification).toContainText('FAILED');await expect(notification).toContainText('SOURCE_RETRIEVAL_FAILED');await notification.getByRole('button',{ name:'Source retrieval attempts',exact:true }).click();
+    await expect(notification).toContainText('#1');await expect(notification.getByRole('button',{ name:'Retry source retrieval',exact:true })).toBeDisabled();
+    await notification.getByLabel('Source retrieval retry reason',{ exact:true }).fill('Browser source failure repaired');await notification.getByRole('button',{ name:'Retry source retrieval',exact:true }).click();await expect(notification).toContainText('PENDING');
+    const retrieved=await control(page,{ retrieveSource:true,sourceRetrievalFailure:false });expect(retrieved.sourceRetrievalCalls).toBe(2);expect(retrieved.sourceSubmissions).toBe(1);
+    await webhook.getByRole('button',{ name:'Refresh Webhook status',exact:true }).click();await expect(notification).toContainText('SUCCEEDED');await expect(webhook).toContainText('Source data retrieved: 1');
+    await notification.getByRole('button',{ name:'Source retrieval attempts',exact:true }).click();await expect(notification).toContainText('#2');await expect(notification.getByRole('button',{ name:'Retry source retrieval',exact:true })).toHaveCount(0);
+    const replay=await control(page,{ sourceNotification:connectionId,retrieveSource:true });expect(replay.sourceRetrievalCalls).toBe(2);expect(replay.sourceSubmissions).toBe(1);
     const manager=await browser.newContext({ storageState:managerStorageState });try { expect((await manager.request.get(`/api/sources/meta/connections/${connectionId}/webhook`)).status()).toBe(404); } finally { await manager.close(); }
     const agent=await browser.newContext({ storageState:agentStorageState });try { expect((await agent.request.get(`/api/sources/meta/connections/${connectionId}/webhook-events`)).status()).toBe(403); } finally { await agent.close(); }
     await page.setViewportSize({ width:390,height:844 });await page.getByRole('combobox',{ name:'Language' }).selectOption('ar');await expect(page.locator('html')).toHaveAttribute('dir','rtl');
     await webhook.getByRole('heading',{ name:'Webhook المصدر واشتراك Page',exact:true }).scrollIntoViewIfNeeded();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
     await page.screenshot({ path:'.local/e2e/source-webhook-ar.png' });expect(errors).toEqual([]);
+    await notification.scrollIntoViewIfNeeded();await page.screenshot({ path:'.local/e2e/source-retrieval-ar.png' });expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
   } finally { await context.close(); }
 });

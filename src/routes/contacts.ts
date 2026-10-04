@@ -111,7 +111,7 @@ export function registerContactRoutes(app: FastifyInstance, db: Database): void 
     const cursor = decodeCursor(request.query.cursor);
     const limit = request.query.limit ?? 30;
     const rows = await db`SELECT s.id, s.branch_id, s.campaign_id, s.raw_payload, s.created_at
-      FROM source_submission s WHERE s.organization_id = ${actor.organizationId} AND s.state = 'NEEDS_ATTENTION'
+      FROM source_submission s WHERE s.organization_id = ${actor.organizationId} AND s.source_kind='MANUAL' AND s.state = 'NEEDS_ATTENTION'
         AND s.failure_code IN ('CONTACT_AMBIGUOUS','CONTACT_SCOPE_REVIEW') AND (${actor.role === 'SUPER_ADMIN'} OR s.branch_id = ${actor.branchId})
         AND (${cursor?.timestamp ?? null}::timestamptz IS NULL OR (s.created_at, s.id) < (${cursor?.timestamp ?? null}::timestamptz, ${cursor?.id ?? null}::uuid))
       ORDER BY s.created_at DESC, s.id DESC LIMIT ${limit + 1}`;
@@ -138,7 +138,7 @@ export function registerContactRoutes(app: FastifyInstance, db: Database): void 
     requireRole(actor, 'SUPER_ADMIN', 'MANAGER');
     return db.begin(async (tx) => {
       const found = await tx`SELECT id, branch_id, campaign_id, lead_id, resolution_contact_id, state, raw_payload FROM source_submission
-        WHERE id = ${request.params.id} AND organization_id = ${actor.organizationId} AND raw_payload ? 'candidateContactIds' FOR UPDATE`;
+        WHERE id = ${request.params.id} AND organization_id = ${actor.organizationId} AND source_kind='MANUAL' AND raw_payload ? 'candidateContactIds' FOR UPDATE`;
       const submission = found[0];
       if (!submission) throw new HttpError(404, 'CONTACT_REVIEW_NOT_FOUND');
       requireBranch(actor, submission.branch_id);
