@@ -1,6 +1,6 @@
 import { boundedResponse } from '../media/meta-provider.js';
 
-export type SourceConfig={ graphVersion:string };
+export type SourceConfig={ graphVersion:string;appId?:string };
 export type SourceCredentials={ accessToken:string;appSecret:string;verifyToken:string };
 export type SourceQuestion={ key:string|null;externalId:string|null;label:string|null;type:string;
   options:{ key:string|null;value:string|null }[] };

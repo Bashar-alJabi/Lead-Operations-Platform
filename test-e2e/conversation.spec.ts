@@ -5,6 +5,7 @@ type Fixture = { password:string;testToken:string;leadId:string;conversationId:s
 let fixture:Fixture;
 let agentStorageState:Awaited<ReturnType<BrowserContext['storageState']>>|undefined;
 let managerStorageState:Awaited<ReturnType<BrowserContext['storageState']>>|undefined;
+let adminStorageState:Awaited<ReturnType<BrowserContext['storageState']>>|undefined;
 test.describe.configure({ mode:'serial' });
 test.beforeAll(async()=> { fixture=JSON.parse(await readFile(resolve('.local/e2e/fixture.json'),'utf8')); });
 async function login(page:Page,name='agent') {
@@ -549,6 +550,7 @@ test('Meta source setup creates encrypted credentials, discovers scoped Pages an
 
 test('shared Form grants and campaign bindings enforce explicit scope, conflicts, history and revoke/restore in the browser',async({ page,browser })=> {
   const errors:string[]=[];page.on('pageerror',(error)=>errors.push(error.message));await login(page,'admin');
+  adminStorageState=await page.context().storageState();
   await page.getByRole('button',{ name:'Meta sources',exact:true }).click();const setup=page.locator('.meta-source-setup');
   await setup.getByRole('button',{ name:'Add Meta source',exact:true }).click();await setup.getByLabel('Source name',{ exact:true }).fill('Browser Shared Intake');
   await setup.getByLabel('Source Graph API version',{ exact:true }).fill('v25.0');await setup.getByLabel('Meta access token',{ exact:true }).fill('synthetic-shared-intake-token');
@@ -621,5 +623,37 @@ test('shared Form grants and campaign bindings enforce explicit scope, conflicts
     await page.setViewportSize({ width:390,height:844 });await page.getByRole('combobox',{ name:'Language' }).selectOption('ar');
     await access.getByRole('heading',{ name:'مشاركة Form مع الفروع',exact:true }).scrollIntoViewIfNeeded();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
     await page.screenshot({ path:'.local/e2e/source-access-ar.png' });expect(errors).toEqual([]);
+  } finally { await context.close(); }
+});
+
+test('source Webhook setup tests and subscribes a Page, preserves signed replays and shows failures, history and Arabic mobile state',async({ browser })=> {
+  const context=await browser.newContext({ storageState:adminStorageState });const page=await context.newPage();
+  const errors:string[]=[];page.on('pageerror',(error)=>errors.push(error.message));
+  try {
+    await page.goto('/');await page.getByRole('combobox',{ name:'Language' }).selectOption('en');await expect(page.getByRole('button',{ name:'Sign out',exact:true })).toBeVisible();
+    await page.getByRole('button',{ name:'Meta sources',exact:true }).click();const setup=page.locator('.meta-source-setup');
+    await setup.getByRole('button',{ name:'Add Meta source',exact:true }).click();await setup.getByLabel('Source name',{ exact:true }).fill('Browser Webhook Source');
+    await setup.getByLabel('Source Graph API version',{ exact:true }).fill('v25.0');await setup.getByLabel('Source Meta App ID',{ exact:true }).fill('700001');
+    await setup.getByLabel('Meta access token',{ exact:true }).fill('synthetic-browser-webhook-root');await setup.getByLabel('Source App Secret',{ exact:true }).fill('synthetic-browser-webhook-secret');
+    await setup.getByLabel('Source verification token',{ exact:true }).fill('synthetic-browser-webhook-verify');await setup.getByRole('button',{ name:'Save source',exact:true }).click();
+    await expect(setup.getByRole('heading',{ name:'Browser Webhook Source',exact:true })).toBeVisible();await setup.getByRole('button',{ name:'Test and discover Pages',exact:true }).click();
+    const pages=setup.getByLabel('Select Page',{ exact:true });await expect(pages.locator('option')).toHaveCount(2);await pages.selectOption((await pages.locator('option').nth(1).getAttribute('value'))!);
+    const webhook=setup.locator('.source-webhook');await expect(webhook.getByRole('button',{ name:'Test Page subscription',exact:true })).toBeEnabled();
+    await webhook.getByRole('button',{ name:'Test Page subscription',exact:true }).click();await expect(webhook.getByText('Selected Page subscription: Not subscribed',{ exact:true })).toBeVisible();
+    await webhook.getByRole('button',{ name:'Subscribe Page to leadgen',exact:true }).click();await expect(webhook.getByText('Selected Page subscription: Subscribed',{ exact:true })).toBeVisible();
+    const callback=(await webhook.getByLabel('Source Callback URL',{ exact:true }).inputValue());const connectionId=new URL(callback).pathname.split('/').at(-1)!;
+    expect((await page.request.get(callback+'?'+new URLSearchParams({ 'hub.mode':'subscribe','hub.verify_token':'wrong','hub.challenge':'12345' }))).status()).toBe(403);
+    const challenge=await page.request.get(callback+'?'+new URLSearchParams({ 'hub.mode':'subscribe','hub.verify_token':'synthetic-browser-webhook-verify','hub.challenge':'12345' }));expect(await challenge.text()).toBe('12345');
+    await control(page,{ sourceNotification:connectionId });await control(page,{ sourceNotification:connectionId });await webhook.getByRole('button',{ name:'Refresh Webhook status',exact:true }).click();
+    await expect(webhook).toContainText('Saved events awaiting processing: 1');await expect(webhook).toContainText('Meta Callback verification: Verified');await expect(webhook).toContainText('Valid signed event received: Verified');
+    expect((await page.request.get(`/api/sources/meta/connections/${connectionId}/webhook-events`)).ok()).toBeTruthy();
+    await control(page,{ sourceSubscriptionFailure:true });await webhook.getByRole('button',{ name:'Test Page subscription',exact:true }).click();await expect(webhook.getByRole('alert')).toContainText('SOURCE_PROVIDER_AUTH_FAILED');
+    await expect(webhook).toContainText('FAILED');await control(page,{ sourceSubscriptionFailure:false });await webhook.getByRole('button',{ name:'Test Page subscription',exact:true }).click();
+    await expect(webhook.getByText('Selected Page subscription: Subscribed',{ exact:true })).toBeVisible();await expect(webhook.getByRole('alert')).toHaveCount(0);
+    const manager=await browser.newContext({ storageState:managerStorageState });try { expect((await manager.request.get(`/api/sources/meta/connections/${connectionId}/webhook`)).status()).toBe(404); } finally { await manager.close(); }
+    const agent=await browser.newContext({ storageState:agentStorageState });try { expect((await agent.request.get(`/api/sources/meta/connections/${connectionId}/webhook-events`)).status()).toBe(403); } finally { await agent.close(); }
+    await page.setViewportSize({ width:390,height:844 });await page.getByRole('combobox',{ name:'Language' }).selectOption('ar');await expect(page.locator('html')).toHaveAttribute('dir','rtl');
+    await webhook.getByRole('heading',{ name:'Webhook المصدر واشتراك Page',exact:true }).scrollIntoViewIfNeeded();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
+    await page.screenshot({ path:'.local/e2e/source-webhook-ar.png' });expect(errors).toEqual([]);
   } finally { await context.close(); }
 });

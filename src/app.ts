@@ -35,15 +35,20 @@ import { registerMetaSourceRoutes } from './routes/meta-sources.js';
 import { registerSourceBindingRoutes } from './routes/source-bindings.js';
 import { registerSourceMappingRoutes } from './routes/source-mapping.js';
 import type { LeadSourceCatalogAdapter } from './sources/meta-provider.js';
+import { registerMetaSourceWebhookRoutes } from './routes/meta-source-webhook.js';
+import type { LeadSourceSubscriptionAdapter } from './sources/meta-subscription.js';
+import { safeRequestUrl } from './safe-logging.js';
 
 export async function buildApp(db: Database, options: { logger?: boolean; emailAdapter?: IdentityEmailAdapter;
   messagingAdapter?: MessagingProviderAdapter; messagingTemplateAdapter?: MessagingTemplateAdapter;
   messagingSendAdapter?: MessagingSendAdapter;
   leadSourceCatalogAdapter?: LeadSourceCatalogAdapter;
+  leadSourceSubscriptionAdapter?: LeadSourceSubscriptionAdapter;
   mediaStorage?: MediaStorage;
   mediaScanner?: MediaScanner;
   globalRateLimitMax?: number } = {}): Promise<FastifyInstance> {
-  const app = Fastify({ logger: options.logger === false ? false : { redact: ['req.headers.cookie', 'req.headers.authorization', 'req.body.password', 'req.body.token'] }, bodyLimit: 1024 * 1024,
+  const app = Fastify({ logger: options.logger === false ? false : { redact: ['req.headers.cookie', 'req.headers.authorization', 'req.body.password', 'req.body.token'],
+    serializers:{ req:(request)=>({ method:request.method,url:safeRequestUrl(request.url),remoteAddress:request.ip }) } }, bodyLimit: 1024 * 1024,
     ajv: { customOptions: { removeAdditional: false } },
   });
   await app.register(cookie);
@@ -109,5 +114,6 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   registerMetaSourceRoutes(app,db,options.leadSourceCatalogAdapter);
   registerSourceBindingRoutes(app,db);
   registerSourceMappingRoutes(app,db);
+  registerMetaSourceWebhookRoutes(app,db,options.leadSourceSubscriptionAdapter);
   return app;
 }

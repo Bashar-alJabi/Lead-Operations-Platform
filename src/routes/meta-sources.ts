@@ -9,7 +9,7 @@ import { metaLeadSourceCatalogAdapter,type LeadSourceCatalogAdapter,type SourceC
 
 const root='/api/sources/meta/connections';
 const params={ type:'object',additionalProperties:false,required:['id'],properties:{ id:{ type:'string',format:'uuid' } } } as const;
-const config={ type:'object',additionalProperties:false,required:['graphVersion'],properties:{ graphVersion:{ type:'string',pattern:'^v\\d{1,2}\\.\\d{1,2}$' } } } as const;
+const config={ type:'object',additionalProperties:false,required:['graphVersion'],properties:{ graphVersion:{ type:'string',pattern:'^v\\d{1,2}\\.\\d{1,2}$' },appId:{ type:'string',pattern:'^\\d{1,30}$' } } } as const;
 const credentials={ type:'object',additionalProperties:false,required:['accessToken','appSecret','verifyToken'],properties:{
   accessToken:{ type:'string',minLength:20,maxLength:4096,pattern:'^[^\\x00-\\x1f\\x7f]+$' },
   appSecret:{ type:'string',minLength:16,maxLength:512,pattern:'^[^\\x00-\\x1f\\x7f]+$' },
@@ -71,6 +71,8 @@ export function registerMetaSourceRoutes(app:FastifyInstance,db:Database,adapter
       await tx`UPDATE source_resource SET active=false,version=version+1 WHERE connection_id=${old.id} AND active`;
       await tx`UPDATE source_resource_sync SET state='SUPERSEDED',finished_at=now(),error_code='SOURCE_CONFIGURATION_CHANGED'
         WHERE connection_id=${old.id} AND state='RUNNING'`;
+      await tx`UPDATE source_subscription_attempt SET state='SUPERSEDED',finished_at=now(),error_code='SOURCE_CONFIGURATION_CHANGED'
+        WHERE connection_id=${old.id} AND state='RUNNING'`;
       await tx`INSERT INTO audit_log (organization_id,branch_id,actor_user_id,action,target_type,target_id)
         VALUES (${actor.organizationId},${old.branch_id},${actor.id},'SOURCE_CONNECTION_UPDATED','CONNECTION',${old.id})`;
       return { version:current.version+1,status:'NOT_CONFIGURED' };
@@ -89,6 +91,8 @@ export function registerMetaSourceRoutes(app:FastifyInstance,db:Database,adapter
           updated_at=now() WHERE id=${connection.id}`;
         await tx`UPDATE source_resource SET active=false,version=version+1 WHERE connection_id=${connection.id} AND active`;
         await tx`UPDATE source_resource_sync SET state='SUPERSEDED',finished_at=now(),error_code='SOURCE_CONFIGURATION_CHANGED'
+          WHERE connection_id=${connection.id} AND state='RUNNING'`;
+        await tx`UPDATE source_subscription_attempt SET state='SUPERSEDED',finished_at=now(),error_code='SOURCE_CONFIGURATION_CHANGED'
           WHERE connection_id=${connection.id} AND state='RUNNING'`;
         await tx`INSERT INTO audit_log (organization_id,branch_id,actor_user_id,action,target_type,target_id)
           VALUES (${actor.organizationId},${connection.branch_id},${actor.id},${'SOURCE_CONNECTION_'+action.toUpperCase()+'D'},'CONNECTION',${connection.id})`;

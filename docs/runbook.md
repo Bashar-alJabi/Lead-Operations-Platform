@@ -1,5 +1,14 @@
 # دليل التشغيل والتطوير
 
+## إعداد Source Webhook وPage subscription
+
+1. من Meta Sources أنشئ أو عدّل Connection وأدخل App ID وGraph version وcredentials الخاصة بالمؤسسة. App ID مطلوبة لـsubscription/test، وليست secret. استبدال config/credentials يبطل Catalog الحالي وverification status؛ أعد اكتشاف Pages/Forms. الأسرار لا تعاد بعد الحفظ.
+2. اختر Page المكتشفة، ثم من Meta App Dashboard → Webhooks → Page أدخل Source Callback URL التي تعرضها المنصة وVerify Token نفسها المحفوظة عند setup؛ Verify and Save ثم حقل leadgen. يلزم public HTTPS وApp Review وصلاحيات Pages/Lead Ads/Leads Access وإسناد الموارد لدى Meta؛ credentials التطوير الاصطناعية لا تحققها. لا تعديل source code/env/DB لإعداد business connection.
+3. Subscribe Page to leadgen تنفذ subscription API ثم verification GET، وTest Page subscription تفحص الحالة فقط. existing fields لنفس التطبيق محفوظة؛ App/Page token mismatch يمنع أي mutation. فشل الصلاحيات/token يظهر بكود آمن وسجل محاولة؛ أصلح إعدادات المزود أو credentials ثم اختبر من الواجهة.
+4. Refresh Webhook status تقرأ handshake الحقيقي وvalid signed event وآخر Incoming وnotifications pending؛ لا تولد verification أو Leads وهمية. استخدم Meta Lead Ads Testing للمورد المخول لإرسال حدث اختبار. POST تحفظ الأحداث الموقعة فقط، وForm numeric الجديدة تحفظ دون تخمين، replay لا يزيد العدد أو يغير الأصل. نتيجة subscription قديمة بعد Catalog/config changes تظهر قديمة حتى إعادة الاختبار.
+5. local disable يمنع handshake/callbacks ويحفظ التاريخ؛ لا يحذف subscription لدى Meta. بعد إعادة الإعداد أعد discovery ثم subscription test. فشل محلي بعد mutation خارجية لا يعني إلغاءها لدى المزود؛ test/resubscribe يفحص الحالة قبل POST جديد. RUNNING بعد crash تنتهي بعد lease120s عند طلب جديد، ثم تسجل FAILED قبل محاولة جديدة، دون تحرير DB يدوي.
+6. عند هذه checkpoint notifications محفوظة فقط: retrieval worker وSource Submission/Lead processing/reprocess لم تنفذ بعد، وintakeReady=false وCampaign activation محجوبة. نجاح verification/subscription ليس إثباتاً لـlead delivery. DTO/history لا تعيد raw notifications أو Page/App secrets. Agent/Manager خارج النطاق لا تستطيع قراءتها؛ Organization connection setup للمسؤول الأعلى فقط. لا production credentials للاختبارات المحلية.
+
 ## الحالة الحالية
 
 التعليمات هنا لتشغيل **الأجزاء المنفذة حالياً** ومراجعتها. المنصة ليست مكتملة أو جاهزة للإنتاج؛ راجع `codex-progress.md` و`requirement-coverage.md` قبل أي نشر. تحققت migrations واختبارات API على PostgreSQL 18 المحلي عبر Docker Desktop.

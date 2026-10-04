@@ -90,6 +90,7 @@ await db`INSERT INTO conversation_message
   VALUES (${mediaCv},${mediaConnection},${mediaSender},'INBOUND','CUSTOMER','Browser media request','wamid.browser-media-inbound','RECEIVED',now()-interval '1 second')`;
 let mode: 'accept'|'reject'|'unknown' = 'reject'; let providerCalls = 0;let mediaUploads=0;let sampleUploads=0;
 let sourceFailure=false;let sourceCatalogCalls=0;
+let sourceSubscribed=false;let sourceSubscriptionFailure=false;
 const templates:ProviderTemplate[]=[{ externalId:'7000',name:'header_only_template',language:'en_US',category:'UTILITY',status:'APPROVED',
   components:[{ type:'HEADER',format:'TEXT',text:'Welcome {{1}}',example:{ header_text:['Approval sample only'] } },
     { type:'BODY',text:'Fixed body' }] },
@@ -98,6 +99,11 @@ const templates:ProviderTemplate[]=[{ externalId:'7000',name:'header_only_templa
 await mkdir(resolve('.local/e2e'),{ recursive:true });const mediaRoot=await mkdtemp(resolve('.local/e2e/media-'));
 const storage=localMediaStorage(mediaRoot);
 const app = await buildApp(db, { logger:false,globalRateLimitMax:10000,mediaStorage:storage,
+  leadSourceSubscriptionAdapter:{ check:async(input)=> {
+    if (input.page.externalId!=='100001' || input.config.appId!=='700001') throw new Error('Unexpected browser source subscription');
+    if (sourceSubscriptionFailure) throw new SourceProviderError('SOURCE_PROVIDER_AUTH_FAILED');
+    if (input.subscribe) sourceSubscribed=true;return { subscribed:sourceSubscribed };
+  } },
   leadSourceCatalogAdapter:{
     discoverPages:async()=> { sourceCatalogCalls++;if (sourceFailure) throw new SourceProviderError('SOURCE_PROVIDER_AUTH_FAILED');
       return [{ externalId:'100001',name:'Browser Page <b>literal</b>',accessToken:'synthetic-browser-page-private-token' }]; },
@@ -131,19 +137,27 @@ app.get<{ Params:{ name:string } }>('/assets/:name',async (request,reply)=> {
   const type = request.params.name.endsWith('.js') ? 'text/javascript' : 'text/css';
   return reply.type(type).send(await readFile(resolve('dist-web/assets',request.params.name)));
 });
-app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:boolean; assigned?:'agent'|'second'; approveTemplates?:boolean;replyTo?:string;replyIndex?:number;processSample?:boolean;rejectSample?:boolean;sourceFailure?:boolean } }>(
+app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:boolean; assigned?:'agent'|'second'; approveTemplates?:boolean;replyTo?:string;replyIndex?:number;processSample?:boolean;rejectSample?:boolean;sourceFailure?:boolean;sourceSubscriptionFailure?:boolean;sourceNotification?:string } }>(
   '/__test__/control', { schema: { body:{ type:'object',additionalProperties:false,properties: {
     process:{ type:'boolean' },mode:{ type:'string',enum:['accept','reject','unknown'] },
     dnc:{ type:'boolean' },assigned:{ type:'string',enum:['agent','second'] },
     approveTemplates:{ type:'boolean' },
     processSample:{ type:'boolean' },rejectSample:{ type:'boolean' },
     sourceFailure:{ type:'boolean' },
+    sourceSubscriptionFailure:{ type:'boolean' },sourceNotification:{ type:'string',format:'uuid' },
     replyTo:{ type:'string',format:'uuid' },replyIndex:{ type:'integer',minimum:0,maximum:2 },
   } } } },async (request)=> {
     const header = request.headers.authorization;
     if (typeof header !== 'string' || !safeTokenEqual(header,'Bearer '+testToken)) throw new HttpError(403,'TEST_CONTROL_DENIED');
     if (request.body.mode) mode=request.body.mode;
     if (typeof request.body.sourceFailure==='boolean') sourceFailure=request.body.sourceFailure;
+    if (typeof request.body.sourceSubscriptionFailure==='boolean') sourceSubscriptionFailure=request.body.sourceSubscriptionFailure;
+    if (request.body.sourceNotification) {
+      const raw=JSON.stringify({ object:'page',entry:[{ id:'100001',time:1700000000,changes:[{ field:'leadgen',value:{ page_id:'100001',form_id:'200001',leadgen_id:'300001',created_time:1699999999 } }] }] });
+      const received=await app.inject({ method:'POST',url:'/api/webhooks/sources/meta/'+request.body.sourceNotification,payload:raw,
+        headers:{ 'content-type':'application/json','x-hub-signature-256':'sha256='+createHmac('sha256','synthetic-browser-webhook-secret').update(raw).digest('hex') } });
+      if (received.statusCode!==200) throw new HttpError(500,'TEST_SOURCE_NOTIFICATION_FAILED');
+    }
     if (request.body.approveTemplates) for (const template of templates) template.status='APPROVED';
     if (typeof request.body.dnc === 'boolean')
       await db`UPDATE messaging_consent SET do_not_contact=${request.body.dnc} WHERE contact_id=${contact}`;

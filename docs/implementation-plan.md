@@ -18,7 +18,7 @@ Media Templates محفوظة في `83c0022`. Human Messaging baseline للصيغ
 
 1. Meta Connection lifecycle وPage/Form catalog/questions/secret boundaries/sync fencing/UI: مثبتة في checkpoint الحالية.
 2. Campaign/Form bindings متعددة وexternal Campaign/Ad Set/Ad selectors وconflict validation/shared Form access/version/history: مثبتة في `4b7f535`. Source field→Contact/Lead dynamic field mapping setup وautosuggest/manual/type/required preview/revisions/readiness وgrant/field enforcement مثبتة في checkpoint الحالية؛ runtime field ingestion/reprocess تتبع intake ولا تعلن مكتملة.
-3. Signed durable Webhook intake وprovider retrieval worker وSubmission/idempotency/contact normalization/Lead routing/Needs Attention/reprocess؛ source/operational data منفصلتان، ولا تخمين للحملة أو contact الغامضة.
+3. Signed durable Source Webhook notifications وPage subscription/test/history/status UI مثبتة في checkpoint الحالية؛ ليست intake كاملة. الخطوة التالية provider retrieval worker بالـPage credential وdurable retry/lease وSubmission preservation ثم binding/PUBLISHED mapping وcontact normalization/Lead routing/Needs Attention/reprocess؛ source/operational data منفصلتان، ولا تخمين للحملة أو contact الغامضة.
 4. Historical Meta sync بpreview/progress/results/deduplication، وربط external Messaging references حيث تدعمها المصادر.
 5. Payments/Enrollment ثم AI ثم Automation/Notifications/Analytics/Import/Export/Sheets/Email وبقية بوابات القبول، كما يحدد النطاق الكامل.
 
