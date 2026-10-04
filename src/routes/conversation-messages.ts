@@ -3,7 +3,7 @@ import type { Database } from '../db.js';
 import { HttpError, principalFromRequest } from '../security.js';
 import { decodeCursor, encodeCursor } from '../pagination.js';
 import { enqueueOutboundMessage } from '../messaging/outbound.js';
-import { bodyParameterCount } from '../messaging/approved-template.js';
+import { parseTextTemplate } from '../messaging/approved-template.js';
 
 const idParam = { type: 'object', additionalProperties: false, required: ['id'],
   properties: { id: { type: 'string', format: 'uuid' } } } as const;
@@ -64,20 +64,19 @@ export function registerConversationMessageRoutes(app: FastifyInstance, db: Data
       if (!authorized) throw new HttpError(404, 'CONVERSATION_NOT_FOUND');
       const limit = request.query.limit ?? 50;
       const rows = await db`SELECT id, name, language, category,
-          components->0->>'text' AS body
+          components
         FROM provider_message_template WHERE connection_id = ${authorized.connection_id}
-          AND active AND status = 'APPROVED' AND jsonb_array_length(components) = 1
+          AND active AND status = 'APPROVED'
           AND EXISTS (SELECT 1 FROM campaign_message_template_binding b
             WHERE b.template_id = provider_message_template.id
               AND b.campaign_id = ${authorized.campaign_id} AND b.active)
-          AND components->0->>'type' = 'BODY'
-          AND length(components->0->>'text') BETWEEN 1 AND 1024
           AND (${request.query.after ?? null}::uuid IS NULL OR id > ${request.query.after ?? null}::uuid)
         ORDER BY id LIMIT ${limit + 1}`;
       const page = rows.slice(0, limit);
       const items = page.flatMap((row) => {
-        const parameterCount = bodyParameterCount(row.body);
-        return parameterCount === null ? [] : [{ ...row, parameterCount }];
+        const parsed=parseTextTemplate(row.components);
+        const { components:_,...visible }=row;
+        return parsed ? [{ ...visible,body:parsed.preview,parameterCount:parsed.parameterCount }] : [];
       });
       return { items, nextAfter: rows.length > limit ? page.at(-1)!.id : null };
     });

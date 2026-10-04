@@ -71,7 +71,9 @@ type LabelKey = keyof typeof labels.en | keyof typeof profileLabels.en | keyof t
   keyof typeof fieldLabels.en | keyof typeof workflowLabels.en;
 
 async function api<T>(path: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(path, { credentials: 'same-origin', headers: { 'Content-Type': 'application/json', ...options?.headers }, ...options });
+  const headers = new Headers(options?.headers);
+  if (typeof options?.body === 'string' && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+  const response = await fetch(path, { credentials: 'same-origin', ...options, headers });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(body.message || body.error || `HTTP ${response.status}`);
   return body as T;

@@ -32,7 +32,7 @@ export function TemplateSetup({ connectionId, status, canManage, locale, api }: 
   const [after, setAfter] = useState<string | null>(null);
   const [requests, setRequests] = useState<CreateRequest[]>([]);
   const [requestAfter, setRequestAfter] = useState<string | null>(null);
-  const [form, setForm] = useState({ name: '', language: 'en_US', category: 'UTILITY', body: '' });
+  const [form, setForm] = useState({ name: '', language: 'en_US', category: 'UTILITY', body: '',header:'',footer:'' });
   const [examples, setExamples] = useState<string[]>([]);
   const [key, setKey] = useState(() => crypto.randomUUID());
   const [busy, setBusy] = useState(false);
@@ -61,9 +61,11 @@ export function TemplateSetup({ connectionId, status, canManage, locale, api }: 
   async function create() {
     setBusy(true); setError('');
     try {
+      const { header,footer,...base }=form;
       await api(`/api/messaging/connections/${connectionId}/templates`, { method: 'POST',
-        body: JSON.stringify({ ...form, ...(examples.length ? { examples } : {}), idempotencyKey: key }) });
-      setForm({ name: '', language: form.language, category: 'UTILITY', body: '' });
+        body: JSON.stringify({ ...base,...(header ? { header } : {}),...(footer ? { footer } : {}),
+          ...(examples.length ? { examples } : {}), idempotencyKey: key }) });
+      setForm({ name: '', language: form.language, category: 'UTILITY', body: '',header:'',footer:'' });
       setExamples([]);
       setKey(crypto.randomUUID()); await Promise.all([load(), loadRequests()]);
     } catch (failure) { setError(String(failure)); await loadRequests().catch(() => {}); }
@@ -85,7 +87,8 @@ export function TemplateSetup({ connectionId, status, canManage, locale, api }: 
     <div className="table-scroll"><table><thead><tr><th>{t.name}</th><th>{t.language}</th><th>{t.category}</th><th>{t.status}</th><th>{t.body}</th></tr></thead>
       <tbody>{templates.map((item) => <tr key={item.id}><td>{item.name}</td><td>{item.language}</td><td>{item.category ?? '—'}</td>
         <td>{item.status}{!item.active && <small>{t.inactive}</small>}</td>
-        <td>{item.components.find((part) => part.type?.toUpperCase() === 'BODY')?.text ?? '—'}</td></tr>)}</tbody></table></div>
+        <td>{item.components.filter((part)=>['HEADER','BODY','FOOTER'].includes(part.type?.toUpperCase() ?? ''))
+          .map((part,index)=><p key={index}>{part.type}: {part.text ?? '—'}</p>)}</td></tr>)}</tbody></table></div>
     {!templates.length && <p>{t.noItems}</p>}{after && <button className="secondary" onClick={() => void load(after).catch((failure) => setError(String(failure)))}>{t.more}</button>}
     {requests.length > 0 && <section><h5>{t.unresolved}</h5><ul>{requests.map((request) =>
       <li key={request.id}>{request.name} · {request.language} · {request.state}
@@ -93,11 +96,15 @@ export function TemplateSetup({ connectionId, status, canManage, locale, api }: 
       {requestAfter && <button className="secondary" onClick={() => void loadRequests(requestAfter).catch((failure) => setError(String(failure)))}>{t.more}</button>}
     </section>}
     {canManage && <form className="workflow-form" onSubmit={(event) => { event.preventDefault(); void create(); }}>
+      <label>{locale==='ar' ? 'عنوان TEXT ثابت (اختياري)' : locale==='fr' ? 'En-tête TEXT fixe (facultatif)' : 'Static TEXT header (optional)'}
+        <input maxLength={60} value={form.header} onChange={(event)=> { setForm({ ...form,header:event.target.value });setKey(crypto.randomUUID()); }} /></label>
+      <label>{locale==='ar' ? 'تذييل ثابت (اختياري)' : locale==='fr' ? 'Pied de page fixe (facultatif)' : 'Static footer (optional)'}
+        <input maxLength={60} value={form.footer} onChange={(event)=> { setForm({ ...form,footer:event.target.value });setKey(crypto.randomUUID()); }} /></label>
       <label>{t.name}<input required pattern="[a-z0-9_]+" maxLength={512} value={form.name}
-        onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
+        onChange={(event) => { setForm({ ...form, name: event.target.value });setKey(crypto.randomUUID()); }} /></label>
       <label>{t.language}<input required pattern="[a-z]{2,3}(_[A-Z]{2})?" value={form.language}
-        onChange={(event) => setForm({ ...form, language: event.target.value })} /></label>
-      <label>{t.category}<select value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })}>
+        onChange={(event) => { setForm({ ...form, language: event.target.value });setKey(crypto.randomUUID()); }} /></label>
+      <label>{t.category}<select value={form.category} onChange={(event) => { setForm({ ...form, category: event.target.value });setKey(crypto.randomUUID()); }}>
         <option value="UTILITY">UTILITY</option><option value="MARKETING">MARKETING</option></select></label>
       <label>{t.body}<textarea required minLength={1} maxLength={1024} value={form.body}
         onChange={(event) => {

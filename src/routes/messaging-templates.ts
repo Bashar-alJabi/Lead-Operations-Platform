@@ -6,7 +6,7 @@ import { HttpError, principalFromRequest, requireRole, type Principal } from '..
 import { metaTemplateAdapter, TemplateProviderError, type MessagingTemplateAdapter,
   type CreateTemplateInput, type ProviderTemplate } from '../messaging/templates-provider.js';
 import type { MessagingConnectionConfig, MessagingCredentials } from '../messaging/providers.js';
-import { bodyParameterCount } from '../messaging/approved-template.js';
+import { bodyParameterCount, parseTextTemplate } from '../messaging/approved-template.js';
 
 const params = { type: 'object', additionalProperties: false, required: ['id'],
   properties: { id: { type: 'string', format: 'uuid' } } } as const;
@@ -17,6 +17,7 @@ const createSchema = { type: 'object', additionalProperties: false,
     language: { type: 'string', pattern: '^[a-z]{2,3}(_[A-Z]{2})?$' },
     category: { type: 'string', enum: ['MARKETING','UTILITY'] },
     body: { type: 'string', minLength: 1, maxLength: 1024 },
+    header:{ type:'string',minLength:1,maxLength:60 },footer:{ type:'string',minLength:1,maxLength:60 },
     examples: { type: 'array', maxItems: 10, items: {
       type: 'string', minLength: 1, maxLength: 512 } },
   } } as const;
@@ -72,8 +73,12 @@ export function registerMessagingTemplateRoutes(app: FastifyInstance, db: Databa
         FROM provider_message_template WHERE connection_id = ${request.params.id}
           AND (${request.query.after ?? null}::uuid IS NULL OR id > ${request.query.after ?? null}::uuid)
         ORDER BY id LIMIT ${limit + 1}`;
-      const items = rows.slice(0, limit);
-      return { items, nextAfter: rows.length > limit ? items.at(-1)!.id : null };
+      const page = rows.slice(0, limit);
+      const items = page.map((row) => {
+        const parsed = parseTextTemplate(row.components);
+        return { ...row, supported: Boolean(parsed), parameterCount: parsed?.parameterCount ?? null };
+      });
+      return { items, nextAfter: rows.length > limit ? page.at(-1)!.id : null };
     });
 
   app.post<{ Params: { id: string } }>('/api/messaging/connections/:id/templates/sync', {
@@ -193,6 +198,9 @@ export function registerMessagingTemplateRoutes(app: FastifyInstance, db: Databa
       const { idempotencyKey, ...input } = request.body;
       const count = bodyParameterCount(input.body);
       if (count === null) throw new HttpError(400, 'TEMPLATE_BODY_INVALID');
+      if (!parseTextTemplate([...(input.header!==undefined ? [{ type:'HEADER',format:'TEXT',text:input.header }] : []),
+        { type:'BODY',text:input.body },...(input.footer!==undefined ? [{ type:'FOOTER',text:input.footer }] : [])]))
+        throw new HttpError(400,'TEMPLATE_FORMAT_UNSUPPORTED');
       if ((input.examples?.length ?? 0) !== count || input.examples?.some((value) =>
         !value.trim() || /[\x00-\x1f\x7f]/.test(value)))
         throw new HttpError(400, 'TEMPLATE_EXAMPLES_INVALID');

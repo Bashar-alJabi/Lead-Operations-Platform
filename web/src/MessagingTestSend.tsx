@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 type Api = <T>(path: string, options?: RequestInit) => Promise<T>;
 type Sender = { id: string; display_name: string; active: boolean; operator_enabled: boolean };
 type Template = { id: string; name: string; language: string; status: string; active: boolean;
-  components: unknown };
+  supported: boolean; parameterCount: number | null };
 type Attempt = { id: string; sender_id: string; template_id: string; recipient_last4: string;
   state: string; delivery_state: string | null; error_code: string | null;
   provider_message_id: string | null; created_at: string };
@@ -29,10 +29,7 @@ const labels = {
 } as const;
 
 function usable(template: Template): boolean {
-  const parts = template.components;
-  return template.active && template.status === 'APPROVED' && Array.isArray(parts) && parts.length === 1
-    && parts[0]?.type === 'BODY' && typeof parts[0]?.text === 'string'
-    && Boolean(parts[0].text.trim()) && !/\{\{|\}\}/.test(parts[0].text);
+  return template.active && template.status === 'APPROVED' && template.supported && template.parameterCount === 0;
 }
 
 export function MessagingTestSend({ connectionId, status, senders, locale, api, onChanged }: {
@@ -84,10 +81,10 @@ export function MessagingTestSend({ connectionId, status, senders, locale, api, 
   return <section className="panel"><h4>{t.title}</h4><p>{t.note}</p>
     {error && <p role="alert" className="error">{error}</p>}{result && <p role="status">{result}</p>}
     <form className="workflow-form" onSubmit={(event) => void submit(event)}>
-      <label>{t.sender}<select required value={senderId} onChange={(event) => { setSenderId(event.target.value); setKey(crypto.randomUUID()); }}>
+      <label>{t.sender}<select aria-label={t.sender} required value={senderId} onChange={(event) => { setSenderId(event.target.value); setKey(crypto.randomUUID()); }}>
         <option value="">—</option>{senders.filter((sender) => sender.active && sender.operator_enabled).map((sender) =>
           <option key={sender.id} value={sender.id}>{sender.display_name}</option>)}</select></label>
-      <label>{t.template}<select required value={templateId} onChange={(event) => { setTemplateId(event.target.value); setKey(crypto.randomUUID()); }}>
+      <label>{t.template}<select aria-label={t.template} required value={templateId} onChange={(event) => { setTemplateId(event.target.value); setKey(crypto.randomUUID()); }}>
         <option value="">—</option>{validTemplates.map((template) =>
           <option key={template.id} value={template.id}>{template.name} · {template.language}</option>)}</select></label>
       {!validTemplates.length && <p>{t.noTemplate}</p>}

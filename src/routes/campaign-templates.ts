@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type postgres from 'postgres';
 import type { Database } from '../db.js';
 import { HttpError, principalFromRequest, requireRole, type Principal } from '../security.js';
+import { parseTextTemplate } from '../messaging/approved-template.js';
 
 const params = { type: 'object', additionalProperties: false, required: ['id'],
   properties: { id: { type: 'string', format: 'uuid' } } } as const;
@@ -46,21 +47,20 @@ export function registerCampaignTemplateRoutes(app: FastifyInstance, db: Databas
       const scope = await campaignConnection(db, actor, request.params.id);
       const limit = request.query.limit ?? 50;
       const rows = await db`SELECT t.id, t.name, t.language, t.status, t.category,
-          t.components->0->>'text' AS body, COALESCE(b.active, false) AS bound,
+          t.components, COALESCE(b.active, false) AS bound,
           COALESCE(b.version, 0) AS version
         FROM provider_message_template t
         LEFT JOIN campaign_message_template_binding b
           ON b.template_id = t.id AND b.campaign_id = ${scope.campaignId}
         WHERE t.connection_id = ${scope.connectionId} AND t.active
           AND (${actor.role === 'SUPER_ADMIN' || scope.connectionBranchId !== null} OR b.active)
-          AND jsonb_array_length(t.components) = 1 AND t.components->0->>'type' = 'BODY'
-          AND length(t.components->0->>'text') BETWEEN 1 AND 1024
-          AND t.components->0->>'text' NOT LIKE '%{{%'
-          AND t.components->0->>'text' NOT LIKE '%}}%'
           AND (${request.query.after ?? null}::uuid IS NULL OR t.id > ${request.query.after ?? null}::uuid)
         ORDER BY t.id LIMIT ${limit + 1}`;
-      const items = rows.slice(0, limit);
-      return { items, nextAfter: rows.length > limit ? items.at(-1)!.id : null,
+      const page=rows.slice(0,limit);
+      const items=page.flatMap((row)=> { const parsed=parseTextTemplate(row.components);
+        const { components:_,...visible }=row;
+        return parsed ? [{ ...visible,body:parsed.preview,parameterCount:parsed.parameterCount }] : []; });
+      return { items, nextAfter: rows.length > limit ? page.at(-1)!.id : null,
         canManage: actor.role === 'SUPER_ADMIN' || scope.connectionBranchId !== null };
     });
 
@@ -83,11 +83,12 @@ export function registerCampaignTemplateRoutes(app: FastifyInstance, db: Databas
         const scope = await campaignConnection(tx, actor, request.params.id);
         if (actor.role === 'MANAGER' && scope.connectionBranchId === null)
           throw new HttpError(403, 'FORBIDDEN');
-        const template = (await tx`SELECT id, status, active FROM provider_message_template
+        const template = (await tx`SELECT id, status, active, components FROM provider_message_template
           WHERE id = ${request.params.templateId} AND connection_id = ${scope.connectionId} FOR SHARE`)[0];
         if (!template) throw new HttpError(404, 'TEMPLATE_NOT_AVAILABLE');
         if (request.body.bound && (!template.active || template.status !== 'APPROVED'))
           throw new HttpError(409, 'TEMPLATE_NOT_APPROVED');
+        if (request.body.bound && !parseTextTemplate(template.components)) throw new HttpError(409,'TEMPLATE_FORMAT_UNSUPPORTED');
         const existing = (await tx`SELECT version, active FROM campaign_message_template_binding
           WHERE campaign_id = ${scope.campaignId} AND template_id = ${template.id} FOR UPDATE`)[0];
         if ((existing?.version ?? 0) !== request.body.version)

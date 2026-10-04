@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import type { Database } from '../db.js';
 import { openSecret } from '../credentials.js';
 import { requiredEnv } from '../config.js';
+import { parseTextTemplate } from '../messaging/approved-template.js';
 import { HttpError, principalFromRequest, requireRole } from '../security.js';
 import { metaWhatsAppSendAdapter, ProviderSendError, type MessagingConnectionConfig,
   type MessagingCredentials, type MessagingSendAdapter } from '../messaging/providers.js';
@@ -20,10 +21,7 @@ type TestInput = { senderId: string; templateId: string; recipient: string;
   recipientConfirmed: true; idempotencyKey: string };
 
 function staticBody(components: unknown): boolean {
-  return Array.isArray(components) && components.length === 1 && components[0]
-    && typeof components[0] === 'object' && components[0].type === 'BODY'
-    && typeof components[0].text === 'string' && components[0].text.trim().length > 0
-    && components[0].text.length <= 1024 && !/\{\{|\}\}/.test(components[0].text);
+  return parseTextTemplate(components)?.parameterCount===0;
 }
 
 export function registerMessagingTestSendRoutes(app: FastifyInstance, db: Database,

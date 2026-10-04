@@ -1,9 +1,10 @@
 import type { MessagingConnectionConfig, MessagingCredentials } from './providers.js';
+import { parseTextTemplate } from './approved-template.js';
 
 export type ProviderTemplate = { externalId: string; name: string; language: string;
   status: string; category: string | null; components: unknown[] };
 export type CreateTemplateInput = { name: string; language: string; category: 'MARKETING'|'UTILITY';
-  body: string; examples?: string[] };
+  body: string; examples?: string[];header?:string;footer?:string };
 export interface MessagingTemplateAdapter {
   list(config: MessagingConnectionConfig, credentials: MessagingCredentials): Promise<ProviderTemplate[]>;
   create(config: MessagingConnectionConfig, credentials: MessagingCredentials,
@@ -77,11 +78,14 @@ export const metaTemplateAdapter: MessagingTemplateAdapter = {
   async create(config, credentials, input) {
     const body = { type: 'BODY', text: input.body,
       ...(input.examples?.length ? { example: { body_text: [input.examples] } } : {}) };
+    const components=[...(input.header!==undefined ? [{ type:'HEADER',format:'TEXT',text:input.header }] : []),body,
+      ...(input.footer!==undefined ? [{ type:'FOOTER',text:input.footer }] : [])];
+    if (!parseTextTemplate(components)) throw new TemplateProviderError('REJECTED','TEMPLATE_INPUT_INVALID');
     const payload = await request(endpoint(config), credentials.accessToken, {
       name: input.name, language: input.language, category: input.category,
-      components: [body],
+      components,
     }) as { id?: unknown; status?: unknown; category?: unknown };
     return parseTemplate({ id: payload?.id, name: input.name, language: input.language,
-      status: payload?.status, category: payload?.category, components: [body] });
+      status: payload?.status, category: payload?.category, components });
   },
 };

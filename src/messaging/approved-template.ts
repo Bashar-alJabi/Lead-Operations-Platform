@@ -2,8 +2,34 @@ import type postgres from 'postgres';
 import { HttpError } from '../security.js';
 
 export type BodyTemplateSnapshot = { externalTemplateId: string; name: string; language: string;
-  category: string | null; components: [{ type: 'BODY'; text: string }];
+  category: string | null; components: TextTemplateComponent[];
   bodyParameters?: string[] };
+export type TextTemplateComponent = { type:'HEADER';format:'TEXT';text:string } | { type:'BODY'|'FOOTER';text:string };
+
+// One supported-format parser for creation, binding, preview, enqueue, dispatch, recovery and operational test sends.
+export function parseTextTemplate(value:unknown): { components:TextTemplateComponent[];body:string;parameterCount:number;preview:string } | null {
+  if (!Array.isArray(value) || !value.length || value.length>3) return null;
+  const parts=new Map<string,TextTemplateComponent>();
+  for (const raw of value) {
+    if (!raw || typeof raw!=='object') return null;
+    const item=raw as { type?:unknown;text?:unknown;format?:unknown };
+    if (typeof item.type!=='string' || typeof item.text!=='string') return null;
+    const type=item.type.toUpperCase();if (parts.has(type)) return null;
+    if (type==='BODY') {
+      if (bodyParameterCount(item.text)===null) return null;
+      parts.set(type,{ type,text:item.text });
+    } else if (type==='HEADER' || type==='FOOTER') {
+      if (!item.text.trim() || item.text.length>60 || /\{\{|\}\}|[\x00-\x1f\x7f]/.test(item.text)) return null;
+      if (type==='HEADER') {
+        if (item.format!=='TEXT') return null;
+        parts.set(type,{ type,format:'TEXT',text:item.text });
+      } else parts.set(type,{ type,text:item.text });
+    } else return null; // Never discard buttons/media/unknown components to make a template appear supported.
+  }
+  const body=parts.get('BODY')?.text;if (!body) return null;
+  const components=['HEADER','BODY','FOOTER'].flatMap((type)=>parts.has(type) ? [parts.get(type)!] : []);
+  return { components,body,parameterCount:bodyParameterCount(body)!,preview:components.map((part)=>part.text).join('\n\n') };
+}
 
 export function bodyParameterCount(value: unknown): number | null {
   if (typeof value !== 'string' || !value.trim() || value.length > 1024) return null;
@@ -29,22 +55,18 @@ export async function approvedBodyTemplate(tx: postgres.TransactionSql,
     FOR SHARE`)[0];
   if (!template) throw new HttpError(409, 'TEMPLATE_NOT_AVAILABLE');
   if (!template.active || template.status !== 'APPROVED') throw new HttpError(409, 'TEMPLATE_NOT_APPROVED');
-  const components = template.components as unknown;
-  if (!Array.isArray(components) || components.length !== 1 || !components[0]
-    || typeof components[0] !== 'object' || components[0].type !== 'BODY')
-    throw new HttpError(409, 'TEMPLATE_FORMAT_UNSUPPORTED');
-  const rawBody = components[0].text as unknown;
-  const count = bodyParameterCount(rawBody);
-  if (count === null) throw new HttpError(409, 'TEMPLATE_FORMAT_UNSUPPORTED');
+  const parsed=parseTextTemplate(template.components);
+  if (!parsed) throw new HttpError(409,'TEMPLATE_FORMAT_UNSUPPORTED');
+  const count=parsed.parameterCount;
   if (!Array.isArray(bodyParameters) || bodyParameters.length !== count
     || bodyParameters.some((value) => typeof value !== 'string' || !value.trim()
       || value.length > 512 || /[\x00-\x1f\x7f]/.test(value)))
     throw new HttpError(400, 'TEMPLATE_PARAMETERS_INVALID');
-  const body = (rawBody as string).replace(/\{\{([1-9]\d*)\}\}/g,
+  const body = parsed.preview.replace(/\{\{([1-9]\d*)\}\}/g,
     (_match, index: string) => bodyParameters[Number(index) - 1]!);
   if (body.length > 20000) throw new HttpError(400, 'TEMPLATE_PARAMETERS_INVALID');
   return { body, snapshot: { externalTemplateId: template.external_template_id,
     name: template.name, language: template.language, category: template.category,
-    components: [{ type: 'BODY', text: rawBody as string }],
+    components: parsed.components,
     ...(bodyParameters.length ? { bodyParameters } : {}) } };
 }

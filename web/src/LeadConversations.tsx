@@ -290,7 +290,7 @@ export function LeadConversations({ leadId, lifecycle, role, actorId, locale, ap
         {sendMode === 'TEXT' ? <label>{t.draft}<textarea aria-label={t.draft} required maxLength={20000} value={draft} disabled={busy}
           onChange={(event) => { setDraft(event.target.value);
             if (submitted) { setSendKey(crypto.randomUUID()); setSubmitted(false); } }} /></label>
-          : sendMode === 'TEMPLATE' ? <label>{t.template}<select required value={templateId} disabled={busy} onChange={(event) => {
+          : sendMode === 'TEMPLATE' ? <label>{t.template}<select aria-label={t.template} required value={templateId} disabled={busy} onChange={(event) => {
             setTemplateId(event.target.value);
             setTemplateParameters(Array(templates.find((item) => item.id === event.target.value)?.parameterCount ?? 0).fill(''));
             setSendKey(crypto.randomUUID()); setSubmitted(false);

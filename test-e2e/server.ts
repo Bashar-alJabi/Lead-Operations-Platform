@@ -11,6 +11,7 @@ import { ProviderSendError } from '../src/messaging/providers.js';
 import { requireLocalE2ETarget } from './guard.js';
 import { metaMediaCapabilities } from '../src/media/meta-outbound.js';
 import { localMediaStorage } from '../src/media/storage.js';
+import type { ProviderTemplate } from '../src/messaging/templates-provider.js';
 
 const connectionUrl = requireLocalE2ETarget(process.env.TEST_DATABASE_URL,process.env.E2E_RESET_TEST_DATABASE,process.env.NODE_ENV);
 
@@ -55,8 +56,10 @@ await db`INSERT INTO conversation_message
 const mediaContact=(await db`INSERT INTO contact (organization_id,name,phone,phone_normalized)
   VALUES (${org},'Browser Media Customer','+15550004444','+15550004444') RETURNING id`)[0]!.id;
 await db`INSERT INTO messaging_consent (contact_id,channel,status,source) VALUES (${mediaContact},'WHATSAPP','GRANTED','TEST')`;
+const mediaCampaign=(await db`INSERT INTO campaign (organization_id,branch_id,name,status,messaging_config)
+  VALUES (${org},${branch},'Browser Media Campaign','ACTIVE','{"enabled":true}'::jsonb) RETURNING id`)[0]!.id;
 const mediaLead=(await db`INSERT INTO lead (organization_id,branch_id,campaign_id,contact_id,source_kind,assigned_agent_id)
-  VALUES (${org},${branch},${campaign},${mediaContact},'MANUAL',${users.agent!}) RETURNING id`)[0]!.id;
+  VALUES (${org},${branch},${mediaCampaign},${mediaContact},'MANUAL',${users.agent!}) RETURNING id`)[0]!.id;
 // Independent synthetic connection: the text journey deliberately leaves its connection WARNING after UNKNOWN.
 const mediaConnection=(await db`INSERT INTO integration_connection (organization_id,branch_id,kind,provider,name,status,config)
   VALUES (${org},${branch},'MESSAGING','META_WHATSAPP_CLOUD','Browser Media Connection','CONNECTED',
@@ -67,31 +70,49 @@ await db`INSERT INTO connection_secret (connection_id,ciphertext,nonce,auth_tag)
 const mediaSender=(await db`INSERT INTO messaging_sender
   (organization_id,connection_id,external_sender_id,display_name,health,operator_enabled,capabilities)
   VALUES (${org},${mediaConnection},'15550005555','Browser Media Sender','HEALTHY',true,
-    ${db.json({ text:true,...metaMediaCapabilities() })}) RETURNING id`)[0]!.id;
+    ${db.json({ text:true,template:true,...metaMediaCapabilities() })}) RETURNING id`)[0]!.id;
+await db`UPDATE campaign SET sender_override_id=${mediaSender} WHERE id=${mediaCampaign}`;
 const mediaCv=(await db`INSERT INTO conversation (lead_id,connection_id,sender_id,channel,participant_ref,controller_type,controller_user_id,state)
   VALUES (${mediaLead},${mediaConnection},${mediaSender},'WHATSAPP','+15550004444','HUMAN',${users.agent!},'HUMAN_ACTIVE') RETURNING id`)[0]!.id;
 await db`INSERT INTO conversation_message
   (conversation_id,connection_id,sender_id,direction,author_type,body,provider_message_id,delivery_state,received_at)
   VALUES (${mediaCv},${mediaConnection},${mediaSender},'INBOUND','CUSTOMER','Browser media request','wamid.browser-media-inbound','RECEIVED',now()-interval '1 second')`;
 let mode: 'accept'|'reject'|'unknown' = 'reject'; let providerCalls = 0;let mediaUploads=0;
+const templates:ProviderTemplate[]=[];
 await mkdir(resolve('.local/e2e'),{ recursive:true });const mediaRoot=await mkdtemp(resolve('.local/e2e/media-'));
 const storage=localMediaStorage(mediaRoot);
 const app = await buildApp(db, { logger:false,globalRateLimitMax:10000,mediaStorage:storage,
-  mediaScanner:{ scan:async()=>({ clean:true,version:'BrowserFakeScanner/test-only' }) } });
+  mediaScanner:{ scan:async()=>({ clean:true,version:'BrowserFakeScanner/test-only' }) },
+  messagingSendAdapter:{ sendText:async()=> { throw new Error('Unexpected operational freeform send'); },
+    sendTemplate:async()=>({ providerMessageId:'wamid.browser-operational' }) },
+  messagingTemplateAdapter:{
+    list:async(config)=>config.wabaId==='987654321' ? templates : [],
+    create:async(config,_credentials,input)=> {
+      if (config.wabaId!=='987654321') throw new Error('Unexpected test connection');
+      const template:ProviderTemplate={ externalId:String(8000+templates.length),name:input.name,language:input.language,
+        category:input.category,status:'PENDING',components:[
+          ...(input.header ? [{ type:'HEADER',format:'TEXT',text:input.header }] : []),
+          { type:'BODY',text:input.body,...(input.examples?.length ? { example:{ body_text:[input.examples] } } : {}) },
+          ...(input.footer ? [{ type:'FOOTER',text:input.footer }] : [])] };
+      templates.push(template);return template;
+    },
+  } });
 app.get('/',async (_request,reply)=>reply.type('text/html').send(await readFile(resolve('dist-web/index.html'))));
 app.get<{ Params:{ name:string } }>('/assets/:name',async (request,reply)=> {
   if (!/^[A-Za-z0-9_.-]+\.(js|css)$/.test(request.params.name)) throw new HttpError(404,'ASSET_NOT_FOUND');
   const type = request.params.name.endsWith('.js') ? 'text/javascript' : 'text/css';
   return reply.type(type).send(await readFile(resolve('dist-web/assets',request.params.name)));
 });
-app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:boolean; assigned?:'agent'|'second' } }>(
+app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:boolean; assigned?:'agent'|'second'; approveTemplates?:boolean } }>(
   '/__test__/control', { schema: { body:{ type:'object',additionalProperties:false,properties: {
     process:{ type:'boolean' },mode:{ type:'string',enum:['accept','reject','unknown'] },
     dnc:{ type:'boolean' },assigned:{ type:'string',enum:['agent','second'] },
+    approveTemplates:{ type:'boolean' },
   } } } },async (request)=> {
     const header = request.headers.authorization;
     if (typeof header !== 'string' || !safeTokenEqual(header,'Bearer '+testToken)) throw new HttpError(403,'TEST_CONTROL_DENIED');
     if (request.body.mode) mode=request.body.mode;
+    if (request.body.approveTemplates) for (const template of templates) template.status='APPROVED';
     if (typeof request.body.dnc === 'boolean')
       await db`UPDATE messaging_consent SET do_not_contact=${request.body.dnc} WHERE contact_id=${contact}`;
     if (request.body.assigned) await db`UPDATE lead SET assigned_agent_id=${users[request.body.assigned]!} WHERE id=${lead}`;
@@ -101,7 +122,7 @@ app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:bool
       if (mode === 'unknown') throw new ProviderSendError('UNKNOWN','SEND_OUTCOME_UNKNOWN');
       return { providerMessageId:'wamid.browser-'+providerCalls };
     };
-    if (request.body.process) await processOneMessagingJob(db,{ sendText:send,sendMedia:send,
+    if (request.body.process) await processOneMessagingJob(db,{ sendText:send,sendMedia:send,sendTemplate:send,
       uploadMedia:async()=> { mediaUploads++;return { providerMediaId:'12345' }; } },{ mediaStorage:storage });
     const messages = await db`SELECT id,body,delivery_state,message_kind,conversation_id FROM conversation_message WHERE direction='OUTBOUND' ORDER BY created_at,id`;
     const recoveries = (await db`SELECT count(*)::integer AS n FROM outbound_message_recovery`)[0]!.n;

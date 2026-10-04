@@ -1,5 +1,15 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: القوالب النصية المركبة
+
+بعد checkpoint `b0155d2` المرفوعة أضيفت static TEXT HEADER/FOOTER حول BODY الثابتة والمتغيرة. `parseTextTemplate` مشتركة للإنشاء وmetadata والقوائم/الربط وqueue/worker/recovery وoperational test-send؛ لا تُسقط components مجهولة/مكررة. Snapshot والنص التاريخي يحفظان جميع الأجزاء والقيم دون أمثلة اعتماد المزود؛ Agent ترى القوالب المعتمدة والمربوطة فقط. Campaign catalog كانت تخفي BODY المتغيرة بسبب شرط SQL قديم؛ أصلح مع pagination محدودة تتقدم حتى بعد صفحة format غير مدعومة. لا migration جديدة لأن JSON components وimmutable constraints الحالية كافية.
+
+التحقق: migrations001–038 سليمة بقاعدتي Docker وPostgreSQL/ClamAV healthy، و39/39 unit و14/14 integration و4/4 Browser Edge مع exit0، وBackend/Web typecheck/build ناجحة. اختبارات API تثبت scope/approval/invalid header-footer/examples وidempotency وbinding/send متزامنين وتغير HEADER قبل dispatch دون provider call، ثم recovery بعد إعادة النسخة الأصلية، وimmutable history وAudit دون credentials/examples، وcursor بعد عنصر unsupported. Browser تنشئ القالب PENDING ثم fake approval/sync وربط Campaign وAgent send مع BODY parameters وظهور HEADER/FOOTER كنص دون XSS؛ تختبر قالباً مركباً ثابتاً في Test send، وLogout/revocation. القوالب BODY السابقة والمرفقات الصادرة وكل regression tests بقيت ناجحة.
+
+Browser كشفت HTTP400 في bodyless sync لأن helper الواجهة كانت ترسل Content-Type JSON دائماً؛ أصبحت الترويسة مشروطة بوجود body نصية وتحترم نوعاً صريحاً. أسماء selects صريحة لأن label النصية كانت تشمل options بعد تغير محتواها. operational test-send UI تستخدم supported/parameterCount من Backend عوض parser BODY-only منفصلة. لا Meta live؛ Test send وapproval وScanner وهمية في harness، بينما DB وAPI وworker والواجهة حقيقية. لا HEADER variables أو Buttons أو media templates أو Template recovery Browser verification حتى الآن.
+
+قيد التنفيذ عند checkpoint: لا مرحلة برمجية غير مستقرة. الخطوة التالية الدقيقة بعد commit/push: TEXT HEADER ذات parameter واحدة مع approval example وقيمة منفصلة عند الإرسال، وتوسيع parser/snapshot/adapter/API/UI والـworker/recovery بنفس الصلاحيات ومنع context/parameter leakage. اختبر stale template/idempotency/negative payload وBrowser ثم checkpoint؛ بعدها Buttons/media templates وMessaging operability قبل Meta intake ثم Payments/Enrollment ثم AI. Messaging والمنصة ليستا Complete.
+
 ## آخر حالة مستقرة: outbound audio/video/sticker
 
 استعيدت التغييرات فوق `f57ea87` دون reset/discard. أضيفت migration `038` بقاعدتي Docker وامتد مسار الملفات المفحوصة إلى OGG/Opus وMP3 وM4A/AAC وMP4/H.264 مع AAC واحد أو بلا صوت، وWebP512×512 ثابتة/متحركة؛ JPEG/PNG/PDF محفوظة. API/UI/capabilities وadapter profile تعلن النوع والحجم/codec/dimensions/caption بوضوح؛ scan وprivate storage والـACL وCentral Policy وqueue/recovery تعاد كما في المسار الأصلي. audio/sticker ترفض أي caption في service/adapter/DB بدلاً من إسقاطها. ffprobe موجودة محلياً، تعمل stdin-only بلا shell أو file/network protocols، bounded timeout/output ولا تورث database/provider/encryption secrets؛ غيابها يفشل upload قبل READY ويعيد العامل بمحاولات bounded دون provider call. Byte-detected Opus/M4A aliases أصلحت في validator، دون الثقة بتسمية العميل.

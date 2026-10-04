@@ -171,3 +171,83 @@ test('browser uploads scanned audio/video/stickers, preserves captions and sends
   await page.getByLabel('نوع المرفق',{ exact:true }).scrollIntoViewIfNeeded();
   await page.screenshot({ path:'.local/e2e/media-ar.png' });expect(browserErrors).toEqual([]);
 });
+
+test('Manager creates and binds an approved composite text template; Agent sends all static parts and body parameters',async({ page,browser })=> {
+  const errors:string[]=[];page.on('pageerror',(error)=>errors.push(error.message));
+  await login(page,'manager');
+  async function openSetup() {
+    await page.getByRole('button',{ name:'Messaging setup',exact:true }).click();
+    await page.getByRole('row').filter({ hasText:'Browser Media Connection' }).getByRole('button').click();
+    return page.getByRole('heading',{ name:'Meta templates',exact:true }).locator('..');
+  }
+  async function openCampaign() {
+    await page.getByRole('button',{ name:'Campaigns',exact:true }).click();
+    await page.getByRole('row').filter({ hasText:'Browser Media Campaign' }).getByRole('button',{ name:'Details',exact:true }).click();
+    return page.getByRole('heading',{ name:'Campaign templates',exact:true }).locator('..');
+  }
+  const name='browser_composite_notice';const header='<img src=x> Static header';const footer='Static closing line';
+  let setup=await openSetup();
+  await setup.getByLabel('Static TEXT header (optional)',{ exact:true }).fill(header);
+  await setup.getByLabel('Static footer (optional)',{ exact:true }).fill(footer);
+  await setup.getByLabel('Template name',{ exact:true }).fill(name);
+  await setup.getByLabel('BODY text',{ exact:true }).fill('Dear {{1}}, your request is received.');
+  await setup.getByLabel('Parameter example 1',{ exact:true }).fill('Approval example only');
+  await setup.getByRole('button',{ name:'Submit template',exact:true }).click();
+  await expect(setup.getByRole('row').filter({ hasText:name })).toContainText('PENDING');
+  const staticName='browser_static_composite';
+  await setup.getByLabel('Static TEXT header (optional)',{ exact:true }).fill('Static test header');
+  await setup.getByLabel('Static footer (optional)',{ exact:true }).fill('Static test footer');
+  await setup.getByLabel('Template name',{ exact:true }).fill(staticName);
+  await setup.getByLabel('BODY text',{ exact:true }).fill('Static test body');
+  await setup.getByRole('button',{ name:'Submit template',exact:true }).click();
+  await expect(setup.getByRole('row').filter({ hasText:staticName })).toContainText('PENDING');
+  let campaign=await openCampaign();
+  await expect(campaign.locator('li').filter({ hasText:name }).getByRole('button',{ name:'Allow',exact:true })).toBeDisabled();
+  await control(page,{ approveTemplates:true });setup=await openSetup();
+  await setup.getByRole('button',{ name:'Sync approvals',exact:true }).click();
+  await expect(setup.getByRole('row').filter({ hasText:name })).toContainText('APPROVED');
+  await expect(setup.getByRole('row').filter({ hasText:name })).toContainText(header);
+  await expect(setup.locator('img')).toHaveCount(0);
+  campaign=await openCampaign();const item=campaign.locator('li').filter({ hasText:name });
+  await expect(item).toContainText(header);await expect(item).toContainText(footer);
+  await item.getByRole('button',{ name:'Allow',exact:true }).click();
+  await expect(item.getByRole('button',{ name:'Remove',exact:true })).toBeVisible();
+  const agentContext=await browser.newContext();const agent=await agentContext.newPage();
+  agent.on('pageerror',(error)=>errors.push(error.message));
+  try {
+    await login(agent);
+    await agent.getByRole('row').filter({ hasText:'Browser Media Customer' }).getByRole('button',{ name:'Details',exact:true }).click();
+    const panel=agent.getByRole('heading',{ name:'Customer conversations',exact:true }).locator('..');
+    await panel.getByRole('button',{ name:'View messages',exact:true }).click();
+    await panel.getByLabel('Message type',{ exact:true }).selectOption('TEMPLATE');
+    await panel.getByLabel('Template',{ exact:true }).selectOption({ label:name+' · en_US' });
+    await expect(panel).toContainText(header);await expect(panel).toContainText(footer);
+    await expect(panel).not.toContainText('Approval example only');
+    await expect(panel.getByRole('button',{ name:'Queue message',exact:true })).toBeDisabled();
+    await panel.getByLabel('Parameter 1',{ exact:true }).fill('Alice');
+    const start=await control(agent);
+    await panel.getByRole('button',{ name:'Queue message',exact:true }).click();
+    const full=header+'\n\nDear Alice, your request is received.\n\n'+footer;
+    const message=panel.locator('.conversation-messages li').filter({ hasText:full });
+    await expect(message).toContainText('QUEUED');
+    const sent=await control(agent,{ process:true,mode:'accept' });expect(sent.providerCalls).toBe(start.providerCalls+1);
+    expect(sent.messages.filter((m:{ body:string })=>m.body===full)).toHaveLength(1);
+    await panel.getByRole('button',{ name:'View messages',exact:true }).click();
+    await expect(message).toContainText('SENT');await expect(message.locator('img')).toHaveCount(0);
+    await agent.getByRole('button',{ name:'Sign out',exact:true }).click();
+    await expect(agent.getByRole('button',{ name:'Sign in',exact:true })).toBeVisible();
+    expect((await agent.request.get('/api/auth/me')).status()).toBe(401);
+  } finally { await agentContext.close(); }
+  await openSetup();
+  const operational=page.getByRole('heading',{ name:'Test send',exact:true }).locator('..');
+  await operational.getByRole('button',{ name:'Refresh templates',exact:true }).click();
+  await operational.getByLabel('Sender',{ exact:true }).selectOption({ label:'Browser Media Sender' });
+  await expect(operational.getByLabel('Approved template',{ exact:true }).locator('option').filter({ hasText:name })).toHaveCount(0);
+  await operational.getByLabel('Approved template',{ exact:true }).selectOption({ label:staticName+' · en_US' });
+  await operational.getByLabel('Recipient in international + format',{ exact:true }).fill('+15550006666');
+  await operational.getByLabel('I control the test number or have explicit consent to message it.',{ exact:true }).check();
+  await operational.getByRole('button',{ name:'Send test',exact:true }).click();
+  await expect(operational).toContainText('Provider accepted the request; delivery is unconfirmed.');
+  await expect(operational).toContainText('SUCCEEDED');
+  expect(errors).toEqual([]);
+});
