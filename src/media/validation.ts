@@ -36,7 +36,10 @@ export function parseInboundMedia(message: Record<string, unknown>): InboundMedi
 export async function validateMedia(bytes: Buffer, kind: MediaKind, mime: string, expectedHash: string) {
   if (!bytes.length || bytes.length > mediaMaxBytes()) throw new MediaError('MEDIA_SIZE_INVALID');
   const detected = await fileTypeFromBuffer(bytes).catch(() => undefined);
-  if (!detected || detected.mime !== mime || !(mediaMimeTypes[kind] as readonly string[]).includes(mime))
+  // file-type uses container aliases; normalize only these verified byte detections, never client declarations.
+  const detectedMime = detected?.mime === 'audio/ogg; codecs=opus' ? 'audio/ogg'
+    : detected?.mime === 'audio/x-m4a' ? 'audio/mp4' : detected?.mime;
+  if (!detected || detectedMime !== mime || !(mediaMimeTypes[kind] as readonly string[]).includes(mime))
     throw new MediaError('MEDIA_TYPE_MISMATCH');
   const hash = createHash('sha256').update(bytes).digest('hex');
   if (hash !== expectedHash) throw new MediaError('MEDIA_HASH_MISMATCH');

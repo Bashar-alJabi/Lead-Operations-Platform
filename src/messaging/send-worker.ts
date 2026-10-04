@@ -10,7 +10,9 @@ import { metaWhatsAppSendAdapter, ProviderSendError, type MessagingConnectionCon
   type SendTemplateInput } from './providers.js';
 import type { UploadMediaInput } from './providers.js';
 import { type MediaStorage, configuredMediaStorage } from '../media/storage.js';
-import { mediaMaxBytes, validateMedia, MediaError } from '../media/validation.js';
+import { mediaMaxBytes, validateMedia, MediaError, mediaMimeTypes } from '../media/validation.js';
+import { mediaCaptionAllowed } from '../media/outbound-policy.js';
+import { validateMetaOutboundMedia } from '../media/meta-outbound.js';
 
 type Claimed = { jobId: string; messageId: string; senderId: string; attemptNo: number; recovered?: boolean };
 
@@ -276,14 +278,17 @@ export async function processOneMessagingJob(db: Database,
   if (!claimed) return false;
   if (claimed.recovered) return true;
   let media: LoadedMedia | undefined;
-  const file = (await db`SELECT m.message_kind, m.connection_id, m.conversation_id,
+  const file = (await db`SELECT m.message_kind, m.connection_id, m.conversation_id, m.body,
     a.upload_conversation_id, a.state, a.media_kind, a.mime_type, a.storage_key, a.storage_backend,
     a.content_sha256, a.size_bytes, a.id FROM conversation_message m
     LEFT JOIN message_attachment a ON a.id = m.attachment_id WHERE m.id = ${claimed.messageId}`)[0];
   if (file?.message_kind === 'ATTACHMENT') {
     if (file.upload_conversation_id !== file.conversation_id || file.state !== 'READY'
-      || !['image','document'].includes(file.media_kind)) {
+      || !Object.hasOwn(mediaMimeTypes,file.media_kind)) {
       await finishWithoutSend(db, claimed, 'ATTACHMENT_NOT_READY'); return true;
+    }
+    if (!mediaCaptionAllowed(file.media_kind,file.body)) {
+      await finishWithoutSend(db,claimed,'MEDIA_CAPTION_NOT_SUPPORTED'); return true;
     }
     try {
       const storage = options.mediaStorage ?? configuredMediaStorage();
@@ -291,11 +296,12 @@ export async function processOneMessagingJob(db: Database,
       const bytes = await storage.get(file.storage_key, mediaMaxBytes());
       if (bytes.length !== file.size_bytes) throw new MediaError('MEDIA_SIZE_MISMATCH');
       const valid = await validateMedia(bytes, file.media_kind, file.mime_type, file.content_sha256);
+      await validateMetaOutboundMedia(bytes,file.media_kind,valid.mime);
       media = { bytes, mediaKind: file.media_kind, mime: valid.mime, filename: `attachment-${file.id}.${valid.extension}` };
     } catch (error) {
       if (error instanceof MediaError && !error.retryable) await finishWithoutSend(db, claimed, 'ATTACHMENT_INTEGRITY_FAILED');
       else await finishAttempt(db, claimed, file.connection_id,
-        new ProviderSendError('RETRYABLE', 'ATTACHMENT_STORAGE_UNAVAILABLE'));
+        new ProviderSendError('RETRYABLE', error instanceof MediaError ? error.code : 'ATTACHMENT_STORAGE_UNAVAILABLE'));
       return true;
     }
   }

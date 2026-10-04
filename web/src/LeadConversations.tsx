@@ -4,8 +4,17 @@ import { MessageDelivery } from './MessageDelivery';
 
 type Api = <T>(path: string, options?: RequestInit) => Promise<T>;
 type Locale = 'ar'|'fr'|'en';
+type MediaKind = 'image'|'document'|'audio'|'video'|'sticker';
+type MediaRule = { mimes:string[];maxBytes:number;caption:boolean;staticMaxBytes?:number;width?:number;height?:number };
+const mediaNames = {
+  ar:{ image:'صورة',document:'مستند PDF',audio:'صوت',video:'فيديو',sticker:'ملصق WebP' },
+  fr:{ image:'Image',document:'Document PDF',audio:'Audio',video:'Vidéo',sticker:'Autocollant WebP' },
+  en:{ image:'Image',document:'PDF document',audio:'Audio',video:'Video',sticker:'WebP sticker' },
+};
+const extensionMime:Record<string,string>={ jpg:'image/jpeg',jpeg:'image/jpeg',png:'image/png',pdf:'application/pdf',
+  ogg:'audio/ogg',opus:'audio/ogg',mp3:'audio/mpeg',m4a:'audio/mp4',mp4:'video/mp4',webp:'image/webp' };
 type Conversation = { id: string; sender_id: string; sender_name: string; participant_ref: string;
-  sender_capabilities: { media?: string[] };
+  sender_capabilities: { media?: string[];mediaRules?:Partial<Record<MediaKind,MediaRule>> };
   controller_type: string; controller_user_id: string | null; controller_name: string | null; state: string; version: number;
   needs_attention_reason: string | null; started_at: string };
 type Consent = { status: 'GRANTED'|'REVOKED'|'UNKNOWN'; do_not_contact: boolean; evidence: string | null;
@@ -67,6 +76,7 @@ export function LeadConversations({ leadId, lifecycle, role, actorId, locale, ap
   const [draft, setDraft] = useState('');
   const [sendMode, setSendMode] = useState<'TEXT'|'TEMPLATE'|'ATTACHMENT'>('TEXT');
   const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadKind,setUploadKind]=useState<MediaKind>('image');
   const [uploadKey, setUploadKey] = useState(() => crypto.randomUUID());
   const [uploadedAttachment, setUploadedAttachment] = useState<Attachment | null>(null);
   const [templates, setTemplates] = useState<AvailableTemplate[]>([]);
@@ -115,6 +125,10 @@ export function LeadConversations({ leadId, lifecycle, role, actorId, locale, ap
     setMessageCursor(page.nextCursor);
   }
   async function chooseConversation(id: string) {
+    if (selectedRef.current===id) {
+      await Promise.all([loadMessages(id),loadTemplates(id),role==='AGENT' ? Promise.resolve() : loadAttentionReviews(id)]);
+      return;
+    }
     selectedRef.current = id; setSelectedId(id); setMessages([]); setMessageCursor(null);
     setDraft(''); setSendMode('TEXT'); setTemplates([]); setTemplateAfter(null); setTemplateId('');
     setUploadFile(null); setUploadedAttachment(null); setUploadKey(crypto.randomUUID());
@@ -162,9 +176,11 @@ export function LeadConversations({ leadId, lifecycle, role, actorId, locale, ap
     const id = selectedId;
     setBusy(true); setError('');
     try {
-      const mime = uploadFile.type;
-      const kind = mime === 'application/pdf' ? 'document' : 'image';
-      const query = new URLSearchParams({ kind, mime, key: uploadKey });
+      const mime=mediaRule?.mimes.includes(uploadFile.type) ? uploadFile.type
+        : extensionMime[uploadFile.name.split('.').at(-1)?.toLowerCase() ?? ''] ?? uploadFile.type;
+      if (!mediaRule?.mimes.includes(mime)) throw new Error('MEDIA_TYPE_UNSUPPORTED');
+      if (uploadFile.size>mediaRule.maxBytes) throw new Error('MEDIA_PROVIDER_SIZE_INVALID');
+      const query = new URLSearchParams({ kind:uploadKind, mime, key: uploadKey });
       const response = await fetch(`/api/conversations/${id}/attachments?${query}`, { method: 'POST',
         credentials: 'same-origin', headers: { 'content-type': 'application/octet-stream' }, body: uploadFile });
       const value = await response.json(); if (!response.ok) throw new Error(value.error ?? 'UPLOAD_FAILED');
@@ -172,6 +188,14 @@ export function LeadConversations({ leadId, lifecycle, role, actorId, locale, ap
     } catch (failure) { setError(String(failure)); } finally { setBusy(false); }
   }
   const selected = items.find((item) => item.id === selectedId);
+  const mediaKinds=Object.keys(selected?.sender_capabilities?.mediaRules ?? {}) as MediaKind[];
+  const mediaRule=selected?.sender_capabilities?.mediaRules?.[uploadKind];
+  useEffect(()=> {
+    if (mediaKinds.length && !mediaKinds.includes(uploadKind)) {
+      setUploadKind(mediaKinds[0]!);setUploadFile(null);setUploadedAttachment(null);setDraft('');
+      setUploadKey(crypto.randomUUID());setSendKey(crypto.randomUUID());setSubmitted(false);
+    }
+  },[selectedId,mediaKinds.join(',')]);
   const canCompose = selected?.controller_type === 'HUMAN' && selected.controller_user_id === actorId
     && selected.state === 'HUMAN_ACTIVE' && !selected.needs_attention_reason && lifecycle === 'OPEN';
   const reviewable = selected && ['SEND_OUTCOME_UNKNOWN','DELIVERY_FAILED','TEMPLATE_CHANGED']
@@ -259,10 +283,10 @@ export function LeadConversations({ leadId, lifecycle, role, actorId, locale, ap
       {messageCursor && <button className="secondary" disabled={busy}
         onClick={() => void loadMessages(selectedId, messageCursor).catch((failure) => setError(String(failure)))}>{t.more}</button>}
       {canCompose && <form className="workflow-form" onSubmit={(event) => { event.preventDefault(); void sendMessage(); }}>
-        <label>{t.mode}<select value={sendMode} disabled={busy} onChange={(event) => {
+        <label>{t.mode}<select aria-label={t.mode} value={sendMode} disabled={busy} onChange={(event) => {
           setSendMode(event.target.value as 'TEXT'|'TEMPLATE'|'ATTACHMENT'); setDraft(''); setSendKey(crypto.randomUUID()); setSubmitted(false);
         }}><option value="TEXT">{t.textMode}</option><option value="TEMPLATE">{t.templateMode}</option>
-          {selected?.sender_capabilities?.media?.length ? <option value="ATTACHMENT">{locale === 'ar' ? 'صورة أو PDF ضمن نافذة الرد' : locale === 'fr' ? 'Image ou PDF' : 'Image or PDF in reply window'}</option> : null}</select></label>
+          {mediaKinds.length ? <option value="ATTACHMENT">{locale === 'ar' ? 'مرفق ضمن نافذة الرد' : locale === 'fr' ? 'Pièce jointe dans la fenêtre de réponse' : 'Attachment in reply window'}</option> : null}</select></label>
         {sendMode === 'TEXT' ? <label>{t.draft}<textarea aria-label={t.draft} required maxLength={20000} value={draft} disabled={busy}
           onChange={(event) => { setDraft(event.target.value);
             if (submitted) { setSendKey(crypto.randomUUID()); setSubmitted(false); } }} /></label>
@@ -272,16 +296,25 @@ export function LeadConversations({ leadId, lifecycle, role, actorId, locale, ap
             setSendKey(crypto.randomUUID()); setSubmitted(false);
           }}><option value="">{t.template}</option>{templates.map((item) => <option key={item.id} value={item.id}>
             {item.name} · {item.language}</option>)}</select></label>
-          : <><label>{locale === 'ar' ? 'الملف (JPEG/PNG/PDF)' : locale === 'fr' ? 'Fichier (JPEG/PNG/PDF)' : 'File (JPEG/PNG/PDF)'}
-            <input type="file" accept="image/jpeg,image/png,application/pdf" disabled={busy} onChange={(event) => {
+          : <><label>{locale === 'ar' ? 'نوع المرفق' : locale === 'fr' ? 'Type de pièce jointe' : 'Attachment type'}
+            <select aria-label={locale === 'ar' ? 'نوع المرفق' : locale === 'fr' ? 'Type de pièce jointe' : 'Attachment type'} value={uploadKind} disabled={busy} onChange={(event)=> {
+              setUploadKind(event.target.value as MediaKind);setUploadFile(null);setUploadedAttachment(null);setDraft('');
+              setUploadKey(crypto.randomUUID());setSendKey(crypto.randomUUID());setSubmitted(false);
+            }}>{mediaKinds.map((kind)=><option key={kind} value={kind}>{mediaNames[locale][kind]}</option>)}</select></label>
+            <p>{mediaRule?.mimes.join(' / ')} · {locale==='ar' ? 'أقصى حجم' : locale==='fr' ? 'Taille maximale' : 'Maximum size'}: {mediaRule ? (mediaRule.maxBytes/1024/1024).toFixed(2) : '—'} MiB
+              {uploadKind==='audio' ? ' · OGG/Opus, MP3, M4A/AAC' : uploadKind==='video' ? ' · MP4/H.264 · AAC ≤ 1' : ''}
+              {uploadKind==='sticker' && mediaRule ? ` · ${mediaRule.width}×${mediaRule.height} · static ≤ ${(mediaRule.staticMaxBytes ?? 0)/1024} KiB` : ''}</p>
+            <label>{locale === 'ar' ? 'الملف' : locale === 'fr' ? 'Fichier' : 'File'}
+            <input key={uploadKind} type="file" accept={(mediaRule?.mimes ?? []).join(',') + (uploadKind==='audio' ? ',.opus,.m4a' : '')} disabled={busy || !mediaRule} onChange={(event) => {
               setUploadFile(event.target.files?.[0] ?? null); setUploadedAttachment(null); setUploadKey(crypto.randomUUID());
               setSendKey(crypto.randomUUID()); setSubmitted(false);
             }} /></label><button type="button" className="secondary" disabled={busy || !uploadFile || Boolean(uploadedAttachment)}
               onClick={() => void uploadAttachment()}>{locale === 'ar' ? 'رفع وفحص الملف' : locale === 'fr' ? 'Charger et analyser' : 'Upload and scan'}</button>
             {uploadedAttachment && <MessageAttachment key={uploadedAttachment.id} attachment={uploadedAttachment} locale={locale} api={api} />}
-            <label>{locale === 'ar' ? 'تعليق اختياري' : locale === 'fr' ? 'Légende facultative' : 'Optional caption'}
-              <textarea value={draft} maxLength={1024} disabled={busy} onChange={(event) => { setDraft(event.target.value);
-                if (submitted) { setSendKey(crypto.randomUUID()); setSubmitted(false); } }} /></label></>}
+            {mediaRule?.caption ? <label>{locale === 'ar' ? 'تعليق اختياري' : locale === 'fr' ? 'Légende facultative' : 'Optional caption'}
+              <textarea aria-label={locale === 'ar' ? 'تعليق اختياري' : locale === 'fr' ? 'Légende facultative' : 'Optional caption'} value={draft} maxLength={1024} disabled={busy} onChange={(event) => { setDraft(event.target.value);
+                if (submitted) { setSendKey(crypto.randomUUID()); setSubmitted(false); } }} /></label>
+              : <p>{locale==='ar' ? 'هذا النوع لا يدعم تعليقاً. أرسل أي نص برسالة مستقلة.' : locale==='fr' ? 'Ce type ne prend pas de légende. Envoyez le texte dans un message séparé.' : 'This type has no caption. Send any text as a separate message.'}</p>}</>}
         {sendMode === 'TEMPLATE' && <p>{templates.find((item) => item.id === templateId)?.body ?? t.noTemplates} {t.templateNote}</p>}
         {sendMode === 'TEMPLATE' && templateParameters.map((value, index) =>
           <label key={`${templateId}-${index}`}>{locale === 'ar' ? 'قيمة المتغير' : locale === 'fr' ? 'Valeur du paramètre' : 'Parameter'} {index + 1}

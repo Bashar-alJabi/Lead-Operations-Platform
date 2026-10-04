@@ -4,6 +4,7 @@ import { HttpError, type Principal } from '../security.js';
 import type { SendAuthor } from './policy.js';
 import { checkCurrentOutbound, lockOutboundScope } from './outbound-policy.js';
 import { approvedBodyTemplate } from './approved-template.js';
+import { mediaCaptionAllowed } from '../media/outbound-policy.js';
 
 export type OutboundRequest = { actor: Principal; conversationId: string; author: SendAuthor;
   body?: string; templateId?: string; templateParameters?: string[]; attachmentId?: string; idempotencyKey: string };
@@ -44,6 +45,8 @@ export async function enqueueOutboundMessage(db: Database, input: OutboundReques
       WHERE id = ${input.attachmentId} AND upload_conversation_id = ${conversation.id} FOR SHARE`)[0] : null;
     if (input.attachmentId && !attachment) throw new HttpError(404, 'ATTACHMENT_NOT_FOUND');
     if (attachment && attachment.state !== 'READY') throw new HttpError(409, 'ATTACHMENT_NOT_READY');
+    if (attachment && !mediaCaptionAllowed(attachment.media_kind,input.body ?? ''))
+      throw new HttpError(400,'MEDIA_CAPTION_NOT_SUPPORTED');
     if (attachment && (await tx`SELECT 1 FROM conversation_message WHERE attachment_id = ${attachment.id}`).length)
       throw new HttpError(409, 'ATTACHMENT_ALREADY_USED');
     const decision = await checkCurrentOutbound(tx, locked, input.actor, input.author,

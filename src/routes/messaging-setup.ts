@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
+import { metaMediaCapabilities } from '../media/meta-outbound.js';
 import type { Database } from '../db.js';
 import { openSecret, sealSecret } from '../credentials.js';
 import { HttpError, principalFromRequest, requireBranch, requireRole, type Principal } from '../security.js';
@@ -177,7 +178,7 @@ export function registerMessagingSetupRoutes(app: FastifyInstance, db: Database,
         await tx`INSERT INTO messaging_sender (organization_id, connection_id, external_sender_id,
           display_name, provider_status, capabilities)
           VALUES (${actor.organizationId}, ${connection.id}, ${sender.externalId}, ${sender.displayName},
-          ${tx.json({ qualityRating: sender.qualityRating })}, ${tx.json({ text: true, template: true, media: ['image','document'] })})
+          ${tx.json({ qualityRating: sender.qualityRating })}, ${tx.json({ text: true, template: true, ...metaMediaCapabilities() })})
           ON CONFLICT (connection_id, external_sender_id) DO UPDATE SET display_name = EXCLUDED.display_name,
             provider_status = EXCLUDED.provider_status, capabilities = EXCLUDED.capabilities,
             active = true`;

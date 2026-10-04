@@ -38,10 +38,10 @@ export function MessageAttachment({ attachment, locale, canRetry = false, api }:
     {value.errorCode && <p role="status">{value.errorCode}</p>}
     {error && <p role="alert" className="error">{error}</p>}
     {value.state === 'READY'
-      ? <button className="secondary" disabled={busy} onClick={() => void act('download')}>{t.download}</button>
-      : <><p>{t.pending}</p><button className="secondary" disabled={busy} onClick={() => void act('refresh')}>{t.refresh}</button></>}
+      ? <button type="button" className="secondary" disabled={busy} onClick={() => void act('download')}>{t.download}</button>
+      : <><p>{t.pending}</p><button type="button" className="secondary" disabled={busy} onClick={() => void act('refresh')}>{t.refresh}</button></>}
     {canRetry && value.state === 'FAILED' && <div><label>{t.reason}<input value={reason} minLength={10} maxLength={1000}
       onChange={(event) => setReason(event.target.value)} /></label>
-      <button disabled={busy || reason.trim().length < 10} onClick={() => void act('retry')}>{t.retry}</button></div>}
+      <button type="button" disabled={busy || reason.trim().length < 10} onClick={() => void act('retry')}>{t.retry}</button></div>}
   </div>;
 }

@@ -3,6 +3,16 @@ import type { Database } from '../db.js';
 import { HttpError, principalFromRequest, requireLead, requireRole } from '../security.js';
 import { resolveConfiguredSender } from '../messaging/sender-resolution.js';
 import { decodeCursor, encodeCursor } from '../pagination.js';
+import { metaMediaCapabilities } from '../media/meta-outbound.js';
+
+function withMediaRules(row:Record<string,unknown>) {
+  const { sender_provider,...conversation }=row;
+  if (sender_provider!=='META_WHATSAPP_CLOUD') return conversation;
+  const capabilities=row.sender_capabilities as { media?:string[] };
+  const profile=metaMediaCapabilities();
+  return { ...conversation,sender_capabilities:{ ...capabilities,mediaProfile:profile.mediaProfile,
+    mediaRules:Object.fromEntries(Object.entries(profile.mediaRules).filter(([kind])=>capabilities.media?.includes(kind))) } };
+}
 
 const idParam = { type: 'object', additionalProperties: false, required: ['id'],
   properties: { id: { type: 'string', format: 'uuid' } } } as const;
@@ -84,11 +94,12 @@ export function registerConversationRoutes(app: FastifyInstance, db: Database): 
       const limit = request.query.limit ?? 30;
       const cursor = decodeCursor(request.query.cursor);
       const rows = await db`SELECT c.id, c.sender_id, s.display_name AS sender_name,
-          s.capabilities AS sender_capabilities, c.connection_id,
+          s.capabilities AS sender_capabilities, ic.provider AS sender_provider, c.connection_id,
           c.channel, c.participant_ref, c.controller_type, c.controller_user_id, c.version,
           u.name AS controller_name, c.state, c.needs_attention_reason, c.started_at, c.last_message_at
         FROM conversation c JOIN lead l ON l.id = c.lead_id
-        JOIN messaging_sender s ON s.id = c.sender_id LEFT JOIN user_account u ON u.id = c.controller_user_id
+        JOIN messaging_sender s ON s.id = c.sender_id JOIN integration_connection ic ON ic.id = c.connection_id
+        LEFT JOIN user_account u ON u.id = c.controller_user_id
         WHERE c.lead_id = ${request.params.id} AND l.organization_id = ${actor.organizationId}
           AND (${actor.role === 'SUPER_ADMIN'} OR
             (${actor.role === 'MANAGER'} AND l.branch_id = ${actor.branchId}) OR
@@ -98,7 +109,7 @@ export function registerConversationRoutes(app: FastifyInstance, db: Database): 
         ORDER BY c.started_at DESC, c.id DESC LIMIT ${limit + 1}`;
       const items = rows.slice(0, limit);
       const last = items.at(-1);
-      return { items, nextCursor: rows.length > limit && last ?
+      return { items:items.map(withMediaRules), nextCursor: rows.length > limit && last ?
         encodeCursor({ timestamp: last.started_at.toISOString(), id: last.id }) : null };
     });
 
@@ -107,17 +118,18 @@ export function registerConversationRoutes(app: FastifyInstance, db: Database): 
   }, async (request) => {
     const actor = await principalFromRequest(request, db);
     const conversation = (await db`SELECT c.id, c.lead_id, c.sender_id, s.display_name AS sender_name,
-        s.capabilities AS sender_capabilities,
+        s.capabilities AS sender_capabilities, ic.provider AS sender_provider,
         c.connection_id, c.channel, c.participant_ref, c.controller_type, c.controller_user_id, c.version,
         u.name AS controller_name, c.state, c.needs_attention_reason,
         c.started_at, c.last_message_at FROM conversation c JOIN lead l ON l.id = c.lead_id
-        JOIN messaging_sender s ON s.id = c.sender_id LEFT JOIN user_account u ON u.id = c.controller_user_id
+        JOIN messaging_sender s ON s.id = c.sender_id JOIN integration_connection ic ON ic.id = c.connection_id
+        LEFT JOIN user_account u ON u.id = c.controller_user_id
       WHERE c.id = ${request.params.id} AND l.organization_id = ${actor.organizationId}
         AND (${actor.role === 'SUPER_ADMIN'} OR
           (${actor.role === 'MANAGER'} AND l.branch_id = ${actor.branchId}) OR
           (${actor.role === 'AGENT'} AND l.assigned_agent_id = ${actor.id}))`)[0];
     if (!conversation) throw new HttpError(404, 'CONVERSATION_NOT_FOUND');
-    return { conversation };
+    return { conversation:withMediaRules(conversation) };
   });
 
   app.get<{ Params: { id: string }; Querystring: { limit?: number; before?: string } }>(

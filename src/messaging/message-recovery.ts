@@ -3,6 +3,7 @@ import type { Database } from '../db.js';
 import { HttpError, type Principal } from '../security.js';
 import { approvedBodyTemplate } from './approved-template.js';
 import { checkCurrentOutbound, lockOutboundScope } from './outbound-policy.js';
+import { mediaCaptionAllowed } from '../media/outbound-policy.js';
 
 export type RecoveryFacts = {
   direction: string; author_type: string; author_user_id: string | null;
@@ -71,6 +72,8 @@ export async function recoverOutboundMessage(db: Database, input: {
       FROM message_attachment WHERE id = ${message.attachment_id} FOR SHARE`)[0] : null;
     if (message.message_kind === 'ATTACHMENT' && (!attachment || attachment.state !== 'READY'
       || attachment.upload_conversation_id !== input.conversationId)) throw new HttpError(409, 'ATTACHMENT_NOT_READY');
+    if (attachment && !mediaCaptionAllowed(attachment.media_kind,message.body))
+      throw new HttpError(409,'MEDIA_CAPTION_NOT_SUPPORTED');
     const decision = await checkCurrentOutbound(tx, locked, input.actor, 'HUMAN',
       message.id, message.template_id, attachment?.media_kind);
     if (!decision.allowed) return { blocked: decision.reason } as const;

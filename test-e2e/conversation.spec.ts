@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-type Fixture = { password:string;testToken:string;leadId:string;conversationId:string;untrusted:string };
+type Fixture = { password:string;testToken:string;leadId:string;conversationId:string;untrusted:string;mediaLeadId:string;mediaConversationId:string };
 let fixture:Fixture;
 test.describe.configure({ mode:'serial' });
 test.beforeAll(async()=> { fixture=JSON.parse(await readFile(resolve('.local/e2e/fixture.json'),'utf8')); });
@@ -114,4 +114,60 @@ test('Arabic mobile and French layouts display escaped conversation history and 
   await expect(panel.getByText(fixture.untrusted,{ exact:true })).toBeVisible();
   await expect(panel.getByRole('heading',{ name:'Tentatives d’envoi au client',exact:true })).toBeVisible();
   await page.screenshot({ path:'.local/e2e/mobile-fr.png',fullPage:true });
+});
+
+test('browser uploads scanned audio/video/stickers, preserves captions and sends through the real queue and worker',async({ page })=> {
+  const browserErrors:string[]=[];page.on('pageerror',(error)=>browserErrors.push(error.message));
+  await login(page);
+  await page.getByRole('row').filter({ hasText:'Browser Media Customer' }).getByRole('button',{ name:'Details',exact:true }).click();
+  const panel=page.getByRole('heading',{ name:'Customer conversations',exact:true }).locator('..');
+  await panel.getByRole('button',{ name:'View messages',exact:true }).click();
+  await panel.getByLabel('Message type',{ exact:true }).selectOption('ATTACHMENT');
+  const start=await control(page,{ mode:'accept' });
+  for (const [index,[kind,name]] of ([['audio','tone.ogg'],['video','clip.mp4'],['sticker','animated.webp']] as const).entries()) {
+    await panel.getByLabel('Attachment type',{ exact:true }).selectOption(kind);
+    if (kind==='video') await panel.getByLabel('Optional caption',{ exact:true }).fill('<img src=x> Literal video caption');
+    else await expect(panel.getByLabel('Optional caption',{ exact:true })).toHaveCount(0);
+    await panel.getByLabel('File',{ exact:true }).setInputFiles(resolve('test-fixtures/media',name));
+    await panel.getByRole('button',{ name:'Upload and scan',exact:true }).click();
+    await expect(panel.getByRole('button',{ name:'Queue message',exact:true })).toBeEnabled();
+    if (index===0) {
+      const [preview]=await Promise.all([page.waitForEvent('download'),panel.locator('form')
+        .getByRole('button',{ name:'Download scanned file',exact:true }).click()]);
+      expect(await readFile((await preview.path())!)).toEqual(await readFile(resolve('test-fixtures/media/tone.ogg')));
+      const noSend=await control(page);expect(noSend.providerCalls).toBe(start.providerCalls);
+      expect(noSend.messages.filter((m:{ conversation_id:string })=>m.conversation_id===fixture.mediaConversationId)).toHaveLength(0);
+      await panel.getByRole('button',{ name:'View messages',exact:true }).click();
+      await expect(panel.getByLabel('Attachment type',{ exact:true })).toHaveValue('audio');
+      await expect(panel.getByRole('button',{ name:'Queue message',exact:true })).toBeEnabled();
+    }
+    await panel.getByRole('button',{ name:'Queue message',exact:true }).click();
+    await expect(panel.locator('.conversation-messages li').filter({ hasText:kind }).last()).toContainText('QUEUED');
+    const sent=await control(page,{ process:true,mode:'accept' });
+    expect(sent.mediaUploads).toBe(start.mediaUploads+index+1);expect(sent.providerCalls).toBe(start.providerCalls+index+1);
+    const mediaMessages=sent.messages.filter((m:{ conversation_id:string })=>m.conversation_id===fixture.mediaConversationId);
+    expect(mediaMessages).toHaveLength(index+1);expect(mediaMessages[index].delivery_state).toBe('SENT');
+    expect(mediaMessages[index].body).toBe(kind==='video' ? '<img src=x> Literal video caption' : '');
+    await panel.getByRole('button',{ name:'View messages',exact:true }).click();
+    await expect(panel.locator('.conversation-messages li').filter({ hasText:kind }).last()).toContainText('SENT');
+  }
+  await expect(panel.locator('img')).toHaveCount(0);
+  // Wrong codec leaves no new attachment/send and exposes a safe failure in the real UI.
+  const [download]=await Promise.all([page.waitForEvent('download'),panel.locator('.conversation-messages li')
+    .filter({ hasText:'sticker' }).getByRole('button',{ name:'Download scanned file',exact:true }).click()]);
+  expect(await readFile((await download.path())!)).toEqual(await readFile(resolve('test-fixtures/media/animated.webp')));
+  await panel.getByLabel('Attachment type',{ exact:true }).selectOption('audio');
+  await panel.getByLabel('File',{ exact:true }).setInputFiles(resolve('test-fixtures/media/vorbis.ogg'));
+  await panel.getByRole('button',{ name:'Upload and scan',exact:true }).click();
+  await expect(panel).toContainText('MEDIA_CODEC_NOT_SUPPORTED');
+  await expect(panel.getByRole('button',{ name:'Queue message',exact:true })).toBeDisabled();
+  const unchanged=await control(page);expect(unchanged.providerCalls).toBe(start.providerCalls+3);
+  await page.setViewportSize({ width:390,height:844 });
+  await page.getByRole('combobox',{ name:'Language' }).selectOption('ar');
+  await expect(page.locator('html')).toHaveAttribute('dir','rtl');
+  await page.getByLabel('نوع المرفق',{ exact:true }).selectOption('sticker');
+  await expect(page.getByText('هذا النوع لا يدعم تعليقاً. أرسل أي نص برسالة مستقلة.',{ exact:true })).toBeVisible();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
+  await page.getByLabel('نوع المرفق',{ exact:true }).scrollIntoViewIfNeeded();
+  await page.screenshot({ path:'.local/e2e/media-ar.png' });expect(browserErrors).toEqual([]);
 });

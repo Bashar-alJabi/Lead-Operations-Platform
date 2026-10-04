@@ -1,4 +1,8 @@
 import { boundedResponse } from '../media/meta-provider.js';
+import { mediaMimeTypes, type MediaKind } from '../media/validation.js';
+import { mediaCaptionAllowed } from '../media/outbound-policy.js';
+import { validateMetaOutboundMedia } from '../media/meta-outbound.js';
+import { MediaError } from '../media/validation.js';
 export type MessagingCredentials = { accessToken: string; appSecret: string; verifyToken: string };
 export type MessagingConnectionConfig = { wabaId: string; graphVersion: string };
 export type DiscoveredSender = { externalId: string; displayName: string; qualityRating: string | null };
@@ -12,7 +16,7 @@ export type SendTextInput = { config: MessagingConnectionConfig; credentials: Me
 export type SendTemplateInput = Omit<SendTextInput, 'body'> & { templateName: string;
   templateLanguage: string; bodyParameters?: string[] };
 export type UploadMediaInput = Omit<SendTextInput, 'body'> & { bytes: Buffer; mime: string;
-  mediaKind: 'image'|'document'; caption: string; filename: string };
+  mediaKind: MediaKind; caption: string; filename: string };
 export type SendMediaInput = Omit<UploadMediaInput, 'bytes'|'mime'> & { providerMediaId: string };
 export interface MessagingSendAdapter {
   sendText(input: SendTextInput): Promise<{ providerMessageId: string }>;
@@ -59,10 +63,14 @@ async function sendMetaMessage(input: Omit<SendTextInput, 'body'>, content: obje
 export const metaWhatsAppSendAdapter: MessagingSendAdapter = {
   async uploadMedia(input) {
     if (!/^\d{1,30}$/.test(input.externalSenderId) || !/^v\d{1,2}\.\d{1,2}$/.test(input.config.graphVersion)
-      || !['image','document'].includes(input.mediaKind) || !input.bytes.length
-      || input.caption.length > 1024 || !/^[A-Za-z0-9._-]{1,100}$/.test(input.filename)
-      || !(input.mediaKind === 'image' ? ['image/jpeg','image/png'] : ['application/pdf']).includes(input.mime))
+      || !Object.hasOwn(mediaMimeTypes,input.mediaKind) || !input.bytes.length
+      || !mediaCaptionAllowed(input.mediaKind,input.caption) || !/^[A-Za-z0-9._-]{1,100}$/.test(input.filename)
+      || !(mediaMimeTypes[input.mediaKind] as readonly string[]).includes(input.mime))
       throw new ProviderSendError('REJECTED', 'PROVIDER_MEDIA_INPUT_INVALID');
+    await validateMetaOutboundMedia(input.bytes,input.mediaKind,input.mime).catch((error:unknown)=> {
+      throw new ProviderSendError(error instanceof MediaError && error.retryable ? 'RETRYABLE' : 'REJECTED',
+        error instanceof MediaError ? error.code : 'PROVIDER_MEDIA_INPUT_INVALID');
+    });
     const body = new FormData(); body.set('messaging_product', 'whatsapp'); body.set('type', input.mime);
     body.set('file', new Blob([new Uint8Array(input.bytes)], { type: input.mime }), input.filename);
     let uploaded: Response;
@@ -85,8 +93,8 @@ export const metaWhatsAppSendAdapter: MessagingSendAdapter = {
     return { providerMediaId: id };
   },
   async sendMedia(input) {
-    if (!/^\d{1,30}$/.test(input.providerMediaId) || !['image','document'].includes(input.mediaKind)
-      || input.caption.length > 1024 || !/^[A-Za-z0-9._-]{1,100}$/.test(input.filename))
+    if (!/^\d{1,30}$/.test(input.providerMediaId) || !Object.hasOwn(mediaMimeTypes,input.mediaKind)
+      || !mediaCaptionAllowed(input.mediaKind,input.caption) || !/^[A-Za-z0-9._-]{1,100}$/.test(input.filename))
       throw new ProviderSendError('REJECTED', 'PROVIDER_MEDIA_INPUT_INVALID');
     return sendMetaMessage(input, { type: input.mediaKind, [input.mediaKind]: {
       id: input.providerMediaId, ...(input.caption ? { caption: input.caption } : {}),

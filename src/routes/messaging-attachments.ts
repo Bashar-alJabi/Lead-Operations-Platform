@@ -4,7 +4,8 @@ import type { Database } from '../db.js';
 import { HttpError, principalFromRequest, type Principal, requireRole } from '../security.js';
 import { type MediaStorage, configuredMediaStorage } from '../media/storage.js';
 import { mediaMaxBytes } from '../media/validation.js';
-import { MediaError, validateMedia, mediaMimeTypes } from '../media/validation.js';
+import { MediaError, validateMedia, mediaMimeTypes, type MediaKind } from '../media/validation.js';
+import { validateMetaOutboundMedia, metaMediaProfile } from '../media/meta-outbound.js';
 import { type MediaScanner, configuredMediaScanner } from '../media/scanner.js';
 import { lockOutboundScope } from '../messaging/outbound-policy.js';
 
@@ -51,11 +52,11 @@ export function registerMessagingAttachmentRoutes(app: FastifyInstance, db: Data
       uploading.add(request.id);
     });
     scope.addHook('onResponse', async (request) => { uploading.delete(request.id); });
-    scope.post<{ Params: { conversationId: string }; Querystring: { kind: 'image'|'document'; mime: string; key: string } }>(
+    scope.post<{ Params: { conversationId: string }; Querystring: { kind: MediaKind; mime: string; key: string } }>(
       '/api/conversations/:conversationId/attachments', { bodyLimit: mediaMaxBytes(), schema: {
         params: { type: 'object', required: ['conversationId'], properties: { conversationId: { type: 'string', format: 'uuid' } } },
         querystring: { type: 'object', additionalProperties: false, required: ['kind','mime','key'], properties: {
-          kind: { type: 'string', enum: ['image','document'] }, mime: { type: 'string', maxLength: 100 },
+          kind: { type: 'string', enum: Object.keys(mediaMimeTypes) }, mime: { type: 'string', maxLength: 100 },
           key: { type: 'string', pattern: '^[A-Za-z0-9._:-]{8,128}$' },
         } },
       }, config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (request, reply) => {
@@ -72,6 +73,12 @@ export function registerMessagingAttachmentRoutes(app: FastifyInstance, db: Data
             throw new HttpError(409, 'IDEMPOTENCY_KEY_REUSED');
           return publicAttachment(existing);
         }
+        const sender = (await db`SELECT s.capabilities, ic.provider FROM conversation cv
+          JOIN messaging_sender s ON s.id = cv.sender_id JOIN integration_connection ic ON ic.id = cv.connection_id
+          WHERE cv.id = ${request.params.conversationId}`)[0]!;
+        if (!sender.capabilities?.media?.includes(kind)) throw new HttpError(409, 'MEDIA_SEND_NOT_SUPPORTED');
+        if (sender.provider !== 'META_WHATSAPP_CLOUD') throw new HttpError(409, 'MEDIA_PROVIDER_NOT_SUPPORTED');
+        if (bytes.length > metaMediaProfile.limits[kind]) throw new HttpError(400, 'MEDIA_PROVIDER_SIZE_INVALID');
         const valid = await validateMedia(bytes, kind, mime, hash).catch((error) => {
           throw new HttpError(400, error instanceof MediaError ? error.code : 'MEDIA_TYPE_MISMATCH');
         });
@@ -79,6 +86,10 @@ export function registerMessagingAttachmentRoutes(app: FastifyInstance, db: Data
         try { scan = await (scannerOption ?? configuredMediaScanner()).scan(bytes); }
         catch { throw new HttpError(503, 'MEDIA_SCANNER_UNAVAILABLE'); }
         if (!scan.clean) throw new HttpError(422, 'MEDIA_CONTENT_REJECTED');
+        await validateMetaOutboundMedia(bytes,kind,mime).catch((error:unknown)=> {
+          throw new HttpError(error instanceof MediaError && error.retryable ? 503 : 400,
+            error instanceof MediaError ? error.code : 'MEDIA_FORMAT_INVALID');
+        });
         const id = randomUUID(); const objectKey = `${id}-${valid.hash}`;
         let storage: MediaStorage;
         try { storage = storageOption ?? configuredMediaStorage(); await storage.put(objectKey, bytes); }
@@ -91,6 +102,9 @@ export function registerMessagingAttachmentRoutes(app: FastifyInstance, db: Data
           const locked = await lockOutboundScope(tx, actor, request.params.conversationId);
           if (locked.conversation.state === 'CLOSED' || locked.scope.lifecycle !== 'OPEN')
             throw new HttpError(409, 'CONVERSATION_NOT_OPEN');
+          const currentSender = (await tx`SELECT capabilities FROM messaging_sender
+            WHERE id = ${locked.conversation.sender_id} FOR SHARE`)[0]!;
+          if (!currentSender.capabilities?.media?.includes(kind)) throw new HttpError(409, 'MEDIA_SEND_NOT_SUPPORTED');
           const created = (await tx`INSERT INTO message_attachment (id, upload_conversation_id, uploaded_by, upload_idempotency_key,
             media_kind, declared_mime, expected_sha256, state, mime_type, size_bytes, content_sha256,
             storage_key, storage_backend, scanner_version, scanned_at)
