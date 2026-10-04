@@ -210,6 +210,9 @@ async function deferClaim(db: Database, claimed: Claimed, until: Date | null): P
 async function finishAttempt(db: Database, claimed: Claimed, connectionId: string,
   result: { providerMessageId: string } | ProviderSendError): Promise<void> {
   await db.begin(async (tx) => {
+    // Connection health is updated below: acquire its write lock before message/job locks,
+    // matching callbacks and avoiding a shared-lock upgrade or reversed lock order.
+    await tx`SELECT id FROM integration_connection WHERE id = ${connectionId} FOR NO KEY UPDATE`;
     const job = (await tx`SELECT status, attempts, max_attempts FROM background_job
       WHERE id = ${claimed.jobId} FOR UPDATE`)[0];
     if (!job || job.status !== 'RUNNING' || job.attempts !== claimed.attemptNo) return;

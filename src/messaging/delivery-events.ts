@@ -17,6 +17,9 @@ export async function applyDeliveryEvent(tx: postgres.TransactionSql, eventId: s
   const event = (await tx`SELECT id, connection_id, sender_id, participant_ref, payload, state
     FROM integration_event WHERE id = ${eventId} FOR UPDATE`)[0];
   if (!event || event.state === 'PROCESSED') return 'PROCESSED';
+  // Serialize state mutations for a connection before locking its messages/senders.
+  // Compatible with FK key-share locks; no provider I/O runs under this lock.
+  await tx`SELECT id FROM integration_connection WHERE id = ${event.connection_id} FOR NO KEY UPDATE`;
   const value = event.payload as { senderExternalId: string; providerMessageId: string;
     status: DeliveryStatus['status']; providerTimestamp: string };
   let senderId = event.sender_id as string | null;

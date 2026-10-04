@@ -53,4 +53,6 @@
 
 ## الأسرار والتكاملات
 
+للتحقق المحلي من Messaging burst استخدم `npm run benchmark:messaging -- --reset-test-database` بعد ضبط `TEST_DATABASE_URL` المحلية وتطبيق migrations؛ يفرغ بيانات `lead_operations_test` ويرفض development/remote database. لا تشغله بالتوازي مع integration tests؛ التقرير في `.local/performance/messaging-latest.json`. إعدادات workload والقياسات والحدود موثقة في `messaging-performance.md`؛ المزود وهمي ولا تثبت النتائج Meta live أو سعة إنتاجية.
+
 `CREDENTIAL_ENCRYPTION_KEY` سر deployment مستقل عن Business-managed credentials؛ لا يُنشر ولا يُرسل للـAI. تغيير المفتاح يحتاج عملية تدوير تعيد تشفير الأسرار؛ لم تُنفذ واجهة التدوير بعد. لا تضف Credential حقيقية إلى التطوير الحالي. إعداد مزودي Meta وMessaging وPayment وEmail وAI من الواجهة لم يكتمل بعد، لذا لا تُستخدم Connections حقيقية أو تُعرض حالة نجاح مزيفة.

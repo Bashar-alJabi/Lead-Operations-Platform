@@ -165,7 +165,7 @@ export function registerMetaMessagingWebhookRoutes(app: FastifyInstance, db: Dat
       let created = 0;
       await db.begin(async (tx) => {
         const current = (await tx`SELECT version FROM integration_connection
-          WHERE id = ${connection.id} FOR SHARE`)[0];
+          WHERE id = ${connection.id} FOR NO KEY UPDATE`)[0];
         if (!current || current.version !== connection.version)
           throw new HttpError(409, 'CONNECTION_VERSION_CONFLICT');
         for (const item of events) {

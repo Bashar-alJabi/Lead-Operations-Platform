@@ -103,6 +103,12 @@ Meta Messaging Webhook يستخدم عنواناً مستقلاً لكل Connect
 
 ## التشغيل والنمو
 
+### أقفال Messaging وقياس burst
+
+حفظ Webhook يمسك Connection بـ`FOR NO KEY UPDATE` قبل إدخال الأحداث وتحديث آخر نجاح. استخدام `FOR SHARE` ثم ترقية القفل إلى UPDATE كشف deadlock `40P01` عند signed replay متزامن. نتائج outbound Worker وتسوية Delivery callbacks تمسك Connection قبل Job/Message/Sender للمحافظة على ترتيب mutations واحد؛ لا يوجد HTTP provider تحت القفل. `NO KEY UPDATE` لا يحجب FK key-share عند إدخال السجلات التابعة؛ [مرجع PostgreSQL](https://www.postgresql.org/docs/18/explicit-locking.html). تسلسل الحالة على Connection يحد burst على الاتصال الواحد، ولا يوقف Connections الأخرى.
+
+Harness `benchmark:messaging` يستخدم HTTP loopback حقيقياً وpools مستقلة للنسخ والعمال ومزوداً وهمياً؛ لا يفتح اتصالاً إلا إلى `lead_operations_test` المحلية وبعد reset acknowledgement. يحفظ timings/counts دون credentials، ويثبت duplicate protection وper-Sender isolation وcooldown/recovery وcallback قبل ACK وout-of-order. القياسات والحدود في `messaging-performance.md`. ما زالت callbacks تطبق mutations داخل Webhook؛ فصل ingestion عن معالجة worker هو المرحلة التالية لمعالجة latency المقاسة، ولا تعني هذه النتائج اكتمال اختبار حمل إنتاجي أو Media/AI workloads.
+
 جميع timestamps تخزن UTC؛ نافذة الإرسال والتقارير تُحسب بـIANA timezone للفرع أو override الحملة. القوائم تستخدم keyset pagination وفهارس على branch/campaign/owner/state/time. العمال يستخدمون leases و`SKIP LOCKED`، retries bounded وdead-letter قابل لإعادة المعالجة من واجهة إدارية مصرح بها. فصل queues حسب نوع العمل وأولوية الرسائل، مع حد تزامن لكل connection/sender. إدخال Webhook قصير ويحفظ الحدث قبل المعالجة. Logs منظمة بدون أسرار؛ health وqueue lag وconnection health وerror counters قابلة للرصد.
 
 افتراضات السعة التقنية قابلة للقياس والتعديل: لا يحدد المنتج عدداً ثابتاً للـLeads أو senders؛ تضبط pool size وworker concurrency وbatch size من deployment config، وتُقاس p95 latency وqueue lag ومعدل retries قبل زيادتها. نسخ PostgreSQL احتياطياً مع اختبار استعادة دوري، وملفات object storage بنسخ/retention متوافق. migrations منفصلة وقابلة للتدرج في deploy قبل تفعيل الكود الذي يعتمد عليها.
