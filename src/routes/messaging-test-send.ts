@@ -21,7 +21,8 @@ type TestInput = { senderId: string; templateId: string; recipient: string;
   recipientConfirmed: true; idempotencyKey: string };
 
 function staticBody(components: unknown): boolean {
-  return parseTextTemplate(components)?.parameterCount===0;
+  const parsed=parseTextTemplate(components);
+  return parsed?.parameterCount===0 && parsed.headerParameterCount===0;
 }
 
 export function registerMessagingTestSendRoutes(app: FastifyInstance, db: Database,

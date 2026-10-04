@@ -1,5 +1,15 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: TEXT HEADER variable
+
+بعد checkpoint `c486613` المرفوعة اكتمل TEXT HEADER بمتغير {{1}} واحد مع headerExample مستقلة عن أمثلة BODY وtemplateHeaderParameter مستقلة عند الإرسال. canonical snapshot تحفظ قيمة HEADER وتدخل في idempotency وworker/recovery validation؛ القديمة ثابتة دون تغيير. API تمنع قيمة ناقصة/إضافية، orphan example، تكرار variable، control characters والنص النهائي فوق60 حرفاً، أو تمرير HEADER إلى TEXT/ATTACHMENT. متغيرا HEADER وBODY لا يشتركان في القيمة رغم استعمال {{1}} في كل منهما.
+
+التحقق: migrations001–038 أعيدت على Docker development/test، و41/41 unit و14/14 integration و4/4 Browser Edge مع exit0، وBackend/Web typecheck/build ناجحة. integration الموسعة تثبت simultaneous enqueue بنتيجة واحدة ورفض اختلاف HEADER مع المفتاح نفسه، snapshots وقيم مستقلة، عدم كشف أمثلة المزود، ومنع dispatch/recovery حين يتغير HEADER ثم recovery بنفس المحتوى بعد إعادته. operational test-send ترفض HEADER variable ولو كانت BODY ثابتة. Browser تنشئ القالب مع مثال HEADER منفصل وتزامنه وتربطه وترسل القيم المستقلة مع preview صحيحة وحفظها عند refresh؛ catalog ذات null/text-object غير موثوق لا تعطل React وتظهر Unsupported format، والعينات لا تصل إلى Agent. Regression audio/video/sticker/history/control وlogout بقيت ناجحة.
+
+لا Meta live أو Template recovery UI E2E. FOOTER ثابتة، وButtons/media templates غير منفذة حتى الآن. approval/Test send في Browser مزود وهمي فقط؛ لا Credentials شخصية أو إنتاجية.
+
+قيد التنفيذ عند checkpoint: لا مرحلة غير مستقرة. الخطوة التالية الدقيقة بعد commit/push: static Call-to-Action template buttons (URL/PHONE_NUMBER) مع parser وvalidation وcreate/catalog/binding/snapshot/preview/history وworker/recovery وUI، دون إسقاط component غير مدعومة. افحص API المزود واختبر unsafe URLs/phone/payload وtemplate changes وBrowser؛ ثم quick replies/dynamic URL/media templates وبقية Messaging operability قبل Meta intake ثم Payments/Enrollment ثم AI.
+
 ## آخر حالة مستقرة: القوالب النصية المركبة
 
 بعد checkpoint `b0155d2` المرفوعة أضيفت static TEXT HEADER/FOOTER حول BODY الثابتة والمتغيرة. `parseTextTemplate` مشتركة للإنشاء وmetadata والقوائم/الربط وqueue/worker/recovery وoperational test-send؛ لا تُسقط components مجهولة/مكررة. Snapshot والنص التاريخي يحفظان جميع الأجزاء والقيم دون أمثلة اعتماد المزود؛ Agent ترى القوالب المعتمدة والمربوطة فقط. Campaign catalog كانت تخفي BODY المتغيرة بسبب شرط SQL قديم؛ أصلح مع pagination محدودة تتقدم حتى بعد صفحة format غير مدعومة. لا migration جديدة لأن JSON components وimmutable constraints الحالية كافية.

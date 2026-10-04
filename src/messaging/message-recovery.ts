@@ -79,7 +79,7 @@ export async function recoverOutboundMessage(db: Database, input: {
     if (!decision.allowed) return { blocked: decision.reason } as const;
     if (message.message_kind === 'TEMPLATE') {
       const template = await approvedBodyTemplate(tx, message.connection_id, locked.scope.campaign_id,
-        message.template_id, message.template_snapshot?.bodyParameters ?? []);
+        message.template_id, message.template_snapshot?.bodyParameters ?? [],message.template_snapshot?.headerParameter);
       if (!isDeepStrictEqual(template.snapshot, message.template_snapshot) || template.body !== message.body)
         throw new HttpError(409, 'TEMPLATE_CHANGED');
     }

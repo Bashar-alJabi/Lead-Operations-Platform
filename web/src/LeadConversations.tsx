@@ -22,7 +22,8 @@ type Consent = { status: 'GRANTED'|'REVOKED'|'UNKNOWN'; do_not_contact: boolean;
 type Message = { id: string; direction: 'INBOUND'|'OUTBOUND'; author_type: string; body: string;
   message_kind: 'TEXT'|'TEMPLATE'|'ATTACHMENT'; attachment: Attachment | null;
   delivery_state: string; last_error_code: string | null; created_at: string };
-type AvailableTemplate = { id: string; name: string; language: string; body: string; parameterCount: number };
+type AvailableTemplate = { id: string; name: string; language: string; body: string; parameterCount: number;headerParameterCount:0|1;
+  components:{ type:'HEADER'|'BODY'|'FOOTER';text:string }[] };
 type AttentionReview = { id: string; previous_reason: string; review_note: string;
   reviewer_name: string; created_at: string };
 const labels = {
@@ -83,6 +84,12 @@ export function LeadConversations({ leadId, lifecycle, role, actorId, locale, ap
   const [templateAfter, setTemplateAfter] = useState<string | null>(null);
   const [templateId, setTemplateId] = useState('');
   const [templateParameters, setTemplateParameters] = useState<string[]>([]);
+  const [headerParameter,setHeaderParameter]=useState('');
+  const selectedTemplate=templates.find((item)=>item.id===templateId);
+  const missingTemplateParameter=templateParameters.some((value)=>!value.trim()) || (selectedTemplate?.headerParameterCount===1 && !headerParameter.trim());
+  const templatePreview=selectedTemplate?.components.map((part)=>part.type==='HEADER'
+    ? part.text.replace(/\{\{1\}\}/g,()=>headerParameter || '{{1}}') : part.type==='BODY'
+      ? part.text.replace(/\{\{([1-9]\d*)\}\}/g,(match,index:string)=>templateParameters[Number(index)-1] || match) : part.text).join('\n\n');
   const [sendKey, setSendKey] = useState(() => crypto.randomUUID());
   const [submitted, setSubmitted] = useState(false);
   const [takeoverReason, setTakeoverReason] = useState('');
@@ -132,7 +139,7 @@ export function LeadConversations({ leadId, lifecycle, role, actorId, locale, ap
     selectedRef.current = id; setSelectedId(id); setMessages([]); setMessageCursor(null);
     setDraft(''); setSendMode('TEXT'); setTemplates([]); setTemplateAfter(null); setTemplateId('');
     setUploadFile(null); setUploadedAttachment(null); setUploadKey(crypto.randomUUID());
-    setTemplateParameters([]);
+    setTemplateParameters([]);setHeaderParameter('');
     setAttentionReviews([]); setReviewBefore(null); setReviewNote(''); setReviewConfirmed(false);
     setSendKey(crypto.randomUUID()); setSubmitted(false); setError('');
     await Promise.all([loadMessages(id), loadTemplates(id),
@@ -154,16 +161,16 @@ export function LeadConversations({ leadId, lifecycle, role, actorId, locale, ap
   }
   async function sendMessage() {
     if (!selectedId || (sendMode === 'TEXT' ? !draft.trim() : sendMode === 'ATTACHMENT' ? !uploadedAttachment
-      : !templateId || templateParameters.some((value) => !value.trim()))) return;
+      : !templateId || missingTemplateParameter)) return;
     setBusy(true); setError('');
     setSubmitted(true);
     try {
       await api(`/api/conversations/${selectedId}/messages`, { method: 'POST', body: JSON.stringify({
         ...(sendMode === 'TEXT' ? { body: draft } : sendMode === 'ATTACHMENT'
           ? { attachmentId: uploadedAttachment!.id, body: draft } : { templateId,
-          templateParameters }), idempotencyKey: sendKey,
+          templateParameters,...(selectedTemplate?.headerParameterCount===1 ? { templateHeaderParameter:headerParameter } : {}) }), idempotencyKey: sendKey,
       }) });
-      setDraft(''); setTemplateId(''); setTemplateParameters([]); setSendKey(crypto.randomUUID()); setSubmitted(false);
+      setDraft(''); setTemplateId(''); setTemplateParameters([]);setHeaderParameter(''); setSendKey(crypto.randomUUID()); setSubmitted(false);
       setUploadFile(null); setUploadedAttachment(null); setUploadKey(crypto.randomUUID());
       await loadMessages(selectedId);
     } catch (failure) {
@@ -292,6 +299,7 @@ export function LeadConversations({ leadId, lifecycle, role, actorId, locale, ap
             if (submitted) { setSendKey(crypto.randomUUID()); setSubmitted(false); } }} /></label>
           : sendMode === 'TEMPLATE' ? <label>{t.template}<select aria-label={t.template} required value={templateId} disabled={busy} onChange={(event) => {
             setTemplateId(event.target.value);
+            setHeaderParameter('');
             setTemplateParameters(Array(templates.find((item) => item.id === event.target.value)?.parameterCount ?? 0).fill(''));
             setSendKey(crypto.randomUUID()); setSubmitted(false);
           }}><option value="">{t.template}</option>{templates.map((item) => <option key={item.id} value={item.id}>
@@ -315,7 +323,12 @@ export function LeadConversations({ leadId, lifecycle, role, actorId, locale, ap
               <textarea aria-label={locale === 'ar' ? 'تعليق اختياري' : locale === 'fr' ? 'Légende facultative' : 'Optional caption'} value={draft} maxLength={1024} disabled={busy} onChange={(event) => { setDraft(event.target.value);
                 if (submitted) { setSendKey(crypto.randomUUID()); setSubmitted(false); } }} /></label>
               : <p>{locale==='ar' ? 'هذا النوع لا يدعم تعليقاً. أرسل أي نص برسالة مستقلة.' : locale==='fr' ? 'Ce type ne prend pas de légende. Envoyez le texte dans un message séparé.' : 'This type has no caption. Send any text as a separate message.'}</p>}</>}
-        {sendMode === 'TEMPLATE' && <p>{templates.find((item) => item.id === templateId)?.body ?? t.noTemplates} {t.templateNote}</p>}
+        {sendMode === 'TEMPLATE' && <p style={{ whiteSpace:'pre-wrap' }}>{templatePreview ?? t.noTemplates} {t.templateNote}</p>}
+        {sendMode==='TEMPLATE' && selectedTemplate?.headerParameterCount===1 && <label>
+          {locale==='ar' ? 'قيمة متغير HEADER' : locale==='fr' ? 'Valeur du paramètre HEADER' : 'HEADER parameter value'}
+          <input required maxLength={60} value={headerParameter} disabled={busy} onChange={(event)=> {
+            setHeaderParameter(event.target.value);if (submitted) { setSendKey(crypto.randomUUID());setSubmitted(false); }
+          }} /></label>}
         {sendMode === 'TEMPLATE' && templateParameters.map((value, index) =>
           <label key={`${templateId}-${index}`}>{locale === 'ar' ? 'قيمة المتغير' : locale === 'fr' ? 'Valeur du paramètre' : 'Parameter'} {index + 1}
             <input required maxLength={512} value={value} disabled={busy} onChange={(event) => {
@@ -325,7 +338,7 @@ export function LeadConversations({ leadId, lifecycle, role, actorId, locale, ap
         {sendMode === 'TEMPLATE' && templateAfter && <button type="button" className="secondary" disabled={busy}
           onClick={() => selectedId && void loadTemplates(selectedId, templateAfter).catch((failure) => setError(String(failure)))}>{t.more}</button>}
         <button disabled={busy || (sendMode === 'TEXT' ? !draft.trim() : sendMode === 'ATTACHMENT' ? !uploadedAttachment
-          : !templateId || templateParameters.some((value) => !value.trim())) || lifecycle !== 'OPEN' || selected?.state !== 'HUMAN_ACTIVE'
+          : !templateId || missingTemplateParameter) || lifecycle !== 'OPEN' || selected?.state !== 'HUMAN_ACTIVE'
           || Boolean(selected.needs_attention_reason)}>{t.send}</button>
       </form>}<p>{t.queued} {t.sendBlocked}</p>
     </div>}

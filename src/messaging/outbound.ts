@@ -7,7 +7,7 @@ import { approvedBodyTemplate } from './approved-template.js';
 import { mediaCaptionAllowed } from '../media/outbound-policy.js';
 
 export type OutboundRequest = { actor: Principal; conversationId: string; author: SendAuthor;
-  body?: string; templateId?: string; templateParameters?: string[]; attachmentId?: string; idempotencyKey: string };
+  body?: string; templateId?: string; templateParameters?: string[]; templateHeaderParameter?:string; attachmentId?: string; idempotencyKey: string };
 
 // Every caller, including future AI and automation tools, must enter here with an authorized principal.
 export async function enqueueOutboundMessage(db: Database, input: OutboundRequest): Promise<{
@@ -15,13 +15,13 @@ export async function enqueueOutboundMessage(db: Database, input: OutboundReques
 }> {
   const kind = input.attachmentId ? 'ATTACHMENT' : input.templateId ? 'TEMPLATE' : 'TEXT';
   if (input.attachmentId && (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(input.attachmentId)
-    || input.templateId || input.templateParameters !== undefined)) throw new HttpError(400, 'ATTACHMENT_INPUT_INVALID');
+    || input.templateId || input.templateParameters !== undefined || input.templateHeaderParameter!==undefined)) throw new HttpError(400, 'ATTACHMENT_INPUT_INVALID');
   if (kind === 'ATTACHMENT' && (input.body?.length ?? 0) > 1024) throw new HttpError(400, 'MEDIA_CAPTION_TOO_LONG');
   if (input.templateId != null && !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(input.templateId))
     throw new HttpError(400, 'TEMPLATE_ID_INVALID');
   if (kind === 'TEMPLATE' && input.body !== undefined) throw new HttpError(400, 'TEMPLATE_BODY_NOT_ALLOWED');
   if (kind === 'TEXT' && !input.body?.trim()) throw new HttpError(400, 'MESSAGE_BODY_REQUIRED');
-  if (kind === 'TEXT' && input.templateParameters !== undefined)
+  if (kind === 'TEXT' && (input.templateParameters !== undefined || input.templateHeaderParameter!==undefined))
     throw new HttpError(400, 'TEMPLATE_PARAMETERS_NOT_ALLOWED');
   const outcome = await db.begin(async (tx) => {
     const locked = await lockOutboundScope(tx, input.actor, input.conversationId);
@@ -36,6 +36,7 @@ export async function enqueueOutboundMessage(db: Database, input: OutboundReques
           || (kind === 'ATTACHMENT' && (prior.attachment_id !== input.attachmentId || prior.body !== (input.body ?? '')))
           || (kind === 'TEMPLATE' && !isDeepStrictEqual(
             prior.template_snapshot?.bodyParameters ?? [], input.templateParameters ?? []))
+          || (kind === 'TEMPLATE' && prior.template_snapshot?.headerParameter!==input.templateHeaderParameter)
           || prior.author_type !== input.author ||
           prior.author_user_id !== (input.author === 'HUMAN' ? input.actor.id : null))
         throw new HttpError(409, 'IDEMPOTENCY_KEY_REUSED');
@@ -53,7 +54,7 @@ export async function enqueueOutboundMessage(db: Database, input: OutboundReques
       undefined, input.templateId, attachment?.media_kind);
     if (!decision.allowed) return { blocked: decision.reason } as const;
     const template = input.templateId ? await approvedBodyTemplate(tx,
-      conversation.connection_id, scope.campaign_id, input.templateId, input.templateParameters) : null;
+      conversation.connection_id, scope.campaign_id, input.templateId, input.templateParameters,input.templateHeaderParameter) : null;
     const body = template?.body ?? input.body ?? '';
     const message = (await tx`INSERT INTO conversation_message (conversation_id, connection_id,
         sender_id, direction, author_type, author_user_id, body, delivery_state, idempotency_key,

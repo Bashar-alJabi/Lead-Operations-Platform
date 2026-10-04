@@ -78,7 +78,11 @@ await db`INSERT INTO conversation_message
   (conversation_id,connection_id,sender_id,direction,author_type,body,provider_message_id,delivery_state,received_at)
   VALUES (${mediaCv},${mediaConnection},${mediaSender},'INBOUND','CUSTOMER','Browser media request','wamid.browser-media-inbound','RECEIVED',now()-interval '1 second')`;
 let mode: 'accept'|'reject'|'unknown' = 'reject'; let providerCalls = 0;let mediaUploads=0;
-const templates:ProviderTemplate[]=[];
+const templates:ProviderTemplate[]=[{ externalId:'7000',name:'header_only_template',language:'en_US',category:'UTILITY',status:'APPROVED',
+  components:[{ type:'HEADER',format:'TEXT',text:'Welcome {{1}}',example:{ header_text:['Approval sample only'] } },
+    { type:'BODY',text:'Fixed body' }] },
+  { externalId:'7001',name:'malformed_provider_template',language:'en_US',category:'UTILITY',status:'APPROVED',
+    components:[null,{ type:'HEADER',format:'TEXT',text:{ untrusted:'not a text value' } },{ type:'BODY',text:'Malformed metadata' }] }];
 await mkdir(resolve('.local/e2e'),{ recursive:true });const mediaRoot=await mkdtemp(resolve('.local/e2e/media-'));
 const storage=localMediaStorage(mediaRoot);
 const app = await buildApp(db, { logger:false,globalRateLimitMax:10000,mediaStorage:storage,
@@ -91,7 +95,8 @@ const app = await buildApp(db, { logger:false,globalRateLimitMax:10000,mediaStor
       if (config.wabaId!=='987654321') throw new Error('Unexpected test connection');
       const template:ProviderTemplate={ externalId:String(8000+templates.length),name:input.name,language:input.language,
         category:input.category,status:'PENDING',components:[
-          ...(input.header ? [{ type:'HEADER',format:'TEXT',text:input.header }] : []),
+          ...(input.header ? [{ type:'HEADER',format:'TEXT',text:input.header,
+            ...(input.headerExample ? { example:{ header_text:[input.headerExample] } } : {}) }] : []),
           { type:'BODY',text:input.body,...(input.examples?.length ? { example:{ body_text:[input.examples] } } : {}) },
           ...(input.footer ? [{ type:'FOOTER',text:input.footer }] : [])] };
       templates.push(template);return template;

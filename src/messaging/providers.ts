@@ -14,7 +14,7 @@ export interface MessagingProviderAdapter {
 export type SendTextInput = { config: MessagingConnectionConfig; credentials: MessagingCredentials;
   externalSenderId: string; recipient: string; body: string };
 export type SendTemplateInput = Omit<SendTextInput, 'body'> & { templateName: string;
-  templateLanguage: string; bodyParameters?: string[] };
+  templateLanguage: string; bodyParameters?: string[];headerParameter?:string };
 export type UploadMediaInput = Omit<SendTextInput, 'body'> & { bytes: Buffer; mime: string;
   mediaKind: MediaKind; caption: string; filename: string };
 export type SendMediaInput = Omit<UploadMediaInput, 'bytes'|'mime'> & { providerMediaId: string };
@@ -109,12 +109,15 @@ export const metaWhatsAppSendAdapter: MessagingSendAdapter = {
       || !/^[a-z]{2,3}(?:_[A-Z]{2})?$/.test(input.templateLanguage)
       || !Array.isArray(input.bodyParameters ?? []) || (input.bodyParameters?.length ?? 0) > 10
       || (input.bodyParameters ?? []).some((value) => typeof value !== 'string' || !value.trim()
-        || value.length > 512 || /[\x00-\x1f\x7f]/.test(value)))
+        || value.length > 512 || /[\x00-\x1f\x7f]/.test(value))
+      || (input.headerParameter!==undefined && (typeof input.headerParameter!=='string' || !input.headerParameter.trim()
+        || input.headerParameter.length>60 || /[\x00-\x1f\x7f]/.test(input.headerParameter))))
       throw new ProviderSendError('REJECTED', 'PROVIDER_TEMPLATE_INVALID');
+    const components=[...(input.headerParameter!==undefined ? [{ type:'header',parameters:[{ type:'text',text:input.headerParameter }] }] : []),
+      ...(input.bodyParameters?.length ? [{ type:'body',parameters:input.bodyParameters.map((text)=>({ type:'text',text })) }] : [])];
     return sendMetaMessage(input, { type: 'template', template: {
       name: input.templateName, language: { code: input.templateLanguage },
-      ...(input.bodyParameters?.length ? { components: [{ type: 'body',
-        parameters: input.bodyParameters.map((text) => ({ type: 'text', text })) }] } : {}),
+      ...(components.length ? { components } : {}),
     } });
   },
 };

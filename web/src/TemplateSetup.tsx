@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 type Api = <T>(path: string, options?: RequestInit) => Promise<T>;
 type Locale = 'ar'|'fr'|'en';
 type Template = { id: string; name: string; language: string; status: string; category: string | null;
-  active: boolean; last_synced_at: string | null; components: { type?: string; text?: string }[] };
+  active: boolean; supported:boolean; last_synced_at: string | null; components: unknown[] };
 type CreateRequest = { id: string; name: string; language: string; state: string; created_at: string };
 
 const labels = {
@@ -32,7 +32,7 @@ export function TemplateSetup({ connectionId, status, canManage, locale, api }: 
   const [after, setAfter] = useState<string | null>(null);
   const [requests, setRequests] = useState<CreateRequest[]>([]);
   const [requestAfter, setRequestAfter] = useState<string | null>(null);
-  const [form, setForm] = useState({ name: '', language: 'en_US', category: 'UTILITY', body: '',header:'',footer:'' });
+  const [form, setForm] = useState({ name: '', language: 'en_US', category: 'UTILITY', body: '',header:'',footer:'',headerExample:'' });
   const [examples, setExamples] = useState<string[]>([]);
   const [key, setKey] = useState(() => crypto.randomUUID());
   const [busy, setBusy] = useState(false);
@@ -61,11 +61,11 @@ export function TemplateSetup({ connectionId, status, canManage, locale, api }: 
   async function create() {
     setBusy(true); setError('');
     try {
-      const { header,footer,...base }=form;
+      const { header,footer,headerExample,...base }=form;
       await api(`/api/messaging/connections/${connectionId}/templates`, { method: 'POST',
         body: JSON.stringify({ ...base,...(header ? { header } : {}),...(footer ? { footer } : {}),
-          ...(examples.length ? { examples } : {}), idempotencyKey: key }) });
-      setForm({ name: '', language: form.language, category: 'UTILITY', body: '',header:'',footer:'' });
+          ...(headerExample ? { headerExample } : {}),...(examples.length ? { examples } : {}), idempotencyKey: key }) });
+      setForm({ name: '', language: form.language, category: 'UTILITY', body: '',header:'',footer:'',headerExample:'' });
       setExamples([]);
       setKey(crypto.randomUUID()); await Promise.all([load(), loadRequests()]);
     } catch (failure) { setError(String(failure)); await loadRequests().catch(() => {}); }
@@ -86,9 +86,14 @@ export function TemplateSetup({ connectionId, status, canManage, locale, api }: 
     {canManage && <button className="secondary" disabled={busy || status === 'DISABLED'} onClick={() => void sync()}>{t.sync}</button>}
     <div className="table-scroll"><table><thead><tr><th>{t.name}</th><th>{t.language}</th><th>{t.category}</th><th>{t.status}</th><th>{t.body}</th></tr></thead>
       <tbody>{templates.map((item) => <tr key={item.id}><td>{item.name}</td><td>{item.language}</td><td>{item.category ?? '—'}</td>
-        <td>{item.status}{!item.active && <small>{t.inactive}</small>}</td>
-        <td>{item.components.filter((part)=>['HEADER','BODY','FOOTER'].includes(part.type?.toUpperCase() ?? ''))
-          .map((part,index)=><p key={index}>{part.type}: {part.text ?? '—'}</p>)}</td></tr>)}</tbody></table></div>
+        <td>{item.status}{!item.active && <small>{t.inactive}</small>}{!item.supported && <small>
+          {locale==='ar' ? 'صيغة غير مدعومة' : locale==='fr' ? 'Format non pris en charge' : 'Unsupported format'}</small>}</td>
+        <td>{item.components.flatMap((raw)=> {
+          if (!raw || typeof raw!=='object') return [];
+          const part=raw as { type?:unknown;text?:unknown };
+          return typeof part.type==='string' && ['HEADER','BODY','FOOTER'].includes(part.type.toUpperCase())
+            ? [{ type:part.type,text:typeof part.text==='string' ? part.text : '—' }] : [];
+        }).map((part,index)=><p key={index}>{part.type}: {part.text}</p>)}</td></tr>)}</tbody></table></div>
     {!templates.length && <p>{t.noItems}</p>}{after && <button className="secondary" onClick={() => void load(after).catch((failure) => setError(String(failure)))}>{t.more}</button>}
     {requests.length > 0 && <section><h5>{t.unresolved}</h5><ul>{requests.map((request) =>
       <li key={request.id}>{request.name} · {request.language} · {request.state}
@@ -96,8 +101,17 @@ export function TemplateSetup({ connectionId, status, canManage, locale, api }: 
       {requestAfter && <button className="secondary" onClick={() => void loadRequests(requestAfter).catch((failure) => setError(String(failure)))}>{t.more}</button>}
     </section>}
     {canManage && <form className="workflow-form" onSubmit={(event) => { event.preventDefault(); void create(); }}>
-      <label>{locale==='ar' ? 'عنوان TEXT ثابت (اختياري)' : locale==='fr' ? 'En-tête TEXT fixe (facultatif)' : 'Static TEXT header (optional)'}
-        <input maxLength={60} value={form.header} onChange={(event)=> { setForm({ ...form,header:event.target.value });setKey(crypto.randomUUID()); }} /></label>
+      <label>{locale==='ar' ? 'عنوان TEXT (اختياري)' : locale==='fr' ? 'En-tête TEXT (facultatif)' : 'TEXT header (optional)'}
+        <input maxLength={60} value={form.header} onChange={(event)=> {
+          const header=event.target.value;setForm({ ...form,header,headerExample:header.includes('{{1}}') ? form.headerExample : '' });setKey(crypto.randomUUID());
+        }} /></label>
+      <p>{locale==='ar' ? 'HEADER تدعم {{1}} مرة واحدة فقط مع مثال اعتماد مستقل؛ FOOTER ثابتة.'
+        : locale==='fr' ? 'HEADER accepte {{1}} une seule fois, avec son propre exemple ; FOOTER reste fixe.'
+          : 'HEADER allows {{1}} once with a separate approval example; FOOTER is static.'}</p>
+      {form.header.includes('{{1}}') && <label>{locale==='ar' ? 'مثال متغير HEADER' : locale==='fr' ? 'Exemple du paramètre HEADER' : 'HEADER parameter example'}
+        <input required maxLength={60} value={form.headerExample} onChange={(event)=> {
+          setForm({ ...form,headerExample:event.target.value });setKey(crypto.randomUUID());
+        }} /></label>}
       <label>{locale==='ar' ? 'تذييل ثابت (اختياري)' : locale==='fr' ? 'Pied de page fixe (facultatif)' : 'Static footer (optional)'}
         <input maxLength={60} value={form.footer} onChange={(event)=> { setForm({ ...form,footer:event.target.value });setKey(crypto.randomUUID()); }} /></label>
       <label>{t.name}<input required pattern="[a-z0-9_]+" maxLength={512} value={form.name}

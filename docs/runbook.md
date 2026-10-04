@@ -35,9 +35,9 @@
 
 ### تشغيل القوالب النصية المركبة
 
-من إعداد Connection أنشئ BODY مع HEADER TEXT ثابت وFOOTER اختياريين (حتى60 حرفاً لكل منهما). placeholders المتسلسلة وأمثلة الاعتماد تخص BODY فقط؛ لا تدخل variables في HEADER/FOOTER. ينتظر القالب اعتماد المزود، ثم استخدم Sync approvals واربطه من Campaign templates. Agent تختاره في Conversation المسموحة وتدخل قيم BODY؛ سجل الرسالة يحتفظ بكل الأجزاء، والعامل يمنع dispatch إذا تغيرت النسخة المعتمدة بعد Queue. لا يعد قبول create أو sync تحققاً من التسليم.
+من إعداد Connection أنشئ BODY مع HEADER TEXT ثابت أو متغير واحد وFOOTER اختياريين (حتى60 حرفاً لكل منهما). BODY تقبل placeholders متسلسلة وأمثلتها. HEADER تقبل {{1}} مرة واحدة مع HEADER parameter example مستقلة؛ عند الإرسال أدخل HEADER parameter value منفصلة عن قيم BODY. النص النهائي للعنوان حتى60 حرفاً؛ FOOTER ثابتة بلا variables. ينتظر القالب اعتماد المزود، ثم استخدم Sync approvals واربطه من Campaign templates. Agent تختاره في Conversation المسموحة وتدخل قيم BODY؛ سجل الرسالة يحتفظ بكل الأجزاء، والعامل يمنع dispatch إذا تغيرت النسخة المعتمدة بعد Queue. لا يعد قبول create أو sync تحققاً من التسليم.
 
-اختبار الاتصال يسمح بالقوالب المدعومة الثابتة فقط؛ BODY متغيرة لا تظهر ضمن خياراته حتى لو كانت معتمدة. اختر قالباً ثابتاً بعد Refresh templates ورقم اختبار مصرحاً، وأكد الموافقة. Manager تدير اتصال فرعها، واتصال Organization تديره Super Admin. HEADER variables وButtons وmedia templates لم تُنفذ في هذه المرحلة. Browser تستخدم provider fake ولا تثبت اعتماد Meta أو تسليمه الحقيقي.
+اختبار الاتصال يسمح بالقوالب المدعومة الثابتة فقط؛ BODY متغيرة لا تظهر ضمن خياراته حتى لو كانت معتمدة. اختر قالباً ثابتاً بعد Refresh templates ورقم اختبار مصرحاً، وأكد الموافقة. Manager تدير اتصال فرعها، واتصال Organization تديره Super Admin. القوالب ذات HEADER variable لا تظهر في اختبار الاتصال حتى لو كانت BODY ثابتة؛ Buttons وmedia templates لم تُنفذ في هذه المرحلة. Browser تستخدم provider fake ولا تثبت اعتماد Meta أو تسليمه الحقيقي.
 
 ### workers المطلوبة الآن
 

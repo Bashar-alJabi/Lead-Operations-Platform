@@ -156,7 +156,7 @@ async function prepare(db: Database, claimed: Claimed, media?: LoadedMedia, medi
       const template = message.message_kind === 'TEMPLATE'
         ? await approvedBodyTemplate(tx, message.connection_id,
           locked.scope.campaign_id, message.template_id,
-          message.template_snapshot?.bodyParameters ?? []) : null;
+          message.template_snapshot?.bodyParameters ?? [], message.template_snapshot?.headerParameter) : null;
       if (template && (!isDeepStrictEqual(template.snapshot, message.template_snapshot)
         || template.body !== message.body)) return { blocked: 'TEMPLATE_CHANGED' };
       const job = (await tx`SELECT status, attempts FROM background_job WHERE id = ${claimed.jobId} FOR UPDATE`)[0];
@@ -187,7 +187,8 @@ async function prepare(db: Database, claimed: Claimed, media?: LoadedMedia, medi
       }
       return template ? { kind: 'TEMPLATE', input: { ...common,
         templateName: template.snapshot.name, templateLanguage: template.snapshot.language,
-        bodyParameters: template.snapshot.bodyParameters ?? [] },
+        bodyParameters: template.snapshot.bodyParameters ?? [],
+        ...(template.snapshot.headerParameter!==undefined ? { headerParameter:template.snapshot.headerParameter } : {}) },
         connectionId: message.connection_id as string } : { kind: 'TEXT',
         input: { ...common, body: message.body }, connectionId: message.connection_id as string };
     });

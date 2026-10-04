@@ -3,11 +3,11 @@ import { HttpError } from '../security.js';
 
 export type BodyTemplateSnapshot = { externalTemplateId: string; name: string; language: string;
   category: string | null; components: TextTemplateComponent[];
-  bodyParameters?: string[] };
+  bodyParameters?: string[]; headerParameter?: string };
 export type TextTemplateComponent = { type:'HEADER';format:'TEXT';text:string } | { type:'BODY'|'FOOTER';text:string };
 
 // One supported-format parser for creation, binding, preview, enqueue, dispatch, recovery and operational test sends.
-export function parseTextTemplate(value:unknown): { components:TextTemplateComponent[];body:string;parameterCount:number;preview:string } | null {
+export function parseTextTemplate(value:unknown): { components:TextTemplateComponent[];body:string;parameterCount:number;headerParameterCount:0|1;preview:string } | null {
   if (!Array.isArray(value) || !value.length || value.length>3) return null;
   const parts=new Map<string,TextTemplateComponent>();
   for (const raw of value) {
@@ -19,16 +19,41 @@ export function parseTextTemplate(value:unknown): { components:TextTemplateCompo
       if (bodyParameterCount(item.text)===null) return null;
       parts.set(type,{ type,text:item.text });
     } else if (type==='HEADER' || type==='FOOTER') {
-      if (!item.text.trim() || item.text.length>60 || /\{\{|\}\}|[\x00-\x1f\x7f]/.test(item.text)) return null;
       if (type==='HEADER') {
-        if (item.format!=='TEXT') return null;
+        if (item.format!=='TEXT' || textHeaderParameterCount(item.text)===null) return null;
         parts.set(type,{ type,format:'TEXT',text:item.text });
-      } else parts.set(type,{ type,text:item.text });
+      } else {
+        if (!item.text.trim() || item.text.length>60 || /\{\{|\}\}|[\x00-\x1f\x7f]/.test(item.text)) return null;
+        parts.set(type,{ type,text:item.text });
+      }
     } else return null; // Never discard buttons/media/unknown components to make a template appear supported.
   }
   const body=parts.get('BODY')?.text;if (!body) return null;
   const components=['HEADER','BODY','FOOTER'].flatMap((type)=>parts.has(type) ? [parts.get(type)!] : []);
-  return { components,body,parameterCount:bodyParameterCount(body)!,preview:components.map((part)=>part.text).join('\n\n') };
+  return { components,body,parameterCount:bodyParameterCount(body)!,
+    headerParameterCount:parts.has('HEADER') ? textHeaderParameterCount(parts.get('HEADER')!.text)! : 0,
+    preview:components.map((part)=>part.text).join('\n\n') };
+}
+
+export function textHeaderParameterCount(value:unknown):0|1|null {
+  if (typeof value!=='string' || !value.trim() || value.length>60 || /[\x00-\x1f\x7f]/.test(value)) return null;
+  const references=[...value.matchAll(/\{\{1\}\}/g)];
+  const rest=value.replace(/\{\{1\}\}/g,'');
+  if (references.length>1 || rest.includes('{{') || rest.includes('}}')) return null;
+  return references.length ? 1 : 0;
+}
+
+export function renderTextHeader(text:string, parameter?:unknown):string|null {
+  const count=textHeaderParameterCount(text);
+  if (count===null || (count===0 && parameter!==undefined)) return null;
+  if (!count) return text;
+  if (typeof parameter!=='string' || !parameter.trim() || parameter.length>60 || /[\x00-\x1f\x7f]/.test(parameter)) return null;
+  const rendered=text.replace(/\{\{1\}\}/g,()=>parameter);
+  return rendered.length<=60 ? rendered : null;
+}
+
+export function validHeaderExample(header?:string, example?:string):boolean {
+  return header===undefined ? example===undefined : renderTextHeader(header,example)!==null;
 }
 
 export function bodyParameterCount(value: unknown): number | null {
@@ -46,7 +71,7 @@ export function bodyParameterCount(value: unknown): number | null {
 
 export async function approvedBodyTemplate(tx: postgres.TransactionSql,
   connectionId: string, campaignId: string, templateId: string,
-  bodyParameters: string[] = []): Promise<{ body: string; snapshot: BodyTemplateSnapshot }> {
+  bodyParameters: string[] = [], headerParameter?:string): Promise<{ body: string; snapshot: BodyTemplateSnapshot }> {
   const template = (await tx`SELECT external_template_id, name, language, category,
       status, active, components FROM provider_message_template
     WHERE id = ${templateId} AND connection_id = ${connectionId}
@@ -62,11 +87,16 @@ export async function approvedBodyTemplate(tx: postgres.TransactionSql,
     || bodyParameters.some((value) => typeof value !== 'string' || !value.trim()
       || value.length > 512 || /[\x00-\x1f\x7f]/.test(value)))
     throw new HttpError(400, 'TEMPLATE_PARAMETERS_INVALID');
-  const body = parsed.preview.replace(/\{\{([1-9]\d*)\}\}/g,
-    (_match, index: string) => bodyParameters[Number(index) - 1]!);
+  if (!parsed.headerParameterCount && headerParameter!==undefined) throw new HttpError(400,'TEMPLATE_HEADER_PARAMETER_INVALID');
+  const header=parsed.components.find((part)=>part.type==='HEADER');
+  const renderedHeader=header ? renderTextHeader(header.text,headerParameter) : undefined;
+  if (renderedHeader===null) throw new HttpError(400,'TEMPLATE_HEADER_PARAMETER_INVALID');
+  const body = parsed.components.map((part)=>part.type==='HEADER' ? renderedHeader! : part.type==='BODY'
+    ? part.text.replace(/\{\{([1-9]\d*)\}\}/g,(_match,index:string)=>bodyParameters[Number(index)-1]!) : part.text).join('\n\n');
   if (body.length > 20000) throw new HttpError(400, 'TEMPLATE_PARAMETERS_INVALID');
   return { body, snapshot: { externalTemplateId: template.external_template_id,
     name: template.name, language: template.language, category: template.category,
     components: parsed.components,
-    ...(bodyParameters.length ? { bodyParameters } : {}) } };
+    ...(bodyParameters.length ? { bodyParameters } : {}),
+    ...(headerParameter!==undefined ? { headerParameter } : {}) } };
 }

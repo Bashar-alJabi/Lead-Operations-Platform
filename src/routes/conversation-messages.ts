@@ -76,17 +76,19 @@ export function registerConversationMessageRoutes(app: FastifyInstance, db: Data
       const items = page.flatMap((row) => {
         const parsed=parseTextTemplate(row.components);
         const { components:_,...visible }=row;
-        return parsed ? [{ ...visible,body:parsed.preview,parameterCount:parsed.parameterCount }] : [];
+        return parsed ? [{ ...visible,body:parsed.preview,components:parsed.components,
+          parameterCount:parsed.parameterCount,headerParameterCount:parsed.headerParameterCount }] : [];
       });
       return { items, nextAfter: rows.length > limit ? page.at(-1)!.id : null };
     });
 
   app.post<{ Params: { id: string }; Body: { body?: string; templateId?: string;
-    templateParameters?: string[]; attachmentId?: string; idempotencyKey: string } }>(
+    templateParameters?: string[]; templateHeaderParameter?:string; attachmentId?: string; idempotencyKey: string } }>(
     '/api/conversations/:id/messages', { schema: { params: idParam, body: {
       type: 'object', additionalProperties: false, required: ['idempotencyKey'], properties: {
         body: { type: 'string', maxLength: 20000 },
         templateId: { type: 'string', format: 'uuid' },
+        templateHeaderParameter:{ type:'string',minLength:1,maxLength:60 },
         attachmentId: { type: 'string', format: 'uuid' },
         templateParameters: { type: 'array', maxItems: 10, items: {
           type: 'string', minLength: 1, maxLength: 512 } },
@@ -97,6 +99,7 @@ export function registerConversationMessageRoutes(app: FastifyInstance, db: Data
       const result = await enqueueOutboundMessage(db, { actor, conversationId: request.params.id,
         author: 'HUMAN', body: request.body.body, templateId: request.body.templateId,
         templateParameters: request.body.templateParameters,
+        templateHeaderParameter:request.body.templateHeaderParameter,
         attachmentId: request.body.attachmentId,
         idempotencyKey: request.body.idempotencyKey });
       reply.code(result.existing ? 200 : 202);

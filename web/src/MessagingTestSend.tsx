@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 type Api = <T>(path: string, options?: RequestInit) => Promise<T>;
 type Sender = { id: string; display_name: string; active: boolean; operator_enabled: boolean };
 type Template = { id: string; name: string; language: string; status: string; active: boolean;
-  supported: boolean; parameterCount: number | null };
+  supported: boolean; parameterCount: number | null;headerParameterCount:number|null };
 type Attempt = { id: string; sender_id: string; template_id: string; recipient_last4: string;
   state: string; delivery_state: string | null; error_code: string | null;
   provider_message_id: string | null; created_at: string };
@@ -29,7 +29,7 @@ const labels = {
 } as const;
 
 function usable(template: Template): boolean {
-  return template.active && template.status === 'APPROVED' && template.supported && template.parameterCount === 0;
+  return template.active && template.status === 'APPROVED' && template.supported && template.parameterCount === 0 && template.headerParameterCount===0;
 }
 
 export function MessagingTestSend({ connectionId, status, senders, locale, api, onChanged }: {

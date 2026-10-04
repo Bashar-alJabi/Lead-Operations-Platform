@@ -14,13 +14,16 @@ test('composite text templates preserve approval/scope, bind dynamic bodies, pin
   process.env.APP_ORIGIN='http://127.0.0.1:5173';process.env.CREDENTIAL_ENCRYPTION_KEY=randomBytes(32).toString('hex');
   const db=createDatabase(url);const catalog:ProviderTemplate[]=[];let creates=0;let sends=0;
   const adapter:MessagingSendAdapter={ sendText:async()=> { throw new Error('Unexpected freeform send'); },
-    sendTemplate:async(input)=> { sends++;assert.equal(input.templateName,'composite_notice');assert.deepEqual(input.bodyParameters,['Alice']);
+    sendTemplate:async(input)=> { sends++;
+      if (input.templateName==='composite_notice') { assert.deepEqual(input.bodyParameters,['Alice']);assert.equal(input.headerParameter,undefined); }
+      else { assert.equal(input.templateName,'header_notice');assert.deepEqual(input.bodyParameters,['Order Body']);assert.equal(input.headerParameter,'Alice Header'); }
       return { providerMessageId:'wamid.composite-'+sends }; } };
   const app=await buildApp(db,{ logger:false,globalRateLimitMax:10000,messagingSendAdapter:{ sendText:adapter.sendText,
     sendTemplate:async()=>({ providerMessageId:'wamid.operational-test' }) },messagingTemplateAdapter:{
     list:async()=>catalog,create:async(_config,_credential,input)=> {
       creates++;const template:ProviderTemplate={ externalId:String(9000+creates),name:input.name,language:input.language,
-        category:input.category,status:'PENDING',components:[...(input.header ? [{ type:'HEADER',format:'TEXT',text:input.header }] : []),
+        category:input.category,status:'PENDING',components:[...(input.header ? [{ type:'HEADER',format:'TEXT',text:input.header,
+          ...(input.headerExample ? { example:{ header_text:[input.headerExample] } } : {}) }] : []),
           { type:'BODY',text:input.body,...(input.examples ? { example:{ body_text:[input.examples] } } : {}) },
           ...(input.footer ? [{ type:'FOOTER',text:input.footer }] : [])] };
       catalog.push(template);return template;
@@ -107,13 +110,58 @@ test('composite text templates preserve approval/scope, bind dynamic bodies, pin
   assert.equal(staticMetadata.supported,true);assert.equal(staticMetadata.parameterCount,0);
   const unsupportedMetadata=providerCatalog.find((row:{ name:string })=>row.name==='unsupported_buttons');
   assert.equal(unsupportedMetadata.supported,false);assert.equal(unsupportedMetadata.parameterCount,null);
+  const headerInput={ name:'header_notice',language:'en_US',category:'UTILITY',header:'Welcome {{1}}',headerExample:'SECRET HEADER APPROVAL',
+    body:'Order {{1}}',examples:['SECRET BODY APPROVAL'],footer:'Closing line',idempotencyKey:'header-create-1' };
+  assert.equal((await api('POST',path,{ ...headerInput,headerExample:undefined },'manager')).statusCode,400);
+  assert.equal((await api('POST',path,{ ...headerInput,header:'Static' },'manager')).statusCode,400);
+  assert.equal((await api('POST',path,{ ...headerInput,header:'{{1}} and {{1}}' },'manager')).statusCode,400);
+  assert.equal((await api('POST',path,{ ...headerInput,header:'x'.repeat(55)+'{{1}}',headerExample:'0123456789' },'manager')).statusCode,400);
+  const headerCreated=await api('POST',path,headerInput,'manager');assert.equal(headerCreated.statusCode,201,headerCreated.body);
+  const headerId=headerCreated.json().id;catalog[3]!.status='APPROVED';await api('POST',path+'/sync',undefined,'manager');
+  assert.equal((await api('POST',path,{ ...headerInput,headerExample:'Different approval sample' },'manager')).statusCode,409);
+  assert.equal((await api('PUT',`/api/messaging/campaigns/${campaign}/templates/${headerId}`,{ bound:true,version:0 },'manager')).statusCode,200);
+  const headerAvailable=(await api('GET',availablePath)).json();
+  assert.equal(headerAvailable.items.find((row:{ id:string })=>row.id===headerId).headerParameterCount,1);
+  assert.ok(!JSON.stringify(headerAvailable).includes('SECRET HEADER APPROVAL'));assert.ok(!JSON.stringify(headerAvailable).includes('SECRET BODY APPROVAL'));
+  const headerIntent={ templateId:headerId,templateParameters:['Order Body'],templateHeaderParameter:'Alice Header',idempotencyKey:'header-send-1' };
+  for (const value of [undefined,' ','x'.repeat(60),'Alice\nHeader']) {
+    const failed=await api('POST',messages,{ ...headerIntent,templateHeaderParameter:value });assert.equal(failed.statusCode,400,failed.body);
+  }
+  assert.equal((await api('POST',messages,{ body:'Plain text',templateHeaderParameter:'Unexpected',idempotencyKey:'header-on-text' })).statusCode,400);
+  assert.equal((await api('POST',messages,{ attachmentId:'00000000-0000-4000-8000-000000000001',templateHeaderParameter:'Unexpected',idempotencyKey:'header-on-media' })).statusCode,400);
+  assert.equal((await api('PUT',`/api/messaging/campaigns/${campaign}/templates/${staticCreated.json().id}`,{ bound:true,version:0 },'manager')).statusCode,200);
+  assert.equal((await api('POST',messages,{ templateId:staticCreated.json().id,templateHeaderParameter:'Unexpected',idempotencyKey:'header-on-static' })).statusCode,400);
+  const headerQueued=await Promise.all([api('POST',messages,headerIntent),api('POST',messages,headerIntent)]);
+  assert.deepEqual(headerQueued.map((result)=>result.statusCode).sort(),[200,202]);const headerMessageId=headerQueued[0]!.json().id;
+  assert.equal((await api('POST',messages,{ ...headerIntent,templateHeaderParameter:'Other Header' })).statusCode,409);
+  const headerSaved=(await db`SELECT body,template_snapshot FROM conversation_message WHERE id=${headerMessageId}`)[0]!;
+  assert.equal(headerSaved.body,'Welcome Alice Header\n\nOrder Order Body\n\nClosing line');
+  assert.equal(headerSaved.template_snapshot.headerParameter,'Alice Header');assert.deepEqual(headerSaved.template_snapshot.bodyParameters,['Order Body']);
+  (catalog[3]!.components[0] as { text:string }).text='Changed {{1}}';await api('POST',path+'/sync',undefined,'manager');
+  await processOneMessagingJob(db,adapter);assert.equal(sends,1);
+  const headerCv=(await api('GET',`/api/conversations/${cv}`)).json().conversation;
+  assert.equal((await api('POST',`/api/conversations/${cv}/attention/acknowledge`,{ version:headerCv.version,expectedReason:'TEMPLATE_CHANGED',
+    reviewNote:'Review header version before retry',reviewConfirmed:true },'manager')).statusCode,200);
+  assert.equal((await api('POST',`${messages}/${headerMessageId}/retry`,{ version:1,reason:'Template is still changed' })).statusCode,409);
+  (catalog[3]!.components[0] as { text:string }).text=headerInput.header;await api('POST',path+'/sync',undefined,'manager');
+  const headerRecovery=await api('POST',`${messages}/${headerMessageId}/retry`,{ version:1,reason:'Restored approved original header' });
+  assert.equal(headerRecovery.statusCode,202,headerRecovery.body);await processOneMessagingJob(db,adapter);assert.equal(sends,2);
+  const headerDelivery=(await db`SELECT delivery_state,body,template_snapshot FROM conversation_message WHERE id=${headerMessageId}`)[0]!;
+  assert.equal(headerDelivery.delivery_state,'SENT');assert.deepEqual(headerDelivery.template_snapshot,headerSaved.template_snapshot);assert.equal(headerDelivery.body,headerSaved.body);
+  assert.equal((await api('POST',`/api/messaging/connections/${connection}/test-send`,{ senderId:sender,templateId:headerId,
+    recipient:'+15550005555',recipientConfirmed:true,idempotencyKey:'no-dynamic-header-test-send' },'manager')).statusCode,409);
+  const headerOnly=await api('POST',path,{ ...headerInput,name:'header_only_notice',body:'Fixed body',examples:[],idempotencyKey:'header-only-create' },'manager');
+  assert.equal(headerOnly.statusCode,201,headerOnly.body);catalog[4]!.status='APPROVED';await api('POST',path+'/sync',undefined,'manager');
+  assert.equal((await api('POST',`/api/messaging/connections/${connection}/test-send`,{ senderId:sender,templateId:headerOnly.json().id,
+    recipient:'+15550005555',recipientConfirmed:true,idempotencyKey:'no-header-only-test-send' },'manager')).statusCode,409);
   const tested=await api('POST',`/api/messaging/connections/${connection}/test-send`,{ senderId:sender,templateId:staticCreated.json().id,
     recipient:'+15550005555',recipientConfirmed:true,idempotencyKey:'static-operational-test' },'manager');
   assert.equal(tested.statusCode,200,tested.body);
   const audit=await db`SELECT action,detail FROM audit_log WHERE organization_id=${org}`;
-  assert.equal(audit.filter((row)=>row.action==='MESSAGING_TEMPLATE_CREATED').length,2);
-  assert.equal(audit.filter((row)=>row.action==='CAMPAIGN_TEMPLATE_BOUND').length,1);
-  assert.equal(audit.filter((row)=>row.action==='OUTBOUND_MESSAGE_QUEUED').length,1);
+  assert.equal(audit.filter((row)=>row.action==='MESSAGING_TEMPLATE_CREATED').length,4);
+  assert.equal(audit.filter((row)=>row.action==='CAMPAIGN_TEMPLATE_BOUND').length,3);
+  assert.equal(audit.filter((row)=>row.action==='OUTBOUND_MESSAGE_QUEUED').length,2);
   assert.ok(!JSON.stringify(audit).includes('test-only-no-live'));
   assert.ok(!JSON.stringify(audit).includes('Example not for Agent'));
+  assert.ok(!JSON.stringify(audit).includes('SECRET HEADER APPROVAL'));
 });
