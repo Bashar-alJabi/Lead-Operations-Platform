@@ -59,7 +59,7 @@ export function registerCampaignTemplateRoutes(app: FastifyInstance, db: Databas
       const page=rows.slice(0,limit);
       const items=page.flatMap((row)=> { const parsed=parseTextTemplate(row.components);
         const { components:_,...visible }=row;
-        return parsed ? [{ ...visible,body:parsed.preview,parameterCount:parsed.parameterCount,headerParameterCount:parsed.headerParameterCount }] : []; });
+        return parsed ? [{ ...visible,body:parsed.preview,parameterCount:parsed.parameterCount,headerParameterCount:parsed.headerParameterCount,urlParameterIndex:parsed.urlParameterIndex }] : []; });
       return { items, nextAfter: rows.length > limit ? page.at(-1)!.id : null,
         canManage: actor.role === 'SUPER_ADMIN' || scope.connectionBranchId !== null };
     });

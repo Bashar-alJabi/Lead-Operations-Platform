@@ -22,7 +22,7 @@ type TestInput = { senderId: string; templateId: string; recipient: string;
 
 function staticBody(components: unknown): boolean {
   const parsed=parseTextTemplate(components);
-  return parsed?.parameterCount===0 && parsed.headerParameterCount===0;
+  return parsed?.parameterCount===0 && parsed.headerParameterCount===0 && parsed.urlParameterIndex===null;
 }
 
 export function registerMessagingTestSendRoutes(app: FastifyInstance, db: Database,

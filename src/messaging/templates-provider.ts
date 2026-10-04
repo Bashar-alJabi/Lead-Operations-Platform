@@ -1,10 +1,10 @@
 import type { MessagingConnectionConfig, MessagingCredentials } from './providers.js';
-import { parseTextTemplate, validHeaderExample, type CallToActionButton } from './approved-template.js';
+import { parseTextTemplate, validHeaderExample, validUrlExample, renderTemplateUrl, urlParameterCount, type CallToActionButton } from './approved-template.js';
 
 export type ProviderTemplate = { externalId: string; name: string; language: string;
   status: string; category: string | null; components: unknown[] };
 export type CreateTemplateInput = { name: string; language: string; category: 'MARKETING'|'UTILITY';
-  body: string; examples?: string[];header?:string;footer?:string;headerExample?:string;buttons?:CallToActionButton[] };
+  body: string; examples?: string[];header?:string;footer?:string;headerExample?:string;buttons?:CallToActionButton[];urlExample?:string };
 export interface MessagingTemplateAdapter {
   list(config: MessagingConnectionConfig, credentials: MessagingCredentials): Promise<ProviderTemplate[]>;
   create(config: MessagingConnectionConfig, credentials: MessagingCredentials,
@@ -81,8 +81,9 @@ export const metaTemplateAdapter: MessagingTemplateAdapter = {
     const components=[...(input.header!==undefined ? [{ type:'HEADER',format:'TEXT',text:input.header,
       ...(input.headerExample!==undefined ? { example:{ header_text:[input.headerExample] } } : {}) }] : []),body,
       ...(input.footer!==undefined ? [{ type:'FOOTER',text:input.footer }] : []),
-      ...(input.buttons!==undefined ? [{ type:'BUTTONS',buttons:input.buttons }] : [])];
-    if (!parseTextTemplate(components) || !validHeaderExample(input.header,input.headerExample))
+      ...(input.buttons!==undefined ? [{ type:'BUTTONS',buttons:input.buttons.map((button)=>button.type==='URL' && urlParameterCount(button.url)===1
+        ? { ...button,example:[renderTemplateUrl(button.url,input.urlExample)] } : button) }] : [])];
+    if (!parseTextTemplate(components) || !validHeaderExample(input.header,input.headerExample) || !validUrlExample(input.buttons,input.urlExample))
       throw new TemplateProviderError('REJECTED','TEMPLATE_INPUT_INVALID');
     const payload = await request(endpoint(config), credentials.accessToken, {
       name: input.name, language: input.language, category: input.category,

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { parseTextTemplate, parseStaticButtons, textHeaderParameterCount, renderTextHeader, validHeaderExample } from '../src/messaging/approved-template.js';
+import { parseTextTemplate, parseCallToActionButtons, textHeaderParameterCount, renderTextHeader, validHeaderExample,
+  urlParameterCount,renderTemplateUrl,renderTemplateButtons,validUrlExample } from '../src/messaging/approved-template.js';
 import { metaTemplateAdapter } from '../src/messaging/templates-provider.js';
 import { metaWhatsAppSendAdapter } from '../src/messaging/providers.js';
 test('one text-template parser preserves every supported component and rejects duplicates and unknown semantics',()=> {
@@ -76,12 +77,12 @@ test('Meta creation submits static HEADER/BODY/FOOTER with body-only examples an
 test('static template CTA validates safe targets, preserves canonical history and submits approved button shapes',async(t)=> {
   const buttons=[{ type:'URL' as const,text:'Visit site',url:'https://example.test/offer' },
     { type:'PHONE_NUMBER' as const,text:'Call us',phone_number:'+15550007777' }];
-  assert.deepEqual(parseStaticButtons(buttons),buttons);
-  for (const url of ['javascript:alert(1)','http://example.test','https://user:secret@example.test','https://example.test/{{1}}','https://example.test/line\nbreak',
+  assert.deepEqual(parseCallToActionButtons(buttons),buttons);
+  for (const url of ['javascript:alert(1)','http://example.test','https://user:secret@example.test','https://example.test/{{1}}/extra','https://example.test/line\nbreak',
     'https://example.test/'+'x'.repeat(2000)])
-    assert.equal(parseStaticButtons([{ ...buttons[0],url }]),null);
+    assert.equal(parseCallToActionButtons([{ ...buttons[0],url }]),null);
   for (const value of [[],[buttons[0],buttons[0]],[{ type:'QUICK_REPLY',text:'Reply' }],[{ ...buttons[1],phone_number:'bad' }],
-    [{ ...buttons[1],phone_number:'+15550007777\n' }],[{ ...buttons[0],text:'x'.repeat(26) }]]) assert.equal(parseStaticButtons(value),null);
+    [{ ...buttons[1],phone_number:'+15550007777\n' }],[{ ...buttons[0],text:'x'.repeat(26) }]]) assert.equal(parseCallToActionButtons(value),null);
   const parsed=parseTextTemplate([{ type:'BODY',text:'CTA body' },{ type:'BUTTONS',buttons }])!;
   assert.equal(parsed.components.length,2);assert.deepEqual(parsed.buttons,buttons);assert.match(parsed.preview,/Visit site: https:\/\/example.test\/offer/);
   const original=globalThis.fetch;t.after(()=> { globalThis.fetch=original; });let calls=0;
@@ -93,4 +94,55 @@ test('static template CTA validates safe targets, preserves canonical history an
   await metaTemplateAdapter.create(config,credentials,input);
   await assert.rejects(metaTemplateAdapter.create(config,credentials,{ ...input,buttons:[{ type:'URL',text:'Visit site',url:'javascript:alert(1)' }] }),/TEMPLATE_INPUT_INVALID/);
   assert.equal(calls,1);
+});
+
+test('dynamic template URL binds one final suffix to a fixed HTTPS origin and strips approval samples',()=> {
+  const url='https://example.test/orders/{{1}}';
+  assert.equal(urlParameterCount(url),1);assert.equal(urlParameterCount('https://example.test/static'),0);
+  for (const invalid of ['https://example.test/{{2}}','https://example.test/{{1}}/tail','https://example.test/{{1}}{{1}}',
+    'https://example.{{1}}','https://example.test:{{1}}','https://user:secret@example.test/{{1}}','https://example.test/\\{{1}}',
+    'https://example.test/%{{1}}','https://example.test/%0a/{{1}}','http://example.test/{{1}}'])
+    assert.equal(urlParameterCount(invalid),null,invalid);
+  assert.equal(renderTemplateUrl(url,'orders/123?source=crm'),'https://example.test/orders/orders/123?source=crm');
+  assert.equal(renderTemplateUrl('https://example.test/?order={{1}}','ABC%2F123'),'https://example.test/?order=ABC%2F123');
+  for (const invalid of [undefined,'',' ','a b','\n','\\evil','https://other.test','//other.test','{{1}}','a%0d','a%00','a%7f','%ZZ','x'.repeat(2000)])
+    assert.equal(renderTemplateUrl(url,invalid),null,String(invalid));
+  assert.equal(renderTemplateUrl('https://example.test/static','Orphan'),null);
+  const buttons=[{ type:'PHONE_NUMBER' as const,text:'Call',phone_number:'+15550007777' },{ type:'URL' as const,text:'Order',url }];
+  const parsed=parseTextTemplate([{ type:'BODY',text:'Order {{1}}' },{ type:'BUTTONS',buttons:[buttons[0],{ ...buttons[1],example:['SECRET URL EXAMPLE'] }] }])!;
+  assert.equal(parsed.urlParameterIndex,1);assert.equal(parsed.parameterCount,1);
+  assert.ok(!JSON.stringify(parsed).includes('SECRET URL EXAMPLE'));
+  assert.deepEqual(renderTemplateButtons(parsed.buttons,'123'),[buttons[0],{ ...buttons[1],url:'https://example.test/orders/123' }]);
+  assert.equal(validUrlExample(buttons),false);assert.equal(validUrlExample(buttons,'123'),true);
+  assert.equal(validUrlExample(undefined,'Orphan'),false);
+});
+
+test('Meta dynamic URL approval uses a rendered sample while dispatch sends only the suffix at its original button index',async(t)=> {
+  const original=globalThis.fetch;t.after(()=> { globalThis.fetch=original; });let calls=0;
+  const config={ wabaId:'123',graphVersion:'v25.0' };const credentials={ accessToken:'test',appSecret:'test',verifyToken:'test' };
+  const buttons=[{ type:'PHONE_NUMBER' as const,text:'Call',phone_number:'+15550007777' },
+    { type:'URL' as const,text:'Order',url:'https://example.test/order/{{1}}' }];
+  globalThis.fetch=async(url,options)=> {
+    calls++;const value=JSON.parse(options!.body as string);
+    if (String(url).endsWith('/message_templates')) {
+      assert.deepEqual(value.components,[{ type:'BODY',text:'Fixed body' },{ type:'BUTTONS',buttons:[buttons[0],
+        { ...buttons[1],example:['https://example.test/order/approval-only'] }] }]);
+      return Response.json({ id:'12345',status:'PENDING',category:'UTILITY' });
+    }
+    assert.deepEqual(value.template.components,[{ type:'header',parameters:[{ type:'text',text:'Header Value' }] },
+      { type:'body',parameters:[{ type:'text',text:'Body Value' }] },
+      { type:'button',sub_type:'url',index:'1',parameters:[{ type:'text',text:'send-only' }] }]);
+    return Response.json({ messages:[{ id:'wamid.url-template' }] });
+  };
+  const input={ name:'url_notice',language:'en_US',category:'UTILITY' as const,body:'Fixed body',buttons,urlExample:'approval-only' };
+  await metaTemplateAdapter.create(config,credentials,input);
+  const send={ config,credentials,externalSenderId:'12345',recipient:'+15550002222',templateName:input.name,templateLanguage:input.language,
+    headerParameter:'Header Value',bodyParameters:['Body Value'],urlButton:{ index:1,suffix:'send-only' } };
+  await metaWhatsAppSendAdapter.sendTemplate!(send);
+  for (const urlExample of [undefined,'https://other.test','bad value'])
+    await assert.rejects(metaTemplateAdapter.create(config,credentials,{ ...input,urlExample }),/TEMPLATE_INPUT_INVALID/);
+  await assert.rejects(metaTemplateAdapter.create(config,credentials,{ ...input,buttons:[buttons[0]!] }),/TEMPLATE_INPUT_INVALID/);
+  for (const urlButton of [{ index:2,suffix:'abc' },{ index:0.5,suffix:'abc' },{ index:1,suffix:'https://other.test' },{ index:1,suffix:'%0a' }])
+    await assert.rejects(metaWhatsAppSendAdapter.sendTemplate!({ ...send,urlButton }),/PROVIDER_TEMPLATE_INVALID/);
+  assert.equal(calls,2);
 });

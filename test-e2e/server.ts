@@ -12,6 +12,7 @@ import { requireLocalE2ETarget } from './guard.js';
 import { metaMediaCapabilities } from '../src/media/meta-outbound.js';
 import { localMediaStorage } from '../src/media/storage.js';
 import type { ProviderTemplate } from '../src/messaging/templates-provider.js';
+import { renderTemplateUrl } from '../src/messaging/approved-template.js';
 
 const connectionUrl = requireLocalE2ETarget(process.env.TEST_DATABASE_URL,process.env.E2E_RESET_TEST_DATABASE,process.env.NODE_ENV);
 
@@ -98,7 +99,8 @@ const app = await buildApp(db, { logger:false,globalRateLimitMax:10000,mediaStor
           ...(input.header ? [{ type:'HEADER',format:'TEXT',text:input.header,
             ...(input.headerExample ? { example:{ header_text:[input.headerExample] } } : {}) }] : []),
           { type:'BODY',text:input.body,...(input.examples?.length ? { example:{ body_text:[input.examples] } } : {}) },
-          ...(input.footer ? [{ type:'FOOTER',text:input.footer }] : []),...(input.buttons ? [{ type:'BUTTONS',buttons:input.buttons }] : [])] };
+          ...(input.footer ? [{ type:'FOOTER',text:input.footer }] : []),...(input.buttons ? [{ type:'BUTTONS',buttons:input.buttons.map((button)=>
+            button.type==='URL' && input.urlExample ? { ...button,example:[renderTemplateUrl(button.url,input.urlExample)] } : button) }] : [])] };
       templates.push(template);return template;
     },
   } });

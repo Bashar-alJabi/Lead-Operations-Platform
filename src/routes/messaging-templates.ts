@@ -6,7 +6,7 @@ import { HttpError, principalFromRequest, requireRole, type Principal } from '..
 import { metaTemplateAdapter, TemplateProviderError, type MessagingTemplateAdapter,
   type CreateTemplateInput, type ProviderTemplate } from '../messaging/templates-provider.js';
 import type { MessagingConnectionConfig, MessagingCredentials } from '../messaging/providers.js';
-import { bodyParameterCount, parseTextTemplate, validHeaderExample } from '../messaging/approved-template.js';
+import { bodyParameterCount, parseTextTemplate, validHeaderExample, validUrlExample } from '../messaging/approved-template.js';
 
 const params = { type: 'object', additionalProperties: false, required: ['id'],
   properties: { id: { type: 'string', format: 'uuid' } } } as const;
@@ -19,6 +19,7 @@ const createSchema = { type: 'object', additionalProperties: false,
     body: { type: 'string', minLength: 1, maxLength: 1024 },
     header:{ type:'string',minLength:1,maxLength:60 },footer:{ type:'string',minLength:1,maxLength:60 },
     headerExample:{ type:'string',minLength:1,maxLength:60 },
+    urlExample:{ type:'string',minLength:1,maxLength:2000 },
     buttons:{ type:'array',minItems:1,maxItems:2,items:{ oneOf:[
       { type:'object',additionalProperties:false,required:['type','text','url'],properties:{
         type:{ const:'URL' },text:{ type:'string',minLength:1,maxLength:25 },url:{ type:'string',minLength:1,maxLength:2000 } } },
@@ -84,7 +85,7 @@ export function registerMessagingTemplateRoutes(app: FastifyInstance, db: Databa
       const items = page.map((row) => {
         const parsed = parseTextTemplate(row.components);
         return { ...row, supported: Boolean(parsed), parameterCount: parsed?.parameterCount ?? null,
-          headerParameterCount: parsed?.headerParameterCount ?? null,preview:parsed?.preview ?? null };
+          headerParameterCount: parsed?.headerParameterCount ?? null,urlParameterIndex:parsed?.urlParameterIndex ?? null,preview:parsed?.preview ?? null };
       });
       return { items, nextAfter: rows.length > limit ? page.at(-1)!.id : null };
     });
@@ -214,6 +215,7 @@ export function registerMessagingTemplateRoutes(app: FastifyInstance, db: Databa
         !value.trim() || /[\x00-\x1f\x7f]/.test(value)))
         throw new HttpError(400, 'TEMPLATE_EXAMPLES_INVALID');
       if (!validHeaderExample(input.header,input.headerExample)) throw new HttpError(400,'TEMPLATE_HEADER_EXAMPLE_INVALID');
+      if (!validUrlExample(input.buttons,input.urlExample)) throw new HttpError(400,'TEMPLATE_URL_EXAMPLE_INVALID');
       const credentials = await credentialsFor(db, connection.id);
       const hash = createHash('sha256').update(JSON.stringify(input)).digest('hex');
       const reservation = await db.begin(async (tx) => {

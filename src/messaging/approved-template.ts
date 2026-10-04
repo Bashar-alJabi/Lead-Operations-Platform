@@ -3,13 +3,44 @@ import { HttpError } from '../security.js';
 
 export type BodyTemplateSnapshot = { externalTemplateId: string; name: string; language: string;
   category: string | null; components: TemplateComponent[];
-  bodyParameters?: string[]; headerParameter?: string };
+  bodyParameters?: string[]; headerParameter?: string;urlParameter?:string };
 export type TextTemplateComponent = { type:'HEADER';format:'TEXT';text:string } | { type:'BODY'|'FOOTER';text:string };
 export type CallToActionButton = { type:'URL';text:string;url:string } | { type:'PHONE_NUMBER';text:string;phone_number:string };
 export type TemplateComponent = TextTemplateComponent | { type:'BUTTONS';buttons:CallToActionButton[] };
 
-// Supported static CTA profile: two buttons, at most one URL and one phone, no runtime target parameters.
-export function parseStaticButtons(value:unknown):CallToActionButton[]|null {
+function safeHttpsUrl(value:unknown):URL|null {
+  if (typeof value!=='string' || !value || value.length>2000
+    || /[\x00-\x20\x7f\\]|\{\{|\}\}|%(?![0-9a-f]{2})|%(?:0[0-9a-f]|1[0-9a-f]|7f)/i.test(value)) return null;
+  try { const url=new URL(value);return url.protocol==='https:' && url.hostname && !url.username && !url.password ? url : null; }
+  catch { return null; }
+}
+
+// A dynamic suffix cannot alter the approved scheme/authority or occur before the end of the URL.
+export function urlParameterCount(value:unknown):0|1|null {
+  if (typeof value!=='string' || value.length>2000) return null;
+  if (!value.includes('{{') && !value.includes('}}')) return safeHttpsUrl(value) ? 0 : null;
+  if (!value.endsWith('{{1}}')) return null;
+  const prefix=value.slice(0,-5);const base=safeHttpsUrl(prefix);const sample=safeHttpsUrl(prefix+'0');
+  return base && sample && base.origin===sample.origin ? 1 : null;
+}
+
+export function validUrlSuffix(value:unknown):value is string {
+  return typeof value==='string' && !!value && value.length<=2000
+    && !/[\x00-\x20\x7f\\]|\{\{|\}\}|%(?![0-9a-f]{2})|%(?:0[0-9a-f]|1[0-9a-f]|20|7f)/i.test(value)
+    && !/^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(value);
+}
+
+export function renderTemplateUrl(value:string,parameter?:unknown):string|null {
+  const count=urlParameterCount(value);
+  if (count===null || (!count && parameter!==undefined)) return null;
+  if (!count) return value;
+  if (!validUrlSuffix(parameter)) return null;
+  const prefix=value.slice(0,-5);const rendered=prefix+parameter;const url=safeHttpsUrl(rendered);
+  return url && url.origin===safeHttpsUrl(prefix)!.origin ? rendered : null;
+}
+
+// Supported CTA profile: two buttons, at most one URL (static or one suffix) and one phone.
+export function parseCallToActionButtons(value:unknown):CallToActionButton[]|null {
   if (!Array.isArray(value) || !value.length || value.length>2) return null;
   const types=new Set<string>();const buttons:CallToActionButton[]=[];
   for (const raw of value) {
@@ -18,10 +49,8 @@ export function parseStaticButtons(value:unknown):CallToActionButton[]|null {
     if (typeof item.text!=='string' || !item.text.trim() || item.text.length>25 || /\{\{|\}\}|[\x00-\x1f\x7f]/.test(item.text)
       || typeof item.type!=='string' || types.has(item.type)) return null;
     if (item.type==='URL') {
-      if (typeof item.url!=='string' || item.url.length>2000 || /\{\{|\}\}|[\x00-\x20\x7f]/.test(item.url)) return null;
-      try { const url=new URL(item.url);if (url.protocol!=='https:' || !url.hostname || url.username || url.password) return null; }
-      catch { return null; }
-      buttons.push({ type:'URL',text:item.text,url:item.url });
+      if (urlParameterCount(item.url)===null) return null;
+      buttons.push({ type:'URL',text:item.text,url:item.url as string });
     } else if (item.type==='PHONE_NUMBER') {
       if (typeof item.phone_number!=='string' || /[\x00-\x20\x7f]/.test(item.phone_number)
         || !/^\+[1-9][0-9]{7,14}$/.test(item.phone_number)) return null;
@@ -32,12 +61,29 @@ export function parseStaticButtons(value:unknown):CallToActionButton[]|null {
   return buttons;
 }
 
+export function renderTemplateButtons(buttons:CallToActionButton[],parameter?:unknown):CallToActionButton[]|null {
+  const dynamic=buttons.some((button)=>button.type==='URL' && urlParameterCount(button.url)===1);
+  if (!dynamic && parameter!==undefined) return null;
+  const rendered:CallToActionButton[]=[];
+  for (const button of buttons) {
+    if (button.type==='PHONE_NUMBER') { rendered.push(button);continue; }
+    const url=renderTemplateUrl(button.url,urlParameterCount(button.url)===1 ? parameter : undefined);
+    if (!url) return null;
+    rendered.push({ ...button,url });
+  }
+  return rendered;
+}
+
+export function validUrlExample(buttons:CallToActionButton[]|undefined,example?:unknown):boolean {
+  return renderTemplateButtons(buttons ?? [],example)!==null;
+}
+
 export function buttonHistoryText(buttons:CallToActionButton[]):string {
   return buttons.map((button)=>`${button.text}: ${button.type==='URL' ? button.url : button.phone_number}`).join('\n');
 }
 
 // One supported-format parser for creation, binding, preview, enqueue, dispatch, recovery and operational test sends.
-export function parseTextTemplate(value:unknown): { components:TemplateComponent[];buttons:CallToActionButton[];body:string;parameterCount:number;headerParameterCount:0|1;preview:string } | null {
+export function parseTextTemplate(value:unknown): { components:TemplateComponent[];buttons:CallToActionButton[];body:string;parameterCount:number;headerParameterCount:0|1;urlParameterIndex:number|null;preview:string } | null {
   if (!Array.isArray(value) || !value.length || value.length>4) return null;
   const parts=new Map<string,TemplateComponent>();
   for (const raw of value) {
@@ -46,7 +92,7 @@ export function parseTextTemplate(value:unknown): { components:TemplateComponent
     if (typeof item.type!=='string') return null;
     const type=item.type.toUpperCase();if (parts.has(type)) return null;
     if (type==='BUTTONS') {
-      const buttons=parseStaticButtons(item.buttons);if (!buttons) return null;
+      const buttons=parseCallToActionButtons(item.buttons);if (!buttons) return null;
       parts.set(type,{ type,buttons });continue;
     }
     if (typeof item.text!=='string') return null;
@@ -66,8 +112,9 @@ export function parseTextTemplate(value:unknown): { components:TemplateComponent
   const bodyPart=parts.get('BODY');if (!bodyPart || bodyPart.type!=='BODY') return null;
   const body=bodyPart.text;const header=parts.get('HEADER');const cta=parts.get('BUTTONS');
   const components=['HEADER','BODY','FOOTER','BUTTONS'].flatMap((type)=>parts.has(type) ? [parts.get(type)!] : []);
-  return { components,body,parameterCount:bodyParameterCount(body)!,
-    buttons:cta?.type==='BUTTONS' ? cta.buttons : [],
+  const buttons=cta?.type==='BUTTONS' ? cta.buttons : [];
+  const urlIndex=buttons.findIndex((button)=>button.type==='URL' && urlParameterCount(button.url)===1);
+  return { components,body,parameterCount:bodyParameterCount(body)!,buttons,urlParameterIndex:urlIndex===-1 ? null : urlIndex,
     headerParameterCount:header?.type==='HEADER' ? textHeaderParameterCount(header.text)! : 0,
     preview:components.map((part)=>part.type==='BUTTONS' ? buttonHistoryText(part.buttons) : part.text).join('\n\n') };
 }
@@ -108,7 +155,7 @@ export function bodyParameterCount(value: unknown): number | null {
 
 export async function approvedBodyTemplate(tx: postgres.TransactionSql,
   connectionId: string, campaignId: string, templateId: string,
-  bodyParameters: string[] = [], headerParameter?:string): Promise<{ body: string; snapshot: BodyTemplateSnapshot }> {
+  bodyParameters: string[] = [], headerParameter?:string,urlParameter?:string): Promise<{ body: string; snapshot: BodyTemplateSnapshot }> {
   const template = (await tx`SELECT external_template_id, name, language, category,
       status, active, components FROM provider_message_template
     WHERE id = ${templateId} AND connection_id = ${connectionId}
@@ -128,6 +175,7 @@ export async function approvedBodyTemplate(tx: postgres.TransactionSql,
   const header=parsed.components.find((part)=>part.type==='HEADER');
   const renderedHeader=header ? renderTextHeader(header.text,headerParameter) : undefined;
   if (renderedHeader===null) throw new HttpError(400,'TEMPLATE_HEADER_PARAMETER_INVALID');
+  if (!renderTemplateButtons(parsed.buttons,urlParameter)) throw new HttpError(400,'TEMPLATE_URL_PARAMETER_INVALID');
   const body = parsed.components.filter((part)=>part.type!=='BUTTONS').map((part)=>part.type==='HEADER' ? renderedHeader! : part.type==='BODY'
     ? part.text.replace(/\{\{([1-9]\d*)\}\}/g,(_match,index:string)=>bodyParameters[Number(index)-1]!) : part.text).join('\n\n');
   if (body.length > 20000) throw new HttpError(400, 'TEMPLATE_PARAMETERS_INVALID');
@@ -135,5 +183,6 @@ export async function approvedBodyTemplate(tx: postgres.TransactionSql,
     name: template.name, language: template.language, category: template.category,
     components: parsed.components,
     ...(bodyParameters.length ? { bodyParameters } : {}),
-    ...(headerParameter!==undefined ? { headerParameter } : {}) } };
+    ...(headerParameter!==undefined ? { headerParameter } : {}),
+    ...(urlParameter!==undefined ? { urlParameter } : {}) } };
 }

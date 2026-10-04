@@ -33,6 +33,7 @@ export function TemplateSetup({ connectionId, status, canManage, locale, api }: 
   const [requests, setRequests] = useState<CreateRequest[]>([]);
   const [requestAfter, setRequestAfter] = useState<string | null>(null);
   const [form, setForm] = useState({ name: '', language: 'en_US', category: 'UTILITY', body: '',header:'',footer:'',headerExample:'' });
+  const [urlExample,setUrlExample]=useState('');
   const [examples, setExamples] = useState<string[]>([]);
   const [buttons,setButtons]=useState<{ type:'NONE'|'URL'|'PHONE_NUMBER';text:string;target:string }[]>(
     [{ type:'NONE',text:'',target:'' },{ type:'NONE',text:'',target:'' }]);
@@ -69,9 +70,10 @@ export function TemplateSetup({ connectionId, status, canManage, locale, api }: 
       await api(`/api/messaging/connections/${connectionId}/templates`, { method: 'POST',
         body: JSON.stringify({ ...base,...(header ? { header } : {}),...(footer ? { footer } : {}),
           ...(headerExample ? { headerExample } : {}),...(examples.length ? { examples } : {}),
-          ...(cta.length ? { buttons:cta } : {}), idempotencyKey: key }) });
+          ...(cta.length ? { buttons:cta } : {}),...(urlExample ? { urlExample } : {}),idempotencyKey: key }) });
       setForm({ name: '', language: form.language, category: 'UTILITY', body: '',header:'',footer:'',headerExample:'' });
       setExamples([]);
+      setUrlExample('');
       setButtons([{ type:'NONE',text:'',target:'' },{ type:'NONE',text:'',target:'' }]);
       setKey(crypto.randomUUID()); await Promise.all([load(), loadRequests()]);
     } catch (failure) { setError(String(failure)); await loadRequests().catch(() => {}); }
@@ -140,14 +142,15 @@ export function TemplateSetup({ connectionId, status, canManage, locale, api }: 
           setExamples((current) => current.map((value, position) => position === index ? event.target.value : value));
           setKey(crypto.randomUUID());
         }} /></label>)}
-      <p>{locale==='ar' ? 'أزرار ثابتة اختيارية: رابط HTTPS واحد ورقم اتصال واحد؛ لا متغيرات في الهدف.'
-        : locale==='fr' ? 'Boutons fixes facultatifs : un lien HTTPS et un numéro, sans variable dans la cible.'
-          : 'Optional static buttons: one HTTPS link and one phone number; targets have no variables.'}</p>
+      <p>{locale==='ar' ? 'أزرار اختيارية: رابط HTTPS واحد ورقم اتصال واحد. URL تدعم {{1}} مرة واحدة في النهاية؛ أدخل مثال اللاحقة مستقلاً عن HEADER/BODY.'
+        : locale==='fr' ? 'Boutons facultatifs : un lien HTTPS et un numéro. URL accepte {{1}} une seule fois à la fin ; son exemple est indépendant de HEADER/BODY.'
+          : 'Optional buttons: one HTTPS link and one phone number. URL allows {{1}} once at the end, with a suffix example separate from HEADER/BODY.'}</p>
       {buttons.map((button,index)=> <fieldset key={index}><legend>{locale==='ar' ? 'الزر' : locale==='fr' ? 'Bouton' : 'Button'} {index+1}</legend>
         <label>{locale==='ar' ? 'نوع الزر' : locale==='fr' ? 'Type du bouton' : 'Button type'} {index+1}
           <select aria-label={(locale==='ar' ? 'نوع الزر' : locale==='fr' ? 'Type du bouton' : 'Button type')+' '+(index+1)} value={button.type}
             onChange={(event)=> { setButtons((current)=>current.map((value,position)=>position===index
-              ? { type:event.target.value as 'NONE'|'URL'|'PHONE_NUMBER',text:'',target:'' } : value));setKey(crypto.randomUUID()); }}>
+              ? { type:event.target.value as 'NONE'|'URL'|'PHONE_NUMBER',text:'',target:'' } : value));
+              if (button.type==='URL' || event.target.value==='URL') setUrlExample('');setKey(crypto.randomUUID()); }}>
             <option value="NONE">—</option>{(['URL','PHONE_NUMBER'] as const).map((type)=><option key={type} value={type}
               disabled={buttons.some((value,position)=>position!==index && value.type===type)}>{type}</option>)}</select></label>
         {button.type!=='NONE' && <><label>{locale==='ar' ? 'نص الزر' : locale==='fr' ? 'Texte du bouton' : 'Button text'} {index+1}
@@ -157,8 +160,12 @@ export function TemplateSetup({ connectionId, status, canManage, locale, api }: 
           <input required type={button.type==='URL' ? 'url' : 'tel'} maxLength={button.type==='URL' ? 2000 : 16}
             pattern={button.type==='PHONE_NUMBER' ? '[+][1-9][0-9]{7,14}' : undefined} value={button.target} onChange={(event)=> {
               setButtons((current)=>current.map((value,position)=>position===index ? { ...value,target:event.target.value } : value));setKey(crypto.randomUUID());
+              if (button.type==='URL' && !event.target.value.includes('{{1}}')) setUrlExample('');
             }} /></label></>}
       </fieldset>)}
+      {buttons.some((button)=>button.type==='URL' && button.target.includes('{{1}}')) && <label>
+        {locale==='ar' ? 'مثال لاحقة URL' : locale==='fr' ? 'Exemple du suffixe URL' : 'URL suffix example'}
+        <input required maxLength={2000} value={urlExample} onChange={(event)=> { setUrlExample(event.target.value);setKey(crypto.randomUUID()); }} /></label>}
       <button disabled={busy || status === 'DISABLED'}>{t.create}</button>
     </form>}
   </section>;

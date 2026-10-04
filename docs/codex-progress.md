@@ -1,5 +1,15 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: dynamic URL template suffix
+
+checkpoint static CTA `838f21f` حُفظت ورفعت إلى `codex/full-platform-build`؛ فشل DNS مؤقت ثم نجحت إعادة الرفع دون تغيير إعدادات الجهاز. اكتملت URL تنتهي بمتغير {{1}} واحد خارج authority: urlExample مثال لاحقة مستقل، وtemplateUrlParameter قيمة إرسال مستقلة عن HEADER/BODY، وurlParameter في immutable snapshot. parser والـAPI تتحقق من HTTPS/authority/credentials/control/whitespace/backslash/percent encoding/موضع المتغير والطول النهائي حتى2000 حرف، وتمنع القيم الناقصة والإضافية وfull URL كلاحقة. adapter create ترسل example للرابط النهائي، وsend ترسل suffix فقط مع index الزر الأصلي؛ لا تختار UI index ولا تكشف أمثلة الاعتماد إلى Agent. Message.body النص، وHistory ترسم الرابط من snapshot الأصلية حتى بعد تغير Catalog. JSON وقيود immutable الحالية كافية دون DDL جديدة.
+
+التحقق: migrations001–038 أعيدت بقاعدتي Docker، و44/44 unit و14/14 integration و4/4 Browser Edge مع exit0؛ Backend/Web typecheck/build ناجحة وPostgreSQL/ClamAV healthy. اختبارات الوحدة تثبت dynamic placement/length/encoding/safe origin وMeta request shapes/no-I/O invalid cases. integration تثبت approval/scope/DNC وconcurrent enqueue مرة واحدة، idempotency عند اختلاف suffix، قيم HEADER/BODY/URL مستقلة، تغير موضع الزر يمنع dispatch/recovery ثم recovery بعد إعادة الأصل؛ تغير approval example وحده لا يغير المعنى، وتعديل snapshot بعد SENT ممنوع وCatalog لا تعيد كتابة الهدف التاريخي. Audit لا تحتوي credential أو approval/suffix values. operational test-send ترفض حتى BODY ثابتة إذا كانت URL متغيرة.
+
+Browser تثبت الإنشاء بالمثال المنفصل وapproval/sync/binding، preview للرابط النهائي وحفظ draft عند refresh، ورفض full URL كلاحقة دون provider call ثم queue→worker→SENT/history، والنموذج العربي/history بعرض390px. فُحصت `template-url-ar.png`. فشل locator أولي أثناء التحقق العربي صحح بمراعاة تغير العنوان ومسح اختيار القالب بعد الإرسال الناجح؛ لا يُفترض بقاء draft بعد إرسالها. Provider/Scanner/Approval fakes فقط؛ لا Meta live أو URL recovery Browser E2E أو Setup mobile E2E. Messaging والمنصة ليستا Complete.
+
+قيد التنفيذ عند checkpoint: لا تغيير برمجي غير مستقر. الخطوة التالية الدقيقة بعد commit/push: Quick Reply templates مع approved static labels وpayload/correlation لكل إرسال وimmutable snapshot، وMeta indexed components وwebhook button reply/context والتحقق من الارتباط دون تخمين Conversation، وReview عند الغموض، وUI وnegative/idempotency/retry/inbound/Browser tests؛ ثم media template headers وبقية Messaging operability، قبل Meta intake ثم Payments/Enrollment ثم AI.
+
 ## آخر حالة مستقرة: static Call-to-Action template buttons
 
 بعد checkpoint `3044a9f` المرفوعة اكتملت static CTA buttons بصيغ URL وPHONE_NUMBER مع create/approval/catalog/binding/available/queue/worker/recovery وUI. profile الحالية: حتى زرين، URL HTTPS واحدة بلا credential/whitespace/control/variable حتى2000 حرف، ورقم E.164 واحد بلا whitespace/control، وlabel ثابتة حتى25 حرفاً. snapshot تحفظ الأهداف، وMessage.body النص فقط؛ Message API تعرض templateButtons من snapshot التاريخية بعد Lead ACL دون raw snapshot/أمثلة اعتماد. UI تعرض الروابط والأرقام في preview والتاريخ مع safe href وnoopener/noreferrer وReact escaping، ولا تفتحها تلقائياً.

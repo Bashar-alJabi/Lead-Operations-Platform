@@ -24,7 +24,7 @@ type Message = { id: string; direction: 'INBOUND'|'OUTBOUND'; author_type: strin
   message_kind: 'TEXT'|'TEMPLATE'|'ATTACHMENT'; attachment: Attachment | null;
   delivery_state: string; last_error_code: string | null; created_at: string;templateButtons:CallToActionButton[] };
 type AvailableTemplate = { id: string; name: string; language: string; body: string; parameterCount: number;headerParameterCount:0|1;
-  components:{ type:'HEADER'|'BODY'|'FOOTER';text:string }[];buttons:CallToActionButton[] };
+  components:{ type:'HEADER'|'BODY'|'FOOTER';text:string }[];buttons:CallToActionButton[];urlParameterIndex:number|null };
 type AttentionReview = { id: string; previous_reason: string; review_note: string;
   reviewer_name: string; created_at: string };
 const labels = {
@@ -86,8 +86,12 @@ export function LeadConversations({ leadId, lifecycle, role, actorId, locale, ap
   const [templateId, setTemplateId] = useState('');
   const [templateParameters, setTemplateParameters] = useState<string[]>([]);
   const [headerParameter,setHeaderParameter]=useState('');
+  const [urlParameter,setUrlParameter]=useState('');
   const selectedTemplate=templates.find((item)=>item.id===templateId);
-  const missingTemplateParameter=templateParameters.some((value)=>!value.trim()) || (selectedTemplate?.headerParameterCount===1 && !headerParameter.trim());
+  const missingTemplateParameter=templateParameters.some((value)=>!value.trim()) || (selectedTemplate?.headerParameterCount===1 && !headerParameter.trim())
+    || (selectedTemplate && selectedTemplate.urlParameterIndex!==null && !urlParameter.trim());
+  const templateButtons=selectedTemplate?.buttons.map((button)=>button.type==='URL' && button.url.endsWith('{{1}}') && urlParameter
+    ? { ...button,url:button.url.replace(/\{\{1\}\}$/,()=>urlParameter) } : button) ?? [];
   const templatePreview=selectedTemplate?.components.map((part)=>part.type==='HEADER'
     ? part.text.replace(/\{\{1\}\}/g,()=>headerParameter || '{{1}}') : part.type==='BODY'
       ? part.text.replace(/\{\{([1-9]\d*)\}\}/g,(match,index:string)=>templateParameters[Number(index)-1] || match) : part.text).join('\n\n');
@@ -140,7 +144,7 @@ export function LeadConversations({ leadId, lifecycle, role, actorId, locale, ap
     selectedRef.current = id; setSelectedId(id); setMessages([]); setMessageCursor(null);
     setDraft(''); setSendMode('TEXT'); setTemplates([]); setTemplateAfter(null); setTemplateId('');
     setUploadFile(null); setUploadedAttachment(null); setUploadKey(crypto.randomUUID());
-    setTemplateParameters([]);setHeaderParameter('');
+    setTemplateParameters([]);setHeaderParameter('');setUrlParameter('');
     setAttentionReviews([]); setReviewBefore(null); setReviewNote(''); setReviewConfirmed(false);
     setSendKey(crypto.randomUUID()); setSubmitted(false); setError('');
     await Promise.all([loadMessages(id), loadTemplates(id),
@@ -169,9 +173,10 @@ export function LeadConversations({ leadId, lifecycle, role, actorId, locale, ap
       await api(`/api/conversations/${selectedId}/messages`, { method: 'POST', body: JSON.stringify({
         ...(sendMode === 'TEXT' ? { body: draft } : sendMode === 'ATTACHMENT'
           ? { attachmentId: uploadedAttachment!.id, body: draft } : { templateId,
-          templateParameters,...(selectedTemplate?.headerParameterCount===1 ? { templateHeaderParameter:headerParameter } : {}) }), idempotencyKey: sendKey,
+          templateParameters,...(selectedTemplate?.headerParameterCount===1 ? { templateHeaderParameter:headerParameter } : {}),
+          ...(selectedTemplate && selectedTemplate.urlParameterIndex!==null ? { templateUrlParameter:urlParameter } : {}) }), idempotencyKey: sendKey,
       }) });
-      setDraft(''); setTemplateId(''); setTemplateParameters([]);setHeaderParameter(''); setSendKey(crypto.randomUUID()); setSubmitted(false);
+      setDraft(''); setTemplateId(''); setTemplateParameters([]);setHeaderParameter('');setUrlParameter('');setSendKey(crypto.randomUUID()); setSubmitted(false);
       setUploadFile(null); setUploadedAttachment(null); setUploadKey(crypto.randomUUID());
       await loadMessages(selectedId);
     } catch (failure) {
@@ -301,7 +306,7 @@ export function LeadConversations({ leadId, lifecycle, role, actorId, locale, ap
             if (submitted) { setSendKey(crypto.randomUUID()); setSubmitted(false); } }} /></label>
           : sendMode === 'TEMPLATE' ? <label>{t.template}<select aria-label={t.template} required value={templateId} disabled={busy} onChange={(event) => {
             setTemplateId(event.target.value);
-            setHeaderParameter('');
+            setHeaderParameter('');setUrlParameter('');
             setTemplateParameters(Array(templates.find((item) => item.id === event.target.value)?.parameterCount ?? 0).fill(''));
             setSendKey(crypto.randomUUID()); setSubmitted(false);
           }}><option value="">{t.template}</option>{templates.map((item) => <option key={item.id} value={item.id}>
@@ -326,7 +331,12 @@ export function LeadConversations({ leadId, lifecycle, role, actorId, locale, ap
                 if (submitted) { setSendKey(crypto.randomUUID()); setSubmitted(false); } }} /></label>
               : <p>{locale==='ar' ? 'هذا النوع لا يدعم تعليقاً. أرسل أي نص برسالة مستقلة.' : locale==='fr' ? 'Ce type ne prend pas de légende. Envoyez le texte dans un message séparé.' : 'This type has no caption. Send any text as a separate message.'}</p>}</>}
         {sendMode === 'TEMPLATE' && <p style={{ whiteSpace:'pre-wrap' }}>{templatePreview ?? t.noTemplates} {t.templateNote}</p>}
-        {sendMode==='TEMPLATE' && selectedTemplate?.buttons?.length ? <TemplateButtons buttons={selectedTemplate.buttons} /> : null}
+        {sendMode==='TEMPLATE' && templateButtons.length ? <TemplateButtons buttons={templateButtons} /> : null}
+        {sendMode==='TEMPLATE' && selectedTemplate && selectedTemplate.urlParameterIndex!==null && <label>
+          {locale==='ar' ? 'قيمة لاحقة URL' : locale==='fr' ? 'Valeur du suffixe URL' : 'URL suffix value'}
+          <input required maxLength={2000} value={urlParameter} disabled={busy} onChange={(event)=> {
+            setUrlParameter(event.target.value);if (submitted) { setSendKey(crypto.randomUUID());setSubmitted(false); }
+          }} /></label>}
         {sendMode==='TEMPLATE' && selectedTemplate?.headerParameterCount===1 && <label>
           {locale==='ar' ? 'قيمة متغير HEADER' : locale==='fr' ? 'Valeur du paramètre HEADER' : 'HEADER parameter value'}
           <input required maxLength={60} value={headerParameter} disabled={busy} onChange={(event)=> {

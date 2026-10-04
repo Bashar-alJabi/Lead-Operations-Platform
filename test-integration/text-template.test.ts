@@ -8,6 +8,7 @@ import { sealSecret } from '../src/credentials.js';
 import { processOneMessagingJob } from '../src/messaging/send-worker.js';
 import type { ProviderTemplate } from '../src/messaging/templates-provider.js';
 import type { MessagingSendAdapter } from '../src/messaging/providers.js';
+import { renderTemplateUrl } from '../src/messaging/approved-template.js';
 const url=process.env.TEST_DATABASE_URL;
 if (!url || new URL(url).pathname!=='/lead_operations_test') throw new Error('Isolated TEST_DATABASE_URL required');
 test('composite text templates preserve approval/scope, bind dynamic bodies, pin snapshots and revalidate recovery and dispatch',async(t)=> {
@@ -17,7 +18,10 @@ test('composite text templates preserve approval/scope, bind dynamic bodies, pin
     sendTemplate:async(input)=> { sends++;
       if (input.templateName==='composite_notice') { assert.deepEqual(input.bodyParameters,['Alice']);assert.equal(input.headerParameter,undefined); }
       else if (input.templateName==='header_notice') { assert.deepEqual(input.bodyParameters,['Order Body']);assert.equal(input.headerParameter,'Alice Header'); }
-      else { assert.equal(input.templateName,'cta_notice');assert.deepEqual(input.bodyParameters,['Order CTA']);assert.equal(input.headerParameter,undefined); }
+      else if (input.templateName==='cta_notice') { assert.deepEqual(input.bodyParameters,['Order CTA']);assert.equal(input.headerParameter,undefined); }
+      else { assert.equal(input.templateName,'dynamic_url_notice');assert.deepEqual(input.bodyParameters,['Body Order']);assert.equal(input.headerParameter,'Header Alice');
+        assert.deepEqual(input.urlButton,{ index:1,suffix:'order-123?source=crm' }); }
+      if (input.templateName!=='dynamic_url_notice') assert.equal(input.urlButton,undefined);
       return { providerMessageId:'wamid.composite-'+sends }; } };
   const app=await buildApp(db,{ logger:false,globalRateLimitMax:10000,messagingSendAdapter:{ sendText:adapter.sendText,
     sendTemplate:async()=>({ providerMessageId:'wamid.operational-test' }) },messagingTemplateAdapter:{
@@ -26,7 +30,8 @@ test('composite text templates preserve approval/scope, bind dynamic bodies, pin
         category:input.category,status:'PENDING',components:[...(input.header ? [{ type:'HEADER',format:'TEXT',text:input.header,
           ...(input.headerExample ? { example:{ header_text:[input.headerExample] } } : {}) }] : []),
           { type:'BODY',text:input.body,...(input.examples ? { example:{ body_text:[input.examples] } } : {}) },
-          ...(input.footer ? [{ type:'FOOTER',text:input.footer }] : []),...(input.buttons ? [{ type:'BUTTONS',buttons:input.buttons }] : [])] };
+          ...(input.footer ? [{ type:'FOOTER',text:input.footer }] : []),...(input.buttons ? [{ type:'BUTTONS',buttons:input.buttons.map((button)=>
+            button.type==='URL' && input.urlExample ? { ...button,example:[renderTemplateUrl(button.url,input.urlExample)] } : button) }] : [])] };
       catalog.push(template);return template;
     } } });
   t.after(async()=> { await app.close();await db.end(); });
@@ -195,14 +200,76 @@ test('composite text templates preserve approval/scope, bind dynamic bodies, pin
   const history=(await api('GET',messages+'?limit=100')).json().items.find((row:{ id:string })=>row.id===ctaMessageId);
   assert.equal(history.delivery_state,'SENT');assert.deepEqual(history.templateButtons,buttons);assert.equal(history.body,originalCta.body);
   assert.equal(history.template_snapshot,undefined);
+  clientAddress='127.0.0.3';
+  const dynamicButtons=[buttons[1],{ type:'URL',text:'Track order',url:'https://example.test/orders/{{1}}' }];
+  const dynamicInput={ ...headerInput,name:'dynamic_url_notice',buttons:dynamicButtons,urlExample:'SECRET-URL-APPROVAL',idempotencyKey:'dynamic-url-create' };
+  assert.equal((await api('POST',path,dynamicInput)).statusCode,403);assert.equal((await api('POST',path,dynamicInput,'other')).statusCode,404);
+  for (const value of [undefined,'',' ','https://evil.test','//evil.test','a\\b','a%00','x'.repeat(2000)]) {
+    const invalid=await api('POST',path,{ ...dynamicInput,urlExample:value },'manager');assert.equal(invalid.statusCode,400,invalid.body);
+  }
+  const orphan=await api('POST',path,{ ...dynamicInput,buttons },'manager');assert.equal(orphan.statusCode,400,orphan.body);assert.equal(creates,5);
+  const dynamicCreated=await api('POST',path,dynamicInput,'manager');assert.equal(dynamicCreated.statusCode,201,dynamicCreated.body);const dynamicId=dynamicCreated.json().id;
+  assert.equal((await api('POST',path,dynamicInput,'manager')).statusCode,200);assert.equal(creates,6);
+  assert.equal((await api('POST',path,{ ...dynamicInput,urlExample:'Different approval' },'manager')).statusCode,400);
+  assert.equal((await api('POST',path,{ ...dynamicInput,urlExample:'changed-approval' },'manager')).statusCode,409);
+  const dynamicBinding=`/api/messaging/campaigns/${campaign}/templates/${dynamicId}`;
+  assert.equal((await api('PUT',dynamicBinding,{ bound:true,version:0 },'manager')).statusCode,409);
+  catalog[6]!.status='APPROVED';await api('POST',path+'/sync',undefined,'manager');
+  assert.equal((await api('PUT',dynamicBinding,{ bound:true,version:0 },'other')).statusCode,404);
+  assert.equal((await api('PUT',dynamicBinding,{ bound:true,version:0 },'manager')).statusCode,200);
+  const urlAvailable=(await api('GET',availablePath)).json();const dynamicAvailable=urlAvailable.items.find((row:{ id:string })=>row.id===dynamicId);
+  assert.equal(dynamicAvailable.urlParameterIndex,1);assert.deepEqual(dynamicAvailable.buttons,dynamicButtons);
+  assert.ok(!JSON.stringify(urlAvailable).includes('SECRET-URL-APPROVAL'));
+  const dynamicIntent={ templateId:dynamicId,templateParameters:['Body Order'],templateHeaderParameter:'Header Alice',
+    templateUrlParameter:'order-123?source=crm',idempotencyKey:'dynamic-url-send' };
+  for (const value of [undefined,'',' ','https://evil.test','//evil.test','a\\b','a%00','x'.repeat(2000)]) {
+    const invalid=await api('POST',messages,{ ...dynamicIntent,templateUrlParameter:value });assert.equal(invalid.statusCode,400,invalid.body);
+  }
+  assert.equal((await api('POST',messages,{ ...ctaIntent,idempotencyKey:'orphan-url-static',templateUrlParameter:'orphan' })).statusCode,400);
+  assert.equal((await api('POST',messages,{ body:'Plain text',templateUrlParameter:'orphan',idempotencyKey:'orphan-url-text' })).statusCode,400);
+  assert.equal((await api('POST',messages,{ attachmentId:'00000000-0000-4000-8000-000000000001',templateUrlParameter:'orphan',idempotencyKey:'orphan-url-media' })).statusCode,400);
+  assert.equal((await api('POST',messages,dynamicIntent,'second')).statusCode,404);assert.equal((await api('POST',messages,dynamicIntent,'other')).statusCode,404);
+  await db`UPDATE messaging_consent SET do_not_contact=true WHERE contact_id=${contact}`;
+  assert.equal((await api('POST',messages,dynamicIntent)).statusCode,409);await db`UPDATE messaging_consent SET do_not_contact=false WHERE contact_id=${contact}`;
+  const dynamicQueued=await Promise.all([api('POST',messages,dynamicIntent),api('POST',messages,dynamicIntent)]);
+  assert.deepEqual(dynamicQueued.map((result)=>result.statusCode).sort(),[200,202]);const dynamicMessageId=dynamicQueued[0]!.json().id;
+  assert.equal((await api('POST',messages,{ ...dynamicIntent,templateUrlParameter:'other-order' })).statusCode,409);
+  const dynamicSaved=(await db`SELECT body,template_snapshot FROM conversation_message WHERE id=${dynamicMessageId}`)[0]!;
+  assert.equal(dynamicSaved.body,'Welcome Header Alice\n\nOrder Body Order\n\nClosing line');
+  assert.equal(dynamicSaved.template_snapshot.urlParameter,'order-123?source=crm');assert.equal(dynamicSaved.template_snapshot.headerParameter,'Header Alice');
+  assert.deepEqual(dynamicSaved.template_snapshot.bodyParameters,['Body Order']);assert.deepEqual(dynamicSaved.template_snapshot.components[3].buttons,dynamicButtons);
+  assert.ok(!JSON.stringify(dynamicSaved).includes('SECRET-URL-APPROVAL'));
+  const dynamicPart=catalog[6]!.components[3] as { buttons:{ type:string;url?:string;example?:string[] }[] };
+  dynamicPart.buttons.reverse();await api('POST',path+'/sync',undefined,'manager');await processOneMessagingJob(db,adapter);assert.equal(sends,3);
+  const dynamicCv=(await api('GET',`/api/conversations/${cv}`)).json().conversation;
+  assert.equal((await api('POST',`/api/conversations/${cv}/attention/acknowledge`,{ version:dynamicCv.version,expectedReason:'TEMPLATE_CHANGED',
+    reviewNote:'Review original URL index before recovery',reviewConfirmed:true },'manager')).statusCode,200);
+  const dynamicRetryPath=`${messages}/${dynamicMessageId}/retry`;
+  assert.equal((await api('POST',dynamicRetryPath,{ version:1,reason:'Index still differs' })).statusCode,409);
+  dynamicPart.buttons.reverse();dynamicPart.buttons[1]!.example=['Changed approval sample only'];await api('POST',path+'/sync',undefined,'manager');
+  assert.equal((await api('POST',dynamicRetryPath,{ version:1,reason:'Unauthorized recovery' },'second')).statusCode,404);
+  const dynamicRecovered=await api('POST',dynamicRetryPath,{ version:1,reason:'Restored exact URL index and approved prefix' });
+  assert.equal(dynamicRecovered.statusCode,202,dynamicRecovered.body);await processOneMessagingJob(db,adapter);assert.equal(sends,4);
+  const dynamicHistory=(await api('GET',messages+'?limit=100')).json().items.find((row:{ id:string })=>row.id===dynamicMessageId);
+  assert.equal(dynamicHistory.delivery_state,'SENT');assert.deepEqual(dynamicHistory.templateButtons,[dynamicButtons[0],
+    { ...dynamicButtons[1],url:'https://example.test/orders/order-123?source=crm' }]);assert.equal(dynamicHistory.template_snapshot,undefined);
+  const urlTampered={ ...dynamicSaved.template_snapshot,urlParameter:'edited-after-send' };
+  await assert.rejects(db`UPDATE conversation_message SET template_snapshot=${db.json(urlTampered)} WHERE id=${dynamicMessageId}`,/CUSTOMER_MESSAGE_IMMUTABLE/);
+  dynamicPart.buttons[1]!.url='https://example.test/new/{{1}}';await api('POST',path+'/sync',undefined,'manager');
+  assert.deepEqual((await api('GET',messages+'?limit=100')).json().items.find((row:{ id:string })=>row.id===dynamicMessageId).templateButtons,dynamicHistory.templateButtons);
+  const urlOnly=await api('POST',path,{ ...dynamicInput,name:'url_only_notice',header:'Static',headerExample:undefined,body:'Fixed body',examples:[],idempotencyKey:'url-only-create' },'manager');
+  assert.equal(urlOnly.statusCode,201,urlOnly.body);catalog[7]!.status='APPROVED';await api('POST',path+'/sync',undefined,'manager');
+  assert.equal((await api('POST',`/api/messaging/connections/${connection}/test-send`,{ senderId:sender,templateId:urlOnly.json().id,
+    recipient:'+15550005555',recipientConfirmed:true,idempotencyKey:'no-url-only-test-send' },'manager')).statusCode,409);
   const tested=await api('POST',`/api/messaging/connections/${connection}/test-send`,{ senderId:sender,templateId:staticCreated.json().id,
     recipient:'+15550005555',recipientConfirmed:true,idempotencyKey:'static-operational-test' },'manager');
   assert.equal(tested.statusCode,200,tested.body);
   const audit=await db`SELECT action,detail FROM audit_log WHERE organization_id=${org}`;
-  assert.equal(audit.filter((row)=>row.action==='MESSAGING_TEMPLATE_CREATED').length,5);
-  assert.equal(audit.filter((row)=>row.action==='CAMPAIGN_TEMPLATE_BOUND').length,4);
-  assert.equal(audit.filter((row)=>row.action==='OUTBOUND_MESSAGE_QUEUED').length,3);
+  assert.equal(audit.filter((row)=>row.action==='MESSAGING_TEMPLATE_CREATED').length,7);
+  assert.equal(audit.filter((row)=>row.action==='CAMPAIGN_TEMPLATE_BOUND').length,5);
+  assert.equal(audit.filter((row)=>row.action==='OUTBOUND_MESSAGE_QUEUED').length,4);
   assert.ok(!JSON.stringify(audit).includes('test-only-no-live'));
   assert.ok(!JSON.stringify(audit).includes('Example not for Agent'));
   assert.ok(!JSON.stringify(audit).includes('SECRET HEADER APPROVAL'));
+  assert.ok(!JSON.stringify(audit).includes('SECRET-URL-APPROVAL'));assert.ok(!JSON.stringify(audit).includes('order-123?source=crm'));
 });

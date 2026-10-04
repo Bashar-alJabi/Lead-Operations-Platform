@@ -3,7 +3,7 @@ import type { Database } from '../db.js';
 import { HttpError, principalFromRequest } from '../security.js';
 import { decodeCursor, encodeCursor } from '../pagination.js';
 import { enqueueOutboundMessage } from '../messaging/outbound.js';
-import { parseTextTemplate } from '../messaging/approved-template.js';
+import { parseTextTemplate, renderTemplateButtons } from '../messaging/approved-template.js';
 
 const idParam = { type: 'object', additionalProperties: false, required: ['id'],
   properties: { id: { type: 'string', format: 'uuid' } } } as const;
@@ -44,7 +44,8 @@ export function registerConversationMessageRoutes(app: FastifyInstance, db: Data
       const page = rows.slice(0, limit);
       const items = page.map((row)=> {
         const { template_snapshot:_,...visible }=row;
-        return { ...visible,templateButtons:parseTextTemplate(row.template_snapshot?.components)?.buttons ?? [] };
+        const parsed=parseTextTemplate(row.template_snapshot?.components);
+        return { ...visible,templateButtons:parsed ? renderTemplateButtons(parsed.buttons,row.template_snapshot?.urlParameter) ?? [] : [] };
       });
       const last = page.at(-1);
       return { items, nextCursor: rows.length > limit && last ?
@@ -81,18 +82,19 @@ export function registerConversationMessageRoutes(app: FastifyInstance, db: Data
         const parsed=parseTextTemplate(row.components);
         const { components:_,...visible }=row;
         return parsed ? [{ ...visible,body:parsed.preview,components:parsed.components.filter((part)=>part.type!=='BUTTONS'),buttons:parsed.buttons,
-          parameterCount:parsed.parameterCount,headerParameterCount:parsed.headerParameterCount }] : [];
+          parameterCount:parsed.parameterCount,headerParameterCount:parsed.headerParameterCount,urlParameterIndex:parsed.urlParameterIndex }] : [];
       });
       return { items, nextAfter: rows.length > limit ? page.at(-1)!.id : null };
     });
 
   app.post<{ Params: { id: string }; Body: { body?: string; templateId?: string;
-    templateParameters?: string[]; templateHeaderParameter?:string; attachmentId?: string; idempotencyKey: string } }>(
+    templateParameters?: string[]; templateHeaderParameter?:string; templateUrlParameter?:string; attachmentId?: string; idempotencyKey: string } }>(
     '/api/conversations/:id/messages', { schema: { params: idParam, body: {
       type: 'object', additionalProperties: false, required: ['idempotencyKey'], properties: {
         body: { type: 'string', maxLength: 20000 },
         templateId: { type: 'string', format: 'uuid' },
         templateHeaderParameter:{ type:'string',minLength:1,maxLength:60 },
+        templateUrlParameter:{ type:'string',minLength:1,maxLength:2000 },
         attachmentId: { type: 'string', format: 'uuid' },
         templateParameters: { type: 'array', maxItems: 10, items: {
           type: 'string', minLength: 1, maxLength: 512 } },
@@ -104,6 +106,7 @@ export function registerConversationMessageRoutes(app: FastifyInstance, db: Data
         author: 'HUMAN', body: request.body.body, templateId: request.body.templateId,
         templateParameters: request.body.templateParameters,
         templateHeaderParameter:request.body.templateHeaderParameter,
+        templateUrlParameter:request.body.templateUrlParameter,
         attachmentId: request.body.attachmentId,
         idempotencyKey: request.body.idempotencyKey });
       reply.code(result.existing ? 200 : 202);
