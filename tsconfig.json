@@ -12,6 +12,6 @@
     "noUncheckedIndexedAccess": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src/**/*.ts", "scripts/**/*.ts", "test/**/*.ts", "test-integration/**/*.ts"],
+  "include": ["src/**/*.ts", "scripts/**/*.ts", "test/**/*.ts", "test-integration/**/*.ts", "test-e2e/**/*.ts", "playwright.config.ts"],
   "exclude": ["node_modules", "dist"]
 }

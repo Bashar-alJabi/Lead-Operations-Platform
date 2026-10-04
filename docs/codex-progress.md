@@ -1,5 +1,15 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: Browser E2E للمحادثة والاسترداد
+
+بعد checkpoint `725cf1b` أضيفت Playwright 1.63.0 و`test:e2e` مع server اختبار فقط: loopback `lead_operations_test` وreset acknowledgement صريحة ورفض NODE_ENV=production قبل الاتصال، وProvider fake وحسابات passwords عشوائية وbuild الواجهة الفعلية على origin معزولة. Edge المثبتة تعمل headless بprofile مؤقت دون حساب شخصي؛ Chromium الافتراضية قابلة للإعداد في CI. ملف fixture/results تحت `.local` لا يدخل Git ولا تستخدم production entrypoint أي test-control route. npm ثبتت بصلاحية network/cache خارج العزل بعد EACCES، وaudit صفر vulnerabilities.
+
+Browser كشف snapshot قديمة بعد takeover وعدم إخفاء composer عن غير المتحكم. UI تحدث Conversation عند عرض الرسائل وبعد رفض send، وتعرض composer للمتحكم الحالي فقط؛ Backend يبقى المرجع ويمنع tab قديمة من الإرسال. أضيف textarea label صريح يعمل بعد remount مع draft محفوظة. أصلح nested mobile forms/لف النص ومساحة Message history، وفحصت لقطتي French/mobile وArabic/RTL. إغلاق server بالرمز الاختباري ثم إغلاق API وDB طبيعي بدلاً من process.exit القسرية أصلح assertion من Node/libuv على Windows.
+
+التحقق: 33/33 unit و12/12 PostgreSQL integration و2/2 Browser E2E على Edge مع exit code=0، وBackend/Web typecheck/build ناجحة، وmigrations `001`–`037` سليمة بقاعدتي Docker. E2E تثبت Login وحسابات Agent/Manager وHuman composer→QUEUE→رفض مؤكد→recovery→ACK/history دون Message duplicate؛ takeover صريحة مع منع المتحكم السابق وDNC بلا provider call وUNKNOWN بلا زر retry؛ API history محجوبة بعد reassignment وLead تختفي بعد reload؛ Customer HTML يعرض كنص بلا img/XSS؛ Arabic RTL بعرض390px بلا overflow وFrench/English. unit guard تمنع reset لقاعدة development/remote/production أو دون acknowledgement وتحجب URL من الخطأ. لا UI media/template/setup/event-recovery E2E أو Meta live أو كامل platform E2E.
+
+الخطوة التالية الدقيقة بعد حفظ ورفع checkpoint: توسيع outbound media إلى audio/video/sticker ضمن capabilities والمواصفات الرسمية الحالية للمزود، مع نوع/حجم/scan وcaption rules وprovider adapter/queue/UI/recovery وnegative tests، دون إعادة بناء مسار JPEG/PNG/PDF. بعدها القوالب المركبة وبقية Messaging/operability، ثم Meta intake ثم Payments/Enrollment ثم AI. Messaging والمنصة ليستا Complete؛ لا تغييرات غير محفوظة من هذه المجموعة بعد checkpoint.
+
 ## آخر حالة مستقرة: Message delivery history وpre-acceptance recovery
 
 استؤنفت checkpoint `b556164` ورفعت إلى `codex/full-platform-build` دون حذف/تصفير أي عمل. أضيفت migration `037` لسجل recovery/version وفهارس تاريخ المحاولات والتسليم وحماية DB من إعادة QUEUED لأي قبول/غموض وتغيير Provider ID المقبول. API/UI تعرض Queue وdispatch attempts وDelivery events وRecovery history حسب Lead access الحالية، وإعادة FAILED/DEAD فقط من المؤلف البشري الأصلي الذي بقي Controller، مع السبب والنسخة وسياسة الإرسال وإبقاء أرقام المحاولات وزيادة budget bounded. ترفض Job نشطة قبل أقفال Conversation لتفادي ترتيب قفل عكسي مع فشل pre-dispatch. لا تعاد accepted/UNKNOWN/PREPARED؛ FAILED بعد callback ليست failure قبل قبول المزود. UI تعرض تواريخ الرسائل والمحاولات ولا تُفسّر HTML القادم من العميل أو سبب المراجعة.

@@ -19,6 +19,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "npm run build && node --test dist/test/*.test.js",
     "test:integration": "npm run build && node --test --test-concurrency=1 dist/test-integration/*.test.js",
+    "test:e2e": "npm run build && npm run web:build && playwright test",
     "benchmark:messaging": "npm run build && node dist/scripts/benchmark-messaging.js",
     "db:migrate": "npm run build && node dist/scripts/migrate.js",
     "db:local": "npm run build && node dist/scripts/local-postgres.js"
@@ -37,6 +38,7 @@
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@types/node": "^24.0.0",
     "@types/nodemailer": "^8.0.2",
     "@types/react": "^19.0.0",

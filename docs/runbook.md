@@ -69,6 +69,12 @@ UNKNOWN أو PREPARED/accepted outcome لا تستخدم هذا الإجراء،
 
 ## الأسرار والتكاملات
 
+### Browser E2E محلية
+
+بعد migrations على `lead_operations_test` اضبط `TEST_DATABASE_URL` المحلية و`E2E_RESET_TEST_DATABASE=1` صراحة ثم شغّل `npm run test:e2e`. هذا يفرغ قاعدة الاختبار ويُنشئ fixtures؛ لا تشغله بالتوازي مع integration tests أو benchmark، ولا في production. تحتاج port4100 فارغة؛ harness ترفض reuse لخدمة موجودة. للاختبار على Windows استخدم `E2E_BROWSER_CHANNEL=msedge` (تحقق محلياً) أو `chrome` المثبتة، بcontext جديدة مؤقتة بلا حساب شخصي. في CI اترك channel غير مضبوطة وثبّت Browser الخاصة بـPlaywright عبر `npx playwright install chromium` في بيئة الاختبار المناسبة. لا تُحفظ cookies أو credential حقيقية أو profile مستخدم في الاختبارات.
+
+المسار الحالي يثبت Human text/recovery/control/history/ACL وDNC/UNKNOWN وXSS وArabic mobile/RTL وFrench/English فقط. لقطات `.local/e2e/conversation-ar.png` و`mobile-fr.png`، وtrace/screenshot failures داخل `.local/e2e/results`، وfixture ذات password/token اختبارية عشوائية داخل `.local/e2e/fixture.json`؛ جميعها ignored ولا ترفعها إلى Git. harness تغلق API وDB والـBrowser بعد الاختبار، ولا تتطلب إيقاف Docker؛ استخدم entrypoint الإنتاج المعتادة للتطبيق، وليس `test-e2e/server`.
+
 للتحقق المحلي من Messaging burst استخدم `npm run benchmark:messaging -- --reset-test-database` بعد ضبط `TEST_DATABASE_URL` المحلية وتطبيق migrations؛ يفرغ بيانات `lead_operations_test` ويرفض development/remote database. لا تشغله بالتوازي مع integration tests؛ التقرير في `.local/performance/messaging-latest.json`. إعدادات workload والقياسات والحدود موثقة في `messaging-performance.md`؛ المزود وهمي ولا تثبت النتائج Meta live أو سعة إنتاجية.
 
 `CREDENTIAL_ENCRYPTION_KEY` سر deployment مستقل عن Business-managed credentials؛ لا يُنشر ولا يُرسل للـAI. تغيير المفتاح يحتاج عملية تدوير تعيد تشفير الأسرار؛ لم تُنفذ واجهة التدوير بعد. لا تضف Credential حقيقية إلى التطوير الحالي. إعداد مزودي Meta وMessaging وPayment وEmail وAI من الواجهة لم يكتمل بعد، لذا لا تُستخدم Connections حقيقية أو تُعرض حالة نجاح مزيفة.

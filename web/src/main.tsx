@@ -323,7 +323,7 @@ function App() {
         onChanged={async () => { const current = await api<typeof detail>(`/api/leads/${selectedLead}`); setDetail(current); }} />
       <LeadFields leadId={selectedLead} locale={locale} api={api} />
       <LeadConversations key={selectedLead} leadId={selectedLead} lifecycle={detail.lead.lifecycle}
-        role={user.role} locale={locale} api={api} />
+        role={user.role} actorId={user.id} locale={locale} api={api} />
     </section> : <>
       {page === 'leads' && <LeadSearch locale={locale} branches={branches} campaigns={campaigns} users={users} currentUser={user}
         api={api} onSearch={searchLeads} columns={leadColumns} onColumns={setLeadColumns} />}

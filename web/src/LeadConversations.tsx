@@ -6,7 +6,7 @@ type Api = <T>(path: string, options?: RequestInit) => Promise<T>;
 type Locale = 'ar'|'fr'|'en';
 type Conversation = { id: string; sender_id: string; sender_name: string; participant_ref: string;
   sender_capabilities: { media?: string[] };
-  controller_type: string; controller_name: string | null; state: string; version: number;
+  controller_type: string; controller_user_id: string | null; controller_name: string | null; state: string; version: number;
   needs_attention_reason: string | null; started_at: string };
 type Consent = { status: 'GRANTED'|'REVOKED'|'UNKNOWN'; do_not_contact: boolean; evidence: string | null;
   source: string | null; updated_at: string | null; version: number; editable: boolean };
@@ -48,8 +48,8 @@ const labels = {
     mode: 'Message type', textMode: 'Freeform text in reply window', templateMode: 'Approved template', template: 'Template', noTemplates: 'No approved templates allowed for this campaign.', templateNote: 'Template approval and sending policy are checked again before contacting the provider.', takeover: 'Take over conversation', takeoverReason: 'Takeover reason' },
 } as const;
 
-export function LeadConversations({ leadId, lifecycle, role, locale, api }: { leadId: string; lifecycle: string;
-  role: 'SUPER_ADMIN'|'MANAGER'|'AGENT'; locale: Locale; api: Api }) {
+export function LeadConversations({ leadId, lifecycle, role, actorId, locale, api }: { leadId: string; lifecycle: string;
+  role: 'SUPER_ADMIN'|'MANAGER'|'AGENT'; actorId: string; locale: Locale; api: Api }) {
   const t = labels[locale];
   const [items, setItems] = useState<Conversation[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -106,9 +106,11 @@ export function LeadConversations({ leadId, lifecycle, role, locale, api }: { le
     catch (failure) { setError(String(failure)); } finally { setBusy(false); }
   }
   async function loadMessages(id: string, next?: string) {
-    const page = await api<{ items: Message[]; nextCursor: string | null }>(
-      `/api/conversations/${id}/messages${next ? '?cursor=' + encodeURIComponent(next) : ''}`);
+    const [page, current] = await Promise.all([api<{ items: Message[]; nextCursor: string | null }>(
+      `/api/conversations/${id}/messages${next ? '?cursor=' + encodeURIComponent(next) : ''}`),
+      api<{ conversation: Conversation }>(`/api/conversations/${id}`)]);
     if (selectedRef.current !== id) return;
+    setItems((prior) => prior.map((item) => item.id === id ? current.conversation : item));
     setMessages((current) => next ? [...current, ...page.items] : page.items);
     setMessageCursor(page.nextCursor);
   }
@@ -150,7 +152,10 @@ export function LeadConversations({ leadId, lifecycle, role, locale, api }: { le
       setDraft(''); setTemplateId(''); setTemplateParameters([]); setSendKey(crypto.randomUUID()); setSubmitted(false);
       setUploadFile(null); setUploadedAttachment(null); setUploadKey(crypto.randomUUID());
       await loadMessages(selectedId);
-    } catch (failure) { setError(String(failure)); } finally { setBusy(false); }
+    } catch (failure) {
+      setError(String(failure));
+      if (selectedRef.current === selectedId) await loadMessages(selectedId).catch(() => {});
+    } finally { setBusy(false); }
   }
   async function uploadAttachment() {
     if (!selectedId || !uploadFile) return;
@@ -167,6 +172,8 @@ export function LeadConversations({ leadId, lifecycle, role, locale, api }: { le
     } catch (failure) { setError(String(failure)); } finally { setBusy(false); }
   }
   const selected = items.find((item) => item.id === selectedId);
+  const canCompose = selected?.controller_type === 'HUMAN' && selected.controller_user_id === actorId
+    && selected.state === 'HUMAN_ACTIVE' && !selected.needs_attention_reason && lifecycle === 'OPEN';
   const reviewable = selected && ['SEND_OUTCOME_UNKNOWN','DELIVERY_FAILED','TEMPLATE_CHANGED']
     .includes(selected.needs_attention_reason ?? '') && role !== 'AGENT';
   async function acknowledgeAttention() {
@@ -201,7 +208,7 @@ export function LeadConversations({ leadId, lifecycle, role, locale, api }: { le
       await loadConsent();
     } catch (failure) { setError(String(failure)); } finally { setBusy(false); }
   }
-  return <section className="panel"><h3>{t.title}</h3><p>{t.explain}</p>
+  return <section className="panel conversation-panel"><h3>{t.title}</h3><p>{t.explain}</p>
     {error && <p role="alert" className="error">{error}</p>}
     <button disabled={busy || lifecycle !== 'OPEN'} onClick={() => void open()}>{t.open}</button>
     {!items.length && <p>{t.empty}</p>}
@@ -236,7 +243,7 @@ export function LeadConversations({ leadId, lifecycle, role, locale, api }: { le
       </label><button className="secondary" disabled={busy || takeoverReason.trim().length < 3}
         onClick={() => void takeover()}>{t.takeover}</button></div>}
       {!messages.length && <p>{t.noMessages}</p>}
-      <ul>{messages.map((message) => <li key={message.id}>
+      <ul className="conversation-messages">{messages.map((message) => <li key={message.id}>
         <strong>{message.direction === 'INBOUND' ? t.customer : message.author_type}</strong>
         {' · '}{message.message_kind}{' · '}{message.delivery_state}{message.last_error_code && ` · ${message.last_error_code}`}
         {' · '}<time dateTime={message.created_at}>{new Date(message.created_at).toLocaleString(locale)}</time>
@@ -251,12 +258,12 @@ export function LeadConversations({ leadId, lifecycle, role, locale, api }: { le
       </li>)}</ul>
       {messageCursor && <button className="secondary" disabled={busy}
         onClick={() => void loadMessages(selectedId, messageCursor).catch((failure) => setError(String(failure)))}>{t.more}</button>}
-      <form className="workflow-form" onSubmit={(event) => { event.preventDefault(); void sendMessage(); }}>
+      {canCompose && <form className="workflow-form" onSubmit={(event) => { event.preventDefault(); void sendMessage(); }}>
         <label>{t.mode}<select value={sendMode} disabled={busy} onChange={(event) => {
           setSendMode(event.target.value as 'TEXT'|'TEMPLATE'|'ATTACHMENT'); setDraft(''); setSendKey(crypto.randomUUID()); setSubmitted(false);
         }}><option value="TEXT">{t.textMode}</option><option value="TEMPLATE">{t.templateMode}</option>
           {selected?.sender_capabilities?.media?.length ? <option value="ATTACHMENT">{locale === 'ar' ? 'صورة أو PDF ضمن نافذة الرد' : locale === 'fr' ? 'Image ou PDF' : 'Image or PDF in reply window'}</option> : null}</select></label>
-        {sendMode === 'TEXT' ? <label>{t.draft}<textarea required maxLength={20000} value={draft} disabled={busy}
+        {sendMode === 'TEXT' ? <label>{t.draft}<textarea aria-label={t.draft} required maxLength={20000} value={draft} disabled={busy}
           onChange={(event) => { setDraft(event.target.value);
             if (submitted) { setSendKey(crypto.randomUUID()); setSubmitted(false); } }} /></label>
           : sendMode === 'TEMPLATE' ? <label>{t.template}<select required value={templateId} disabled={busy} onChange={(event) => {
@@ -287,7 +294,7 @@ export function LeadConversations({ leadId, lifecycle, role, locale, api }: { le
         <button disabled={busy || (sendMode === 'TEXT' ? !draft.trim() : sendMode === 'ATTACHMENT' ? !uploadedAttachment
           : !templateId || templateParameters.some((value) => !value.trim())) || lifecycle !== 'OPEN' || selected?.state !== 'HUMAN_ACTIVE'
           || Boolean(selected.needs_attention_reason)}>{t.send}</button>
-      </form><p>{t.queued} {t.sendBlocked}</p>
+      </form>}<p>{t.queued} {t.sendBlocked}</p>
     </div>}
     {consent && <div className="panel"><h4>{t.consent}</h4>
       <p>{consent.status} · {t.dnc}: {consent.do_not_contact ? '✓' : '—'} · {t.updated}: {consent.updated_at ?? '—'}</p>
