@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 type Fixture = { password:string;testToken:string;leadId:string;conversationId:string;untrusted:string;mediaLeadId:string;mediaConversationId:string };
 let fixture:Fixture;
 let agentStorageState:Awaited<ReturnType<BrowserContext['storageState']>>|undefined;
+let managerStorageState:Awaited<ReturnType<BrowserContext['storageState']>>|undefined;
 test.describe.configure({ mode:'serial' });
 test.beforeAll(async()=> { fixture=JSON.parse(await readFile(resolve('.local/e2e/fixture.json'),'utf8')); });
 async function login(page:Page,name='agent') {
@@ -499,5 +500,47 @@ test('approved video template uses a ready approval sample and a separate scanne
     await agent.setViewportSize({ width:390,height:844 });await agent.getByRole('combobox',{ name:'Language' }).selectOption('ar');
     await expect(agent.locator('html')).toHaveAttribute('dir','rtl');expect(await agent.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
     await agent.getByText(body,{ exact:true }).scrollIntoViewIfNeeded();await agent.screenshot({ path:'.local/e2e/media-template-ar.png' });expect(errors).toEqual([]);
+  } finally { await context.close(); }
+  managerStorageState=await page.context().storageState();
+});
+
+test('Meta source setup creates encrypted credentials, discovers scoped Pages and Forms, handles failure and preserves safe mobile history',async({ browser })=> {
+  expect(managerStorageState).toBeTruthy();const context=await browser.newContext({ storageState:managerStorageState });const page=await context.newPage();
+  const errors:string[]=[];page.on('pageerror',(error)=>errors.push(error.message));
+  try {
+    await page.goto('/');await page.getByRole('combobox',{ name:'Language' }).selectOption('en');await expect(page.getByRole('button',{ name:'Sign out',exact:true })).toBeVisible();
+    await page.getByRole('button',{ name:'Meta sources',exact:true }).click();const setup=page.locator('.meta-source-setup');
+    await setup.getByRole('button',{ name:'Add Meta source',exact:true }).click();
+    await setup.getByLabel('Source name',{ exact:true }).fill('Browser Lead Source');await setup.getByLabel('Source Graph API version',{ exact:true }).fill('v25.0');
+    await setup.getByLabel('Meta access token',{ exact:true }).fill('synthetic-browser-root-token');await setup.getByLabel('Source App Secret',{ exact:true }).fill('synthetic-browser-app-secret');
+    await setup.getByLabel('Source verification token',{ exact:true }).fill('synthetic-browser-verify-token');await setup.getByRole('button',{ name:'Save source',exact:true }).click();
+    const row=setup.getByRole('row').filter({ hasText:'Browser Lead Source' });await expect(row).toContainText('NOT_CONFIGURED');
+    await expect(setup.getByRole('heading',{ name:'Browser Lead Source',exact:true })).toBeVisible();const before=await control(page);
+    await control(page,{ sourceFailure:true });await setup.getByRole('button',{ name:'Test and discover Pages',exact:true }).click();
+    await expect(row).toContainText('AUTH_EXPIRED');await expect(setup.getByRole('alert')).toContainText('SOURCE_PROVIDER_AUTH_FAILED');
+    await control(page,{ sourceFailure:false });await setup.getByRole('button',{ name:'Test and discover Pages',exact:true }).click();await expect(row).toContainText('WARNING');
+    const pageSelector=setup.getByLabel('Select Page',{ exact:true });await expect(pageSelector.locator('option')).toHaveCount(2);
+    const pageId=await pageSelector.locator('option').nth(1).getAttribute('value');await pageSelector.selectOption(pageId!);
+    await setup.getByRole('button',{ name:'Discover Forms',exact:true }).click();const formSelector=setup.getByLabel('Select Form',{ exact:true });
+    await expect(formSelector.locator('option')).toHaveCount(2);await formSelector.selectOption((await formSelector.locator('option').nth(1).getAttribute('value'))!);
+    await expect(setup).toContainText('Interest <img src=x onerror=alert(1)>');await expect(setup).toContainText('Yes <b>literal</b>');await expect(setup.locator('img,b')).toHaveCount(0);
+    await expect(setup).not.toContainText('synthetic-browser-page-private-token');await expect(setup).not.toContainText('synthetic-browser-root-token');
+    await expect(setup).toContainText('Lead intake is not configured');await expect(setup).toContainText('SUCCEEDED');await expect(setup).toContainText('FAILED');
+    await setup.getByRole('button',{ name:'Edit source',exact:true }).click();await expect(setup.getByLabel('Meta access token',{ exact:true })).toHaveValue('');
+    await setup.getByRole('button',{ name:'Cancel',exact:true }).click();
+    await setup.getByRole('button',{ name:'Disable source',exact:true }).click();await expect(row).toContainText('DISABLED');
+    await expect(setup.getByRole('button',{ name:'Test and discover Pages',exact:true })).toBeDisabled();await expect(setup.getByRole('button',{ name:'Discover Forms',exact:true })).toBeDisabled();
+    await setup.getByRole('button',{ name:'Reconfigure source',exact:true }).click();await expect(row).toContainText('NOT_CONFIGURED');
+    await expect(setup.getByRole('button',{ name:'Discover Forms',exact:true })).toBeDisabled();
+    await setup.getByRole('button',{ name:'Test and discover Pages',exact:true }).click();await expect(row).toContainText('WARNING');
+    const after=await control(page);expect(after.providerCalls).toBe(before.providerCalls);expect(after.messages).toHaveLength(before.messages.length);expect(after.sourceCatalogCalls).toBe(before.sourceCatalogCalls+4);
+    const agentContext=await browser.newContext({ storageState:agentStorageState });
+    try { const agent=await agentContext.newPage();await agent.goto('/');await agent.getByRole('combobox',{ name:'Language' }).selectOption('en');
+      await expect(agent.getByRole('button',{ name:'Sign out',exact:true })).toBeVisible();await expect(agent.getByRole('button',{ name:'Meta sources',exact:true })).toHaveCount(0);
+      expect((await agent.request.get('/api/sources/meta/connections')).status()).toBe(403);
+    } finally { await agentContext.close(); }
+    await page.setViewportSize({ width:390,height:844 });await page.getByRole('combobox',{ name:'Language' }).selectOption('ar');
+    await expect(page.locator('html')).toHaveAttribute('dir','rtl');expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
+    await setup.getByRole('heading',{ name:'مصادر Meta',exact:true }).scrollIntoViewIfNeeded();await page.screenshot({ path:'.local/e2e/meta-source-ar.png' });expect(errors).toEqual([]);
   } finally { await context.close(); }
 });

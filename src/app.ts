@@ -31,10 +31,13 @@ import { registerMessageDeliveryRoutes } from './routes/message-delivery.js';
 import { smtpEmailAdapter, type IdentityEmailAdapter } from './identity-email.js';
 import type { MessagingProviderAdapter, MessagingSendAdapter } from './messaging/providers.js';
 import type { MessagingTemplateAdapter } from './messaging/templates-provider.js';
+import { registerMetaSourceRoutes } from './routes/meta-sources.js';
+import type { LeadSourceCatalogAdapter } from './sources/meta-provider.js';
 
 export async function buildApp(db: Database, options: { logger?: boolean; emailAdapter?: IdentityEmailAdapter;
   messagingAdapter?: MessagingProviderAdapter; messagingTemplateAdapter?: MessagingTemplateAdapter;
   messagingSendAdapter?: MessagingSendAdapter;
+  leadSourceCatalogAdapter?: LeadSourceCatalogAdapter;
   mediaStorage?: MediaStorage;
   mediaScanner?: MediaScanner;
   globalRateLimitMax?: number } = {}): Promise<FastifyInstance> {
@@ -101,5 +104,6 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   registerConversationMessageRoutes(app, db);
   registerMessageDeliveryRoutes(app, db);
   registerIdentityEmailRoutes(app, db, options.emailAdapter ?? smtpEmailAdapter);
+  registerMetaSourceRoutes(app,db,options.leadSourceCatalogAdapter);
   return app;
 }

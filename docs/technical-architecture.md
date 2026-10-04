@@ -2,6 +2,16 @@
 
 ## قرار البناء
 
+### Meta source catalog
+
+بعد checkpoint Media Templates `83c0022` تنتقل dependency order إلى Meta intake. Connection من kind META/provider META_LEAD_ADS مستقلة عن Messaging account/WABA؛ credential flow تبدأ من UI وتقبل access token مخصصاً للمؤسسة مع App Secret وVerify Token دون أي اعتماد شخصي أو production. Page discovery تستعمل me/accounts، وForms تستعمل Page-specific token وpage/leadgen_forms؛ لا يفترض اكتشاف الموارد جاهزية Webhook أو Intake. OAuth ليس شرطاً لاستعمال credential flow المدعومة، وسيظل غياب Live credential موثقاً.
+
+Source resource catalog تقنية مشتركة PAGE/FORM/parent/questions؛ resource secrets منفصلة مشفرة بسياق resource ID ولا تعود في DTO/Logs/Audit. sync تحفظ محاولة محدودة وlease لكل Connection، تعيد ACL/Connection version/lease fencing بعد HTTP خارج المعاملة، وتطبق catalogue atomically؛ partial/provider failure لا يمحو التاريخ. الإعداد/التعطيل يبطل readiness للموارد دون حذفها. Server pagination bounded، provider pagination لا تتبع paging.next URL؛ قائمة cursor يعاد بناؤها على Graph host. هذه dependency لـsource binding/mapping/intake، وليست إكمالاً لMeta Integration وحدها. نماذج API تؤكدها [Meta User accounts](https://github.com/facebook/facebook-python-business-sdk/blob/main/facebook_business/adobjects/user.py)، [Page leadgen_forms](https://github.com/facebook/facebook-python-business-sdk/blob/main/facebook_business/adobjects/page.py)، و[LeadgenForm questions](https://github.com/facebook/facebook-python-business-sdk/blob/main/facebook_business/adobjects/leadgenform.py).
+
+تنفذ migrations043–044 resource/secret/sync tables وFK/identity/history guards؛ current Catalog قابلة للمزامنة دون حذف references، بينما terminal attempt تاريخية immutable. عملية اكتشاف تشغيلية نادرة ومحدودة وليست Lead intake في HTTP:10 صفحات×100 مورد،512KiB/response و100 question/option ضمن طول نص محدود،8s/request و90s/deadline تحت lease120s. max1000 تقنية fail-visible وليست Business capacity؛ تعديل الحدود يستلزم مراجعة lease/bounds واختبار workload. عند تجاوزها تفشل العملية وتحافظ على Catalog السابقة، دون نجاح جزئي. Connection row lock لحجز محاولة واحدة وfencing current config/actor قبل commit؛ لا توجد provider I/O تحت القفل. Authentication failure الحالية تميز HTTP401/403، و429/server outage retryable في adapter؛ إعادة discovery صريحة bounded من UI، ولا background customer action أو intakeReady fake. Lead/Source event workers تُنفذ لاحقاً منفصلة عن sync.
+
+49 unit/17 integration/8 Browser مثبتة بDocker PostgreSQL وfakes. Browser تستخدم Manager/Agent sessions اصطناعية محفوظة في الذاكرة من الرحلات السابقة دون تجاوز login quota أو حفظ cookies. metadata labels/options render React text فقط؛ HTML من question أو Page name لا ينفذ. لم يتحقق Meta live أو shared branch source bindings أو mapping/intake/OAuth. وثائق Pages/Lead Ads HTTP عادت429، لذلك تؤكد SDK الرسمية endpoint/field shapes فقط، ولا يُدّعى اختبار permissions/Application Review لدى المزود.
+
 المنصة **Modular Monolith**: واجهة React مستقلة، وواجهة API وخدمات تطبيقية وعمال مهام في مستودع واحد. تنشر نسخ API stateless خلف موازن حمل، ويشترك العمال معها في PostgreSQL. حدود الوحدات تحافظ على فصل الـDomain عن مزودي Meta وMessaging وPayment وEmail وAI وGoogle. لا توجد خدمة خارجية تصبح مصدر الحقيقة التشغيلية.
 
 الاختيارات:
