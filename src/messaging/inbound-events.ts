@@ -2,6 +2,7 @@ import type postgres from 'postgres';
 import type { Database } from '../db.js';
 import { HttpError, type Principal } from '../security.js';
 import { MediaError, parseInboundMedia } from '../media/validation.js';
+import { processOneIntegrationEvent } from './event-processing.js';
 
 type InboundPayload = { senderExternalId: string; message: Record<string, unknown> };
 type EventRow = { id: string; connection_id: string; sender_id: string | null;
@@ -60,6 +61,7 @@ export async function processInboundEvent(tx: postgres.TransactionSql, eventId: 
     return { state: 'PROCESSED', leadId: event.lead_id!, conversationId: event.conversation_id!, existing: true };
   }
   if (event.state === 'IGNORED') throw new HttpError(409, 'INBOUND_ALREADY_IGNORED');
+  if (event.state === 'FAILED') throw new HttpError(409, 'EVENT_RETRY_REQUIRED');
   if (!event.sender_id || !/^\+[1-9]\d{7,14}$/.test(event.participant_ref))
     return attention(tx, event.id, 'SENDER_OR_PARTICIPANT_UNRESOLVED');
   const sender = (await tx`SELECT s.id, s.connection_id, s.active, s.operator_enabled,
@@ -207,12 +209,5 @@ export async function processInboundEvent(tx: postgres.TransactionSql, eventId: 
 }
 
 export async function processOneInboundEvent(db: Database): Promise<boolean> {
-  return db.begin(async (tx) => {
-    const event = (await tx`SELECT id FROM integration_event WHERE event_kind = 'INBOUND_MESSAGE'
-      AND state = 'NEEDS_ATTENTION' AND failure_code = 'INBOUND_PROCESSING_NOT_READY'
-      ORDER BY received_at, id FOR UPDATE SKIP LOCKED LIMIT 1`)[0];
-    if (!event) return false;
-    await processInboundEvent(tx, event.id);
-    return true;
-  });
+  return processOneIntegrationEvent(db, 'INBOUND_MESSAGE', processInboundEvent);
 }

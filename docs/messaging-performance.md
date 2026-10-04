@@ -32,7 +32,26 @@ Callback موقعة لكل Sender تسبق كتابة Provider Message ID وتص
 
 القيم قياس تشغيل واحد لكل workload بعد التصحيح، وليست SLA أو حدود Business أو معدل Provider. معدلات المراحل تقسم عدد Messages الفريدة على زمن المرحلة المحلية؛ p95 يقيس زمن طلب HTTP batch أو intent بما فيه الانتظار وduplicate protection. لا يمكن جمع هذه المعدلات كسعة للنظام، ولا يثبت هذا sustained load أو Dataset كبيراً أو horizontal scaling بين أجهزة مستقلة.
 
-نتيجة هندسية: callbacks تنفذ عدداً من SQL operations لكل Status داخل Webhook وتمسك Connection أثناء المعالجة؛ يزداد HTTP latency مع burst على الاتصال نفسه. الخطوة التالية فصل durable ingestion عن callback processing في worker مستقلة عن outbound I/O، مع إعادة اختبار idempotency/order/recovery وقياس هذا المسار. بعد ذلك تكتمل واجهة attempt/recovery والـobservability ونواقص Messaging قبل بدء Meta intake.
+نتيجة checkpoint `974fcb4`: callbacks وقتها تنفذ عدداً من SQL operations لكل Status داخل Webhook وتمسك Connection أثناء المعالجة؛ زاد HTTP latency مع burst على الاتصال نفسه. نفذ checkpoint التالي فصل durable ingestion عن callback processing في worker مستقلة عن outbound I/O كما أدناه، مع الحفاظ على اختبارات السلامة. بقية attempt/recovery وMessaging تحتاج استكمالاً قبل Meta intake.
+
+## القياس بعد durable batch ingestion وفصل معالجة الأحداث
+
+شغّل workload الموسع نفسه 09:14 UTC، مع migrations `034`–`036`. Webhook تجمع lookup للـSenders وINSERT للأحداث في SQL batch واحدة؛ worker تستخدم savepoint وattempt/history وbounded failure recovery لكل حدث. HTTP قبول سريع يعني حفظاً دائماً، ومعالجة الحالة تحدث لاحقاً.
+
+| المقياس | قبل الفصل 08:42 UTC | بعد الفصل 09:14 UTC |
+|---|---:|---:|
+| Contacts / inbound / outbound / Delivery events | 800 / 800 / 800 / 2400 | 800 / 800 / 800 / 2400 |
+| Inbound Webhook p95 | 1272.47 ms | 233.63 ms |
+| Delivery Webhook p95 | 3185.74 ms | 350.75 ms |
+| Inbound resolution معدل المرحلة | 787.74 message/s | 537.46 message/s |
+| Enqueue API p95 | 44.97 ms | 74.32 ms |
+| Dispatch + recovery معدل المرحلة | 89.83 message/s | 62.00 message/s |
+| Delivery processing منفصلة بعد استقبال burst | ضمن HTTP | 20657.10 ms، 115.80 event/s |
+| Provider calls / Max concurrency لكل Sender / كلياً | 801 / 1 / 4 | 801 / 1 / 4 |
+
+المقارنة رصد محلي لتشغيلين بنفس workload، ولا تعزل اختلاف حمل الجهاز أو كل عامل سببي. HTTP latency انخفضت في القياس، لكن معالجة الأحداث لا تختفي: سجل كل محاولة/savepoint/counters يزيد عمليات Database ويظهر بتكلفة CPU/SQL وانخفاض معدلات بعض المراحل. لا تستخدم Webhook latency وحدها دليلاً على end-to-end throughput. الرقم 115.80 يقسم الأحداث الجديدة التي بقيت بعد early callbacks على زمن المعالجة المنفصلة، ولا يتضمن استقبالها. يلزم قياس sustained workload وqueue lag وproduction topology قبل تحديد سعة أو SLA.
+
+Regression جديدة تثبت rollback للآثار الجزئية وretry بموعد/خمس failures ثم FAILED، وإعادة معالجة مصرح بها وversioned من UI/API دون customer resend، وhistory pagination وfailure filtering بلا أسرار. اختبار compiled `worker:events` كعملية Node مستقلة يثبت معالجة inbound/READ أثناء توقف outbound fake provider عند barrier؛ ذلك تحقق تشغيل محلي، لا Meta live أو UI E2E.
 
 ## إعادة التشغيل
 

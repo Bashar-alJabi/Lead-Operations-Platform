@@ -14,6 +14,7 @@ import { MediaError } from '../src/media/validation.js';
 import type { MessagingMediaAdapter } from '../src/media/meta-provider.js';
 import type { MediaScanner } from '../src/media/scanner.js';
 import { processOneMessagingJob } from '../src/messaging/send-worker.js';
+import { processOnePendingDeliveryEvent } from '../src/messaging/delivery-events.js';
 import { ProviderSendError, type MessagingSendAdapter } from '../src/messaging/providers.js';
 
 const url = process.env.TEST_DATABASE_URL;
@@ -307,6 +308,8 @@ test('signed inbound attachments preserve history, gate downloads on scanning, i
   assert.equal((await app.inject({ method: 'POST', url: `/api/webhooks/messaging/meta/${connection}`, payload: deliveryPayload,
     headers: { 'content-type': 'application/json', 'x-hub-signature-256':
       `sha256=${createHmac('sha256', credentials.appSecret).update(deliveryPayload).digest('hex')}` } })).statusCode, 200);
+  assert.equal((await db`SELECT delivery_state FROM conversation_message WHERE id = ${sentId}`)[0]!.delivery_state, 'SENT');
+  assert.equal(await processOnePendingDeliveryEvent(db), true);
   assert.equal((await db`SELECT delivery_state FROM conversation_message WHERE id = ${sentId}`)[0]!.delivery_state, 'DELIVERED');
   assert.equal(await sendWorker(), false);
   assert.equal((await api('POST', messagePath, 'agent', { ...intent, idempotencyKey: 'reuse-file-not-message' })).statusCode, 409);

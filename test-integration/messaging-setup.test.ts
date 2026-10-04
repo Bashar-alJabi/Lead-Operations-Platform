@@ -1168,12 +1168,14 @@ test('signed Meta callbacks preserve delivery history and never regress on repla
   assert.equal(verified.statusCode, 200, verified.body);
   assert.equal(verified.body, 'challenge-123');
   assert.equal((await api('GET', infoPath, undefined, manager)).json().handshakeVerified, true);
-  const callback = (payload: object, signed = true) => {
+  const callback = async (payload: object, signed = true, runWorker = true) => {
     const raw = JSON.stringify(payload);
     const signature = `sha256=${createHmac('sha256', appSecret).update(raw).digest('hex')}`;
-    return app.inject({ method: 'POST', url: path, payload: raw, headers: {
+    const result = await app.inject({ method: 'POST', url: path, payload: raw, headers: {
       'content-type': 'application/json', ...(signed ? { 'x-hub-signature-256': signature } : {}),
     } });
+    if (result.statusCode === 200 && runWorker) while (await processOnePendingDeliveryEvent(db)) { /* callback queue */ }
+    return result;
   };
   const epoch = Math.floor(Date.now() / 1000);
   const payload = (status: string, timestamp: number, id = 'wamid.callback-1',
@@ -1189,9 +1191,12 @@ test('signed Meta callbacks preserve delivery history and never regress on repla
   assert.equal((await callback({ ...delivered, entry: [{ id: 'wrong-waba', changes: delivered.entry[0]!.changes }] }))
     .statusCode, 400);
   assert.equal((await callback({ bad: 'payload' })).statusCode, 400);
-  const first = await callback(delivered);
+  const first = await callback(delivered, true, false);
   assert.equal(first.statusCode, 200, first.body);
   assert.equal(first.json().created, 1);
+  assert.equal((await db`SELECT delivery_state FROM conversation_message WHERE id = ${messageId}`)[0]!.delivery_state, 'SENT');
+  assert.equal((await db`SELECT state FROM integration_event WHERE connection_id = ${connectionId} LIMIT 1`)[0]!.state, 'RECEIVED');
+  assert.equal(await processOnePendingDeliveryEvent(db), true);
   assert.equal((await db`SELECT delivery_state, delivery_rank FROM conversation_message WHERE id = ${messageId}`)[0]!
     .delivery_state, 'DELIVERED');
   assert.equal((await callback(delivered)).json().created, 0);
@@ -1263,7 +1268,8 @@ test('signed Meta callbacks preserve delivery history and never regress on repla
   assert.equal((await callback(inbound)).statusCode, 200);
   assert.equal((await callback(inbound)).json().created, 0);
   const attention = (await api('GET', infoPath, undefined, manager)).json();
-  assert.equal(attention.needsAttention, 3);
+  assert.equal(attention.needsAttention, 2);
+  assert.equal(attention.pending, 1);
   const events = await api('GET', eventsPath, undefined, manager);
   assert.equal(events.statusCode, 200, events.body);
   assert.equal(events.body.includes('15550009999'), false);

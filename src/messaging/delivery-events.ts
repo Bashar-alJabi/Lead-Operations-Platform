@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type postgres from 'postgres';
 import type { Database } from '../db.js';
+import { processOneIntegrationEvent } from './event-processing.js';
 
 export type DeliveryStatus = { senderExternalId: string; providerMessageId: string;
   recipient: string; status: 'sent'|'delivered'|'read'|'failed'; providerTimestamp: string };
@@ -102,17 +103,5 @@ export async function applyDeliveryEvent(tx: postgres.TransactionSql, eventId: s
 }
 
 export async function processOnePendingDeliveryEvent(db: Database): Promise<boolean> {
-  return db.begin(async (tx) => {
-    const pending = (await tx`SELECT e.id FROM integration_event e
-      WHERE e.event_kind = 'DELIVERY_STATUS' AND e.state = 'NEEDS_ATTENTION'
-        AND e.failure_code = 'MESSAGE_NOT_FOUND'
-        AND (EXISTS (SELECT 1 FROM conversation_message m
-          WHERE m.connection_id = e.connection_id AND m.provider_message_id = e.payload->>'providerMessageId')
-          OR EXISTS (SELECT 1 FROM messaging_connection_test_send r
-            WHERE r.connection_id = e.connection_id AND r.provider_message_id = e.payload->>'providerMessageId'))
-      ORDER BY e.received_at, e.id FOR UPDATE OF e SKIP LOCKED LIMIT 1`)[0];
-    if (!pending) return false;
-    await applyDeliveryEvent(tx, pending.id);
-    return true;
-  });
+  return processOneIntegrationEvent(db, 'DELIVERY_STATUS', applyDeliveryEvent);
 }

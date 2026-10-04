@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { MessagingEventProcessing, type ProcessingEvent } from './MessagingEventProcessing';
 
 type Api = <T>(path: string, options?: RequestInit) => Promise<T>;
 type Info = { callbackPath: string; handshakeVerified: boolean; signedCallbackVerified: boolean;
-  needsAttention: number };
-type Event = { id: string; event_kind: string; state: string; failure_code: string | null;
+  needsAttention: number; pending: number; failed: number; oldestPendingAt: string | null; lastProcessedAt: string | null };
+type Event = ProcessingEvent & { event_kind: string;
   participant_last4: string; received_at: string };
 const labels = {
   ar: { title: 'Webhook للرسائل', guide: 'في إعداد Meta App → Webhooks، استخدم Callback URL أدناه ورمز Verify Token الذي حفظته عند إنشاء الاتصال، ثم اشترك في حقل messages لـWhatsApp Business Account. لا تُعرض قيمة الرمز بعد حفظها؛ يمكن استبدالها من تعديل الاتصال. يجب وصول حدث موقّع قبل اعتبار الاستقبال متحققاً.',
@@ -25,27 +26,45 @@ export function MessagingWebhookSetup({ connectionId, locale, api }: {
   const [events, setEvents] = useState<Event[]>([]);
   const [before, setBefore] = useState<string | null>(null);
   const [error, setError] = useState('');
-  async function load(next?: string) {
+  const [filter, setFilter] = useState(''); const loadVersion = useRef(0);
+  async function load(next?: string, currentFilter = filter) {
+    const version = ++loadVersion.current;
+    const query = new URLSearchParams(); if (next) query.set('before',next); if (currentFilter) query.set('state',currentFilter);
     const [current, page] = await Promise.all([
       api<Info>(`/api/messaging/connections/${connectionId}/webhook`),
       api<{ items: Event[]; nextBefore: string | null }>(
-        `/api/messaging/connections/${connectionId}/events${next ? '?before=' + encodeURIComponent(next) : ''}`),
+        `/api/messaging/connections/${connectionId}/events?${query}`),
     ]);
+    if (version !== loadVersion.current) return;
     setInfo(current); setEvents((old) => next ? [...old, ...page.items] : page.items); setBefore(page.nextBefore);
   }
-  useEffect(() => { setInfo(null); setEvents([]); setError('');
-    void load().catch((failure) => setError(String(failure))); }, [connectionId]);
+  useEffect(() => { setInfo(null); setEvents([]); setError(''); setFilter('');
+    void load(undefined,'').catch((failure) => setError(String(failure)));
+    return () => { loadVersion.current++; }; }, [connectionId]);
   return <section className="panel"><h4>{t.title}</h4><p>{t.guide}</p>
     {error && <p role="alert" className="error">{error}</p>}
     {info && <><label>Callback URL<input readOnly value={`${window.location.origin}${info.callbackPath}`} /></label>
       <p>{t.handshake}: {info.handshakeVerified ? t.yes : t.no} · {t.signed}: {info.signedCallbackVerified ? t.yes : t.no}
-        · {t.attention}: {info.needsAttention}</p></>}
+        · {t.attention}: {info.needsAttention}</p>
+      <p>{locale === 'ar' ? 'في انتظار المعالجة / فشل المعالجة' : locale === 'fr' ? 'En attente / Échecs' : 'Pending / Failed'}: {info.pending} / {info.failed}
+        {info.oldestPendingAt && ` · ${locale === 'ar' ? 'أقدم حدث معلق' : locale === 'fr' ? 'Plus ancien' : 'Oldest pending'}: ${new Date(info.oldestPendingAt).toLocaleString(locale)}`}
+        {info.lastProcessedAt && ` · ${locale === 'ar' ? 'آخر معالجة' : locale === 'fr' ? 'Dernier traitement' : 'Last processed'}: ${new Date(info.lastProcessedAt).toLocaleString(locale)}`}</p></>}
     <button className="secondary" onClick={() => void load().catch((failure) => setError(String(failure)))}>{t.refresh}</button>
+    <label>{locale === 'ar' ? 'حالة الحدث' : locale === 'fr' ? 'État de l’événement' : 'Event state'}<select value={filter}
+      onChange={(event) => { const value = event.target.value; setFilter(value); setEvents([]); setBefore(null);
+        void load(undefined,value).catch((failure)=>setError(String(failure))); }}>
+      <option value="">{locale === 'ar' ? 'كل الأحداث' : locale === 'fr' ? 'Tous' : 'All events'}</option>
+      <option value="PENDING">{locale === 'ar' ? 'في انتظار المعالجة' : locale === 'fr' ? 'En attente' : 'Pending processing'}</option>
+      <option value="FAILED">{locale === 'ar' ? 'فشل المعالجة' : locale === 'fr' ? 'Échec' : 'Processing failed'}</option>
+      <option value="NEEDS_ATTENTION">{t.attention}</option>
+    </select></label>
     <h4>{t.events}</h4>{!events.length && <p>{t.empty}</p>}
     {events.length > 0 && <ul>{events.map((event) => <li key={event.id}>
       {new Date(event.received_at).toLocaleString(locale)} · {event.event_kind} · {event.state}
       {event.participant_last4 && ` · …${event.participant_last4}`}
       {event.failure_code && ` · ${event.failure_code}`}
+      <MessagingEventProcessing key={`${event.id}:${event.processing_version}`} connectionId={connectionId}
+        event={event} locale={locale} api={api} refresh={load} />
     </li>)}</ul>}
     {before && <button className="secondary" onClick={() => void load(before).catch((failure) => setError(String(failure)))}>{t.more}</button>}
   </section>;

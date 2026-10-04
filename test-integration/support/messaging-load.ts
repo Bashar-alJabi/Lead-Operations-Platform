@@ -246,6 +246,7 @@ export async function runMessagingLoad(url: string | undefined, resetTestDatabas
     assert.equal((await db`SELECT count(*)::integer AS n FROM background_job WHERE status <> 'SUCCEEDED'`)[0]!.n, 0);
     assert.equal((await db`SELECT count(*)::integer AS n FROM sender_outbound_lease`)[0]!.n, 0);
     assert.equal((await db`SELECT count(*)::integer AS n FROM conversation_message WHERE direction = 'OUTBOUND' AND delivery_state = 'SENT'`)[0]!.n, fixtures.length);
+    const enqueueThroughDispatchMs = performance.now() - outboundStart;
     const callbacks: { sender: Sender; payload: string }[] = [];
     for (const sender of senders) {
       const sent = await db`SELECT m.provider_message_id, cv.participant_ref FROM conversation_message m
@@ -267,6 +268,11 @@ export async function runMessagingLoad(url: string | undefined, resetTestDatabas
       callbackMs.push(performance.now() - started); createdCallbacks += result.created!;
     });
     const callbackDurationMs = performance.now() - callbackStart;
+    const callbackProcessingStart = performance.now();
+    await concurrent(workerDbs, workerDbs.length, async (workerDb) => {
+      while (await processOnePendingDeliveryEvent(workerDb)) { /* independent callback processing */ }
+    });
+    const callbackProcessingDurationMs = performance.now() - callbackProcessingStart;
     assert.equal(createdCallbacks + earlyCallbackCreated, fixtures.length * 3);
     assert.equal((await db`SELECT count(*)::integer AS n FROM message_delivery_event`)[0]!.n, fixtures.length * 3);
     assert.equal((await db`SELECT count(*)::integer AS n FROM conversation_message WHERE direction = 'OUTBOUND' AND delivery_state = 'READ'`)[0]!.n, fixtures.length);
@@ -286,7 +292,9 @@ export async function runMessagingLoad(url: string | undefined, resetTestDatabas
         dispatchAndRecovery: { durationMs: Number(dispatchDurationMs.toFixed(2)),
           messagesPerSecond: Number((fixtures.length * 1000 / dispatchDurationMs).toFixed(2)) },
         deliveryWebhook: { ...timings(callbackMs), durationMs: Number(callbackDurationMs.toFixed(2)) },
-        enqueueThroughDispatchMs: Number((performance.now() - outboundStart - callbackDurationMs).toFixed(2)) } };
+        deliveryProcessing: { durationMs: Number(callbackProcessingDurationMs.toFixed(2)),
+          eventsPerSecond: Number((createdCallbacks * 1000 / callbackProcessingDurationMs).toFixed(2)) },
+        enqueueThroughDispatchMs: Number(enqueueThroughDispatchMs.toFixed(2)) } };
   } finally {
     await Promise.allSettled(apps.map((app) => app.close()));
     await Promise.allSettled([db, ...apiDbs, ...workerDbs].map((sql) => sql.end({ timeout: 5 })));
