@@ -1,5 +1,13 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: Messaging outbound JPEG/PNG/PDF
+
+بعد inbound checkpoint المرفوع `9d05582` نفذت migration `033` بقاعدتي Docker، وupload مصرحاً قبل body parsing ومحدوداً بطلبين متزامنين وبالحجم، مع type/hash validation وClamAV قبل حفظ الملف الجاهز وربطه بـConversation. UI تتيح JPEG/PNG/PDF حسب Sender capability، مع التعليق والتحميل والإرسال؛ Central Messaging Policy وSend Intent والعامل تمنع غير الجاهز أو المنتمي لمحادثة أخرى أو inbound attachment وإعادة استعمال المرفق في Message ثانية، وتثبت المحتوى/idempotency. Meta asset upload منفصل عن customer dispatch؛ Worker يعيد السياسة بعد الرفع وقبل PREPARED/الإرسال. Upload failure retryable، وcustomer UNKNOWN لا يعاد تلقائياً. 413/415 آمنان للملف الكبير/Content-Type غير المناسب. Upload replay لا ينشئ metadata جديدة؛ تُزال object جديدة غير مرتبطة عند رفض Business أو تعارض معروف. S3 لا يكتشف profiles أو credentials شخصية تلقائياً؛ يتطلب إعداد deployment صريحاً. Audio/video/sticker وmedia templates الصادرة ليست منفذة بهذا المسار ولا تعرض كمتاحة.
+
+التحقق: migrations `001`–`033` على PostgreSQL Docker التطوير والاختبار، و29/29 unit و9/9 integration، وBackend/Web typecheck وbuild ناجحة. اختبار API يثبت scan rejection/unavailable وMIME spoofing و413/415، عزل المالك/الفرع وسباق تغير الإسناد أثناء الفحص وbackpressure upload، idempotency للرفع/send intent، Controller/DNC، capability تغيرت بعد Queue، Worker upload/send وdelivery callback، retry لرفع مزود فاشل، DNC تغير أثناء provider upload بلا customer send أو PREPARED، وUNKNOWN بلا إرسال مكرر. unit يثبت multipart Meta وشكل media send وتصنيف upload retry مقابل send unknown ومنع S3 ambient credentials. الاختبارات بfakes وprivate Local storage فقط؛ لا Meta/S3 live أو UI E2E أو restore/GC/load verification. ClamAV الحقيقي المحلي مثبت في checkpoint السابق ولم تتغير خدمة الفحص.
+
+الخطوة التالية الدقيقة بعد حفظ ورفع هذا checkpoint: اختبارات Burst Webhooks/Queue مع عدة workers وSenders وقياس latency/backpressure وprovider call isolation في PostgreSQL، ثم recovery/observability ونواقص Messaging مقابل `06`؛ حافظ على الملحقات الحالية ولا تعِد بناءها. لا تبدأ Meta intake ثم Payments/Enrollment ثم AI قبل تثبيت الأساسات اللازمة. Messaging والمنصة ككل ليستا Complete.
+
 ## آخر حالة مستقرة: Messaging inbound attachments وفحص الملفات
 
 استعيدت الحالة من `35821ba` على `codex/full-platform-build`؛ الـremote مطابق ولم توجد تعديلات مفقودة تحتاج استرداداً. Docker Desktop يعمل عبر مسار CLI الكامل خارج عزل Codex؛ أعيد تشغيل PostgreSQL باستخدام Compose بعد العثور على الحاوية متوقفة. تحقق baseline: migrations `001`–`030` سليمة بقاعدتي التطوير والاختبار و23/23 unit و8/8 integration ناجحة.

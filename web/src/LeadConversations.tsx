@@ -4,6 +4,7 @@ import { MessageAttachment, type Attachment } from './MessageAttachment';
 type Api = <T>(path: string, options?: RequestInit) => Promise<T>;
 type Locale = 'ar'|'fr'|'en';
 type Conversation = { id: string; sender_id: string; sender_name: string; participant_ref: string;
+  sender_capabilities: { media?: string[] };
   controller_type: string; controller_name: string | null; state: string; version: number;
   needs_attention_reason: string | null; started_at: string };
 type Consent = { status: 'GRANTED'|'REVOKED'|'UNKNOWN'; do_not_contact: boolean; evidence: string | null;
@@ -63,7 +64,10 @@ export function LeadConversations({ leadId, lifecycle, role, locale, api }: { le
   const [messages, setMessages] = useState<Message[]>([]);
   const [messageCursor, setMessageCursor] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
-  const [sendMode, setSendMode] = useState<'TEXT'|'TEMPLATE'>('TEXT');
+  const [sendMode, setSendMode] = useState<'TEXT'|'TEMPLATE'|'ATTACHMENT'>('TEXT');
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadKey, setUploadKey] = useState(() => crypto.randomUUID());
+  const [uploadedAttachment, setUploadedAttachment] = useState<Attachment | null>(null);
   const [templates, setTemplates] = useState<AvailableTemplate[]>([]);
   const [templateAfter, setTemplateAfter] = useState<string | null>(null);
   const [templateId, setTemplateId] = useState('');
@@ -89,6 +93,7 @@ export function LeadConversations({ leadId, lifecycle, role, locale, api }: { le
   useEffect(() => {
     setItems([]); setConsent(null); setCursor(null); setError('');
     selectedRef.current = null; setSelectedId(null); setMessages([]); setMessageCursor(null);
+    setUploadFile(null); setUploadedAttachment(null); setUploadKey(crypto.randomUUID());
     setAttentionReviews([]); setReviewBefore(null);
     void load().catch((failure) => setError(String(failure)));
     void loadConsent().catch((failure) => setError(String(failure)));
@@ -109,6 +114,7 @@ export function LeadConversations({ leadId, lifecycle, role, locale, api }: { le
   async function chooseConversation(id: string) {
     selectedRef.current = id; setSelectedId(id); setMessages([]); setMessageCursor(null);
     setDraft(''); setSendMode('TEXT'); setTemplates([]); setTemplateAfter(null); setTemplateId('');
+    setUploadFile(null); setUploadedAttachment(null); setUploadKey(crypto.randomUUID());
     setTemplateParameters([]);
     setAttentionReviews([]); setReviewBefore(null); setReviewNote(''); setReviewConfirmed(false);
     setSendKey(crypto.randomUUID()); setSubmitted(false); setError('');
@@ -130,17 +136,33 @@ export function LeadConversations({ leadId, lifecycle, role, locale, api }: { le
     setTemplateAfter(page.nextAfter);
   }
   async function sendMessage() {
-    if (!selectedId || (sendMode === 'TEXT' ? !draft.trim() : !templateId ||
-      templateParameters.some((value) => !value.trim()))) return;
+    if (!selectedId || (sendMode === 'TEXT' ? !draft.trim() : sendMode === 'ATTACHMENT' ? !uploadedAttachment
+      : !templateId || templateParameters.some((value) => !value.trim()))) return;
     setBusy(true); setError('');
     setSubmitted(true);
     try {
       await api(`/api/conversations/${selectedId}/messages`, { method: 'POST', body: JSON.stringify({
-        ...(sendMode === 'TEXT' ? { body: draft } : { templateId,
+        ...(sendMode === 'TEXT' ? { body: draft } : sendMode === 'ATTACHMENT'
+          ? { attachmentId: uploadedAttachment!.id, body: draft } : { templateId,
           templateParameters }), idempotencyKey: sendKey,
       }) });
       setDraft(''); setTemplateId(''); setTemplateParameters([]); setSendKey(crypto.randomUUID()); setSubmitted(false);
+      setUploadFile(null); setUploadedAttachment(null); setUploadKey(crypto.randomUUID());
       await loadMessages(selectedId);
+    } catch (failure) { setError(String(failure)); } finally { setBusy(false); }
+  }
+  async function uploadAttachment() {
+    if (!selectedId || !uploadFile) return;
+    const id = selectedId;
+    setBusy(true); setError('');
+    try {
+      const mime = uploadFile.type;
+      const kind = mime === 'application/pdf' ? 'document' : 'image';
+      const query = new URLSearchParams({ kind, mime, key: uploadKey });
+      const response = await fetch(`/api/conversations/${id}/attachments?${query}`, { method: 'POST',
+        credentials: 'same-origin', headers: { 'content-type': 'application/octet-stream' }, body: uploadFile });
+      const value = await response.json(); if (!response.ok) throw new Error(value.error ?? 'UPLOAD_FAILED');
+      if (selectedRef.current === id) setUploadedAttachment(value as Attachment);
     } catch (failure) { setError(String(failure)); } finally { setBusy(false); }
   }
   const selected = items.find((item) => item.id === selectedId);
@@ -225,17 +247,28 @@ export function LeadConversations({ leadId, lifecycle, role, locale, api }: { le
         onClick={() => void loadMessages(selectedId, messageCursor).catch((failure) => setError(String(failure)))}>{t.more}</button>}
       <form className="workflow-form" onSubmit={(event) => { event.preventDefault(); void sendMessage(); }}>
         <label>{t.mode}<select value={sendMode} disabled={busy} onChange={(event) => {
-          setSendMode(event.target.value as 'TEXT'|'TEMPLATE'); setSendKey(crypto.randomUUID()); setSubmitted(false);
-        }}><option value="TEXT">{t.textMode}</option><option value="TEMPLATE">{t.templateMode}</option></select></label>
+          setSendMode(event.target.value as 'TEXT'|'TEMPLATE'|'ATTACHMENT'); setDraft(''); setSendKey(crypto.randomUUID()); setSubmitted(false);
+        }}><option value="TEXT">{t.textMode}</option><option value="TEMPLATE">{t.templateMode}</option>
+          {selected?.sender_capabilities?.media?.length ? <option value="ATTACHMENT">{locale === 'ar' ? 'صورة أو PDF ضمن نافذة الرد' : locale === 'fr' ? 'Image ou PDF' : 'Image or PDF in reply window'}</option> : null}</select></label>
         {sendMode === 'TEXT' ? <label>{t.draft}<textarea required maxLength={20000} value={draft} disabled={busy}
           onChange={(event) => { setDraft(event.target.value);
             if (submitted) { setSendKey(crypto.randomUUID()); setSubmitted(false); } }} /></label>
-          : <label>{t.template}<select required value={templateId} disabled={busy} onChange={(event) => {
+          : sendMode === 'TEMPLATE' ? <label>{t.template}<select required value={templateId} disabled={busy} onChange={(event) => {
             setTemplateId(event.target.value);
             setTemplateParameters(Array(templates.find((item) => item.id === event.target.value)?.parameterCount ?? 0).fill(''));
             setSendKey(crypto.randomUUID()); setSubmitted(false);
           }}><option value="">{t.template}</option>{templates.map((item) => <option key={item.id} value={item.id}>
-            {item.name} · {item.language}</option>)}</select></label>}
+            {item.name} · {item.language}</option>)}</select></label>
+          : <><label>{locale === 'ar' ? 'الملف (JPEG/PNG/PDF)' : locale === 'fr' ? 'Fichier (JPEG/PNG/PDF)' : 'File (JPEG/PNG/PDF)'}
+            <input type="file" accept="image/jpeg,image/png,application/pdf" disabled={busy} onChange={(event) => {
+              setUploadFile(event.target.files?.[0] ?? null); setUploadedAttachment(null); setUploadKey(crypto.randomUUID());
+              setSendKey(crypto.randomUUID()); setSubmitted(false);
+            }} /></label><button type="button" className="secondary" disabled={busy || !uploadFile || Boolean(uploadedAttachment)}
+              onClick={() => void uploadAttachment()}>{locale === 'ar' ? 'رفع وفحص الملف' : locale === 'fr' ? 'Charger et analyser' : 'Upload and scan'}</button>
+            {uploadedAttachment && <MessageAttachment key={uploadedAttachment.id} attachment={uploadedAttachment} locale={locale} api={api} />}
+            <label>{locale === 'ar' ? 'تعليق اختياري' : locale === 'fr' ? 'Légende facultative' : 'Optional caption'}
+              <textarea value={draft} maxLength={1024} disabled={busy} onChange={(event) => { setDraft(event.target.value);
+                if (submitted) { setSendKey(crypto.randomUUID()); setSubmitted(false); } }} /></label></>}
         {sendMode === 'TEMPLATE' && <p>{templates.find((item) => item.id === templateId)?.body ?? t.noTemplates} {t.templateNote}</p>}
         {sendMode === 'TEMPLATE' && templateParameters.map((value, index) =>
           <label key={`${templateId}-${index}`}>{locale === 'ar' ? 'قيمة المتغير' : locale === 'fr' ? 'Valeur du paramètre' : 'Parameter'} {index + 1}
@@ -245,7 +278,8 @@ export function LeadConversations({ leadId, lifecycle, role, locale, api }: { le
             }} /></label>)}
         {sendMode === 'TEMPLATE' && templateAfter && <button type="button" className="secondary" disabled={busy}
           onClick={() => selectedId && void loadTemplates(selectedId, templateAfter).catch((failure) => setError(String(failure)))}>{t.more}</button>}
-        <button disabled={busy || (sendMode === 'TEXT' ? !draft.trim() : !templateId || templateParameters.some((value) => !value.trim())) || lifecycle !== 'OPEN' || selected?.state !== 'HUMAN_ACTIVE'
+        <button disabled={busy || (sendMode === 'TEXT' ? !draft.trim() : sendMode === 'ATTACHMENT' ? !uploadedAttachment
+          : !templateId || templateParameters.some((value) => !value.trim())) || lifecycle !== 'OPEN' || selected?.state !== 'HUMAN_ACTIVE'
           || Boolean(selected.needs_attention_reason)}>{t.send}</button>
       </form><p>{t.queued} {t.sendBlocked}</p>
     </div>}

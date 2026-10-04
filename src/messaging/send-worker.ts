@@ -8,6 +8,9 @@ import { approvedBodyTemplate } from './approved-template.js';
 import { metaWhatsAppSendAdapter, ProviderSendError, type MessagingConnectionConfig,
   type MessagingCredentials, type MessagingSendAdapter, type SendTextInput,
   type SendTemplateInput } from './providers.js';
+import type { UploadMediaInput } from './providers.js';
+import { type MediaStorage, configuredMediaStorage } from '../media/storage.js';
+import { mediaMaxBytes, validateMedia, MediaError } from '../media/validation.js';
 
 type Claimed = { jobId: string; messageId: string; senderId: string; attemptNo: number; recovered?: boolean };
 
@@ -23,7 +26,7 @@ async function auditWorkerEvent(tx: postgres.TransactionSql, messageId: string, 
 async function claimOne(db: Database): Promise<Claimed | null> {
   return db.begin(async (tx) => {
     const candidates = await tx`SELECT j.id AS job_id, j.status, j.attempts, j.max_attempts,
-        m.id AS message_id, m.sender_id, m.conversation_id, m.delivery_state
+        m.id AS message_id, m.sender_id, m.conversation_id, m.delivery_state, m.message_kind
       FROM background_job j JOIN outbound_delivery_job link ON link.job_id = j.id
       JOIN conversation_message m ON m.id = link.message_id
       JOIN messaging_sender s ON s.id = m.sender_id
@@ -76,14 +79,15 @@ async function claimOne(db: Database): Promise<Claimed | null> {
         return { jobId: row.job_id, messageId: row.message_id, senderId: row.sender_id,
           attemptNo: row.attempts, recovered: true };
       }
+      const leaseSeconds = row.message_kind === 'ATTACHMENT' ? 180 : 60;
       const lease = await tx`INSERT INTO sender_outbound_lease (sender_id, job_id, locked_until)
-        VALUES (${row.sender_id}, ${row.job_id}, now() + interval '60 seconds')
+        VALUES (${row.sender_id}, ${row.job_id}, now() + ${leaseSeconds} * interval '1 second')
         ON CONFLICT (sender_id) DO UPDATE SET job_id = EXCLUDED.job_id,
           locked_until = EXCLUDED.locked_until, updated_at = now()
           WHERE sender_outbound_lease.locked_until <= now() RETURNING sender_id`;
       if (!lease.length) continue;
       const changed = (await tx`UPDATE background_job SET status = 'RUNNING', attempts = attempts + 1,
-        locked_until = now() + interval '60 seconds', updated_at = now()
+        locked_until = now() + ${leaseSeconds} * interval '1 second', updated_at = now()
         WHERE id = ${row.job_id} RETURNING attempts`)[0]!;
       return { jobId: row.job_id, messageId: row.message_id,
         senderId: row.sender_id, attemptNo: changed.attempts };
@@ -112,8 +116,10 @@ async function finishWithoutSend(db: Database, claimed: Claimed, code: string): 
 }
 
 type Prepared = { kind: 'TEXT'; input: SendTextInput; connectionId: string }
-  | { kind: 'TEMPLATE'; input: SendTemplateInput; connectionId: string };
-async function prepare(db: Database, claimed: Claimed): Promise<Prepared | { blocked: string } |
+  | { kind: 'TEMPLATE'; input: SendTemplateInput; connectionId: string }
+  | { kind: 'ATTACHMENT'; input: UploadMediaInput; connectionId: string };
+type LoadedMedia = Pick<UploadMediaInput, 'bytes'|'mime'|'mediaKind'|'filename'>;
+async function prepare(db: Database, claimed: Claimed, media?: LoadedMedia, mediaDispatch = false): Promise<Prepared | { blocked: string } |
   { deferredUntil: Date | null }> {
   const message = (await db`SELECT m.conversation_id, m.connection_id, m.sender_id, m.author_type,
       m.author_user_id, m.body, m.delivery_state, m.message_kind, m.template_id,
@@ -142,7 +148,7 @@ async function prepare(db: Database, claimed: Claimed): Promise<Prepared | { blo
       if (until && until > new Date()) return { deferredUntil: until };
       const locked = await lockOutboundScope(tx, actor, message.conversation_id);
       const decision = await checkCurrentOutbound(tx, locked, actor, 'HUMAN',
-        claimed.messageId, message.template_id);
+        claimed.messageId, message.template_id, media?.mediaKind);
       if (!decision.allowed) return { blocked: decision.reason };
       if (decision.provider !== 'META_WHATSAPP_CLOUD') return { blocked: 'PROVIDER_SEND_NOT_SUPPORTED' };
       const template = message.message_kind === 'TEMPLATE'
@@ -167,10 +173,16 @@ async function prepare(db: Database, claimed: Claimed): Promise<Prepared | { blo
       catch { return { blocked: 'CONNECTION_CREDENTIAL_UNAVAILABLE' }; }
       if (!credentials || typeof credentials.accessToken !== 'string' || !credentials.accessToken)
         return { blocked: 'CONNECTION_CREDENTIAL_UNAVAILABLE' };
-      await tx`INSERT INTO outbound_send_attempt (message_id, job_id, attempt_number, state)
-        VALUES (${claimed.messageId}, ${claimed.jobId}, ${claimed.attemptNo}, 'PREPARED')`;
+      if (message.message_kind !== 'ATTACHMENT' || mediaDispatch)
+        await tx`INSERT INTO outbound_send_attempt (message_id, job_id, attempt_number, state)
+          VALUES (${claimed.messageId}, ${claimed.jobId}, ${claimed.attemptNo}, 'PREPARED')`;
       const common = { config: connection.config as MessagingConnectionConfig, credentials,
         externalSenderId: connection.external_sender_id, recipient: decision.recipient };
+      if (message.message_kind === 'ATTACHMENT') {
+        if (!media) return { blocked: 'ATTACHMENT_NOT_READY' };
+        return { kind: 'ATTACHMENT', input: { ...common, ...media, caption: message.body },
+          connectionId: message.connection_id as string };
+      }
       return template ? { kind: 'TEMPLATE', input: { ...common,
         templateName: template.snapshot.name, templateLanguage: template.snapshot.language,
         bodyParameters: template.snapshot.bodyParameters ?? [] },
@@ -256,11 +268,35 @@ async function finishAttempt(db: Database, claimed: Claimed, connectionId: strin
 }
 
 export async function processOneMessagingJob(db: Database,
-  adapter: MessagingSendAdapter = metaWhatsAppSendAdapter): Promise<boolean> {
+  adapter: MessagingSendAdapter = metaWhatsAppSendAdapter, options: { mediaStorage?: MediaStorage } = {}): Promise<boolean> {
   const claimed = await claimOne(db);
   if (!claimed) return false;
   if (claimed.recovered) return true;
-  const prepared = await prepare(db, claimed);
+  let media: LoadedMedia | undefined;
+  const file = (await db`SELECT m.message_kind, m.connection_id, m.conversation_id,
+    a.upload_conversation_id, a.state, a.media_kind, a.mime_type, a.storage_key, a.storage_backend,
+    a.content_sha256, a.size_bytes, a.id FROM conversation_message m
+    LEFT JOIN message_attachment a ON a.id = m.attachment_id WHERE m.id = ${claimed.messageId}`)[0];
+  if (file?.message_kind === 'ATTACHMENT') {
+    if (file.upload_conversation_id !== file.conversation_id || file.state !== 'READY'
+      || !['image','document'].includes(file.media_kind)) {
+      await finishWithoutSend(db, claimed, 'ATTACHMENT_NOT_READY'); return true;
+    }
+    try {
+      const storage = options.mediaStorage ?? configuredMediaStorage();
+      if (storage.backend !== file.storage_backend) throw new Error('Storage mismatch');
+      const bytes = await storage.get(file.storage_key, mediaMaxBytes());
+      if (bytes.length !== file.size_bytes) throw new MediaError('MEDIA_SIZE_MISMATCH');
+      const valid = await validateMedia(bytes, file.media_kind, file.mime_type, file.content_sha256);
+      media = { bytes, mediaKind: file.media_kind, mime: valid.mime, filename: `attachment-${file.id}.${valid.extension}` };
+    } catch (error) {
+      if (error instanceof MediaError && !error.retryable) await finishWithoutSend(db, claimed, 'ATTACHMENT_INTEGRITY_FAILED');
+      else await finishAttempt(db, claimed, file.connection_id,
+        new ProviderSendError('RETRYABLE', 'ATTACHMENT_STORAGE_UNAVAILABLE'));
+      return true;
+    }
+  }
+  const prepared = await prepare(db, claimed, media);
   if ('deferredUntil' in prepared) {
     await deferClaim(db, claimed, prepared.deferredUntil);
     return true;
@@ -272,6 +308,33 @@ export async function processOneMessagingJob(db: Database,
   if (prepared.kind === 'TEMPLATE' && !adapter.sendTemplate) {
     await finishWithoutSend(db, claimed, 'TEMPLATE_SEND_NOT_SUPPORTED');
     return true;
+  }
+  if (prepared.kind === 'ATTACHMENT' && (!adapter.sendMedia || !adapter.uploadMedia)) {
+    await finishWithoutSend(db, claimed, 'MEDIA_SEND_NOT_SUPPORTED'); return true;
+  }
+  if (prepared.kind === 'ATTACHMENT') {
+    let uploaded: { providerMediaId: string };
+    try { uploaded = await adapter.uploadMedia!(prepared.input); }
+    catch (error) {
+      await finishAttempt(db, claimed, prepared.connectionId, error instanceof ProviderSendError ? error
+        : new ProviderSendError('RETRYABLE', 'PROVIDER_MEDIA_UPLOAD_UNAVAILABLE'));
+      return true;
+    }
+    // Uploading a private provider asset is retryable. Re-check all rules immediately before customer dispatch.
+    const dispatch = await prepare(db, claimed, media, true);
+    if ('deferredUntil' in dispatch) { await deferClaim(db, claimed, dispatch.deferredUntil); return true; }
+    if ('blocked' in dispatch) { await finishWithoutSend(db, claimed, dispatch.blocked); return true; }
+    if (dispatch.kind !== 'ATTACHMENT' || dispatch.input.externalSenderId !== prepared.input.externalSenderId) {
+      await finishWithoutSend(db, claimed, 'ATTACHMENT_SENDER_CHANGED'); return true;
+    }
+    let mediaResult: { providerMessageId: string } | ProviderSendError;
+    try { mediaResult = await adapter.sendMedia!({ config: dispatch.input.config, credentials: dispatch.input.credentials,
+      recipient: dispatch.input.recipient, externalSenderId: dispatch.input.externalSenderId,
+      providerMediaId: uploaded.providerMediaId, caption: dispatch.input.caption,
+      mediaKind: dispatch.input.mediaKind, filename: dispatch.input.filename }); }
+    catch (error) { mediaResult = error instanceof ProviderSendError ? error
+      : new ProviderSendError('UNKNOWN', 'PROVIDER_SEND_OUTCOME_UNKNOWN'); }
+    await finishAttempt(db, claimed, dispatch.connectionId, mediaResult); return true;
   }
   let result: { providerMessageId: string } | ProviderSendError;
   try { result = prepared.kind === 'TEMPLATE'

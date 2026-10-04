@@ -8,10 +8,18 @@ import type { S3Client } from '@aws-sdk/client-s3';
 import { parseInboundMedia, validateMedia, MediaError } from '../src/media/validation.js';
 import { metaMessagingMediaAdapter } from '../src/media/meta-provider.js';
 import { clamAvScanner } from '../src/media/scanner.js';
-import { localMediaStorage, s3MediaStorage } from '../src/media/storage.js';
+import { localMediaStorage, s3MediaStorage, configuredMediaStorage } from '../src/media/storage.js';
+import { metaWhatsAppSendAdapter, ProviderSendError } from '../src/messaging/providers.js';
 
 const pdf = Buffer.from('%PDF-1.7\nsample\n%%EOF');
 const hash = createHash('sha256').update(pdf).digest('hex');
+test('S3 configuration never falls back to personal AWS profile or ambient credential discovery', () => {
+  const names = ['MEDIA_STORAGE_BACKEND','MEDIA_S3_ACCESS_KEY_ID','MEDIA_S3_SECRET_ACCESS_KEY'];
+  const before = names.map((name) => process.env[name]);
+  process.env.MEDIA_STORAGE_BACKEND = 's3'; delete process.env.MEDIA_S3_ACCESS_KEY_ID; delete process.env.MEDIA_S3_SECRET_ACCESS_KEY;
+  try { assert.throws(() => configuredMediaStorage(), /MEDIA_STORAGE_CREDENTIALS_NOT_CONFIGURED/); }
+  finally { names.forEach((name, index) => { if (before[index] === undefined) delete process.env[name]; else process.env[name] = before[index]; }); }
+});
 test('media validation rejects MIME spoofing, corrupt hashes, oversized files and unsafe provider identities', async () => {
   const source = { type: 'document', document: { id: '123', mime_type: 'application/pdf',
     sha256: Buffer.from(hash, 'hex').toString('base64'), filename: '../../evil', caption: '<b>untrusted</b>' } };
@@ -21,6 +29,8 @@ test('media validation rejects MIME spoofing, corrupt hashes, oversized files an
   assert.throws(() => parseInboundMedia({ ...source, document: { ...source.document, id: '../123' } }), /MEDIA_PAYLOAD_INVALID/);
   assert.throws(() => parseInboundMedia({ ...source, document: { ...source.document, mime_type: 'text/html' } }), /MEDIA_PAYLOAD_INVALID/);
   assert.equal((await validateMedia(pdf, 'document', 'application/pdf', hash)).mime, 'application/pdf');
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=', 'base64');
+  assert.equal((await validateMedia(png, 'image', 'image/png', createHash('sha256').update(png).digest('hex'))).mime, 'image/png');
   await assert.rejects(validateMedia(Buffer.from('<html>x</html>'), 'document', 'application/pdf', hash), /MEDIA_TYPE_MISMATCH/);
   await assert.rejects(validateMedia(pdf, 'document', 'application/pdf', '0'.repeat(64)), /MEDIA_HASH_MISMATCH/);
   const previous = process.env.MEDIA_MAX_BYTES; process.env.MEDIA_MAX_BYTES = '1024';
@@ -68,6 +78,8 @@ test('private storage adapters preserve byte content, restrict keys and bound do
   assert.deepEqual(await storage.get(key, 1024), pdf);
   await assert.rejects(storage.get('../escape', 1024), /MEDIA_STORAGE_KEY_INVALID/);
   await assert.rejects(storage.get(key, 1), /MEDIA_STORAGE_INTEGRITY_FAILED/);
+  await assert.rejects(storage.remove('../escape'), /MEDIA_STORAGE_KEY_INVALID/);
+  await storage.remove(key); await assert.rejects(storage.get(key, 1024));
   let stored: Buffer | null = null;
   const fake = { async send(command: { constructor: { name: string }; input: Record<string, unknown> }, options: { abortSignal: unknown }) {
     assert.equal(command.input.Bucket, 'private-test'); assert.equal(command.input.Key, `media/${key}`);
@@ -83,6 +95,42 @@ test('private storage adapters preserve byte content, restrict keys and bound do
   const s3 = s3MediaStorage(fake, 'private-test'); await s3.put(key, pdf);
   assert.deepEqual(await s3.get(key, 1024), pdf);
   await assert.rejects(s3.get(key, 1), /MEDIA_STORAGE_INTEGRITY_FAILED/);
+});
+test('Meta media upload is safely retryable while customer media dispatch preserves unknown outcome semantics', async (t) => {
+  const original = globalThis.fetch; t.after(() => { globalThis.fetch = original; });
+  const common = { config: { wabaId: '123', graphVersion: 'v25.0' },
+    credentials: { accessToken: 'test-only-token', appSecret: 'test-secret', verifyToken: 'test-verify' },
+    externalSenderId: '456', recipient: '+15550003333', mediaKind: 'document' as const,
+    caption: 'Approved content', filename: 'attachment-test.pdf' };
+  let mode: 'ok'|'upload-timeout'|'upload-rate'|'send-timeout' = 'ok'; let uploadCalls = 0; let sendCalls = 0;
+  globalThis.fetch = async (url, init) => {
+    assert.equal((init?.headers as Record<string, string>).Authorization, 'Bearer test-only-token');
+    if (String(url).endsWith('/media')) {
+      uploadCalls++; assert.equal(init?.redirect, 'error');
+      if (mode === 'upload-timeout') throw new Error('secret must not leak');
+      if (mode === 'upload-rate') return new Response('{}', { status: 429, headers: { 'retry-after': '77' } });
+      const body = init?.body as FormData;
+      assert.equal(body.get('messaging_product'), 'whatsapp'); assert.equal(body.get('type'), 'application/pdf');
+      const file = body.get('file') as File; assert.equal(file.type, 'application/pdf');
+      assert.deepEqual(Buffer.from(await file.arrayBuffer()), pdf); return Response.json({ id: '789' });
+    }
+    sendCalls++;
+    const body = JSON.parse(String(init?.body));
+    assert.deepEqual(body.document, { id: '789', caption: common.caption, filename: common.filename });
+    assert.equal(body.type, 'document'); assert.equal(body.to, '15550003333');
+    if (mode === 'send-timeout') throw new Error('unknown outcome');
+    return Response.json({ messages: [{ id: 'wamid.media-sent' }] });
+  };
+  const uploaded = await metaWhatsAppSendAdapter.uploadMedia!({ ...common, bytes: pdf, mime: 'application/pdf' });
+  assert.equal(uploaded.providerMediaId, '789'); assert.equal(sendCalls, 0);
+  assert.equal((await metaWhatsAppSendAdapter.sendMedia!({ ...common, ...uploaded })).providerMessageId, 'wamid.media-sent');
+  mode = 'upload-timeout'; await assert.rejects(metaWhatsAppSendAdapter.uploadMedia!({ ...common, bytes: pdf, mime: 'application/pdf' }),
+    (error) => error instanceof ProviderSendError && error.kind === 'RETRYABLE');
+  mode = 'upload-rate'; await assert.rejects(metaWhatsAppSendAdapter.uploadMedia!({ ...common, bytes: pdf, mime: 'application/pdf' }),
+    (error) => error instanceof ProviderSendError && error.kind === 'RETRYABLE' && error.retryAfterSeconds === 77);
+  mode = 'send-timeout'; await assert.rejects(metaWhatsAppSendAdapter.sendMedia!({ ...common, ...uploaded }),
+    (error) => error instanceof ProviderSendError && error.kind === 'UNKNOWN');
+  assert.equal(uploadCalls, 3); assert.equal(sendCalls, 2);
 });
 test('clamd protocol accepts only complete clean responses with current definitions and fails closed', async (t) => {
   let result = 'stream: OK'; let version = `ClamAV test/1/${new Date().toUTCString()}`;

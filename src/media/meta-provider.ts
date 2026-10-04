@@ -5,7 +5,7 @@ export interface MessagingMediaAdapter {
   download(input: { config: MessagingConnectionConfig; credentials: MessagingCredentials;
     externalSenderId: string; mediaId: string; maxBytes: number }): Promise<Buffer>;
 }
-async function boundedResponse(response: Response, max: number): Promise<Buffer> {
+export async function boundedResponse(response: Response, max: number): Promise<Buffer> {
   const length = response.headers.get('content-length');
   if (length && (!/^\d+$/.test(length) || Number(length) > max)) {
     await response.body?.cancel(); throw new MediaError('MEDIA_SIZE_INVALID');

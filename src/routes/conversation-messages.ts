@@ -83,11 +83,12 @@ export function registerConversationMessageRoutes(app: FastifyInstance, db: Data
     });
 
   app.post<{ Params: { id: string }; Body: { body?: string; templateId?: string;
-    templateParameters?: string[]; idempotencyKey: string } }>(
+    templateParameters?: string[]; attachmentId?: string; idempotencyKey: string } }>(
     '/api/conversations/:id/messages', { schema: { params: idParam, body: {
       type: 'object', additionalProperties: false, required: ['idempotencyKey'], properties: {
-        body: { type: 'string', minLength: 1, maxLength: 20000 },
+        body: { type: 'string', maxLength: 20000 },
         templateId: { type: 'string', format: 'uuid' },
+        attachmentId: { type: 'string', format: 'uuid' },
         templateParameters: { type: 'array', maxItems: 10, items: {
           type: 'string', minLength: 1, maxLength: 512 } },
         idempotencyKey: { type: 'string', pattern: '^[A-Za-z0-9._:-]{8,128}$' },
@@ -97,6 +98,7 @@ export function registerConversationMessageRoutes(app: FastifyInstance, db: Data
       const result = await enqueueOutboundMessage(db, { actor, conversationId: request.params.id,
         author: 'HUMAN', body: request.body.body, templateId: request.body.templateId,
         templateParameters: request.body.templateParameters,
+        attachmentId: request.body.attachmentId,
         idempotencyKey: request.body.idempotencyKey });
       reply.code(result.existing ? 200 : 202);
       return result;

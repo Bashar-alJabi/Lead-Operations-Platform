@@ -27,7 +27,7 @@ export async function lockOutboundScope(tx: postgres.TransactionSql, actor: Prin
 export type LockedOutboundScope = Awaited<ReturnType<typeof lockOutboundScope>>;
 
 export async function checkCurrentOutbound(tx: postgres.TransactionSql, locked: LockedOutboundScope,
-  actor: Principal, author: SendAuthor, excludeMessageId?: string, templateId?: string | null) {
+  actor: Principal, author: SendAuthor, excludeMessageId?: string, templateId?: string | null, mediaKind?: string) {
   const { scope, conversation } = locked;
   if (!scope.branch_active || scope.campaign_status !== 'ACTIVE' || scope.messaging_config?.enabled !== true)
     return { allowed: false as const, reason: 'MESSAGING_NOT_ACTIVE' };
@@ -51,6 +51,11 @@ export async function checkCurrentOutbound(tx: postgres.TransactionSql, locked: 
   }
   const consent = (await tx`SELECT status, do_not_contact FROM messaging_consent
     WHERE contact_id = ${scope.contact_id} AND channel = 'WHATSAPP'`)[0];
+  if (mediaKind) {
+    const capability = (await tx`SELECT capabilities FROM messaging_sender WHERE id = ${conversation.sender_id}`)[0]?.capabilities;
+    if (!Array.isArray(capability?.media) || !capability.media.includes(mediaKind))
+      return { allowed: false as const, reason: 'MEDIA_SEND_NOT_SUPPORTED' };
+  }
   const connection = (await tx`SELECT provider FROM integration_connection
     WHERE id = ${conversation.connection_id}`)[0]!;
   const latestInbound = (await tx`SELECT received_at FROM conversation_message

@@ -83,7 +83,8 @@ export function registerConversationRoutes(app: FastifyInstance, db: Database): 
       await requireLead(db, actor, request.params.id);
       const limit = request.query.limit ?? 30;
       const cursor = decodeCursor(request.query.cursor);
-      const rows = await db`SELECT c.id, c.sender_id, s.display_name AS sender_name, c.connection_id,
+      const rows = await db`SELECT c.id, c.sender_id, s.display_name AS sender_name,
+          s.capabilities AS sender_capabilities, c.connection_id,
           c.channel, c.participant_ref, c.controller_type, c.controller_user_id, c.version,
           u.name AS controller_name, c.state, c.needs_attention_reason, c.started_at, c.last_message_at
         FROM conversation c JOIN lead l ON l.id = c.lead_id
@@ -106,6 +107,7 @@ export function registerConversationRoutes(app: FastifyInstance, db: Database): 
   }, async (request) => {
     const actor = await principalFromRequest(request, db);
     const conversation = (await db`SELECT c.id, c.lead_id, c.sender_id, s.display_name AS sender_name,
+        s.capabilities AS sender_capabilities,
         c.connection_id, c.channel, c.participant_ref, c.controller_type, c.controller_user_id, c.version,
         u.name AS controller_name, c.state, c.needs_attention_reason,
         c.started_at, c.last_message_at FROM conversation c JOIN lead l ON l.id = c.lead_id

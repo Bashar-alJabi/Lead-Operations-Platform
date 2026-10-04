@@ -18,6 +18,7 @@ import { registerMetaMessagingWebhookRoutes } from './routes/meta-messaging-webh
 import { registerMessagingInboundReviewRoutes } from './routes/messaging-inbound-review.js';
 import { registerMessagingAttachmentRoutes } from './routes/messaging-attachments.js';
 import type { MediaStorage } from './media/storage.js';
+import type { MediaScanner } from './media/scanner.js';
 import { registerMessagingTemplateRoutes } from './routes/messaging-templates.js';
 import { registerCampaignTemplateRoutes } from './routes/campaign-templates.js';
 import { registerSenderBindingRoutes } from './routes/sender-bindings.js';
@@ -33,6 +34,7 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   messagingAdapter?: MessagingProviderAdapter; messagingTemplateAdapter?: MessagingTemplateAdapter;
   messagingSendAdapter?: MessagingSendAdapter;
   mediaStorage?: MediaStorage;
+  mediaScanner?: MediaScanner;
   globalRateLimitMax?: number } = {}): Promise<FastifyInstance> {
   const app = Fastify({ logger: options.logger === false ? false : { redact: ['req.headers.cookie', 'req.headers.authorization', 'req.body.password', 'req.body.token'] }, bodyLimit: 1024 * 1024,
     ajv: { customOptions: { removeAdditional: false } },
@@ -57,6 +59,12 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
       reply.code(429).send({ error: 'RATE_LIMITED' });
       return;
     }
+    if (error instanceof Error && 'statusCode' in error && error.statusCode === 413) {
+      reply.code(413).send({ error: 'REQUEST_TOO_LARGE' }); return;
+    }
+    if (error instanceof Error && 'statusCode' in error && error.statusCode === 415) {
+      reply.code(415).send({ error: 'UNSUPPORTED_MEDIA_TYPE' }); return;
+    }
     if (error instanceof Error && ('validation' in error || ('statusCode' in error && error.statusCode === 400))) {
       reply.code(400).send({ error: 'INVALID_REQUEST' });
       return;
@@ -80,7 +88,7 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   registerMessagingTestSendRoutes(app, db, options.messagingSendAdapter);
   registerMetaMessagingWebhookRoutes(app, db);
   registerMessagingInboundReviewRoutes(app, db);
-  registerMessagingAttachmentRoutes(app, db, options.mediaStorage);
+  registerMessagingAttachmentRoutes(app, db, options.mediaStorage, options.mediaScanner);
   registerMessagingTemplateRoutes(app, db, options.messagingTemplateAdapter);
   registerCampaignTemplateRoutes(app, db);
   registerSenderBindingRoutes(app, db);

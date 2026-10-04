@@ -1,13 +1,14 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, open, realpath, rename, unlink } from 'node:fs/promises';
 import { resolve, dirname, relative } from 'node:path';
-import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { MediaError } from './validation.js';
 
 export interface MediaStorage {
   readonly backend: string;
   put(key: string, bytes: Buffer): Promise<void>;
   get(key: string, maxBytes: number): Promise<Buffer>;
+  remove(key: string): Promise<void>;
 }
 function checkedKey(key: string) {
   if (!/^[0-9a-f-]{36}-[0-9a-f]{64}$/.test(key)) throw new MediaError('MEDIA_STORAGE_KEY_INVALID');
@@ -16,6 +17,15 @@ function checkedKey(key: string) {
 export function localMediaStorage(root: string): MediaStorage {
   const base = resolve(root);
   return { backend: 'LOCAL',
+    async remove(key) {
+      const path = resolve(base, checkedKey(key));
+      const actual = await realpath(path).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return null; throw error;
+      });
+      if (!actual) return;
+      if (dirname(actual) !== await realpath(base)) throw new MediaError('MEDIA_STORAGE_KEY_INVALID');
+      await unlink(actual);
+    },
     async put(key, bytes) {
       const path = resolve(base, checkedKey(key));
       await mkdir(base, { recursive: true, mode: 0o700 });
@@ -48,6 +58,10 @@ export function localMediaStorage(root: string): MediaStorage {
 export function s3MediaStorage(client: S3Client, bucket: string): MediaStorage {
   if (!bucket) throw new MediaError('MEDIA_STORAGE_CONFIG_INVALID');
   return { backend: 'S3',
+    async remove(key) {
+      await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: `media/${checkedKey(key)}` }),
+        { abortSignal: AbortSignal.timeout(30000) });
+    },
     async put(key, bytes) {
       await client.send(new PutObjectCommand({ Bucket: bucket, Key: `media/${checkedKey(key)}`,
         Body: bytes, ContentType: 'application/octet-stream',
@@ -77,9 +91,16 @@ export function configuredMediaStorage(): MediaStorage {
   if (configured) return configured;
   const backend = process.env.MEDIA_STORAGE_BACKEND ?? (process.env.NODE_ENV === 'production' ? '' : 'local');
   if (backend === 'local') configured = localMediaStorage(process.env.MEDIA_LOCAL_ROOT ?? '.local/media');
-  else if (backend === 's3') configured = s3MediaStorage(new S3Client({ region: process.env.AWS_REGION,
+  else if (backend === 's3') {
+    const accessKeyId = process.env.MEDIA_S3_ACCESS_KEY_ID; const secretAccessKey = process.env.MEDIA_S3_SECRET_ACCESS_KEY;
+    if (!accessKeyId || !secretAccessKey) throw new MediaError('MEDIA_STORAGE_CREDENTIALS_NOT_CONFIGURED', true);
+    // Explicit deployment credentials only; never discover a developer's personal ~/.aws profile.
+    configured = s3MediaStorage(new S3Client({ region: process.env.AWS_REGION,
+    credentials: { accessKeyId, secretAccessKey, ...(process.env.MEDIA_S3_SESSION_TOKEN
+      ? { sessionToken: process.env.MEDIA_S3_SESSION_TOKEN } : {}) },
     ...(process.env.MEDIA_S3_ENDPOINT ? { endpoint: process.env.MEDIA_S3_ENDPOINT } : {}),
     forcePathStyle: process.env.MEDIA_S3_FORCE_PATH_STYLE === 'true', maxAttempts: 2 }), process.env.MEDIA_S3_BUCKET ?? '');
+  }
   else throw new MediaError('MEDIA_STORAGE_NOT_CONFIGURED', true);
   return configured;
 }

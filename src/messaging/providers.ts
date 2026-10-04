@@ -1,3 +1,4 @@
+import { boundedResponse } from '../media/meta-provider.js';
 export type MessagingCredentials = { accessToken: string; appSecret: string; verifyToken: string };
 export type MessagingConnectionConfig = { wabaId: string; graphVersion: string };
 export type DiscoveredSender = { externalId: string; displayName: string; qualityRating: string | null };
@@ -10,9 +11,14 @@ export type SendTextInput = { config: MessagingConnectionConfig; credentials: Me
   externalSenderId: string; recipient: string; body: string };
 export type SendTemplateInput = Omit<SendTextInput, 'body'> & { templateName: string;
   templateLanguage: string; bodyParameters?: string[] };
+export type UploadMediaInput = Omit<SendTextInput, 'body'> & { bytes: Buffer; mime: string;
+  mediaKind: 'image'|'document'; caption: string; filename: string };
+export type SendMediaInput = Omit<UploadMediaInput, 'bytes'|'mime'> & { providerMediaId: string };
 export interface MessagingSendAdapter {
   sendText(input: SendTextInput): Promise<{ providerMessageId: string }>;
   sendTemplate?(input: SendTemplateInput): Promise<{ providerMessageId: string }>;
+  sendMedia?(input: SendMediaInput): Promise<{ providerMessageId: string }>;
+  uploadMedia?(input: UploadMediaInput): Promise<{ providerMediaId: string }>;
 }
 export class ProviderSendError extends Error {
   constructor(public kind: 'REJECTED'|'RETRYABLE'|'UNKNOWN', public code: string,
@@ -51,6 +57,42 @@ async function sendMetaMessage(input: Omit<SendTextInput, 'body'>, content: obje
 }
 
 export const metaWhatsAppSendAdapter: MessagingSendAdapter = {
+  async uploadMedia(input) {
+    if (!/^\d{1,30}$/.test(input.externalSenderId) || !/^v\d{1,2}\.\d{1,2}$/.test(input.config.graphVersion)
+      || !['image','document'].includes(input.mediaKind) || !input.bytes.length
+      || input.caption.length > 1024 || !/^[A-Za-z0-9._-]{1,100}$/.test(input.filename)
+      || !(input.mediaKind === 'image' ? ['image/jpeg','image/png'] : ['application/pdf']).includes(input.mime))
+      throw new ProviderSendError('REJECTED', 'PROVIDER_MEDIA_INPUT_INVALID');
+    const body = new FormData(); body.set('messaging_product', 'whatsapp'); body.set('type', input.mime);
+    body.set('file', new Blob([new Uint8Array(input.bytes)], { type: input.mime }), input.filename);
+    let uploaded: Response;
+    try { uploaded = await fetch(`https://graph.facebook.com/${input.config.graphVersion}/${input.externalSenderId}/media`, {
+      method: 'POST', headers: { Authorization: `Bearer ${input.credentials.accessToken}` }, body,
+      signal: AbortSignal.timeout(30000), redirect: 'error' }); }
+    catch { throw new ProviderSendError('RETRYABLE', 'PROVIDER_MEDIA_UPLOAD_UNAVAILABLE'); }
+    if (uploaded.status === 429) {
+      const delay = Number(uploaded.headers.get('retry-after'));
+      throw new ProviderSendError('RETRYABLE', 'PROVIDER_RATE_LIMITED',
+        Number.isFinite(delay) && delay >= 1 && delay <= 3600 ? delay : 30);
+    }
+    if (uploaded.status === 401 || uploaded.status === 403) throw new ProviderSendError('REJECTED', 'PROVIDER_AUTH_FAILED');
+    if (uploaded.status >= 500) throw new ProviderSendError('RETRYABLE', 'PROVIDER_MEDIA_UPLOAD_UNAVAILABLE');
+    if (!uploaded.ok) throw new ProviderSendError('REJECTED', 'PROVIDER_MEDIA_UPLOAD_REJECTED');
+    let id: unknown;
+    try { id = (JSON.parse((await boundedResponse(uploaded, 16384)).toString('utf8')) as { id?: unknown }).id; }
+    catch { throw new ProviderSendError('RETRYABLE', 'PROVIDER_MEDIA_RESPONSE_INVALID'); }
+    if (typeof id !== 'string' || !/^\d{1,30}$/.test(id)) throw new ProviderSendError('RETRYABLE', 'PROVIDER_MEDIA_RESPONSE_INVALID');
+    return { providerMediaId: id };
+  },
+  async sendMedia(input) {
+    if (!/^\d{1,30}$/.test(input.providerMediaId) || !['image','document'].includes(input.mediaKind)
+      || input.caption.length > 1024 || !/^[A-Za-z0-9._-]{1,100}$/.test(input.filename))
+      throw new ProviderSendError('REJECTED', 'PROVIDER_MEDIA_INPUT_INVALID');
+    return sendMetaMessage(input, { type: input.mediaKind, [input.mediaKind]: {
+      id: input.providerMediaId, ...(input.caption ? { caption: input.caption } : {}),
+      ...(input.mediaKind === 'document' ? { filename: input.filename } : {}),
+    } });
+  },
   async sendText(input) {
     return sendMetaMessage(input, { type: 'text', text: { preview_url: false, body: input.body } });
   },
