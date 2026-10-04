@@ -4,10 +4,22 @@ import { HttpError } from '../security.js';
 
 export type BodyTemplateSnapshot = { externalTemplateId: string; name: string; language: string;
   category: string | null; components: TemplateComponent[];
-  bodyParameters?: string[]; headerParameter?: string;urlParameter?:string;quickReplyPayloads?:string[] };
+  bodyParameters?: string[]; headerParameter?: string;urlParameter?:string;quickReplyPayloads?:string[];mediaHeader?:TemplateMediaSnapshot };
+export type TemplateMediaKind='image'|'video'|'document';
+export type TemplateMediaSnapshot={ attachmentId:string;kind:TemplateMediaKind;mime:string;sha256:string;sizeBytes:number };
 export type TextTemplateComponent = { type:'HEADER';format:'TEXT';text:string } | { type:'BODY'|'FOOTER';text:string };
 export type TemplateButton = { type:'URL';text:string;url:string } | { type:'PHONE_NUMBER';text:string;phone_number:string } | { type:'QUICK_REPLY';text:string };
-export type TemplateComponent = TextTemplateComponent | { type:'BUTTONS';buttons:TemplateButton[] };
+export type TemplateComponent = TextTemplateComponent | { type:'HEADER';format:'IMAGE'|'VIDEO'|'DOCUMENT';text?:never } | { type:'BUTTONS';buttons:TemplateButton[] };
+export function templateMediaSnapshot(row:Record<string,unknown>):TemplateMediaSnapshot {
+  return { attachmentId:row.id as string,kind:row.media_kind as TemplateMediaKind,mime:row.mime_type as string,
+    sha256:row.content_sha256 as string,sizeBytes:row.size_bytes as number };
+}
+export function validTemplateMedia(kind:TemplateMediaKind|null,media?:TemplateMediaSnapshot):boolean {
+  if (!kind) return media===undefined;
+  const mimes={ image:['image/jpeg','image/png'],video:['video/mp4'],document:['application/pdf'] };
+  return Boolean(media && media.kind===kind && mimes[kind].includes(media.mime) && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(media.attachmentId)
+    && /^[0-9a-f]{64}$/.test(media.sha256) && Number.isSafeInteger(media.sizeBytes) && media.sizeBytes>0);
+}
 
 function safeHttpsUrl(value:unknown):URL|null {
   if (typeof value!=='string' || !value || value.length>2000
@@ -101,7 +113,7 @@ export function quickReplyPayloadsFor(messageId:string,count:number,existing?:st
 }
 
 // One supported-format parser for creation, binding, preview, enqueue, dispatch, recovery and operational test sends.
-export function parseTextTemplate(value:unknown): { components:TemplateComponent[];buttons:TemplateButton[];body:string;parameterCount:number;headerParameterCount:0|1;urlParameterIndex:number|null;preview:string } | null {
+export function parseTextTemplate(value:unknown): { components:TemplateComponent[];buttons:TemplateButton[];body:string;parameterCount:number;headerParameterCount:0|1;headerMediaKind:TemplateMediaKind|null;urlParameterIndex:number|null;preview:string } | null {
   if (!Array.isArray(value) || !value.length || value.length>4) return null;
   const parts=new Map<string,TemplateComponent>();
   for (const raw of value) {
@@ -112,6 +124,9 @@ export function parseTextTemplate(value:unknown): { components:TemplateComponent
     if (type==='BUTTONS') {
       const buttons=parseTemplateButtons(item.buttons);if (!buttons) return null;
       parts.set(type,{ type,buttons });continue;
+    }
+    if (type==='HEADER' && (item.format==='IMAGE' || item.format==='VIDEO' || item.format==='DOCUMENT')) {
+      if (item.text!==undefined) return null;parts.set(type,{ type,format:item.format });continue;
     }
     if (typeof item.text!=='string') return null;
     if (type==='BODY') {
@@ -133,8 +148,9 @@ export function parseTextTemplate(value:unknown): { components:TemplateComponent
   const buttons=cta?.type==='BUTTONS' ? cta.buttons : [];
   const urlIndex=buttons.findIndex((button)=>button.type==='URL' && urlParameterCount(button.url)===1);
   return { components,body,parameterCount:bodyParameterCount(body)!,buttons,urlParameterIndex:urlIndex===-1 ? null : urlIndex,
-    headerParameterCount:header?.type==='HEADER' ? textHeaderParameterCount(header.text)! : 0,
-    preview:components.map((part)=>part.type==='BUTTONS' ? buttonHistoryText(part.buttons) : part.text).join('\n\n') };
+    headerParameterCount:header?.type==='HEADER' && header.format==='TEXT' ? textHeaderParameterCount(header.text)! : 0,
+    headerMediaKind:header?.type==='HEADER' && header.format!=='TEXT' ? header.format.toLowerCase() as TemplateMediaKind : null,
+    preview:components.map((part)=>part.type==='BUTTONS' ? buttonHistoryText(part.buttons) : part.type==='HEADER' && part.format!=='TEXT' ? `[${part.format}]` : part.text).join('\n\n') };
 }
 
 export function textHeaderParameterCount(value:unknown):0|1|null {
@@ -174,7 +190,7 @@ export function bodyParameterCount(value: unknown): number | null {
 export async function approvedBodyTemplate(tx: postgres.TransactionSql,
   connectionId: string, campaignId: string, templateId: string,
   bodyParameters: string[] = [], headerParameter?:string,urlParameter?:string,
-  replyContext?:{ messageId:string;payloads?:string[] }): Promise<{ body: string; snapshot: BodyTemplateSnapshot }> {
+  replyContext?:{ messageId:string;payloads?:string[];mediaHeader?:TemplateMediaSnapshot }): Promise<{ body: string; snapshot: BodyTemplateSnapshot }> {
   const template = (await tx`SELECT external_template_id, name, language, category,
       status, active, components FROM provider_message_template
     WHERE id = ${templateId} AND connection_id = ${connectionId}
@@ -192,14 +208,16 @@ export async function approvedBodyTemplate(tx: postgres.TransactionSql,
     throw new HttpError(400, 'TEMPLATE_PARAMETERS_INVALID');
   if (!parsed.headerParameterCount && headerParameter!==undefined) throw new HttpError(400,'TEMPLATE_HEADER_PARAMETER_INVALID');
   const header=parsed.components.find((part)=>part.type==='HEADER');
-  const renderedHeader=header ? renderTextHeader(header.text,headerParameter) : undefined;
+  const renderedHeader=header?.format==='TEXT' ? renderTextHeader(header.text,headerParameter) : undefined;
   if (renderedHeader===null) throw new HttpError(400,'TEMPLATE_HEADER_PARAMETER_INVALID');
   if (!renderTemplateButtons(parsed.buttons,urlParameter)) throw new HttpError(400,'TEMPLATE_URL_PARAMETER_INVALID');
   const quickCount=parsed.buttons.filter((button)=>button.type==='QUICK_REPLY').length;
   const quickPayloads=replyContext ? quickReplyPayloadsFor(replyContext.messageId,quickCount,replyContext.payloads) : quickCount ? null : [];
   if (!quickPayloads) throw new HttpError(400,'TEMPLATE_QUICK_REPLY_INVALID');
-  const body = parsed.components.filter((part)=>part.type!=='BUTTONS').map((part)=>part.type==='HEADER' ? renderedHeader! : part.type==='BODY'
-    ? part.text.replace(/\{\{([1-9]\d*)\}\}/g,(_match,index:string)=>bodyParameters[Number(index)-1]!) : part.text).join('\n\n');
+  if (!validTemplateMedia(parsed.headerMediaKind,replyContext?.mediaHeader)) throw new HttpError(400,'TEMPLATE_MEDIA_INVALID');
+  const body = parsed.components.flatMap((part)=>part.type==='BUTTONS' || (part.type==='HEADER' && part.format!=='TEXT') ? []
+    : [part.type==='HEADER' ? renderedHeader! : part.type==='BODY'
+      ? part.text.replace(/\{\{([1-9]\d*)\}\}/g,(_match,index:string)=>bodyParameters[Number(index)-1]!) : part.text]).join('\n\n');
   if (body.length > 20000) throw new HttpError(400, 'TEMPLATE_PARAMETERS_INVALID');
   return { body, snapshot: { externalTemplateId: template.external_template_id,
     name: template.name, language: template.language, category: template.category,
@@ -207,5 +225,6 @@ export async function approvedBodyTemplate(tx: postgres.TransactionSql,
     ...(bodyParameters.length ? { bodyParameters } : {}),
     ...(headerParameter!==undefined ? { headerParameter } : {}),
     ...(urlParameter!==undefined ? { urlParameter } : {}),
+    ...(replyContext?.mediaHeader ? { mediaHeader:replyContext.mediaHeader } : {}),
     ...(quickPayloads.length ? { quickReplyPayloads:quickPayloads } : {}) } };
 }

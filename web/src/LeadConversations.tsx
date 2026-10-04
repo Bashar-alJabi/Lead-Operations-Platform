@@ -25,7 +25,7 @@ type Message = { id: string; direction: 'INBOUND'|'OUTBOUND'; author_type: strin
   delivery_state: string; last_error_code: string | null; created_at: string;templateButtons:TemplateButton[];
   reply_to_message_id:string|null;reply_button_index:number|null };
 type AvailableTemplate = { id: string; name: string; language: string; body: string; parameterCount: number;headerParameterCount:0|1;
-  components:{ type:'HEADER'|'BODY'|'FOOTER';text:string }[];buttons:TemplateButton[];urlParameterIndex:number|null };
+  components:{ type:'HEADER'|'BODY'|'FOOTER';format?:string;text?:string }[];buttons:TemplateButton[];urlParameterIndex:number|null;headerMediaKind:'image'|'video'|'document'|null };
 type AttentionReview = { id: string; previous_reason: string; review_note: string;
   reviewer_name: string; created_at: string };
 const labels = {
@@ -90,12 +90,13 @@ export function LeadConversations({ leadId, lifecycle, role, actorId, locale, ap
   const [urlParameter,setUrlParameter]=useState('');
   const selectedTemplate=templates.find((item)=>item.id===templateId);
   const missingTemplateParameter=templateParameters.some((value)=>!value.trim()) || (selectedTemplate?.headerParameterCount===1 && !headerParameter.trim())
-    || (selectedTemplate && selectedTemplate.urlParameterIndex!==null && !urlParameter.trim());
+    || (selectedTemplate && selectedTemplate.urlParameterIndex!==null && !urlParameter.trim())
+    || (selectedTemplate?.headerMediaKind && uploadedAttachment?.mediaKind!==selectedTemplate.headerMediaKind);
   const templateButtons=selectedTemplate?.buttons.map((button)=>button.type==='URL' && button.url.endsWith('{{1}}') && urlParameter
     ? { ...button,url:button.url.replace(/\{\{1\}\}$/,()=>urlParameter) } : button) ?? [];
   const templatePreview=selectedTemplate?.components.map((part)=>part.type==='HEADER'
-    ? part.text.replace(/\{\{1\}\}/g,()=>headerParameter || '{{1}}') : part.type==='BODY'
-      ? part.text.replace(/\{\{([1-9]\d*)\}\}/g,(match,index:string)=>templateParameters[Number(index)-1] || match) : part.text).join('\n\n');
+    ? part.format==='TEXT' ? part.text!.replace(/\{\{1\}\}/g,()=>headerParameter || '{{1}}') : `[${part.format}]` : part.type==='BODY'
+      ? part.text!.replace(/\{\{([1-9]\d*)\}\}/g,(match,index:string)=>templateParameters[Number(index)-1] || match) : part.text).join('\n\n');
   const [sendKey, setSendKey] = useState(() => crypto.randomUUID());
   const [submitted, setSubmitted] = useState(false);
   const [takeoverReason, setTakeoverReason] = useState('');
@@ -174,6 +175,7 @@ export function LeadConversations({ leadId, lifecycle, role, actorId, locale, ap
       await api(`/api/conversations/${selectedId}/messages`, { method: 'POST', body: JSON.stringify({
         ...(sendMode === 'TEXT' ? { body: draft } : sendMode === 'ATTACHMENT'
           ? { attachmentId: uploadedAttachment!.id, body: draft } : { templateId,
+          ...(selectedTemplate?.headerMediaKind ? { attachmentId:uploadedAttachment!.id } : {}),
           templateParameters,...(selectedTemplate?.headerParameterCount===1 ? { templateHeaderParameter:headerParameter } : {}),
           ...(selectedTemplate && selectedTemplate.urlParameterIndex!==null ? { templateUrlParameter:urlParameter } : {}) }), idempotencyKey: sendKey,
       }) });
@@ -303,6 +305,7 @@ export function LeadConversations({ leadId, lifecycle, role, actorId, locale, ap
       {canCompose && <form className="workflow-form" onSubmit={(event) => { event.preventDefault(); void sendMessage(); }}>
         <label>{t.mode}<select aria-label={t.mode} value={sendMode} disabled={busy} onChange={(event) => {
           setSendMode(event.target.value as 'TEXT'|'TEMPLATE'|'ATTACHMENT'); setDraft(''); setSendKey(crypto.randomUUID()); setSubmitted(false);
+          setUploadFile(null);setUploadedAttachment(null);setUploadKey(crypto.randomUUID());
         }}><option value="TEXT">{t.textMode}</option><option value="TEMPLATE">{t.templateMode}</option>
           {mediaKinds.length ? <option value="ATTACHMENT">{locale === 'ar' ? 'مرفق ضمن نافذة الرد' : locale === 'fr' ? 'Pièce jointe dans la fenêtre de réponse' : 'Attachment in reply window'}</option> : null}</select></label>
         {sendMode === 'TEXT' ? <label>{t.draft}<textarea aria-label={t.draft} required maxLength={20000} value={draft} disabled={busy}
@@ -310,6 +313,9 @@ export function LeadConversations({ leadId, lifecycle, role, actorId, locale, ap
             if (submitted) { setSendKey(crypto.randomUUID()); setSubmitted(false); } }} /></label>
           : sendMode === 'TEMPLATE' ? <label>{t.template}<select aria-label={t.template} required value={templateId} disabled={busy} onChange={(event) => {
             setTemplateId(event.target.value);
+            const chosen=templates.find((item)=>item.id===event.target.value);
+            setUploadFile(null);setUploadedAttachment(null);setUploadKey(crypto.randomUUID());
+            if (chosen?.headerMediaKind) setUploadKind(chosen.headerMediaKind);
             setHeaderParameter('');setUrlParameter('');
             setTemplateParameters(Array(templates.find((item) => item.id === event.target.value)?.parameterCount ?? 0).fill(''));
             setSendKey(crypto.randomUUID()); setSubmitted(false);
@@ -335,6 +341,16 @@ export function LeadConversations({ leadId, lifecycle, role, actorId, locale, ap
                 if (submitted) { setSendKey(crypto.randomUUID()); setSubmitted(false); } }} /></label>
               : <p>{locale==='ar' ? 'هذا النوع لا يدعم تعليقاً. أرسل أي نص برسالة مستقلة.' : locale==='fr' ? 'Ce type ne prend pas de légende. Envoyez le texte dans un message séparé.' : 'This type has no caption. Send any text as a separate message.'}</p>}</>}
         {sendMode === 'TEMPLATE' && <p style={{ whiteSpace:'pre-wrap' }}>{templatePreview ?? t.noTemplates} {t.templateNote}</p>}
+        {sendMode==='TEMPLATE' && selectedTemplate?.headerMediaKind && <>
+          <p>{mediaNames[locale][selectedTemplate.headerMediaKind]} · {mediaRule?.mimes.join(' / ')} · {mediaRule ? (mediaRule.maxBytes/1024/1024).toFixed(2) : '—'} MiB</p>
+          <label>{locale==='ar' ? 'ملف عنوان القالب للعميل' : locale==='fr' ? 'Fichier d’en-tête client' : 'Customer template header file'}
+            <input key={templateId} type="file" accept={mediaRule?.mimes.join(',')} disabled={busy || !mediaRule} onChange={(event)=> {
+              setUploadFile(event.target.files?.[0] ?? null);setUploadedAttachment(null);setUploadKey(crypto.randomUUID());setSendKey(crypto.randomUUID());setSubmitted(false);
+            }} /></label>
+          <button type="button" className="secondary" disabled={busy || !uploadFile || !mediaRule || Boolean(uploadedAttachment)} onClick={()=>void uploadAttachment()}>
+            {locale==='ar' ? 'رفع وفحص الملف' : locale==='fr' ? 'Charger et analyser' : 'Upload and scan'}</button>
+          {uploadedAttachment && <MessageAttachment key={uploadedAttachment.id} attachment={uploadedAttachment} locale={locale} api={api} />}
+        </>}
         {sendMode==='TEMPLATE' && templateButtons.length ? <TemplateButtons buttons={templateButtons} /> : null}
         {sendMode==='TEMPLATE' && selectedTemplate && selectedTemplate.urlParameterIndex!==null && <label>
           {locale==='ar' ? 'قيمة لاحقة URL' : locale==='fr' ? 'Valeur du suffixe URL' : 'URL suffix value'}

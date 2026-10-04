@@ -1,8 +1,9 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page,type BrowserContext } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 type Fixture = { password:string;testToken:string;leadId:string;conversationId:string;untrusted:string;mediaLeadId:string;mediaConversationId:string };
 let fixture:Fixture;
+let agentStorageState:Awaited<ReturnType<BrowserContext['storageState']>>|undefined;
 test.describe.configure({ mode:'serial' });
 test.beforeAll(async()=> { fixture=JSON.parse(await readFile(resolve('.local/e2e/fixture.json'),'utf8')); });
 async function login(page:Page,name='agent') {
@@ -438,6 +439,65 @@ test('Quick Reply templates send approved labels, correlate signed customer repl
     await expect(agent.getByRole('link',{ name:'رد على زر القالب 1',exact:true })).toHaveAttribute('href','#message-'+source.id);
     expect(await agent.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
     await agent.getByRole('link',{ name:'رد على زر القالب 1',exact:true }).scrollIntoViewIfNeeded();await agent.screenshot({ path:'.local/e2e/quick-reply-ar.png' });
+    agentStorageState=await context.storageState();
     expect(errors).toEqual([]);
+  } finally { await context.close(); }
+});
+
+test('approved video template uses a ready approval sample and a separate scanned customer file with immutable browser recovery and history',async({ page,browser })=> {
+  const errors:string[]=[];page.on('pageerror',(error)=>errors.push(error.message));await login(page,'manager');
+  await page.getByRole('button',{ name:'Messaging setup',exact:true }).click();
+  await page.getByRole('row').filter({ hasText:'Browser Media Connection' }).getByRole('button').click();
+  const setup=page.getByRole('heading',{ name:'Meta templates',exact:true }).locator('..');const name='browser_video_notice';
+  await setup.getByLabel('Template header format',{ exact:true }).selectOption('VIDEO');
+  await expect(setup.getByRole('button',{ name:'Submit template',exact:true })).toBeDisabled();
+  await setup.getByRole('button',{ name:'Refresh approval samples',exact:true }).click();
+  const sampleSelector=setup.getByLabel('Ready approval sample',{ exact:true });
+  await expect(sampleSelector.locator('option')).toHaveCount(2);const sampleId=await sampleSelector.locator('option').nth(1).getAttribute('value');await sampleSelector.selectOption(sampleId!);
+  await setup.getByLabel('Template name',{ exact:true }).fill(name);await setup.getByLabel('BODY text',{ exact:true }).fill('Video for {{1}} <b>literal</b>');
+  await setup.getByLabel('Parameter example 1',{ exact:true }).fill('Approval only');await setup.getByLabel('Static footer (optional)',{ exact:true }).fill('Video closing');
+  await setup.getByRole('button',{ name:'Submit template',exact:true }).click();await expect(setup.getByRole('row').filter({ hasText:name })).toContainText('PENDING');
+  await expect(setup).not.toContainText('browser-private-sample-handle');await control(page,{ approveTemplates:true });await setup.getByRole('button',{ name:'Sync approvals',exact:true }).click();
+  await expect(setup.getByRole('row').filter({ hasText:name })).toContainText('APPROVED');
+  const operational=page.getByRole('heading',{ name:'Test send',exact:true }).locator('..');await operational.getByRole('button',{ name:'Refresh templates',exact:true }).click();
+  await expect(operational.getByLabel('Approved template',{ exact:true }).locator('option').filter({ hasText:name })).toHaveCount(0);
+  await page.getByRole('button',{ name:'Campaigns',exact:true }).click();
+  await page.getByRole('row').filter({ hasText:'Browser Media Campaign' }).getByRole('button',{ name:'Details',exact:true }).click();
+  await page.getByRole('heading',{ name:'Campaign templates',exact:true }).locator('..').locator('li').filter({ hasText:name }).getByRole('button',{ name:'Allow',exact:true }).click();
+  // Reuse the preceding synthetic Agent session in memory; repeated fixture logins hit the real 10/15min IP quota.
+  // The production auth limiter remains enabled and no storage state is saved to disk or personal profile.
+  expect(agentStorageState).toBeTruthy();const context=await browser.newContext({ storageState:agentStorageState });const agent=await context.newPage();agent.on('pageerror',(error)=>errors.push(error.message));
+  try {
+    await agent.goto('/');await agent.getByRole('combobox',{ name:'Language' }).selectOption('en');await expect(agent.getByRole('button',{ name:'Sign out',exact:true })).toBeVisible();
+    await agent.getByRole('row').filter({ hasText:'Browser Media Customer' }).getByRole('button',{ name:'Details',exact:true }).click();
+    const panel=agent.getByRole('heading',{ name:'Customer conversations',exact:true }).locator('..');await panel.getByRole('button',{ name:'View messages',exact:true }).click();
+    await panel.getByLabel('Message type',{ exact:true }).selectOption('TEMPLATE');await panel.getByLabel('Template',{ exact:true }).selectOption({ label:name+' · en_US' });
+    await panel.getByLabel('Parameter 1',{ exact:true }).fill('Alice');await expect(panel.getByRole('button',{ name:'Queue message',exact:true })).toBeDisabled();
+    await expect(panel).not.toContainText('Approval only');await expect(panel).not.toContainText('browser-private-sample-handle');
+    expect((await agent.request.get('/api/messaging/template-samples/'+sampleId+'/download')).status()).toBe(403);
+    await panel.getByLabel('Customer template header file',{ exact:true }).setInputFiles(resolve('test-fixtures/media/clip.mp4'));
+    await panel.getByRole('button',{ name:'Upload and scan',exact:true }).click();await expect(panel.getByRole('button',{ name:'Queue message',exact:true })).toBeEnabled();
+    const composer=panel.getByLabel('Message type',{ exact:true }).locator('..').locator('..');
+    const before=await control(agent);const previewDownload=agent.waitForEvent('download');await composer.getByRole('button',{ name:'Download scanned file',exact:true }).click();await previewDownload;
+    expect((await control(agent)).messages).toHaveLength(before.messages.length);
+    await panel.getByRole('button',{ name:'View messages',exact:true }).click();await expect(panel.getByLabel('Parameter 1',{ exact:true })).toHaveValue('Alice');
+    await expect(panel.getByRole('button',{ name:'Queue message',exact:true })).toBeEnabled();
+    await panel.getByRole('button',{ name:'Queue message',exact:true }).click();const body='Video for Alice <b>literal</b>\n\nVideo closing';
+    const message=panel.locator('.conversation-messages li').filter({ has:agent.getByText(body,{ exact:true }) });await expect(message).toContainText('QUEUED');
+    const rejected=await control(agent,{ process:true,mode:'reject' });expect(rejected.mediaUploads).toBe(before.mediaUploads+1);expect(rejected.providerCalls).toBe(before.providerCalls+1);
+    await panel.getByRole('button',{ name:'View messages',exact:true }).click();await expect(message).toContainText('FAILED');
+    await message.getByRole('button',{ name:'Send details and attempts',exact:true }).click();
+    await message.getByLabel('Reason after fixing the failure',{ exact:true }).fill('Browser video template delivery rejection resolved');
+    await message.getByLabel('I fixed the failure and want to send the same saved content',{ exact:true }).check();
+    await message.getByRole('button',{ name:'Requeue the saved message',exact:true }).click();await expect(message).toContainText('QUEUED');
+    const sent=await control(agent,{ process:true,mode:'accept' });
+    expect(sent.mediaUploads).toBe(before.mediaUploads+2);expect(sent.providerCalls).toBe(before.providerCalls+2);expect(sent.sampleUploads).toBe(before.sampleUploads);
+    expect(sent.messages.filter((item:{ body:string })=>item.body===body)).toHaveLength(1);
+    await panel.getByRole('button',{ name:'View messages',exact:true }).click();await expect(message).toContainText('SENT');await expect(message.locator('b')).toHaveCount(0);
+    const downloaded=agent.waitForEvent('download');await message.getByRole('button',{ name:'Download scanned file',exact:true }).click();const file=await downloaded;
+    expect(await readFile((await file.path())!)).toEqual(await readFile('test-fixtures/media/clip.mp4'));
+    await agent.setViewportSize({ width:390,height:844 });await agent.getByRole('combobox',{ name:'Language' }).selectOption('ar');
+    await expect(agent.locator('html')).toHaveAttribute('dir','rtl');expect(await agent.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
+    await agent.getByText(body,{ exact:true }).scrollIntoViewIfNeeded();await agent.screenshot({ path:'.local/e2e/media-template-ar.png' });expect(errors).toEqual([]);
   } finally { await context.close(); }
 });

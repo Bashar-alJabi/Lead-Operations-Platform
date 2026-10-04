@@ -15,7 +15,8 @@ export interface MessagingProviderAdapter {
 export type SendTextInput = { config: MessagingConnectionConfig; credentials: MessagingCredentials;
   externalSenderId: string; recipient: string; body: string };
 export type SendTemplateInput = Omit<SendTextInput, 'body'> & { templateName: string;
-  templateLanguage: string; bodyParameters?: string[];headerParameter?:string;urlButton?:{ index:number;suffix:string };quickReplyButtons?:{ index:number;payload:string }[] };
+  templateLanguage: string; bodyParameters?: string[];headerParameter?:string;urlButton?:{ index:number;suffix:string };quickReplyButtons?:{ index:number;payload:string }[];
+  mediaHeader?:{ kind:'image'|'video'|'document';providerMediaId:string;filename:string } };
 export type UploadMediaInput = Omit<SendTextInput, 'body'> & { bytes: Buffer; mime: string;
   mediaKind: MediaKind; caption: string; filename: string };
 export type SendMediaInput = Omit<UploadMediaInput, 'bytes'|'mime'> & { providerMediaId: string };
@@ -114,6 +115,9 @@ export const metaWhatsAppSendAdapter: MessagingSendAdapter = {
         || value.length > 512 || /[\x00-\x1f\x7f]/.test(value))
       || (input.headerParameter!==undefined && (typeof input.headerParameter!=='string' || !input.headerParameter.trim()
         || input.headerParameter.length>60 || /[\x00-\x1f\x7f]/.test(input.headerParameter)))
+      || (input.mediaHeader!==undefined && (!input.mediaHeader || input.headerParameter!==undefined
+        || !['image','video','document'].includes(input.mediaHeader.kind) || !/^\d{1,30}$/.test(input.mediaHeader.providerMediaId)
+        || !/^[A-Za-z0-9._-]{1,100}$/.test(input.mediaHeader.filename)))
       || (input.urlButton!==undefined && (!input.urlButton || !Number.isInteger(input.urlButton.index)
         || input.urlButton.index<0 || input.urlButton.index>1 || !validUrlSuffix(input.urlButton.suffix)))
       || (input.quickReplyButtons!==undefined && (input.urlButton!==undefined || !Array.isArray(input.quickReplyButtons)
@@ -121,7 +125,9 @@ export const metaWhatsAppSendAdapter: MessagingSendAdapter = {
           !button || button.index!==index || parseQuickReplyPayload(button.payload)?.index!==index
           || parseQuickReplyPayload(button.payload)?.messageId!==replyMessageId))))
       throw new ProviderSendError('REJECTED', 'PROVIDER_TEMPLATE_INVALID');
-    const components=[...(input.headerParameter!==undefined ? [{ type:'header',parameters:[{ type:'text',text:input.headerParameter }] }] : []),
+    const components=[...(input.mediaHeader ? [{ type:'header',parameters:[{ type:input.mediaHeader.kind,[input.mediaHeader.kind]:{
+      id:input.mediaHeader.providerMediaId,...(input.mediaHeader.kind==='document' ? { filename:input.mediaHeader.filename } : {}) } }] }] : []),
+      ...(input.headerParameter!==undefined ? [{ type:'header',parameters:[{ type:'text',text:input.headerParameter }] }] : []),
       ...(input.bodyParameters?.length ? [{ type:'body',parameters:input.bodyParameters.map((text)=>({ type:'text',text })) }] : []),
       ...(input.urlButton ? [{ type:'button',sub_type:'url',index:String(input.urlButton.index),parameters:[{ type:'text',text:input.urlButton.suffix }] }] : []),
       ...(input.quickReplyButtons?.map((button)=>({ type:'button',sub_type:'quick_reply',index:String(button.index),parameters:[{ type:'payload',payload:button.payload }] })) ?? [])];

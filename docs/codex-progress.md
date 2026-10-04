@@ -1,6 +1,22 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: Media Templates مع ملفات عميل مستقلة
+
+اكتملت بعد `a28a06a` مرحلة HEADER IMAGE/VIDEO/DOCUMENT: تختار الإدارة `mediaSampleId` لعينة READY ضمن Connection نفسها ونسختها الحالية؛ يفك الخادم handle داخلياً لإنشاء قالب PENDING دون قبول handle من العميل. المزامنة والـCatalog والـAgent API تزيل أمثلة HEADER الإعلامية ومرجع الاعتماد؛ لا تحفظ handle كنص صريح. اعتماد القالب وربطه بالحملة شرطان قبل ظهوره في Conversation. الواجهة تدير اختيار نوع HEADER والعينة المطابقة صراحة، وتبقى BODY parameters وFOOTER وbuttons مستقلة.
+
+عند الإرسال يرفع المتحكم البشري Customer attachment جديدة مفحوصة ضمن Conversation، ولا يعاد استعمال عينة الاعتماد كملف إرسال. TEMPLATE تحفظ attachment ID/kind/MIME/hash/size في immutable snapshot؛ migration042 تضيف DB guard على أصل الملف وREADY وتطابق HEADER/snapshot، وتحافظ على منع استعمال الملف نفسه في Message أخرى. API ترفض الملف المفقود أو المختلف أو عينة إدارية أو نص BODY حر. Worker تستعمل مسار الملفات الحالي: integrity/codec validation ثم private provider upload ثم إعادة Central Messaging Policy/Controller/DNC/approval/canonical snapshot قبل Customer dispatch. lease180s للملف؛ لا PREPARED customer attempt قبل الرفع الخاص. Adapter ترسل header media ID مستقلة عن BODY values؛ upload failure قابلة لإعادة المحاولة، وUNKNOWN customer dispatch لا يعاد تلقائياً ولا عبر recovery. recovery المؤهلة تستعيد Message نفسها ومحتواها المحفوظ بعد فحص الصلاحيات والقالب والملف.
+
+التحقق المثبت: migrations001–042 على development/test PostgreSQL18 عبر Docker، و47/47 unit و16/16 integration و7/7 Browser Edge exit0، وBackend/Web typecheck/build ناجحة؛ PostgreSQL وClamAV healthy. integration تغطي IMAGE/VIDEO/DOCUMENT create→approval→binding→separate upload→queue→worker/history، concurrent enqueue/worker/idempotency، pending approval/sample rejection وACL/redaction/DB immutability، private upload retry بلا Customer attempt، confirmed rejection/recovery، HEADER change قبل dispatch ثم recovery بعد استعادة الأصل، DNC أثناء الرفع، UNKNOWN منع resend، وإعادة الإسناد مع download ACL. unit تثبت canonical metadata وcreate/send wire shapes دون خلط approval handle بmedia ID.
+
+Browser تضيف VIDEO template من عينة READY ثم Agent file منفصلة، preview download بلا send وحفظ draft عند refresh، rejection→UI recovery→SENT لنفس Message، private bytes download وescaped HTML وArabic RTL390px؛ فُحصت `media-template-ar.png`. أصلحت محدد زر التنزيل ليقتصر على composer، وانتظار QUEUED بعد طلب recovery، ومحدد اللقطة بعد تبديل اللغة. جلسة Agent الاصطناعية السابقة يعاد استعمالها في الذاكرة لتجنب تجاوز quota تسجيل الدخول الفعلية10/15min؛ لم تُضعف حماية production ولم تحفظ cookies على disk.
+
+حدود التحقق: Implemented وMock/PostgreSQL/Local Browser Verified للصيغ المذكورة؛ لا Meta/S3 live أو IMAGE/DOCUMENT template Browser أو جميع أنواع provider template/components. sample تستخدم JPEG/PNG/PDF وMP4/H.264 profile الحالية، وscan/provider/approval في اختبارات المرحلة fakes؛ ffprobe حقيقية وClamAV healthy، دون ادعاء فحص scanner حي جديد لهذه الرحلة. operational test-send تستبعد media headers لعدم وجود Customer attachment context، بينما Conversation send متاحة. Messaging والمنصة ليستا Complete.
+
+قيد التنفيذ عند checkpoint: لا تغييرات برمجية غير مستقرة. هذه checkpoint توثق المرحلة المثبتة، ويحدد `git log` commit الحفظ والرفع على `codex/full-platform-build`. الخطوة التالية الدقيقة: مراجعة Messaging baseline مقابل05/06 وتحديد الفجوات التي تعتمد على الوحدات اللاحقة؛ إذا كانت الأساسات كافية، بدء Meta intake connection/discovery/bindings/field mapping وdurable signed ingestion عبر Contacts/Lead intake الحالية، قبل Payments/Enrollment ثم AI. لا تبدأ توسيع provider formats لمجرد توفرها.
+
 ## آخر حالة مستقرة: أساس عينات اعتماد media templates
+
+checkpoint هذه المرحلة محفوظة ومرفوعة `a28a06a`. الوصف التالي تاريخي لمرحلة أساس العينات؛ أضيف create/send في المرحلة المستقرة أعلاه.
 
 checkpoint السابقة `89564a8` محفوظة ومرفوعة. اكتمل أساس عينات IMAGE/VIDEO/DOCUMENT، منفصلة في `messaging_template_sample` عن Customer attachments وMessage. Upload bytes/type/size/scan/ffprobe/private storage تستعمل abstractions الحالية؛ Connection Manager أو Super Admin فقط، وOrganization shared connection للمسؤول الأعلى. onRequest تتحقق قبل parsing، وتعيد transaction فحص Connection version/user role/active بعد scan. upload idempotency وتزامن نسختين ينشئان record/Audit واحدة، ومحتوى العينة immutable. download مفحوص ومصرح مع attachment/nosniff/no-store وhash/size/backend integrity؛ rescan malware تحجب التحميل.
 

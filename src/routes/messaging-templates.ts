@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type { Database } from '../db.js';
-import { openSecret } from '../credentials.js';
+import { openSecret,openOpaque } from '../credentials.js';
 import { HttpError, principalFromRequest, requireRole, type Principal } from '../security.js';
 import { metaTemplateAdapter, TemplateProviderError, type MessagingTemplateAdapter,
-  type CreateTemplateInput, type ProviderTemplate } from '../messaging/templates-provider.js';
+  type CreateTemplateInput, type ProviderTemplate,safeTemplateCatalogComponents } from '../messaging/templates-provider.js';
 import type { MessagingConnectionConfig, MessagingCredentials } from '../messaging/providers.js';
 import { bodyParameterCount, parseTextTemplate, validHeaderExample, validUrlExample } from '../messaging/approved-template.js';
 
@@ -19,6 +19,7 @@ const createSchema = { type: 'object', additionalProperties: false,
     body: { type: 'string', minLength: 1, maxLength: 1024 },
     header:{ type:'string',minLength:1,maxLength:60 },footer:{ type:'string',minLength:1,maxLength:60 },
     headerExample:{ type:'string',minLength:1,maxLength:60 },
+    mediaSampleId:{ type:'string',format:'uuid' },
     urlExample:{ type:'string',minLength:1,maxLength:2000 },
     buttons:{ type:'array',minItems:1,maxItems:3,items:{ oneOf:[
       { type:'object',additionalProperties:false,required:['type','text'],properties:{
@@ -86,8 +87,9 @@ export function registerMessagingTemplateRoutes(app: FastifyInstance, db: Databa
       const page = rows.slice(0, limit);
       const items = page.map((row) => {
         const parsed = parseTextTemplate(row.components);
-        return { ...row, supported: Boolean(parsed), parameterCount: parsed?.parameterCount ?? null,
+        return { ...row,components:safeTemplateCatalogComponents(row.components), supported: Boolean(parsed), parameterCount: parsed?.parameterCount ?? null,
           headerParameterCount: parsed?.headerParameterCount ?? null,urlParameterIndex:parsed?.urlParameterIndex ?? null,
+          headerMediaKind:parsed?.headerMediaKind ?? null,
           quickReplyCount:parsed?.buttons.filter((button)=>button.type==='QUICK_REPLY').length ?? null,preview:parsed?.preview ?? null };
       });
       return { items, nextAfter: rows.length > limit ? page.at(-1)!.id : null };
@@ -116,7 +118,7 @@ export function registerMessagingTemplateRoutes(app: FastifyInstance, db: Databa
       for (const item of templates) await tx`INSERT INTO provider_message_template
         (connection_id, external_template_id, name, language, status, category, components, active, last_synced_at)
         VALUES (${connection.id}, ${item.externalId}, ${item.name}, ${item.language}, ${item.status},
-          ${item.category}, ${tx.json(JSON.parse(JSON.stringify(item.components)))}, true, now())
+          ${item.category}, ${tx.json(JSON.parse(JSON.stringify(safeTemplateCatalogComponents(item.components))))}, true, now())
         ON CONFLICT (connection_id, external_template_id) DO UPDATE SET
           name = EXCLUDED.name, language = EXCLUDED.language, status = EXCLUDED.status,
           category = EXCLUDED.category, components = EXCLUDED.components, active = true,
@@ -201,16 +203,27 @@ export function registerMessagingTemplateRoutes(app: FastifyInstance, db: Databa
       });
     });
 
-  app.post<{ Params: { id: string }; Body: CreateTemplateInput & { idempotencyKey: string } }>(
+  app.post<{ Params: { id: string }; Body: Omit<CreateTemplateInput,'mediaHeader'> & { idempotencyKey: string;mediaSampleId?:string } }>(
     '/api/messaging/connections/:id/templates', { schema: { params, body: createSchema },
       config: { rateLimit: { max: 20, timeWindow: '15 minutes' } } }, async (request, reply) => {
       const actor = await principalFromRequest(request, db);
       const connection = await connectionFor(db, actor, request.params.id);
       if (connection.status === 'DISABLED') throw new HttpError(409, 'CONNECTION_DISABLED');
       const { idempotencyKey, ...input } = request.body;
+      if (input.mediaSampleId && (input.header!==undefined || input.headerExample!==undefined)) throw new HttpError(400,'TEMPLATE_HEADER_INPUT_CONFLICT');
+      const sample=input.mediaSampleId ? (await db`SELECT * FROM messaging_template_sample
+        WHERE id=${input.mediaSampleId} AND connection_id=${connection.id}`)[0] : null;
+      if (input.mediaSampleId && !sample) throw new HttpError(404,'TEMPLATE_SAMPLE_NOT_FOUND');
+      if (sample && (sample.state!=='READY' || sample.connection_version!==connection.version)) throw new HttpError(409,'TEMPLATE_SAMPLE_NOT_READY');
+      let mediaHeader:CreateTemplateInput['mediaHeader'];
+      if (sample) {
+        try { mediaHeader={ format:sample.media_kind.toUpperCase(),handle:openOpaque(`template-sample:${sample.id}`,{
+          ciphertext:sample.handle_ciphertext,nonce:sample.handle_nonce,authTag:sample.handle_auth_tag,keyVersion:sample.handle_key_version }) }; }
+        catch { throw new HttpError(409,'TEMPLATE_SAMPLE_REFERENCE_UNAVAILABLE'); }
+      }
       const count = bodyParameterCount(input.body);
       if (count === null) throw new HttpError(400, 'TEMPLATE_BODY_INVALID');
-      if (!parseTextTemplate([...(input.header!==undefined ? [{ type:'HEADER',format:'TEXT',text:input.header }] : []),
+      if (!parseTextTemplate([...(mediaHeader ? [{ type:'HEADER',format:mediaHeader.format }] : []),...(input.header!==undefined ? [{ type:'HEADER',format:'TEXT',text:input.header }] : []),
         { type:'BODY',text:input.body },...(input.footer!==undefined ? [{ type:'FOOTER',text:input.footer }] : []),
         ...(input.buttons!==undefined ? [{ type:'BUTTONS',buttons:input.buttons }] : [])]))
         throw new HttpError(400,'TEMPLATE_FORMAT_UNSUPPORTED');
@@ -251,7 +264,8 @@ export function registerMessagingTemplateRoutes(app: FastifyInstance, db: Databa
       });
       if (reservation.existing) return { id: reservation.templateId, existing: true };
       let created: ProviderTemplate;
-      try { created = await adapter.create(connection.config as MessagingConnectionConfig, credentials, input);
+      try { const { mediaSampleId:_,...providerInput }=input;
+        created = await adapter.create(connection.config as MessagingConnectionConfig, credentials,{ ...providerInput,...(mediaHeader ? { mediaHeader } : {}) });
         validateCatalog([created]); }
       catch (error) {
         const unknown = !(error instanceof TemplateProviderError) || error.kind === 'UNKNOWN';
@@ -277,7 +291,7 @@ export function registerMessagingTemplateRoutes(app: FastifyInstance, db: Databa
         const template = (await tx`INSERT INTO provider_message_template
           (connection_id, external_template_id, name, language, status, category, components, active)
           VALUES (${connection.id}, ${created.externalId}, ${created.name}, ${created.language},
-            ${created.status}, ${created.category}, ${tx.json(JSON.parse(JSON.stringify(created.components)))}, ${active})
+            ${created.status}, ${created.category}, ${tx.json(JSON.parse(JSON.stringify(safeTemplateCatalogComponents(created.components))))}, ${active})
           ON CONFLICT (connection_id, external_template_id) DO UPDATE SET
             status = EXCLUDED.status, category = EXCLUDED.category, components = EXCLUDED.components,
             active = EXCLUDED.active RETURNING id`)[0]!;

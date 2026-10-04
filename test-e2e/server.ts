@@ -99,6 +99,7 @@ const app = await buildApp(db, { logger:false,globalRateLimitMax:10000,mediaStor
       if (config.wabaId!=='987654321') throw new Error('Unexpected test connection');
       const template:ProviderTemplate={ externalId:String(8000+templates.length),name:input.name,language:input.language,
         category:input.category,status:'PENDING',components:[
+          ...(input.mediaHeader ? [{ type:'HEADER',format:input.mediaHeader.format,example:{ header_handle:[input.mediaHeader.handle] } }] : []),
           ...(input.header ? [{ type:'HEADER',format:'TEXT',text:input.header,
             ...(input.headerExample ? { example:{ header_text:[input.headerExample] } } : {}) }] : []),
           { type:'BODY',text:input.body,...(input.examples?.length ? { example:{ body_text:[input.examples] } } : {}) },

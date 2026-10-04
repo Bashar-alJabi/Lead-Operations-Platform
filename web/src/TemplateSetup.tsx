@@ -5,6 +5,7 @@ type Locale = 'ar'|'fr'|'en';
 type Template = { id: string; name: string; language: string; status: string; category: string | null;
   active: boolean; supported:boolean; preview:string|null; last_synced_at: string | null; components: unknown[] };
 type CreateRequest = { id: string; name: string; language: string; state: string; created_at: string };
+type Sample={ id:string;kind:string;mime:string;state:string;usable:boolean };
 
 const labels = {
   ar: { title: 'قوالب Meta', sync: 'مزامنة الاعتماد', create: 'إرسال قالب للمراجعة', name: 'اسم القالب', language: 'اللغة',
@@ -33,6 +34,8 @@ export function TemplateSetup({ connectionId, status, canManage, locale, api }: 
   const [requests, setRequests] = useState<CreateRequest[]>([]);
   const [requestAfter, setRequestAfter] = useState<string | null>(null);
   const [form, setForm] = useState({ name: '', language: 'en_US', category: 'UTILITY', body: '',header:'',footer:'',headerExample:'' });
+  const [headerFormat,setHeaderFormat]=useState<'TEXT'|'IMAGE'|'VIDEO'|'DOCUMENT'>('TEXT');const [sampleId,setSampleId]=useState('');
+  const [samples,setSamples]=useState<Sample[]>([]);const [sampleAfter,setSampleAfter]=useState<string|null>(null);
   const [urlExample,setUrlExample]=useState('');
   const [buttonMode,setButtonMode]=useState<'CTA'|'QUICK_REPLY'>('CTA');
   const [quickLabels,setQuickLabels]=useState(['','','']);
@@ -54,8 +57,12 @@ export function TemplateSetup({ connectionId, status, canManage, locale, api }: 
     setRequests((current) => next ? [...current, ...page.items] : page.items);
     setRequestAfter(page.nextAfter);
   }
+  async function loadSamples(next?:string) {
+    const page=await api<{ items:Sample[];nextAfter:string|null }>(`/api/messaging/connections/${connectionId}/template-samples`+(next ? '?after='+encodeURIComponent(next) : ''));
+    setSamples((current)=>next ? [...current,...page.items] : page.items);setSampleAfter(page.nextAfter);
+  }
   useEffect(() => { setTemplates([]); setAfter(null); setRequests([]); setRequestAfter(null);
-    setKey(crypto.randomUUID()); setError('');
+    setKey(crypto.randomUUID()); setError('');setHeaderFormat('TEXT');setSampleId('');setSamples([]);setSampleAfter(null);
     void Promise.all([load(), loadRequests()]).catch((failure) => setError(String(failure))); }, [connectionId]);
   async function sync() {
     setBusy(true); setError('');
@@ -71,11 +78,12 @@ export function TemplateSetup({ connectionId, status, canManage, locale, api }: 
         : buttons.filter((button)=>button.type!=='NONE').map((button)=>button.type==='URL'
         ? { type:'URL',text:button.text,url:button.target } : { type:'PHONE_NUMBER',text:button.text,phone_number:button.target });
       await api(`/api/messaging/connections/${connectionId}/templates`, { method: 'POST',
-        body: JSON.stringify({ ...base,...(header ? { header } : {}),...(footer ? { footer } : {}),
-          ...(headerExample ? { headerExample } : {}),...(examples.length ? { examples } : {}),
+        body: JSON.stringify({ ...base,...(headerFormat==='TEXT' && header ? { header } : {}),...(footer ? { footer } : {}),
+          ...(headerFormat==='TEXT' && headerExample ? { headerExample } : {}),...(headerFormat!=='TEXT' ? { mediaSampleId:sampleId } : {}),...(examples.length ? { examples } : {}),
           ...(cta.length ? { buttons:cta } : {}),...(buttonMode==='CTA' && urlExample ? { urlExample } : {}),idempotencyKey: key }) });
       setForm({ name: '', language: form.language, category: 'UTILITY', body: '',header:'',footer:'',headerExample:'' });
       setExamples([]);
+      setHeaderFormat('TEXT');setSampleId('');
       setUrlExample('');
       setButtonMode('CTA');setQuickLabels(['','','']);
       setButtons([{ type:'NONE',text:'',target:'' },{ type:'NONE',text:'',target:'' }]);
@@ -113,7 +121,19 @@ export function TemplateSetup({ connectionId, status, canManage, locale, api }: 
       {requestAfter && <button className="secondary" onClick={() => void loadRequests(requestAfter).catch((failure) => setError(String(failure)))}>{t.more}</button>}
     </section>}
     {canManage && <form className="workflow-form" onSubmit={(event) => { event.preventDefault(); void create(); }}>
-      <label>{locale==='ar' ? 'عنوان TEXT (اختياري)' : locale==='fr' ? 'En-tête TEXT (facultatif)' : 'TEXT header (optional)'}
+      <label>{locale==='ar' ? 'صيغة عنوان القالب' : locale==='fr' ? 'Format de l’en-tête' : 'Template header format'}
+        <select aria-label={locale==='ar' ? 'صيغة عنوان القالب' : locale==='fr' ? 'Format de l’en-tête' : 'Template header format'} value={headerFormat} disabled={busy}
+          onChange={(event)=> { setHeaderFormat(event.target.value as typeof headerFormat);setSampleId('');setKey(crypto.randomUUID()); }}>
+          <option value="TEXT">TEXT</option><option value="IMAGE">IMAGE</option><option value="VIDEO">VIDEO</option><option value="DOCUMENT">DOCUMENT</option></select></label>
+      {headerFormat!=='TEXT' && <><button type="button" className="secondary" disabled={busy} onClick={()=>void loadSamples().catch((failure)=>setError(String(failure)))}>
+        {locale==='ar' ? 'تحديث عينات الاعتماد' : locale==='fr' ? 'Actualiser les échantillons d’approbation' : 'Refresh approval samples'}</button>
+        <label>{locale==='ar' ? 'عينة اعتماد جاهزة' : locale==='fr' ? 'Échantillon d’approbation prêt' : 'Ready approval sample'}
+          <select aria-label={locale==='ar' ? 'عينة اعتماد جاهزة' : locale==='fr' ? 'Échantillon d’approbation prêt' : 'Ready approval sample'} required value={sampleId} disabled={busy}
+            onChange={(event)=> { setSampleId(event.target.value);setKey(crypto.randomUUID()); }}><option value="">—</option>
+            {samples.filter((sample)=>sample.usable && sample.kind===headerFormat.toLowerCase()).map((sample)=><option key={sample.id} value={sample.id}>{sample.kind} · {sample.mime} · {sample.id.slice(0,8)}</option>)}</select></label>
+        {sampleAfter && <button type="button" disabled={busy} onClick={()=>void loadSamples(sampleAfter).catch((failure)=>setError(String(failure)))}>{t.more}</button>}
+        <p>{locale==='ar' ? 'هذه عينة لاعتماد القالب فقط؛ اختر مرفق العميل المفحوص مستقلاً عند الإرسال.' : locale==='fr' ? 'Échantillon pour l’approbation uniquement ; choisissez séparément le fichier client à l’envoi.' : 'Approval sample only; choose a separate scanned customer file when sending.'}</p></>}
+      {headerFormat==='TEXT' && <><label>{locale==='ar' ? 'عنوان TEXT (اختياري)' : locale==='fr' ? 'En-tête TEXT (facultatif)' : 'TEXT header (optional)'}
         <input maxLength={60} value={form.header} onChange={(event)=> {
           const header=event.target.value;setForm({ ...form,header,headerExample:header.includes('{{1}}') ? form.headerExample : '' });setKey(crypto.randomUUID());
         }} /></label>
@@ -123,7 +143,7 @@ export function TemplateSetup({ connectionId, status, canManage, locale, api }: 
       {form.header.includes('{{1}}') && <label>{locale==='ar' ? 'مثال متغير HEADER' : locale==='fr' ? 'Exemple du paramètre HEADER' : 'HEADER parameter example'}
         <input required maxLength={60} value={form.headerExample} onChange={(event)=> {
           setForm({ ...form,headerExample:event.target.value });setKey(crypto.randomUUID());
-        }} /></label>}
+        }} /></label>}</>}
       <label>{locale==='ar' ? 'تذييل ثابت (اختياري)' : locale==='fr' ? 'Pied de page fixe (facultatif)' : 'Static footer (optional)'}
         <input maxLength={60} value={form.footer} onChange={(event)=> { setForm({ ...form,footer:event.target.value });setKey(crypto.randomUUID()); }} /></label>
       <label>{t.name}<input required pattern="[a-z0-9_]+" maxLength={512} value={form.name}
@@ -181,7 +201,7 @@ export function TemplateSetup({ connectionId, status, canManage, locale, api }: 
       {buttons.some((button)=>button.type==='URL' && button.target.includes('{{1}}')) && <label>
         {locale==='ar' ? 'مثال لاحقة URL' : locale==='fr' ? 'Exemple du suffixe URL' : 'URL suffix example'}
         <input required maxLength={2000} value={urlExample} onChange={(event)=> { setUrlExample(event.target.value);setKey(crypto.randomUUID()); }} /></label>}</>}
-      <button disabled={busy || status === 'DISABLED'}>{t.create}</button>
+      <button disabled={busy || status === 'DISABLED' || (headerFormat!=='TEXT' && !sampleId)}>{t.create}</button>
     </form>}
   </section>;
 }

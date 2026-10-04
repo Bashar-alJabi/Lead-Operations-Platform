@@ -4,7 +4,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { openSecret } from '../credentials.js';
 import { HttpError, type Principal } from '../security.js';
 import { checkCurrentOutbound, lockOutboundScope } from './outbound-policy.js';
-import { approvedBodyTemplate, parseTextTemplate } from './approved-template.js';
+import { approvedBodyTemplate, parseTextTemplate,type TemplateMediaKind } from './approved-template.js';
 import { metaWhatsAppSendAdapter, ProviderSendError, type MessagingConnectionConfig,
   type MessagingCredentials, type MessagingSendAdapter, type SendTextInput,
   type SendTemplateInput } from './providers.js';
@@ -28,7 +28,7 @@ async function auditWorkerEvent(tx: postgres.TransactionSql, messageId: string, 
 async function claimOne(db: Database): Promise<Claimed | null> {
   return db.begin(async (tx) => {
     const candidates = await tx`SELECT j.id AS job_id, j.status, j.attempts, j.max_attempts,
-        m.id AS message_id, m.sender_id, m.conversation_id, m.delivery_state, m.message_kind
+        m.id AS message_id, m.sender_id, m.conversation_id, m.delivery_state, m.message_kind,m.attachment_id
       FROM background_job j JOIN outbound_delivery_job link ON link.job_id = j.id
       JOIN conversation_message m ON m.id = link.message_id
       JOIN messaging_sender s ON s.id = m.sender_id
@@ -81,7 +81,7 @@ async function claimOne(db: Database): Promise<Claimed | null> {
         return { jobId: row.job_id, messageId: row.message_id, senderId: row.sender_id,
           attemptNo: row.attempts, recovered: true };
       }
-      const leaseSeconds = row.message_kind === 'ATTACHMENT' ? 180 : 60;
+      const leaseSeconds = row.attachment_id ? 180 : 60;
       const lease = await tx`INSERT INTO sender_outbound_lease (sender_id, job_id, locked_until)
         VALUES (${row.sender_id}, ${row.job_id}, now() + ${leaseSeconds} * interval '1 second')
         ON CONFLICT (sender_id) DO UPDATE SET job_id = EXCLUDED.job_id,
@@ -118,14 +118,14 @@ async function finishWithoutSend(db: Database, claimed: Claimed, code: string): 
 }
 
 type Prepared = { kind: 'TEXT'; input: SendTextInput; connectionId: string }
-  | { kind: 'TEMPLATE'; input: SendTemplateInput; connectionId: string }
+  | { kind: 'TEMPLATE'; input: SendTemplateInput; connectionId: string;mediaUpload?:UploadMediaInput }
   | { kind: 'ATTACHMENT'; input: UploadMediaInput; connectionId: string };
-type LoadedMedia = Pick<UploadMediaInput, 'bytes'|'mime'|'mediaKind'|'filename'>;
+type LoadedMedia = Pick<UploadMediaInput, 'bytes'|'mime'|'mediaKind'|'filename'> & { attachmentId:string;sha256:string;sizeBytes:number };
 async function prepare(db: Database, claimed: Claimed, media?: LoadedMedia, mediaDispatch = false): Promise<Prepared | { blocked: string } |
   { deferredUntil: Date | null }> {
   const message = (await db`SELECT m.conversation_id, m.connection_id, m.sender_id, m.author_type,
       m.author_user_id, m.body, m.delivery_state, m.message_kind, m.template_id,
-      m.template_snapshot, u.organization_id, u.branch_id, u.role,
+      m.template_snapshot,m.attachment_id, u.organization_id, u.branch_id, u.role,
       u.name, u.email, u.active
     FROM conversation_message m LEFT JOIN user_account u ON u.id = m.author_user_id
     WHERE m.id = ${claimed.messageId}`)[0];
@@ -157,7 +157,8 @@ async function prepare(db: Database, claimed: Claimed, media?: LoadedMedia, medi
         ? await approvedBodyTemplate(tx, message.connection_id,
           locked.scope.campaign_id, message.template_id,
           message.template_snapshot?.bodyParameters ?? [], message.template_snapshot?.headerParameter,message.template_snapshot?.urlParameter,
-          { messageId:claimed.messageId,payloads:message.template_snapshot?.quickReplyPayloads }) : null;
+          { messageId:claimed.messageId,payloads:message.template_snapshot?.quickReplyPayloads,...(media ? { mediaHeader:{
+            attachmentId:media.attachmentId,kind:media.mediaKind as TemplateMediaKind,mime:media.mime,sha256:media.sha256,sizeBytes:media.sizeBytes } } : {}) }) : null;
       if (template && (!isDeepStrictEqual(template.snapshot, message.template_snapshot)
         || template.body !== message.body)) return { blocked: 'TEMPLATE_CHANGED' };
       const job = (await tx`SELECT status, attempts FROM background_job WHERE id = ${claimed.jobId} FOR UPDATE`)[0];
@@ -176,7 +177,7 @@ async function prepare(db: Database, claimed: Claimed, media?: LoadedMedia, medi
       catch { return { blocked: 'CONNECTION_CREDENTIAL_UNAVAILABLE' }; }
       if (!credentials || typeof credentials.accessToken !== 'string' || !credentials.accessToken)
         return { blocked: 'CONNECTION_CREDENTIAL_UNAVAILABLE' };
-      if (message.message_kind !== 'ATTACHMENT' || mediaDispatch)
+      if (!message.attachment_id || mediaDispatch)
         await tx`INSERT INTO outbound_send_attempt (message_id, job_id, attempt_number, state)
           VALUES (${claimed.messageId}, ${claimed.jobId}, ${claimed.attemptNo}, 'PREPARED')`;
       const common = { config: connection.config as MessagingConnectionConfig, credentials,
@@ -192,12 +193,12 @@ async function prepare(db: Database, claimed: Claimed, media?: LoadedMedia, medi
         ...(template.snapshot.headerParameter!==undefined ? { headerParameter:template.snapshot.headerParameter } : {}),
         ...(template.snapshot.urlParameter!==undefined ? { urlButton:{ index:parseTextTemplate(template.snapshot.components)!.urlParameterIndex!,suffix:template.snapshot.urlParameter } } : {}),
         ...(template.snapshot.quickReplyPayloads ? { quickReplyButtons:template.snapshot.quickReplyPayloads.map((payload,index)=>({ index,payload })) } : {}) },
-        connectionId: message.connection_id as string } : { kind: 'TEXT',
+        connectionId: message.connection_id as string,...(media ? { mediaUpload:{ ...common,...media,caption:'' } } : {}) } : { kind: 'TEXT',
         input: { ...common, body: message.body }, connectionId: message.connection_id as string };
     });
   } catch (error) {
     if (error instanceof HttpError) return { blocked: error.code === 'CONVERSATION_NOT_FOUND'
-      ? 'AUTHOR_NO_LONGER_AUTHORIZED' : error.code };
+      ? 'AUTHOR_NO_LONGER_AUTHORIZED' : error.code==='TEMPLATE_MEDIA_INVALID' ? 'TEMPLATE_CHANGED' : error.code };
     throw error;
   }
 }
@@ -286,12 +287,12 @@ export async function processOneMessagingJob(db: Database,
     a.upload_conversation_id, a.state, a.media_kind, a.mime_type, a.storage_key, a.storage_backend,
     a.content_sha256, a.size_bytes, a.id FROM conversation_message m
     LEFT JOIN message_attachment a ON a.id = m.attachment_id WHERE m.id = ${claimed.messageId}`)[0];
-  if (file?.message_kind === 'ATTACHMENT') {
+  if (file?.id || file?.message_kind === 'ATTACHMENT') {
     if (file.upload_conversation_id !== file.conversation_id || file.state !== 'READY'
       || !Object.hasOwn(mediaMimeTypes,file.media_kind)) {
       await finishWithoutSend(db, claimed, 'ATTACHMENT_NOT_READY'); return true;
     }
-    if (!mediaCaptionAllowed(file.media_kind,file.body)) {
+    if (file.message_kind==='ATTACHMENT' && !mediaCaptionAllowed(file.media_kind,file.body)) {
       await finishWithoutSend(db,claimed,'MEDIA_CAPTION_NOT_SUPPORTED'); return true;
     }
     try {
@@ -301,7 +302,8 @@ export async function processOneMessagingJob(db: Database,
       if (bytes.length !== file.size_bytes) throw new MediaError('MEDIA_SIZE_MISMATCH');
       const valid = await validateMedia(bytes, file.media_kind, file.mime_type, file.content_sha256);
       await validateMetaOutboundMedia(bytes,file.media_kind,valid.mime);
-      media = { bytes, mediaKind: file.media_kind, mime: valid.mime, filename: `attachment-${file.id}.${valid.extension}` };
+      media = { bytes, mediaKind: file.media_kind, mime: valid.mime, filename: `attachment-${file.id}.${valid.extension}`,
+        attachmentId:file.id,sha256:file.content_sha256,sizeBytes:file.size_bytes };
     } catch (error) {
       if (error instanceof MediaError && !error.retryable) await finishWithoutSend(db, claimed, 'ATTACHMENT_INTEGRITY_FAILED');
       else await finishAttempt(db, claimed, file.connection_id,
@@ -322,12 +324,13 @@ export async function processOneMessagingJob(db: Database,
     await finishWithoutSend(db, claimed, 'TEMPLATE_SEND_NOT_SUPPORTED');
     return true;
   }
-  if (prepared.kind === 'ATTACHMENT' && (!adapter.sendMedia || !adapter.uploadMedia)) {
+  if ((prepared.kind === 'ATTACHMENT' || (prepared.kind==='TEMPLATE' && prepared.mediaUpload))
+    && (!adapter.uploadMedia || (prepared.kind==='ATTACHMENT' && !adapter.sendMedia))) {
     await finishWithoutSend(db, claimed, 'MEDIA_SEND_NOT_SUPPORTED'); return true;
   }
-  if (prepared.kind === 'ATTACHMENT') {
+  if (prepared.kind === 'ATTACHMENT' || (prepared.kind==='TEMPLATE' && prepared.mediaUpload)) {
     let uploaded: { providerMediaId: string };
-    try { uploaded = await adapter.uploadMedia!(prepared.input); }
+    try { uploaded = await adapter.uploadMedia!(prepared.kind==='ATTACHMENT' ? prepared.input : prepared.mediaUpload!); }
     catch (error) {
       await finishAttempt(db, claimed, prepared.connectionId, error instanceof ProviderSendError ? error
         : new ProviderSendError('RETRYABLE', 'PROVIDER_MEDIA_UPLOAD_UNAVAILABLE'));
@@ -337,11 +340,14 @@ export async function processOneMessagingJob(db: Database,
     const dispatch = await prepare(db, claimed, media, true);
     if ('deferredUntil' in dispatch) { await deferClaim(db, claimed, dispatch.deferredUntil); return true; }
     if ('blocked' in dispatch) { await finishWithoutSend(db, claimed, dispatch.blocked); return true; }
-    if (dispatch.kind !== 'ATTACHMENT' || dispatch.input.externalSenderId !== prepared.input.externalSenderId) {
+    if (dispatch.kind==='TEXT' || dispatch.kind !== prepared.kind || dispatch.input.externalSenderId !== prepared.input.externalSenderId) {
       await finishWithoutSend(db, claimed, 'ATTACHMENT_SENDER_CHANGED'); return true;
     }
     let mediaResult: { providerMessageId: string } | ProviderSendError;
-    try { mediaResult = await adapter.sendMedia!({ config: dispatch.input.config, credentials: dispatch.input.credentials,
+    try { mediaResult = dispatch.kind==='TEMPLATE'
+      ? await adapter.sendTemplate!({ ...dispatch.input,mediaHeader:{ kind:media!.mediaKind as TemplateMediaKind,
+        providerMediaId:uploaded.providerMediaId,filename:media!.filename } })
+      : await adapter.sendMedia!({ config: dispatch.input.config, credentials: dispatch.input.credentials,
       recipient: dispatch.input.recipient, externalSenderId: dispatch.input.externalSenderId,
       providerMediaId: uploaded.providerMediaId, caption: dispatch.input.caption,
       mediaKind: dispatch.input.mediaKind, filename: dispatch.input.filename }); }

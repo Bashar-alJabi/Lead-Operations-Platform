@@ -4,7 +4,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { HttpError, type Principal } from '../security.js';
 import type { SendAuthor } from './policy.js';
 import { checkCurrentOutbound, lockOutboundScope } from './outbound-policy.js';
-import { approvedBodyTemplate } from './approved-template.js';
+import { approvedBodyTemplate,templateMediaSnapshot } from './approved-template.js';
 import { mediaCaptionAllowed } from '../media/outbound-policy.js';
 
 export type OutboundRequest = { actor: Principal; conversationId: string; author: SendAuthor;
@@ -14,9 +14,9 @@ export type OutboundRequest = { actor: Principal; conversationId: string; author
 export async function enqueueOutboundMessage(db: Database, input: OutboundRequest): Promise<{
   id: string; deliveryState: string; existing: boolean;
 }> {
-  const kind = input.attachmentId ? 'ATTACHMENT' : input.templateId ? 'TEMPLATE' : 'TEXT';
+  const kind = input.templateId ? 'TEMPLATE' : input.attachmentId ? 'ATTACHMENT' : 'TEXT';
   if (input.attachmentId && (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(input.attachmentId)
-    || input.templateId || input.templateParameters !== undefined || input.templateHeaderParameter!==undefined || input.templateUrlParameter!==undefined)) throw new HttpError(400, 'ATTACHMENT_INPUT_INVALID');
+    || (!input.templateId && (input.templateParameters !== undefined || input.templateHeaderParameter!==undefined || input.templateUrlParameter!==undefined)))) throw new HttpError(400, 'ATTACHMENT_INPUT_INVALID');
   if (kind === 'ATTACHMENT' && (input.body?.length ?? 0) > 1024) throw new HttpError(400, 'MEDIA_CAPTION_TOO_LONG');
   if (input.templateId != null && !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(input.templateId))
     throw new HttpError(400, 'TEMPLATE_ID_INVALID');
@@ -39,16 +39,17 @@ export async function enqueueOutboundMessage(db: Database, input: OutboundReques
             prior.template_snapshot?.bodyParameters ?? [], input.templateParameters ?? []))
           || (kind === 'TEMPLATE' && prior.template_snapshot?.headerParameter!==input.templateHeaderParameter)
           || (kind === 'TEMPLATE' && prior.template_snapshot?.urlParameter!==input.templateUrlParameter)
+          || (kind === 'TEMPLATE' && prior.attachment_id!==(input.attachmentId ?? null))
           || prior.author_type !== input.author ||
           prior.author_user_id !== (input.author === 'HUMAN' ? input.actor.id : null))
         throw new HttpError(409, 'IDEMPOTENCY_KEY_REUSED');
       return { id: prior.id as string, deliveryState: prior.delivery_state as string, existing: true };
     }
-    const attachment = input.attachmentId ? (await tx`SELECT id, state, media_kind FROM message_attachment
+    const attachment = input.attachmentId ? (await tx`SELECT id, state, media_kind,mime_type,content_sha256,size_bytes FROM message_attachment
       WHERE id = ${input.attachmentId} AND upload_conversation_id = ${conversation.id} FOR SHARE`)[0] : null;
     if (input.attachmentId && !attachment) throw new HttpError(404, 'ATTACHMENT_NOT_FOUND');
     if (attachment && attachment.state !== 'READY') throw new HttpError(409, 'ATTACHMENT_NOT_READY');
-    if (attachment && !mediaCaptionAllowed(attachment.media_kind,input.body ?? ''))
+    if (attachment && kind==='ATTACHMENT' && !mediaCaptionAllowed(attachment.media_kind,input.body ?? ''))
       throw new HttpError(400,'MEDIA_CAPTION_NOT_SUPPORTED');
     if (attachment && (await tx`SELECT 1 FROM conversation_message WHERE attachment_id = ${attachment.id}`).length)
       throw new HttpError(409, 'ATTACHMENT_ALREADY_USED');
@@ -57,7 +58,8 @@ export async function enqueueOutboundMessage(db: Database, input: OutboundReques
     if (!decision.allowed) return { blocked: decision.reason } as const;
     const messageId=randomUUID();
     const template = input.templateId ? await approvedBodyTemplate(tx,
-      conversation.connection_id, scope.campaign_id, input.templateId, input.templateParameters,input.templateHeaderParameter,input.templateUrlParameter,{ messageId }) : null;
+      conversation.connection_id, scope.campaign_id, input.templateId, input.templateParameters,input.templateHeaderParameter,input.templateUrlParameter,
+      { messageId,...(attachment ? { mediaHeader:templateMediaSnapshot(attachment) } : {}) }) : null;
     const body = template?.body ?? input.body ?? '';
     const message = (await tx`INSERT INTO conversation_message (id,conversation_id, connection_id,
         sender_id, direction, author_type, author_user_id, body, delivery_state, idempotency_key,

@@ -82,7 +82,7 @@ export function registerConversationMessageRoutes(app: FastifyInstance, db: Data
         const parsed=parseTextTemplate(row.components);
         const { components:_,...visible }=row;
         return parsed ? [{ ...visible,body:parsed.preview,components:parsed.components.filter((part)=>part.type!=='BUTTONS'),buttons:parsed.buttons,
-          parameterCount:parsed.parameterCount,headerParameterCount:parsed.headerParameterCount,urlParameterIndex:parsed.urlParameterIndex }] : [];
+          parameterCount:parsed.parameterCount,headerParameterCount:parsed.headerParameterCount,headerMediaKind:parsed.headerMediaKind,urlParameterIndex:parsed.urlParameterIndex }] : [];
       });
       return { items, nextAfter: rows.length > limit ? page.at(-1)!.id : null };
     });

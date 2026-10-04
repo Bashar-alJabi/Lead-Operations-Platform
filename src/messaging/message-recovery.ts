@@ -1,7 +1,7 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { Database } from '../db.js';
 import { HttpError, type Principal } from '../security.js';
-import { approvedBodyTemplate } from './approved-template.js';
+import { approvedBodyTemplate,templateMediaSnapshot } from './approved-template.js';
 import { checkCurrentOutbound, lockOutboundScope } from './outbound-policy.js';
 import { mediaCaptionAllowed } from '../media/outbound-policy.js';
 
@@ -68,11 +68,11 @@ export async function recoverOutboundMessage(db: Database, input: {
     const block = messageRecoveryBlock({ ...message, job_status: job.status,
       locked_until: job.locked_until } as RecoveryFacts, input.actor.id);
     if (block) throw new HttpError(409, block);
-    const attachment = message.attachment_id ? (await tx`SELECT state, media_kind, upload_conversation_id
+    const attachment = message.attachment_id ? (await tx`SELECT id,state, media_kind, upload_conversation_id,mime_type,content_sha256,size_bytes
       FROM message_attachment WHERE id = ${message.attachment_id} FOR SHARE`)[0] : null;
-    if (message.message_kind === 'ATTACHMENT' && (!attachment || attachment.state !== 'READY'
+    if (message.attachment_id && (!attachment || attachment.state !== 'READY'
       || attachment.upload_conversation_id !== input.conversationId)) throw new HttpError(409, 'ATTACHMENT_NOT_READY');
-    if (attachment && !mediaCaptionAllowed(attachment.media_kind,message.body))
+    if (attachment && message.message_kind==='ATTACHMENT' && !mediaCaptionAllowed(attachment.media_kind,message.body))
       throw new HttpError(409,'MEDIA_CAPTION_NOT_SUPPORTED');
     const decision = await checkCurrentOutbound(tx, locked, input.actor, 'HUMAN',
       message.id, message.template_id, attachment?.media_kind);
@@ -80,7 +80,8 @@ export async function recoverOutboundMessage(db: Database, input: {
     if (message.message_kind === 'TEMPLATE') {
       const template = await approvedBodyTemplate(tx, message.connection_id, locked.scope.campaign_id,
         message.template_id, message.template_snapshot?.bodyParameters ?? [],message.template_snapshot?.headerParameter,message.template_snapshot?.urlParameter,
-        { messageId:message.id,payloads:message.template_snapshot?.quickReplyPayloads });
+        { messageId:message.id,payloads:message.template_snapshot?.quickReplyPayloads,...(attachment ? { mediaHeader:templateMediaSnapshot(attachment) } : {}) })
+        .catch((error:unknown)=> { if (error instanceof HttpError && error.code==='TEMPLATE_MEDIA_INVALID') throw new HttpError(409,'TEMPLATE_CHANGED');throw error; });
       if (!isDeepStrictEqual(template.snapshot, message.template_snapshot) || template.body !== message.body)
         throw new HttpError(409, 'TEMPLATE_CHANGED');
     }
