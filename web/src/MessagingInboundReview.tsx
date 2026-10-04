@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
+import { MessageAttachment, type Attachment } from './MessageAttachment';
 
 type Api = <T>(path: string, options?: RequestInit) => Promise<T>;
 type Row = { id: string; sender_id: string | null; failure_code: string | null;
   participant_last4: string; received_at: string };
 type Detail = { event: { id: string; state: string; failureCode: string | null;
-  participantLast4: string; messageType: string | null; body: string | null; receivedAt: string };
+  participantLast4: string; messageType: string | null; body: string | null; attachment: Attachment | null; receivedAt: string };
   leads: { id: string; branchName: string; campaignName: string; contactName: string }[];
   conversations: { id: string; leadId: string; state: string }[] };
 const labels = {
@@ -81,7 +82,10 @@ export function MessagingInboundReview({ connectionId, locale, api }: {
     {before && <button className="secondary" onClick={() => void load(before).catch((failure) => setError(String(failure)))}>{t.more}</button>}
     {detail && <div className="panel"><h4>{t.detail} · …{detail.event.participantLast4}</h4>
       <p>{detail.event.failureCode} · {detail.event.messageType}</p>
-      {detail.event.body ? <p className="message-body">{detail.event.body}</p> : <p>{t.unsupported}</p>}
+      {detail.event.body && <p className="message-body">{detail.event.body}</p>}
+      {detail.event.attachment && <MessageAttachment key={`${detail.event.attachment.id}:${detail.event.attachment.version}`}
+        attachment={detail.event.attachment} locale={locale} canRetry api={api} />}
+      {!detail.event.body && !detail.event.attachment && <p>{t.unsupported}</p>}
       <label>{t.target}<select value={target} onChange={(event) => setTarget(event.target.value)}>
         <option value="">{t.choose}</option>
         {detail.conversations.map((cv) => <option key={cv.id} value={`conversation:${cv.id}`}>
@@ -89,7 +93,7 @@ export function MessagingInboundReview({ connectionId, locale, api }: {
         {detail.leads.map((lead) => <option key={lead.id} value={`lead:${lead.id}`}>
           {t.lead} · {lead.contactName} · {lead.campaignName} · {lead.branchName}</option>)}
       </select></label>
-      <div className="actions"><button disabled={busy || !target || !detail.event.body} onClick={() => void resolve()}>{t.resolve}</button>
+      <div className="actions"><button disabled={busy || !target || (!detail.event.body && !detail.event.attachment)} onClick={() => void resolve()}>{t.resolve}</button>
         <button className="secondary" onClick={() => setDetail(null)}>{t.close}</button></div>
       <label>{t.reason}<input value={reason} minLength={3} maxLength={500}
         onChange={(event) => setReason(event.target.value)} /></label>

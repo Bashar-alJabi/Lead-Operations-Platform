@@ -13,6 +13,7 @@
     "start": "node dist/src/server.js",
     "worker:identity": "node dist/src/identity-worker.js",
     "worker:messaging": "node dist/src/messaging-worker.js",
+    "worker:media": "node dist/src/media-worker.js",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "npm run build && node --test dist/test/*.test.js",
@@ -21,11 +22,13 @@
     "db:local": "npm run build && node dist/scripts/local-postgres.js"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1146.0",
     "@fastify/cookie": "^11.0.0",
     "@fastify/helmet": "^13.0.0",
     "@fastify/rate-limit": "^10.0.0",
     "@node-rs/argon2": "^2.0.0",
     "fastify": "^5.0.0",
+    "file-type": "^22.1.1",
     "nodemailer": "^10.0.13",
     "postgres": "^3.4.0",
     "react": "^19.0.0",

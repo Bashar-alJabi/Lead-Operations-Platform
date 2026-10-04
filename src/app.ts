@@ -16,6 +16,8 @@ import { registerMessagingSetupRoutes } from './routes/messaging-setup.js';
 import { registerMessagingTestSendRoutes } from './routes/messaging-test-send.js';
 import { registerMetaMessagingWebhookRoutes } from './routes/meta-messaging-webhook.js';
 import { registerMessagingInboundReviewRoutes } from './routes/messaging-inbound-review.js';
+import { registerMessagingAttachmentRoutes } from './routes/messaging-attachments.js';
+import type { MediaStorage } from './media/storage.js';
 import { registerMessagingTemplateRoutes } from './routes/messaging-templates.js';
 import { registerCampaignTemplateRoutes } from './routes/campaign-templates.js';
 import { registerSenderBindingRoutes } from './routes/sender-bindings.js';
@@ -30,6 +32,7 @@ import type { MessagingTemplateAdapter } from './messaging/templates-provider.js
 export async function buildApp(db: Database, options: { logger?: boolean; emailAdapter?: IdentityEmailAdapter;
   messagingAdapter?: MessagingProviderAdapter; messagingTemplateAdapter?: MessagingTemplateAdapter;
   messagingSendAdapter?: MessagingSendAdapter;
+  mediaStorage?: MediaStorage;
   globalRateLimitMax?: number } = {}): Promise<FastifyInstance> {
   const app = Fastify({ logger: options.logger === false ? false : { redact: ['req.headers.cookie', 'req.headers.authorization', 'req.body.password', 'req.body.token'] }, bodyLimit: 1024 * 1024,
     ajv: { customOptions: { removeAdditional: false } },
@@ -77,6 +80,7 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   registerMessagingTestSendRoutes(app, db, options.messagingSendAdapter);
   registerMetaMessagingWebhookRoutes(app, db);
   registerMessagingInboundReviewRoutes(app, db);
+  registerMessagingAttachmentRoutes(app, db, options.mediaStorage);
   registerMessagingTemplateRoutes(app, db, options.messagingTemplateAdapter);
   registerCampaignTemplateRoutes(app, db);
   registerSenderBindingRoutes(app, db);

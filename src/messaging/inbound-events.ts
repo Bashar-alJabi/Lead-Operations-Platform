@@ -1,6 +1,7 @@
 import type postgres from 'postgres';
 import type { Database } from '../db.js';
 import { HttpError, type Principal } from '../security.js';
+import { MediaError, parseInboundMedia } from '../media/validation.js';
 
 type InboundPayload = { senderExternalId: string; message: Record<string, unknown> };
 type EventRow = { id: string; connection_id: string; sender_id: string | null;
@@ -71,12 +72,24 @@ export async function processInboundEvent(tx: postgres.TransactionSql, eventId: 
   const message = event.payload?.message;
   if (!message || typeof message.id !== 'string' || !message.id || message.id.length > 255)
     return attention(tx, event.id, 'INBOUND_PAYLOAD_INVALID');
-  if (message.type !== 'text' || !message.text || typeof message.text !== 'object'
-    || typeof (message.text as Record<string, unknown>).body !== 'string'
-    || !(message.text as { body: string }).body.trim()
-    || (message.text as { body: string }).body.length > 20000)
-    return attention(tx, event.id, 'INBOUND_CONTENT_UNSUPPORTED');
-  const body = (message.text as { body: string }).body;
+  let body: string; let attachmentId: string | null = null;
+  if (message.type === 'text' && message.text && typeof message.text === 'object'
+    && typeof (message.text as Record<string, unknown>).body === 'string'
+    && (message.text as { body: string }).body.trim()
+    && (message.text as { body: string }).body.length <= 20000) {
+    body = (message.text as { body: string }).body;
+  } else {
+    let media;
+    try { media = parseInboundMedia(message); }
+    catch (error) { return attention(tx, event.id, error instanceof MediaError ? error.code : 'MEDIA_PAYLOAD_INVALID'); }
+    if (!media) return attention(tx, event.id, 'INBOUND_CONTENT_UNSUPPORTED');
+    const attachment = (await tx`INSERT INTO message_attachment (integration_event_id, media_kind,
+      provider_media_id, declared_mime, expected_sha256)
+      VALUES (${event.id}, ${media.kind}, ${media.providerId}, ${media.mime}, ${media.sha256})
+      ON CONFLICT (integration_event_id) DO NOTHING RETURNING id`)[0]
+      ?? (await tx`SELECT id FROM message_attachment WHERE integration_event_id = ${event.id}`)[0]!;
+    attachmentId = attachment.id; body = media.caption;
+  }
   const timestamp = typeof message.timestamp === 'string' && /^\d{10,11}$/.test(message.timestamp)
     ? new Date(Number(message.timestamp) * 1000) : new Date();
   const contextId = message.context && typeof message.context === 'object'
@@ -168,9 +181,10 @@ export async function processInboundEvent(tx: postgres.TransactionSql, eventId: 
     }
   }
   const inserted = await tx`INSERT INTO conversation_message (conversation_id, connection_id,
-    sender_id, direction, author_type, body, provider_message_id, delivery_state, received_at)
+    sender_id, direction, author_type, body, provider_message_id, delivery_state, received_at,
+    message_kind, attachment_id)
     VALUES (${conversationId}, ${event.connection_id}, ${event.sender_id}, 'INBOUND', 'CUSTOMER',
-      ${body}, ${message.id}, 'RECEIVED', ${timestamp})
+      ${body}, ${message.id}, 'RECEIVED', ${timestamp}, ${attachmentId ? 'ATTACHMENT' : 'TEXT'}, ${attachmentId})
     ON CONFLICT DO NOTHING RETURNING id`;
   const existing = inserted.length ? null : (await tx`SELECT id, conversation_id FROM conversation_message
     WHERE connection_id = ${event.connection_id} AND provider_message_id = ${message.id}`)[0];

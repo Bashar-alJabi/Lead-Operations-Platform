@@ -1,4 +1,19 @@
 services:
+  clamav:
+    image: clamav/clamav@sha256:ebec5bc138401b36ae987caa1a3fa3c3b2a21ed3d51f0bfa5852825e663e67b0
+    profiles: [media]
+    ports:
+      - "127.0.0.1:3310:3310"
+    volumes:
+      - clamav_signatures:/var/lib/clamav
+      - ./infra/clamd.conf:/etc/clamav/clamd.conf:ro
+    mem_limit: 4g
+    healthcheck:
+      test: ["CMD", "clamdscan", "--config-file=/etc/clamav/clamd.conf", "--ping=1"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 120s
   postgres:
     image: postgres:18
     environment:
@@ -15,4 +30,5 @@ services:
       timeout: 3s
       retries: 12
 volumes:
+  clamav_signatures:
   postgres_data:

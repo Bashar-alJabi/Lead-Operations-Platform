@@ -27,8 +27,12 @@ export function registerConversationMessageRoutes(app: FastifyInstance, db: Data
       const cursor = decodeCursor(request.query.cursor);
       const rows = await db`SELECT m.id, m.direction, m.author_type, m.author_user_id, m.body,
           m.message_kind, m.template_id,
+          CASE WHEN a.id IS NULL THEN NULL ELSE jsonb_build_object('id', a.id, 'state', a.state,
+            'mediaKind', a.media_kind, 'mime', coalesce(a.mime_type, a.declared_mime), 'sizeBytes', a.size_bytes,
+            'errorCode', a.last_error_code, 'version', a.version) END AS attachment,
           m.delivery_state, m.last_error_code, m.created_at, m.sent_at, m.received_at
         FROM conversation_message m JOIN conversation cv ON cv.id = m.conversation_id
+        LEFT JOIN message_attachment a ON a.id = m.attachment_id
         JOIN lead l ON l.id = cv.lead_id
         WHERE cv.id = ${request.params.id} AND l.organization_id = ${actor.organizationId}
           AND (${actor.role === 'SUPER_ADMIN'} OR

@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { Database } from '../db.js';
 import { HttpError, principalFromRequest, requireRole, type Principal } from '../security.js';
 import { candidateLeads, processInboundEvent } from '../messaging/inbound-events.js';
+import { publicAttachment } from './messaging-attachments.js';
 
 const connectionParams = { type: 'object', additionalProperties: false, required: ['id'],
   properties: { id: { type: 'string', format: 'uuid' } } } as const;
@@ -52,8 +53,10 @@ export function registerMessagingInboundReviewRoutes(app: FastifyInstance, db: D
             AND connection_id = ${connection.id} AND event_kind = 'INBOUND_MESSAGE'`)[0];
         if (!event) throw new HttpError(404, 'INBOUND_EVENT_NOT_FOUND');
         const message = event.payload?.message;
+        const attachment = (await tx`SELECT * FROM message_attachment WHERE integration_event_id = ${event.id}`)[0];
         const text = message?.type === 'text' && typeof message?.text?.body === 'string'
-          ? message.text.body as string : null;
+          ? message.text.body as string : typeof message?.[message?.type]?.caption === 'string'
+            ? message[message.type].caption as string : null;
         const leads = (await candidateLeads(tx, { sender_id: event.sender_id,
           participant_ref: event.participant_ref })).filter((lead) =>
           actor.role === 'SUPER_ADMIN' || lead.branch_id === actor.branchId);
@@ -66,7 +69,8 @@ export function registerMessagingInboundReviewRoutes(app: FastifyInstance, db: D
         return { event: { id: event.id, state: event.state, failureCode: event.failure_code,
           reviewNote: event.review_note, senderId: event.sender_id,
           participantLast4: String(event.participant_ref).slice(-4),
-          messageType: message?.type ?? null, body: text, receivedAt: event.received_at,
+          messageType: message?.type ?? null, body: text, attachment: attachment ? publicAttachment(attachment) : null,
+          receivedAt: event.received_at,
           leadId: event.lead_id, conversationId: event.conversation_id },
           leads: leads.map((lead) => ({ id: lead.id, branchId: lead.branch_id,
             campaignName: lead.campaign_name, branchName: lead.branch_name,

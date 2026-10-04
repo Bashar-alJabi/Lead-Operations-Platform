@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { MessageAttachment, type Attachment } from './MessageAttachment';
 
 type Api = <T>(path: string, options?: RequestInit) => Promise<T>;
 type Locale = 'ar'|'fr'|'en';
@@ -8,7 +9,8 @@ type Conversation = { id: string; sender_id: string; sender_name: string; partic
 type Consent = { status: 'GRANTED'|'REVOKED'|'UNKNOWN'; do_not_contact: boolean; evidence: string | null;
   source: string | null; updated_at: string | null; version: number; editable: boolean };
 type Message = { id: string; direction: 'INBOUND'|'OUTBOUND'; author_type: string; body: string;
-  message_kind: 'TEXT'|'TEMPLATE'; delivery_state: string; last_error_code: string | null; created_at: string };
+  message_kind: 'TEXT'|'TEMPLATE'|'ATTACHMENT'; attachment: Attachment | null;
+  delivery_state: string; last_error_code: string | null; created_at: string };
 type AvailableTemplate = { id: string; name: string; language: string; body: string; parameterCount: number };
 type AttentionReview = { id: string; previous_reason: string; review_note: string;
   reviewer_name: string; created_at: string };
@@ -215,6 +217,8 @@ export function LeadConversations({ leadId, lifecycle, role, locale, api }: { le
         <strong>{message.direction === 'INBOUND' ? t.customer : message.author_type}</strong>
         {' · '}{message.message_kind}{' · '}{message.delivery_state}{message.last_error_code && ` · ${message.last_error_code}`}
         <p style={{ whiteSpace: 'pre-wrap' }}>{message.body}</p>
+        {message.attachment && <MessageAttachment key={`${message.attachment.id}:${message.attachment.version}`}
+          attachment={message.attachment} locale={locale} canRetry={role !== 'AGENT'} api={api} />}
         {message.delivery_state === 'UNKNOWN' && <p role="alert">{t.unknown}</p>}
       </li>)}</ul>
       {messageCursor && <button className="secondary" disabled={busy}

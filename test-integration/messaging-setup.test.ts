@@ -1373,7 +1373,7 @@ test('signed Meta callbacks preserve delivery history and never regress on repla
   const unsupportedId = (await db`SELECT id FROM integration_event WHERE connection_id = ${connectionId}
     AND payload->'message'->>'id' = 'wamid.unsupported'`)[0]!.id as string;
   assert.equal((await db`SELECT failure_code FROM integration_event WHERE id = ${unsupportedId}`)[0]!
-    .failure_code, 'INBOUND_CONTENT_UNSUPPORTED');
+    .failure_code, 'MEDIA_PAYLOAD_INVALID');
   assert.equal((await api('POST', `${reviewPath}/${unsupportedId}/ignore`, { reason: 'Unsupported media' }, manager))
     .json().state, 'IGNORED');
   assert.equal((await api('POST', `${reviewPath}/${unsupportedId}/ignore`, { reason: 'Unsupported media' }, manager))
