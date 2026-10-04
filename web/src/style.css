@@ -7,3 +7,4 @@ textarea{font:inherit;border:1px solid #bdcfc5;border-radius:8px;padding:.7rem;m
 .conversation-panel ul.conversation-messages{list-style:none;padding:0}.conversation-messages>li{padding-block:.75rem;border-block-end:1px solid #edf2ef}.conversation-panel .panel{box-shadow:none}@media(max-width:760px){.conversation-panel,.conversation-panel .panel{padding:.75rem}}
 .lead-search-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:.8rem;align-items:end}.lead-search-form button{align-self:end}
 .lead-column-options{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:.5rem 1rem;border:1px solid #dce9df;border-radius:8px}.lead-column-options label{display:flex;align-items:center;gap:.4rem}.lead-column-options input{width:auto}
+.workflow-form fieldset{min-width:0;border:1px solid #dce9df;border-radius:8px;display:grid;gap:.6rem;padding:.8rem}

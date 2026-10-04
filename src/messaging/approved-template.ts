@@ -2,19 +2,54 @@ import type postgres from 'postgres';
 import { HttpError } from '../security.js';
 
 export type BodyTemplateSnapshot = { externalTemplateId: string; name: string; language: string;
-  category: string | null; components: TextTemplateComponent[];
+  category: string | null; components: TemplateComponent[];
   bodyParameters?: string[]; headerParameter?: string };
 export type TextTemplateComponent = { type:'HEADER';format:'TEXT';text:string } | { type:'BODY'|'FOOTER';text:string };
+export type CallToActionButton = { type:'URL';text:string;url:string } | { type:'PHONE_NUMBER';text:string;phone_number:string };
+export type TemplateComponent = TextTemplateComponent | { type:'BUTTONS';buttons:CallToActionButton[] };
 
-// One supported-format parser for creation, binding, preview, enqueue, dispatch, recovery and operational test sends.
-export function parseTextTemplate(value:unknown): { components:TextTemplateComponent[];body:string;parameterCount:number;headerParameterCount:0|1;preview:string } | null {
-  if (!Array.isArray(value) || !value.length || value.length>3) return null;
-  const parts=new Map<string,TextTemplateComponent>();
+// Supported static CTA profile: two buttons, at most one URL and one phone, no runtime target parameters.
+export function parseStaticButtons(value:unknown):CallToActionButton[]|null {
+  if (!Array.isArray(value) || !value.length || value.length>2) return null;
+  const types=new Set<string>();const buttons:CallToActionButton[]=[];
   for (const raw of value) {
     if (!raw || typeof raw!=='object') return null;
-    const item=raw as { type?:unknown;text?:unknown;format?:unknown };
-    if (typeof item.type!=='string' || typeof item.text!=='string') return null;
+    const item=raw as { type?:unknown;text?:unknown;url?:unknown;phone_number?:unknown };
+    if (typeof item.text!=='string' || !item.text.trim() || item.text.length>25 || /\{\{|\}\}|[\x00-\x1f\x7f]/.test(item.text)
+      || typeof item.type!=='string' || types.has(item.type)) return null;
+    if (item.type==='URL') {
+      if (typeof item.url!=='string' || item.url.length>2000 || /\{\{|\}\}|[\x00-\x20\x7f]/.test(item.url)) return null;
+      try { const url=new URL(item.url);if (url.protocol!=='https:' || !url.hostname || url.username || url.password) return null; }
+      catch { return null; }
+      buttons.push({ type:'URL',text:item.text,url:item.url });
+    } else if (item.type==='PHONE_NUMBER') {
+      if (typeof item.phone_number!=='string' || /[\x00-\x20\x7f]/.test(item.phone_number)
+        || !/^\+[1-9][0-9]{7,14}$/.test(item.phone_number)) return null;
+      buttons.push({ type:'PHONE_NUMBER',text:item.text,phone_number:item.phone_number });
+    } else return null;
+    types.add(item.type);
+  }
+  return buttons;
+}
+
+export function buttonHistoryText(buttons:CallToActionButton[]):string {
+  return buttons.map((button)=>`${button.text}: ${button.type==='URL' ? button.url : button.phone_number}`).join('\n');
+}
+
+// One supported-format parser for creation, binding, preview, enqueue, dispatch, recovery and operational test sends.
+export function parseTextTemplate(value:unknown): { components:TemplateComponent[];buttons:CallToActionButton[];body:string;parameterCount:number;headerParameterCount:0|1;preview:string } | null {
+  if (!Array.isArray(value) || !value.length || value.length>4) return null;
+  const parts=new Map<string,TemplateComponent>();
+  for (const raw of value) {
+    if (!raw || typeof raw!=='object') return null;
+    const item=raw as { type?:unknown;text?:unknown;format?:unknown;buttons?:unknown };
+    if (typeof item.type!=='string') return null;
     const type=item.type.toUpperCase();if (parts.has(type)) return null;
+    if (type==='BUTTONS') {
+      const buttons=parseStaticButtons(item.buttons);if (!buttons) return null;
+      parts.set(type,{ type,buttons });continue;
+    }
+    if (typeof item.text!=='string') return null;
     if (type==='BODY') {
       if (bodyParameterCount(item.text)===null) return null;
       parts.set(type,{ type,text:item.text });
@@ -28,11 +63,13 @@ export function parseTextTemplate(value:unknown): { components:TextTemplateCompo
       }
     } else return null; // Never discard buttons/media/unknown components to make a template appear supported.
   }
-  const body=parts.get('BODY')?.text;if (!body) return null;
-  const components=['HEADER','BODY','FOOTER'].flatMap((type)=>parts.has(type) ? [parts.get(type)!] : []);
+  const bodyPart=parts.get('BODY');if (!bodyPart || bodyPart.type!=='BODY') return null;
+  const body=bodyPart.text;const header=parts.get('HEADER');const cta=parts.get('BUTTONS');
+  const components=['HEADER','BODY','FOOTER','BUTTONS'].flatMap((type)=>parts.has(type) ? [parts.get(type)!] : []);
   return { components,body,parameterCount:bodyParameterCount(body)!,
-    headerParameterCount:parts.has('HEADER') ? textHeaderParameterCount(parts.get('HEADER')!.text)! : 0,
-    preview:components.map((part)=>part.text).join('\n\n') };
+    buttons:cta?.type==='BUTTONS' ? cta.buttons : [],
+    headerParameterCount:header?.type==='HEADER' ? textHeaderParameterCount(header.text)! : 0,
+    preview:components.map((part)=>part.type==='BUTTONS' ? buttonHistoryText(part.buttons) : part.text).join('\n\n') };
 }
 
 export function textHeaderParameterCount(value:unknown):0|1|null {
@@ -91,7 +128,7 @@ export async function approvedBodyTemplate(tx: postgres.TransactionSql,
   const header=parsed.components.find((part)=>part.type==='HEADER');
   const renderedHeader=header ? renderTextHeader(header.text,headerParameter) : undefined;
   if (renderedHeader===null) throw new HttpError(400,'TEMPLATE_HEADER_PARAMETER_INVALID');
-  const body = parsed.components.map((part)=>part.type==='HEADER' ? renderedHeader! : part.type==='BODY'
+  const body = parsed.components.filter((part)=>part.type!=='BUTTONS').map((part)=>part.type==='HEADER' ? renderedHeader! : part.type==='BODY'
     ? part.text.replace(/\{\{([1-9]\d*)\}\}/g,(_match,index:string)=>bodyParameters[Number(index)-1]!) : part.text).join('\n\n');
   if (body.length > 20000) throw new HttpError(400, 'TEMPLATE_PARAMETERS_INVALID');
   return { body, snapshot: { externalTemplateId: template.external_template_id,

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { MessageAttachment, type Attachment } from './MessageAttachment';
 import { MessageDelivery } from './MessageDelivery';
+import { TemplateButtons, type CallToActionButton } from './TemplateButtons';
 
 type Api = <T>(path: string, options?: RequestInit) => Promise<T>;
 type Locale = 'ar'|'fr'|'en';
@@ -21,9 +22,9 @@ type Consent = { status: 'GRANTED'|'REVOKED'|'UNKNOWN'; do_not_contact: boolean;
   source: string | null; updated_at: string | null; version: number; editable: boolean };
 type Message = { id: string; direction: 'INBOUND'|'OUTBOUND'; author_type: string; body: string;
   message_kind: 'TEXT'|'TEMPLATE'|'ATTACHMENT'; attachment: Attachment | null;
-  delivery_state: string; last_error_code: string | null; created_at: string };
+  delivery_state: string; last_error_code: string | null; created_at: string;templateButtons:CallToActionButton[] };
 type AvailableTemplate = { id: string; name: string; language: string; body: string; parameterCount: number;headerParameterCount:0|1;
-  components:{ type:'HEADER'|'BODY'|'FOOTER';text:string }[] };
+  components:{ type:'HEADER'|'BODY'|'FOOTER';text:string }[];buttons:CallToActionButton[] };
 type AttentionReview = { id: string; previous_reason: string; review_note: string;
   reviewer_name: string; created_at: string };
 const labels = {
@@ -279,6 +280,7 @@ export function LeadConversations({ leadId, lifecycle, role, actorId, locale, ap
         {' · '}{message.message_kind}{' · '}{message.delivery_state}{message.last_error_code && ` · ${message.last_error_code}`}
         {' · '}<time dateTime={message.created_at}>{new Date(message.created_at).toLocaleString(locale)}</time>
         <p style={{ whiteSpace: 'pre-wrap' }}>{message.body}</p>
+        {message.templateButtons?.length ? <TemplateButtons buttons={message.templateButtons} /> : null}
         {message.attachment && <MessageAttachment key={`${message.attachment.id}:${message.attachment.version}`}
           attachment={message.attachment} locale={locale} canRetry={role !== 'AGENT'} api={api} />}
         {message.delivery_state === 'UNKNOWN' && <p role="alert">{t.unknown}</p>}
@@ -324,6 +326,7 @@ export function LeadConversations({ leadId, lifecycle, role, actorId, locale, ap
                 if (submitted) { setSendKey(crypto.randomUUID()); setSubmitted(false); } }} /></label>
               : <p>{locale==='ar' ? 'هذا النوع لا يدعم تعليقاً. أرسل أي نص برسالة مستقلة.' : locale==='fr' ? 'Ce type ne prend pas de légende. Envoyez le texte dans un message séparé.' : 'This type has no caption. Send any text as a separate message.'}</p>}</>}
         {sendMode === 'TEMPLATE' && <p style={{ whiteSpace:'pre-wrap' }}>{templatePreview ?? t.noTemplates} {t.templateNote}</p>}
+        {sendMode==='TEMPLATE' && selectedTemplate?.buttons?.length ? <TemplateButtons buttons={selectedTemplate.buttons} /> : null}
         {sendMode==='TEMPLATE' && selectedTemplate?.headerParameterCount===1 && <label>
           {locale==='ar' ? 'قيمة متغير HEADER' : locale==='fr' ? 'Valeur du paramètre HEADER' : 'HEADER parameter value'}
           <input required maxLength={60} value={headerParameter} disabled={busy} onChange={(event)=> {

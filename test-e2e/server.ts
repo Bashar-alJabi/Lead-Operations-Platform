@@ -98,7 +98,7 @@ const app = await buildApp(db, { logger:false,globalRateLimitMax:10000,mediaStor
           ...(input.header ? [{ type:'HEADER',format:'TEXT',text:input.header,
             ...(input.headerExample ? { example:{ header_text:[input.headerExample] } } : {}) }] : []),
           { type:'BODY',text:input.body,...(input.examples?.length ? { example:{ body_text:[input.examples] } } : {}) },
-          ...(input.footer ? [{ type:'FOOTER',text:input.footer }] : [])] };
+          ...(input.footer ? [{ type:'FOOTER',text:input.footer }] : []),...(input.buttons ? [{ type:'BUTTONS',buttons:input.buttons }] : [])] };
       templates.push(template);return template;
     },
   } });

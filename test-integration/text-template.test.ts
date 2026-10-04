@@ -16,7 +16,8 @@ test('composite text templates preserve approval/scope, bind dynamic bodies, pin
   const adapter:MessagingSendAdapter={ sendText:async()=> { throw new Error('Unexpected freeform send'); },
     sendTemplate:async(input)=> { sends++;
       if (input.templateName==='composite_notice') { assert.deepEqual(input.bodyParameters,['Alice']);assert.equal(input.headerParameter,undefined); }
-      else { assert.equal(input.templateName,'header_notice');assert.deepEqual(input.bodyParameters,['Order Body']);assert.equal(input.headerParameter,'Alice Header'); }
+      else if (input.templateName==='header_notice') { assert.deepEqual(input.bodyParameters,['Order Body']);assert.equal(input.headerParameter,'Alice Header'); }
+      else { assert.equal(input.templateName,'cta_notice');assert.deepEqual(input.bodyParameters,['Order CTA']);assert.equal(input.headerParameter,undefined); }
       return { providerMessageId:'wamid.composite-'+sends }; } };
   const app=await buildApp(db,{ logger:false,globalRateLimitMax:10000,messagingSendAdapter:{ sendText:adapter.sendText,
     sendTemplate:async()=>({ providerMessageId:'wamid.operational-test' }) },messagingTemplateAdapter:{
@@ -25,7 +26,7 @@ test('composite text templates preserve approval/scope, bind dynamic bodies, pin
         category:input.category,status:'PENDING',components:[...(input.header ? [{ type:'HEADER',format:'TEXT',text:input.header,
           ...(input.headerExample ? { example:{ header_text:[input.headerExample] } } : {}) }] : []),
           { type:'BODY',text:input.body,...(input.examples ? { example:{ body_text:[input.examples] } } : {}) },
-          ...(input.footer ? [{ type:'FOOTER',text:input.footer }] : [])] };
+          ...(input.footer ? [{ type:'FOOTER',text:input.footer }] : []),...(input.buttons ? [{ type:'BUTTONS',buttons:input.buttons }] : [])] };
       catalog.push(template);return template;
     } } });
   t.after(async()=> { await app.close();await db.end(); });
@@ -56,7 +57,8 @@ test('composite text templates preserve approval/scope, bind dynamic bodies, pin
     VALUES (${org},${branch},${campaign},${contact},'MANUAL',${users.agent!.id}) RETURNING id`)[0]!.id;
   const cv=(await db`INSERT INTO conversation (lead_id,connection_id,sender_id,channel,participant_ref,controller_type,controller_user_id,state)
     VALUES (${lead},${connection},${sender},'WHATSAPP','+15550002222','HUMAN',${users.agent!.id},'HUMAN_ACTIVE') RETURNING id`)[0]!.id;
-  const api=(method:'GET'|'POST'|'PUT',path:string,body?:object,name='agent')=>app.inject({ method,url:path,payload:body,
+  let clientAddress='127.0.0.1';
+  const api=(method:'GET'|'POST'|'PUT',path:string,body?:object,name='agent')=>app.inject({ method,url:path,payload:body,remoteAddress:clientAddress,
     headers:{ cookie:users[name]!.cookie,origin:process.env.APP_ORIGIN! } });
   const path=`/api/messaging/connections/${connection}/templates`;
   const input={ name:'composite_notice',language:'en_US',category:'UTILITY',header:'Welcome <b>literal</b>',body:'Dear {{1}}',
@@ -154,13 +156,52 @@ test('composite text templates preserve approval/scope, bind dynamic bodies, pin
   assert.equal(headerOnly.statusCode,201,headerOnly.body);catalog[4]!.status='APPROVED';await api('POST',path+'/sync',undefined,'manager');
   assert.equal((await api('POST',`/api/messaging/connections/${connection}/test-send`,{ senderId:sender,templateId:headerOnly.json().id,
     recipient:'+15550005555',recipientConfirmed:true,idempotencyKey:'no-header-only-test-send' },'manager')).statusCode,409);
+  const buttons=[{ type:'URL',text:'Visit site',url:'https://example.test/offer' },{ type:'PHONE_NUMBER',text:'Call us',phone_number:'+15550007777' }];
+  // A second synthetic client for this group; previous negative cases correctly consumed the creation abuse quota.
+  clientAddress='127.0.0.2';
+  const ctaInput={ ...headerInput,name:'cta_notice',header:'CTA greeting',headerExample:undefined,buttons,idempotencyKey:'cta-create-1' };
+  for (const value of [[{ ...buttons[0],url:'javascript:alert(1)' }],[buttons[0],buttons[0]],[{ ...buttons[1],phone_number:'1234' }],
+    [{ ...buttons[1],phone_number:'+15550007777\n' }],[{ type:'QUICK_REPLY',text:'Reply' }],[{ ...buttons[0],text:' ' }]])
+    assert.equal((await api('POST',path,{ ...ctaInput,buttons:value },'manager')).statusCode,400);
+  assert.equal(creates,4);
+  const ctaCreated=await api('POST',path,ctaInput,'manager');assert.equal(ctaCreated.statusCode,201,ctaCreated.body);const ctaId=ctaCreated.json().id;
+  const ctaBinding=`/api/messaging/campaigns/${campaign}/templates/${ctaId}`;
+  assert.equal((await api('PUT',ctaBinding,{ bound:true,version:0 },'manager')).statusCode,409);
+  catalog[5]!.status='APPROVED';await api('POST',path+'/sync',undefined,'manager');
+  assert.equal((await api('PUT',ctaBinding,{ bound:true,version:0 },'manager')).statusCode,200);
+  const ctaAvailable=(await api('GET',availablePath)).json().items.find((row:{ id:string })=>row.id===ctaId);
+  assert.deepEqual(ctaAvailable.buttons,buttons);assert.equal(ctaAvailable.components.length,3);
+  const ctaIntent={ templateId:ctaId,templateParameters:['Order CTA'],idempotencyKey:'cta-send-1' };
+  const ctaQueued=await Promise.all([api('POST',messages,ctaIntent),api('POST',messages,ctaIntent)]);
+  assert.deepEqual(ctaQueued.map((result)=>result.statusCode).sort(),[200,202]);const ctaMessageId=ctaQueued[0]!.json().id;
+  const originalCta=(await db`SELECT body,template_snapshot FROM conversation_message WHERE id=${ctaMessageId}`)[0]!;
+  assert.equal(originalCta.body,'CTA greeting\n\nOrder Order CTA\n\nClosing line');
+  assert.deepEqual(originalCta.template_snapshot.components[3].buttons,buttons);
+  (catalog[5]!.components[3] as { buttons:{ url:string }[] }).buttons[0]!.url='https://example.test/changed';
+  await api('POST',path+'/sync',undefined,'manager');await processOneMessagingJob(db,adapter);assert.equal(sends,2);
+  const ctaCv=(await api('GET',`/api/conversations/${cv}`)).json().conversation;
+  assert.equal((await api('POST',`/api/conversations/${cv}/attention/acknowledge`,{ version:ctaCv.version,expectedReason:'TEMPLATE_CHANGED',
+    reviewNote:'Review original CTA target',reviewConfirmed:true },'manager')).statusCode,200);
+  assert.equal((await api('POST',`${messages}/${ctaMessageId}/retry`,{ version:1,reason:'Target still differs' })).statusCode,409);
+  (catalog[5]!.components[3] as { buttons:{ url:string }[] }).buttons[0]!.url='https://example.test/offer';
+  await api('POST',path+'/sync',undefined,'manager');
+  const ctaRetry=await api('POST',`${messages}/${ctaMessageId}/retry`,{ version:1,reason:'Restored exact original CTA target' });
+  assert.equal(ctaRetry.statusCode,202,ctaRetry.body);await processOneMessagingJob(db,adapter);assert.equal(sends,3);
+  const tampered=JSON.parse(JSON.stringify(originalCta.template_snapshot));tampered.components[3].buttons[0].url='https://example.test/tampered';
+  await assert.rejects(db`UPDATE conversation_message SET template_snapshot=${db.json(tampered)} WHERE id=${ctaMessageId}`,/CUSTOMER_MESSAGE_IMMUTABLE/);
+  // A later approved catalog change must not rewrite the target visible in the accepted message's history.
+  (catalog[5]!.components[3] as { buttons:{ url:string }[] }).buttons[0]!.url='https://example.test/new-offer';
+  await api('POST',path+'/sync',undefined,'manager');
+  const history=(await api('GET',messages+'?limit=100')).json().items.find((row:{ id:string })=>row.id===ctaMessageId);
+  assert.equal(history.delivery_state,'SENT');assert.deepEqual(history.templateButtons,buttons);assert.equal(history.body,originalCta.body);
+  assert.equal(history.template_snapshot,undefined);
   const tested=await api('POST',`/api/messaging/connections/${connection}/test-send`,{ senderId:sender,templateId:staticCreated.json().id,
     recipient:'+15550005555',recipientConfirmed:true,idempotencyKey:'static-operational-test' },'manager');
   assert.equal(tested.statusCode,200,tested.body);
   const audit=await db`SELECT action,detail FROM audit_log WHERE organization_id=${org}`;
-  assert.equal(audit.filter((row)=>row.action==='MESSAGING_TEMPLATE_CREATED').length,4);
-  assert.equal(audit.filter((row)=>row.action==='CAMPAIGN_TEMPLATE_BOUND').length,3);
-  assert.equal(audit.filter((row)=>row.action==='OUTBOUND_MESSAGE_QUEUED').length,2);
+  assert.equal(audit.filter((row)=>row.action==='MESSAGING_TEMPLATE_CREATED').length,5);
+  assert.equal(audit.filter((row)=>row.action==='CAMPAIGN_TEMPLATE_BOUND').length,4);
+  assert.equal(audit.filter((row)=>row.action==='OUTBOUND_MESSAGE_QUEUED').length,3);
   assert.ok(!JSON.stringify(audit).includes('test-only-no-live'));
   assert.ok(!JSON.stringify(audit).includes('Example not for Agent'));
   assert.ok(!JSON.stringify(audit).includes('SECRET HEADER APPROVAL'));

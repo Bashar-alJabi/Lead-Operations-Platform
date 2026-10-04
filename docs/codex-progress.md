@@ -1,5 +1,15 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: static Call-to-Action template buttons
+
+بعد checkpoint `3044a9f` المرفوعة اكتملت static CTA buttons بصيغ URL وPHONE_NUMBER مع create/approval/catalog/binding/available/queue/worker/recovery وUI. profile الحالية: حتى زرين، URL HTTPS واحدة بلا credential/whitespace/control/variable حتى2000 حرف، ورقم E.164 واحد بلا whitespace/control، وlabel ثابتة حتى25 حرفاً. snapshot تحفظ الأهداف، وMessage.body النص فقط؛ Message API تعرض templateButtons من snapshot التاريخية بعد Lead ACL دون raw snapshot/أمثلة اعتماد. UI تعرض الروابط والأرقام في preview والتاريخ مع safe href وnoopener/noreferrer وReact escaping، ولا تفتحها تلقائياً.
+
+التحقق: migrations001–038 أعيدت بقاعدتي Docker، و42/42 unit و14/14 integration و4/4 Browser Edge مع exit0، وBackend/Web typecheck/build ناجحة. unit تثبت shape إنشاء Meta ورفض unsafe/credentials/dynamic URLs وphone/control/length/duplicate type/unsupported buttons قبل I/O. integration الموسعة تثبت approval، simultaneous enqueue بنتيجة واحدة، canonical snapshot/ACL/Audit ورفض target مختلفة قبل dispatch/recovery رغم ثبات النص، ثم retry بعد إعادة الأصل؛ تعديل snapshot ممنوع، وتغير Catalog بعد SENT لا يغير هدف History. fixture تستخدم IP loopback ثانية لأن negative create cases استهلكت quota20/15 دقيقة؛ لم يتغير rate limit الإنتاج.
+
+Browser تنشئ زري URL/PHONE وتربط القالب وترسله عبر Worker وتثبت href في preview وSENT history دون فتح موقع/رقم، وتختبر Arabic RTL بعرض390px بلا overflow؛ فُحصت `template-buttons-ar.png`. Regression audio/video/sticker وBODY/header parameters وhistory/control/logout بقيت ناجحة. Provider/scanner/approval وهمية؛ لا Meta live أو CTA recovery Browser E2E أو Setup mobile E2E.
+
+قيد التنفيذ عند checkpoint: لا تغيير برمجي غير مستقر. الخطوة التالية الدقيقة بعد commit/push: dynamic URL suffix parameter عند نهاية URL template، مع مثال اعتماد وقيمة إرسال منفصلين عن HEADER/BODY، وrender/validation/immutable snapshot/idempotency وMeta button component/index وworker/recovery/UI، وnegative/Browser tests ثم checkpoint. بعدها Quick Reply payload/correlation وinbound review وmedia templates وبقية Messaging operability، ثم Meta intake ثم Payments/Enrollment ثم AI. Messaging والمنصة ليستا Complete.
+
 ## آخر حالة مستقرة: TEXT HEADER variable
 
 بعد checkpoint `c486613` المرفوعة اكتمل TEXT HEADER بمتغير {{1}} واحد مع headerExample مستقلة عن أمثلة BODY وtemplateHeaderParameter مستقلة عند الإرسال. canonical snapshot تحفظ قيمة HEADER وتدخل في idempotency وworker/recovery validation؛ القديمة ثابتة دون تغيير. API تمنع قيمة ناقصة/إضافية، orphan example، تكرار variable، control characters والنص النهائي فوق60 حرفاً، أو تمرير HEADER إلى TEXT/ATTACHMENT. متغيرا HEADER وBODY لا يشتركان في القيمة رغم استعمال {{1}} في كل منهما.

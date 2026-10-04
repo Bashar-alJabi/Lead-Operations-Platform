@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 type Api = <T>(path: string, options?: RequestInit) => Promise<T>;
 type Locale = 'ar'|'fr'|'en';
 type Template = { id: string; name: string; language: string; status: string; category: string | null;
-  active: boolean; supported:boolean; last_synced_at: string | null; components: unknown[] };
+  active: boolean; supported:boolean; preview:string|null; last_synced_at: string | null; components: unknown[] };
 type CreateRequest = { id: string; name: string; language: string; state: string; created_at: string };
 
 const labels = {
@@ -34,6 +34,8 @@ export function TemplateSetup({ connectionId, status, canManage, locale, api }: 
   const [requestAfter, setRequestAfter] = useState<string | null>(null);
   const [form, setForm] = useState({ name: '', language: 'en_US', category: 'UTILITY', body: '',header:'',footer:'',headerExample:'' });
   const [examples, setExamples] = useState<string[]>([]);
+  const [buttons,setButtons]=useState<{ type:'NONE'|'URL'|'PHONE_NUMBER';text:string;target:string }[]>(
+    [{ type:'NONE',text:'',target:'' },{ type:'NONE',text:'',target:'' }]);
   const [key, setKey] = useState(() => crypto.randomUUID());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -62,11 +64,15 @@ export function TemplateSetup({ connectionId, status, canManage, locale, api }: 
     setBusy(true); setError('');
     try {
       const { header,footer,headerExample,...base }=form;
+      const cta=buttons.filter((button)=>button.type!=='NONE').map((button)=>button.type==='URL'
+        ? { type:'URL',text:button.text,url:button.target } : { type:'PHONE_NUMBER',text:button.text,phone_number:button.target });
       await api(`/api/messaging/connections/${connectionId}/templates`, { method: 'POST',
         body: JSON.stringify({ ...base,...(header ? { header } : {}),...(footer ? { footer } : {}),
-          ...(headerExample ? { headerExample } : {}),...(examples.length ? { examples } : {}), idempotencyKey: key }) });
+          ...(headerExample ? { headerExample } : {}),...(examples.length ? { examples } : {}),
+          ...(cta.length ? { buttons:cta } : {}), idempotencyKey: key }) });
       setForm({ name: '', language: form.language, category: 'UTILITY', body: '',header:'',footer:'',headerExample:'' });
       setExamples([]);
+      setButtons([{ type:'NONE',text:'',target:'' },{ type:'NONE',text:'',target:'' }]);
       setKey(crypto.randomUUID()); await Promise.all([load(), loadRequests()]);
     } catch (failure) { setError(String(failure)); await loadRequests().catch(() => {}); }
     finally { setBusy(false); }
@@ -88,7 +94,7 @@ export function TemplateSetup({ connectionId, status, canManage, locale, api }: 
       <tbody>{templates.map((item) => <tr key={item.id}><td>{item.name}</td><td>{item.language}</td><td>{item.category ?? '—'}</td>
         <td>{item.status}{!item.active && <small>{t.inactive}</small>}{!item.supported && <small>
           {locale==='ar' ? 'صيغة غير مدعومة' : locale==='fr' ? 'Format non pris en charge' : 'Unsupported format'}</small>}</td>
-        <td>{item.components.flatMap((raw)=> {
+        <td>{item.supported && typeof item.preview==='string' ? <p style={{ whiteSpace:'pre-wrap' }}>{item.preview}</p> : item.components.flatMap((raw)=> {
           if (!raw || typeof raw!=='object') return [];
           const part=raw as { type?:unknown;text?:unknown };
           return typeof part.type==='string' && ['HEADER','BODY','FOOTER'].includes(part.type.toUpperCase())
@@ -134,6 +140,25 @@ export function TemplateSetup({ connectionId, status, canManage, locale, api }: 
           setExamples((current) => current.map((value, position) => position === index ? event.target.value : value));
           setKey(crypto.randomUUID());
         }} /></label>)}
+      <p>{locale==='ar' ? 'أزرار ثابتة اختيارية: رابط HTTPS واحد ورقم اتصال واحد؛ لا متغيرات في الهدف.'
+        : locale==='fr' ? 'Boutons fixes facultatifs : un lien HTTPS et un numéro, sans variable dans la cible.'
+          : 'Optional static buttons: one HTTPS link and one phone number; targets have no variables.'}</p>
+      {buttons.map((button,index)=> <fieldset key={index}><legend>{locale==='ar' ? 'الزر' : locale==='fr' ? 'Bouton' : 'Button'} {index+1}</legend>
+        <label>{locale==='ar' ? 'نوع الزر' : locale==='fr' ? 'Type du bouton' : 'Button type'} {index+1}
+          <select aria-label={(locale==='ar' ? 'نوع الزر' : locale==='fr' ? 'Type du bouton' : 'Button type')+' '+(index+1)} value={button.type}
+            onChange={(event)=> { setButtons((current)=>current.map((value,position)=>position===index
+              ? { type:event.target.value as 'NONE'|'URL'|'PHONE_NUMBER',text:'',target:'' } : value));setKey(crypto.randomUUID()); }}>
+            <option value="NONE">—</option>{(['URL','PHONE_NUMBER'] as const).map((type)=><option key={type} value={type}
+              disabled={buttons.some((value,position)=>position!==index && value.type===type)}>{type}</option>)}</select></label>
+        {button.type!=='NONE' && <><label>{locale==='ar' ? 'نص الزر' : locale==='fr' ? 'Texte du bouton' : 'Button text'} {index+1}
+          <input required maxLength={25} value={button.text} onChange={(event)=> {
+            setButtons((current)=>current.map((value,position)=>position===index ? { ...value,text:event.target.value } : value));setKey(crypto.randomUUID());
+          }} /></label><label>{locale==='ar' ? 'هدف الزر' : locale==='fr' ? 'Cible du bouton' : 'Button target'} {index+1}
+          <input required type={button.type==='URL' ? 'url' : 'tel'} maxLength={button.type==='URL' ? 2000 : 16}
+            pattern={button.type==='PHONE_NUMBER' ? '[+][1-9][0-9]{7,14}' : undefined} value={button.target} onChange={(event)=> {
+              setButtons((current)=>current.map((value,position)=>position===index ? { ...value,target:event.target.value } : value));setKey(crypto.randomUUID());
+            }} /></label></>}
+      </fieldset>)}
       <button disabled={busy || status === 'DISABLED'}>{t.create}</button>
     </form>}
   </section>;

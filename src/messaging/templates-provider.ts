@@ -1,10 +1,10 @@
 import type { MessagingConnectionConfig, MessagingCredentials } from './providers.js';
-import { parseTextTemplate, validHeaderExample } from './approved-template.js';
+import { parseTextTemplate, validHeaderExample, type CallToActionButton } from './approved-template.js';
 
 export type ProviderTemplate = { externalId: string; name: string; language: string;
   status: string; category: string | null; components: unknown[] };
 export type CreateTemplateInput = { name: string; language: string; category: 'MARKETING'|'UTILITY';
-  body: string; examples?: string[];header?:string;footer?:string;headerExample?:string };
+  body: string; examples?: string[];header?:string;footer?:string;headerExample?:string;buttons?:CallToActionButton[] };
 export interface MessagingTemplateAdapter {
   list(config: MessagingConnectionConfig, credentials: MessagingCredentials): Promise<ProviderTemplate[]>;
   create(config: MessagingConnectionConfig, credentials: MessagingCredentials,
@@ -80,7 +80,8 @@ export const metaTemplateAdapter: MessagingTemplateAdapter = {
       ...(input.examples?.length ? { example: { body_text: [input.examples] } } : {}) };
     const components=[...(input.header!==undefined ? [{ type:'HEADER',format:'TEXT',text:input.header,
       ...(input.headerExample!==undefined ? { example:{ header_text:[input.headerExample] } } : {}) }] : []),body,
-      ...(input.footer!==undefined ? [{ type:'FOOTER',text:input.footer }] : [])];
+      ...(input.footer!==undefined ? [{ type:'FOOTER',text:input.footer }] : []),
+      ...(input.buttons!==undefined ? [{ type:'BUTTONS',buttons:input.buttons }] : [])];
     if (!parseTextTemplate(components) || !validHeaderExample(input.header,input.headerExample))
       throw new TemplateProviderError('REJECTED','TEMPLATE_INPUT_INVALID');
     const payload = await request(endpoint(config), credentials.accessToken, {

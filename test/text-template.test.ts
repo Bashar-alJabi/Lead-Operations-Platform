@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { parseTextTemplate, textHeaderParameterCount, renderTextHeader, validHeaderExample } from '../src/messaging/approved-template.js';
+import { parseTextTemplate, parseStaticButtons, textHeaderParameterCount, renderTextHeader, validHeaderExample } from '../src/messaging/approved-template.js';
 import { metaTemplateAdapter } from '../src/messaging/templates-provider.js';
 import { metaWhatsAppSendAdapter } from '../src/messaging/providers.js';
 test('one text-template parser preserves every supported component and rejects duplicates and unknown semantics',()=> {
@@ -70,5 +70,27 @@ test('Meta creation submits static HEADER/BODY/FOOTER with body-only examples an
   const created=await metaTemplateAdapter.create(config,credentials,input);assert.equal(created.status,'PENDING');
   assert.equal(parseTextTemplate(created.components)?.parameterCount,1);
   await assert.rejects(metaTemplateAdapter.create(config,credentials,{ ...input,header:'{{1}}' }),/TEMPLATE_INPUT_INVALID/);
+  assert.equal(calls,1);
+});
+
+test('static template CTA validates safe targets, preserves canonical history and submits approved button shapes',async(t)=> {
+  const buttons=[{ type:'URL' as const,text:'Visit site',url:'https://example.test/offer' },
+    { type:'PHONE_NUMBER' as const,text:'Call us',phone_number:'+15550007777' }];
+  assert.deepEqual(parseStaticButtons(buttons),buttons);
+  for (const url of ['javascript:alert(1)','http://example.test','https://user:secret@example.test','https://example.test/{{1}}','https://example.test/line\nbreak',
+    'https://example.test/'+'x'.repeat(2000)])
+    assert.equal(parseStaticButtons([{ ...buttons[0],url }]),null);
+  for (const value of [[],[buttons[0],buttons[0]],[{ type:'QUICK_REPLY',text:'Reply' }],[{ ...buttons[1],phone_number:'bad' }],
+    [{ ...buttons[1],phone_number:'+15550007777\n' }],[{ ...buttons[0],text:'x'.repeat(26) }]]) assert.equal(parseStaticButtons(value),null);
+  const parsed=parseTextTemplate([{ type:'BODY',text:'CTA body' },{ type:'BUTTONS',buttons }])!;
+  assert.equal(parsed.components.length,2);assert.deepEqual(parsed.buttons,buttons);assert.match(parsed.preview,/Visit site: https:\/\/example.test\/offer/);
+  const original=globalThis.fetch;t.after(()=> { globalThis.fetch=original; });let calls=0;
+  globalThis.fetch=async(_url,options)=> { calls++;const value=JSON.parse(options!.body as string);
+    assert.deepEqual(value.components,[{ type:'BODY',text:'CTA body' },{ type:'BUTTONS',buttons }]);
+    return Response.json({ id:'12345',status:'PENDING',category:'UTILITY' }); };
+  const config={ wabaId:'123',graphVersion:'v25.0' };const credentials={ accessToken:'test',appSecret:'test',verifyToken:'test' };
+  const input={ name:'cta_notice',language:'en_US',category:'UTILITY' as const,body:'CTA body',buttons };
+  await metaTemplateAdapter.create(config,credentials,input);
+  await assert.rejects(metaTemplateAdapter.create(config,credentials,{ ...input,buttons:[{ type:'URL',text:'Visit site',url:'javascript:alert(1)' }] }),/TEMPLATE_INPUT_INVALID/);
   assert.equal(calls,1);
 });

@@ -26,7 +26,7 @@ export function registerConversationMessageRoutes(app: FastifyInstance, db: Data
       const limit = request.query.limit ?? 50;
       const cursor = decodeCursor(request.query.cursor);
       const rows = await db`SELECT m.id, m.direction, m.author_type, m.author_user_id, m.body,
-          m.message_kind, m.template_id,
+          m.message_kind, m.template_id, m.template_snapshot,
           CASE WHEN a.id IS NULL THEN NULL ELSE jsonb_build_object('id', a.id, 'state', a.state,
             'mediaKind', a.media_kind, 'mime', coalesce(a.mime_type, a.declared_mime), 'sizeBytes', a.size_bytes,
             'errorCode', a.last_error_code, 'version', a.version) END AS attachment,
@@ -41,8 +41,12 @@ export function registerConversationMessageRoutes(app: FastifyInstance, db: Data
           AND (${cursor?.timestamp ?? null}::timestamptz IS NULL OR
             (m.created_at, m.id) < (${cursor?.timestamp ?? null}::timestamptz, ${cursor?.id ?? null}::uuid))
         ORDER BY m.created_at DESC, m.id DESC LIMIT ${limit + 1}`;
-      const items = rows.slice(0, limit);
-      const last = items.at(-1);
+      const page = rows.slice(0, limit);
+      const items = page.map((row)=> {
+        const { template_snapshot:_,...visible }=row;
+        return { ...visible,templateButtons:parseTextTemplate(row.template_snapshot?.components)?.buttons ?? [] };
+      });
+      const last = page.at(-1);
       return { items, nextCursor: rows.length > limit && last ?
         encodeCursor({ timestamp: last.created_at.toISOString(), id: last.id }) : null };
     });
@@ -76,7 +80,7 @@ export function registerConversationMessageRoutes(app: FastifyInstance, db: Data
       const items = page.flatMap((row) => {
         const parsed=parseTextTemplate(row.components);
         const { components:_,...visible }=row;
-        return parsed ? [{ ...visible,body:parsed.preview,components:parsed.components,
+        return parsed ? [{ ...visible,body:parsed.preview,components:parsed.components.filter((part)=>part.type!=='BUTTONS'),buttons:parsed.buttons,
           parameterCount:parsed.parameterCount,headerParameterCount:parsed.headerParameterCount }] : [];
       });
       return { items, nextAfter: rows.length > limit ? page.at(-1)!.id : null };

@@ -19,6 +19,12 @@ const createSchema = { type: 'object', additionalProperties: false,
     body: { type: 'string', minLength: 1, maxLength: 1024 },
     header:{ type:'string',minLength:1,maxLength:60 },footer:{ type:'string',minLength:1,maxLength:60 },
     headerExample:{ type:'string',minLength:1,maxLength:60 },
+    buttons:{ type:'array',minItems:1,maxItems:2,items:{ oneOf:[
+      { type:'object',additionalProperties:false,required:['type','text','url'],properties:{
+        type:{ const:'URL' },text:{ type:'string',minLength:1,maxLength:25 },url:{ type:'string',minLength:1,maxLength:2000 } } },
+      { type:'object',additionalProperties:false,required:['type','text','phone_number'],properties:{
+        type:{ const:'PHONE_NUMBER' },text:{ type:'string',minLength:1,maxLength:25 },phone_number:{ type:'string',pattern:'^\\+[1-9][0-9]{7,14}$' } } },
+    ] } },
     examples: { type: 'array', maxItems: 10, items: {
       type: 'string', minLength: 1, maxLength: 512 } },
   } } as const;
@@ -78,7 +84,7 @@ export function registerMessagingTemplateRoutes(app: FastifyInstance, db: Databa
       const items = page.map((row) => {
         const parsed = parseTextTemplate(row.components);
         return { ...row, supported: Boolean(parsed), parameterCount: parsed?.parameterCount ?? null,
-          headerParameterCount: parsed?.headerParameterCount ?? null };
+          headerParameterCount: parsed?.headerParameterCount ?? null,preview:parsed?.preview ?? null };
       });
       return { items, nextAfter: rows.length > limit ? page.at(-1)!.id : null };
     });
@@ -201,7 +207,8 @@ export function registerMessagingTemplateRoutes(app: FastifyInstance, db: Databa
       const count = bodyParameterCount(input.body);
       if (count === null) throw new HttpError(400, 'TEMPLATE_BODY_INVALID');
       if (!parseTextTemplate([...(input.header!==undefined ? [{ type:'HEADER',format:'TEXT',text:input.header }] : []),
-        { type:'BODY',text:input.body },...(input.footer!==undefined ? [{ type:'FOOTER',text:input.footer }] : [])]))
+        { type:'BODY',text:input.body },...(input.footer!==undefined ? [{ type:'FOOTER',text:input.footer }] : []),
+        ...(input.buttons!==undefined ? [{ type:'BUTTONS',buttons:input.buttons }] : [])]))
         throw new HttpError(400,'TEMPLATE_FORMAT_UNSUPPORTED');
       if ((input.examples?.length ?? 0) !== count || input.examples?.some((value) =>
         !value.trim() || /[\x00-\x1f\x7f]/.test(value)))
