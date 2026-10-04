@@ -20,7 +20,9 @@ const createSchema = { type: 'object', additionalProperties: false,
     header:{ type:'string',minLength:1,maxLength:60 },footer:{ type:'string',minLength:1,maxLength:60 },
     headerExample:{ type:'string',minLength:1,maxLength:60 },
     urlExample:{ type:'string',minLength:1,maxLength:2000 },
-    buttons:{ type:'array',minItems:1,maxItems:2,items:{ oneOf:[
+    buttons:{ type:'array',minItems:1,maxItems:3,items:{ oneOf:[
+      { type:'object',additionalProperties:false,required:['type','text'],properties:{
+        type:{ const:'QUICK_REPLY' },text:{ type:'string',minLength:1,maxLength:25 } } },
       { type:'object',additionalProperties:false,required:['type','text','url'],properties:{
         type:{ const:'URL' },text:{ type:'string',minLength:1,maxLength:25 },url:{ type:'string',minLength:1,maxLength:2000 } } },
       { type:'object',additionalProperties:false,required:['type','text','phone_number'],properties:{
@@ -85,7 +87,8 @@ export function registerMessagingTemplateRoutes(app: FastifyInstance, db: Databa
       const items = page.map((row) => {
         const parsed = parseTextTemplate(row.components);
         return { ...row, supported: Boolean(parsed), parameterCount: parsed?.parameterCount ?? null,
-          headerParameterCount: parsed?.headerParameterCount ?? null,urlParameterIndex:parsed?.urlParameterIndex ?? null,preview:parsed?.preview ?? null };
+          headerParameterCount: parsed?.headerParameterCount ?? null,urlParameterIndex:parsed?.urlParameterIndex ?? null,
+          quickReplyCount:parsed?.buttons.filter((button)=>button.type==='QUICK_REPLY').length ?? null,preview:parsed?.preview ?? null };
       });
       return { items, nextAfter: rows.length > limit ? page.at(-1)!.id : null };
     });

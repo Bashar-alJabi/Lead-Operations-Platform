@@ -1,5 +1,5 @@
 // Test-only HTTP entrypoint. Never imported by the production server or workers.
-import { randomBytes } from 'node:crypto';
+import { randomBytes,createHmac } from 'node:crypto';
 import { readFile, mkdir, writeFile, mkdtemp, rm } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { buildApp } from '../src/app.js';
@@ -13,6 +13,7 @@ import { metaMediaCapabilities } from '../src/media/meta-outbound.js';
 import { localMediaStorage } from '../src/media/storage.js';
 import type { ProviderTemplate } from '../src/messaging/templates-provider.js';
 import { renderTemplateUrl } from '../src/messaging/approved-template.js';
+import { processOneInboundEvent } from '../src/messaging/inbound-events.js';
 
 const connectionUrl = requireLocalE2ETarget(process.env.TEST_DATABASE_URL,process.env.E2E_RESET_TEST_DATABASE,process.env.NODE_ENV);
 
@@ -65,7 +66,7 @@ const mediaLead=(await db`INSERT INTO lead (organization_id,branch_id,campaign_i
 const mediaConnection=(await db`INSERT INTO integration_connection (organization_id,branch_id,kind,provider,name,status,config)
   VALUES (${org},${branch},'MESSAGING','META_WHATSAPP_CLOUD','Browser Media Connection','CONNECTED',
     '{"graphVersion":"v25.0","wabaId":"987654321"}'::jsonb) RETURNING id`)[0]!.id;
-const mediaSecret=sealSecret(mediaConnection,JSON.stringify({ accessToken:'test-only-media-fake' }));
+const mediaSecret=sealSecret(mediaConnection,JSON.stringify({ accessToken:'test-only-media-fake',appSecret:'test-only-e2e-secret',verifyToken:'test-verify' }));
 await db`INSERT INTO connection_secret (connection_id,ciphertext,nonce,auth_tag)
   VALUES (${mediaConnection},${mediaSecret.ciphertext},${mediaSecret.nonce},${mediaSecret.authTag})`;
 const mediaSender=(await db`INSERT INTO messaging_sender
@@ -110,11 +111,12 @@ app.get<{ Params:{ name:string } }>('/assets/:name',async (request,reply)=> {
   const type = request.params.name.endsWith('.js') ? 'text/javascript' : 'text/css';
   return reply.type(type).send(await readFile(resolve('dist-web/assets',request.params.name)));
 });
-app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:boolean; assigned?:'agent'|'second'; approveTemplates?:boolean } }>(
+app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:boolean; assigned?:'agent'|'second'; approveTemplates?:boolean;replyTo?:string;replyIndex?:number } }>(
   '/__test__/control', { schema: { body:{ type:'object',additionalProperties:false,properties: {
     process:{ type:'boolean' },mode:{ type:'string',enum:['accept','reject','unknown'] },
     dnc:{ type:'boolean' },assigned:{ type:'string',enum:['agent','second'] },
     approveTemplates:{ type:'boolean' },
+    replyTo:{ type:'string',format:'uuid' },replyIndex:{ type:'integer',minimum:0,maximum:2 },
   } } } },async (request)=> {
     const header = request.headers.authorization;
     if (typeof header !== 'string' || !safeTokenEqual(header,'Bearer '+testToken)) throw new HttpError(403,'TEST_CONTROL_DENIED');
@@ -131,9 +133,24 @@ app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:bool
     };
     if (request.body.process) await processOneMessagingJob(db,{ sendText:send,sendMedia:send,sendTemplate:send,
       uploadMedia:async()=> { mediaUploads++;return { providerMediaId:'12345' }; } },{ mediaStorage:storage });
+    if (request.body.replyTo) {
+      const source=(await db`SELECT id,provider_message_id,template_snapshot FROM conversation_message
+        WHERE id=${request.body.replyTo} AND conversation_id=${mediaCv} AND direction='OUTBOUND'`)[0];
+      const index=request.body.replyIndex ?? 0;const button=source?.template_snapshot?.components.find((part:{ type:string })=>part.type==='BUTTONS')?.buttons[index];
+      const payload=source?.template_snapshot?.quickReplyPayloads?.[index];
+      if (!source?.provider_message_id || !payload || button?.type!=='QUICK_REPLY') throw new HttpError(400,'TEST_REPLY_SOURCE_INVALID');
+      const raw=JSON.stringify({ object:'whatsapp_business_account',entry:[{ id:'987654321',changes:[{ field:'messages',value:{ messaging_product:'whatsapp',
+        metadata:{ phone_number_id:'15550005555' },messages:[{ id:`wamid.browser-reply-${source.id}-${index}`,from:'15550004444',
+          timestamp:String(Math.floor(Date.now()/1000)),type:'button',button:{ text:button.text,payload },context:{ id:source.provider_message_id } }] } }] }] });
+      const received=await app.inject({ method:'POST',url:`/api/webhooks/messaging/meta/${mediaConnection}`,payload:raw,
+        headers:{ 'content-type':'application/json','x-hub-signature-256':'sha256='+createHmac('sha256','test-only-e2e-secret').update(raw).digest('hex') } });
+      if (received.statusCode!==200) throw new HttpError(500,'TEST_REPLY_WEBHOOK_FAILED');
+      await processOneInboundEvent(db);
+    }
     const messages = await db`SELECT id,body,delivery_state,message_kind,conversation_id FROM conversation_message WHERE direction='OUTBOUND' ORDER BY created_at,id`;
     const recoveries = (await db`SELECT count(*)::integer AS n FROM outbound_message_recovery`)[0]!.n;
-    return { providerCalls,mediaUploads,messages,recoveries };
+    const replies=await db`SELECT id,body,reply_to_message_id,reply_button_index FROM conversation_message WHERE conversation_id=${mediaCv} AND reply_to_message_id IS NOT NULL`;
+    return { providerCalls,mediaUploads,messages,recoveries,replies };
   });
 await mkdir(resolve('.local/e2e'),{ recursive:true });
 await writeFile(resolve('.local/e2e/fixture.json'),JSON.stringify({ password,testToken,leadId:lead,conversationId:cv,untrusted,mediaLeadId:mediaLead,mediaConversationId:mediaCv }),{ mode:0o600 });

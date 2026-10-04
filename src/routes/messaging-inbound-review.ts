@@ -55,7 +55,8 @@ export function registerMessagingInboundReviewRoutes(app: FastifyInstance, db: D
         const message = event.payload?.message;
         const attachment = (await tx`SELECT * FROM message_attachment WHERE integration_event_id = ${event.id}`)[0];
         const text = message?.type === 'text' && typeof message?.text?.body === 'string'
-          ? message.text.body as string : typeof message?.[message?.type]?.caption === 'string'
+          ? message.text.body as string : message?.type==='button' && typeof message?.button?.text==='string'
+            ? String(message.button.text).slice(0,25) : typeof message?.[message?.type]?.caption === 'string'
             ? message[message.type].caption as string : null;
         const leads = (await candidateLeads(tx, { sender_id: event.sender_id,
           participant_ref: event.participant_ref })).filter((lead) =>

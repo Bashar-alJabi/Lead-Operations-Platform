@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { parseTextTemplate, parseCallToActionButtons, textHeaderParameterCount, renderTextHeader, validHeaderExample,
+import { parseTextTemplate, parseTemplateButtons, textHeaderParameterCount, renderTextHeader, validHeaderExample,
   urlParameterCount,renderTemplateUrl,renderTemplateButtons,validUrlExample } from '../src/messaging/approved-template.js';
+import { quickReplyPayloadsFor,parseQuickReplyPayload } from '../src/messaging/approved-template.js';
+import { parseInboundQuickReply } from '../src/messaging/quick-replies.js';
 import { metaTemplateAdapter } from '../src/messaging/templates-provider.js';
 import { metaWhatsAppSendAdapter } from '../src/messaging/providers.js';
 test('one text-template parser preserves every supported component and rejects duplicates and unknown semantics',()=> {
@@ -77,12 +79,12 @@ test('Meta creation submits static HEADER/BODY/FOOTER with body-only examples an
 test('static template CTA validates safe targets, preserves canonical history and submits approved button shapes',async(t)=> {
   const buttons=[{ type:'URL' as const,text:'Visit site',url:'https://example.test/offer' },
     { type:'PHONE_NUMBER' as const,text:'Call us',phone_number:'+15550007777' }];
-  assert.deepEqual(parseCallToActionButtons(buttons),buttons);
+  assert.deepEqual(parseTemplateButtons(buttons),buttons);
   for (const url of ['javascript:alert(1)','http://example.test','https://user:secret@example.test','https://example.test/{{1}}/extra','https://example.test/line\nbreak',
     'https://example.test/'+'x'.repeat(2000)])
-    assert.equal(parseCallToActionButtons([{ ...buttons[0],url }]),null);
-  for (const value of [[],[buttons[0],buttons[0]],[{ type:'QUICK_REPLY',text:'Reply' }],[{ ...buttons[1],phone_number:'bad' }],
-    [{ ...buttons[1],phone_number:'+15550007777\n' }],[{ ...buttons[0],text:'x'.repeat(26) }]]) assert.equal(parseCallToActionButtons(value),null);
+    assert.equal(parseTemplateButtons([{ ...buttons[0],url }]),null);
+  for (const value of [[],[buttons[0],buttons[0]],[{ type:'FLOW',text:'Reply' }],[{ ...buttons[1],phone_number:'bad' }],
+    [{ ...buttons[1],phone_number:'+15550007777\n' }],[{ ...buttons[0],text:'x'.repeat(26) }]]) assert.equal(parseTemplateButtons(value),null);
   const parsed=parseTextTemplate([{ type:'BODY',text:'CTA body' },{ type:'BUTTONS',buttons }])!;
   assert.equal(parsed.components.length,2);assert.deepEqual(parsed.buttons,buttons);assert.match(parsed.preview,/Visit site: https:\/\/example.test\/offer/);
   const original=globalThis.fetch;t.after(()=> { globalThis.fetch=original; });let calls=0;
@@ -94,6 +96,46 @@ test('static template CTA validates safe targets, preserves canonical history an
   await metaTemplateAdapter.create(config,credentials,input);
   await assert.rejects(metaTemplateAdapter.create(config,credentials,{ ...input,buttons:[{ type:'URL',text:'Visit site',url:'javascript:alert(1)' }] }),/TEMPLATE_INPUT_INVALID/);
   assert.equal(calls,1);
+});
+
+test('Quick Reply profiles preserve static labels and correlate opaque payloads to one message and button',async(t)=> {
+  const id='00000000-0000-4000-8000-000000000123';const payloads=quickReplyPayloadsFor(id,3)!;
+  assert.equal(payloads.length,3);assert.equal(new Set(payloads).size,3);assert.deepEqual(quickReplyPayloadsFor(id,3,payloads),payloads);
+  assert.notDeepEqual(quickReplyPayloadsFor(id,3),payloads);
+  for (const [index,payload] of payloads.entries()) assert.deepEqual(parseQuickReplyPayload(payload),{ messageId:id,index });
+  assert.equal(quickReplyPayloadsFor(id,0,payloads),null);assert.equal(quickReplyPayloadsFor(id,1.5),null);
+  assert.equal(quickReplyPayloadsFor(id,3,[payloads[1]!,payloads[0]!,payloads[2]!]),null);
+  assert.equal(quickReplyPayloadsFor('invalid',2),null);assert.equal(parseQuickReplyPayload(payloads[0]+'\n'),null);
+  const buttons=[{ type:'QUICK_REPLY' as const,text:'Yes <b>literal</b>' },{ type:'QUICK_REPLY' as const,text:'No' }];
+  const parsed=parseTextTemplate([{ type:'BODY',text:'Please choose' },{ type:'BUTTONS',buttons }])!;
+  assert.deepEqual(parsed.buttons,buttons);assert.equal(parsed.preview,'Please choose\n\nYes <b>literal</b>\nNo');
+  assert.deepEqual(renderTemplateButtons(buttons),buttons);
+  for (const invalid of [[...buttons,{ type:'URL',text:'Visit',url:'https://example.test' }],Array(4).fill(buttons[1]),[{ type:'QUICK_REPLY',text:'{{1}}' }]])
+    assert.equal(parseTemplateButtons(invalid),null);
+  assert.deepEqual(parseInboundQuickReply({ type:'button',button:{ text:'No',payload:payloads[1] } }),
+    { body:'No',payload:payloads[1],messageId:id,index:1 });
+  for (const invalid of [{ type:'button',button:{ text:'No',payload:'Unknown provider payload' } },
+    { type:'button',button:{ text:' ',payload:payloads[0] } },{ type:'button',button:[] },{ type:'text',button:{ text:'No',payload:payloads[0] } }])
+    assert.equal(parseInboundQuickReply(invalid),null);
+  const original=globalThis.fetch;t.after(()=> { globalThis.fetch=original; });let calls=0;
+  globalThis.fetch=async(url,options)=> {
+    calls++;const value=JSON.parse(options!.body as string);
+    if (String(url).endsWith('/message_templates')) {
+      assert.deepEqual(value.components,[{ type:'BODY',text:'Please choose' },{ type:'BUTTONS',buttons }]);
+      return Response.json({ id:'12345',status:'PENDING',category:'UTILITY' });
+    }
+    assert.deepEqual(value.template.components,payloads.map((payload,index)=>({ type:'button',sub_type:'quick_reply',index:String(index),parameters:[{ type:'payload',payload }] })));
+    return Response.json({ messages:[{ id:'wamid.quick-reply' }] });
+  };
+  const config={ wabaId:'123',graphVersion:'v25.0' };const credentials={ accessToken:'test',appSecret:'test',verifyToken:'test' };
+  await metaTemplateAdapter.create(config,credentials,{ name:'quick_notice',language:'en_US',category:'UTILITY',body:'Please choose',buttons });
+  const send={ config,credentials,externalSenderId:'12345',recipient:'+15550002222',templateName:'quick_notice',templateLanguage:'en_US',
+    quickReplyButtons:payloads.map((payload,index)=>({ index,payload })) };
+  await metaWhatsAppSendAdapter.sendTemplate!(send);
+  for (const quickReplyButtons of [[],[{ index:1,payload:payloads[1]! }],[{ index:0,payload:'forged' }]])
+    await assert.rejects(metaWhatsAppSendAdapter.sendTemplate!({ ...send,quickReplyButtons }),/PROVIDER_TEMPLATE_INVALID/);
+  await assert.rejects(metaWhatsAppSendAdapter.sendTemplate!({ ...send,urlButton:{ index:0,suffix:'abc' } }),/PROVIDER_TEMPLATE_INVALID/);
+  assert.equal(calls,2);
 });
 
 test('dynamic template URL binds one final suffix to a fixed HTTPS origin and strips approval samples',()=> {

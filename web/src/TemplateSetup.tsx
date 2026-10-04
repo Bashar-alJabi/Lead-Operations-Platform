@@ -34,6 +34,8 @@ export function TemplateSetup({ connectionId, status, canManage, locale, api }: 
   const [requestAfter, setRequestAfter] = useState<string | null>(null);
   const [form, setForm] = useState({ name: '', language: 'en_US', category: 'UTILITY', body: '',header:'',footer:'',headerExample:'' });
   const [urlExample,setUrlExample]=useState('');
+  const [buttonMode,setButtonMode]=useState<'CTA'|'QUICK_REPLY'>('CTA');
+  const [quickLabels,setQuickLabels]=useState(['','','']);
   const [examples, setExamples] = useState<string[]>([]);
   const [buttons,setButtons]=useState<{ type:'NONE'|'URL'|'PHONE_NUMBER';text:string;target:string }[]>(
     [{ type:'NONE',text:'',target:'' },{ type:'NONE',text:'',target:'' }]);
@@ -65,15 +67,17 @@ export function TemplateSetup({ connectionId, status, canManage, locale, api }: 
     setBusy(true); setError('');
     try {
       const { header,footer,headerExample,...base }=form;
-      const cta=buttons.filter((button)=>button.type!=='NONE').map((button)=>button.type==='URL'
+      const cta=buttonMode==='QUICK_REPLY' ? quickLabels.filter((text)=>text.trim()).map((text)=>({ type:'QUICK_REPLY',text }))
+        : buttons.filter((button)=>button.type!=='NONE').map((button)=>button.type==='URL'
         ? { type:'URL',text:button.text,url:button.target } : { type:'PHONE_NUMBER',text:button.text,phone_number:button.target });
       await api(`/api/messaging/connections/${connectionId}/templates`, { method: 'POST',
         body: JSON.stringify({ ...base,...(header ? { header } : {}),...(footer ? { footer } : {}),
           ...(headerExample ? { headerExample } : {}),...(examples.length ? { examples } : {}),
-          ...(cta.length ? { buttons:cta } : {}),...(urlExample ? { urlExample } : {}),idempotencyKey: key }) });
+          ...(cta.length ? { buttons:cta } : {}),...(buttonMode==='CTA' && urlExample ? { urlExample } : {}),idempotencyKey: key }) });
       setForm({ name: '', language: form.language, category: 'UTILITY', body: '',header:'',footer:'',headerExample:'' });
       setExamples([]);
       setUrlExample('');
+      setButtonMode('CTA');setQuickLabels(['','','']);
       setButtons([{ type:'NONE',text:'',target:'' },{ type:'NONE',text:'',target:'' }]);
       setKey(crypto.randomUUID()); await Promise.all([load(), loadRequests()]);
     } catch (failure) { setError(String(failure)); await loadRequests().catch(() => {}); }
@@ -142,6 +146,17 @@ export function TemplateSetup({ connectionId, status, canManage, locale, api }: 
           setExamples((current) => current.map((value, position) => position === index ? event.target.value : value));
           setKey(crypto.randomUUID());
         }} /></label>)}
+      <label>{locale==='ar' ? 'نمط أزرار القالب' : locale==='fr' ? 'Mode des boutons du modèle' : 'Template button mode'}
+        <select aria-label={locale==='ar' ? 'نمط أزرار القالب' : locale==='fr' ? 'Mode des boutons du modèle' : 'Template button mode'} value={buttonMode}
+          onChange={(event)=> { setButtonMode(event.target.value as 'CTA'|'QUICK_REPLY');setKey(crypto.randomUUID()); }}>
+          <option value="CTA">CTA</option><option value="QUICK_REPLY">Quick Reply</option></select></label>
+      {buttonMode==='QUICK_REPLY' ? <>{quickLabels.map((value,index)=><label key={index}>
+        {locale==='ar' ? 'نص الرد السريع' : locale==='fr' ? 'Libellé de réponse rapide' : 'Quick reply label'} {index+1}
+        <input required={index===0} maxLength={25} value={value} onChange={(event)=> {
+          setQuickLabels((current)=>current.map((item,position)=>position===index ? event.target.value : item));setKey(crypto.randomUUID());
+        }} /></label>)}<p>{locale==='ar' ? 'حتى3 ردود ثابتة؛ لا تخلطها مع CTA. تُربط إجابة العميل برسالتها وزرها دون تنفيذ Action تلقائية.'
+          : locale==='fr' ? 'Jusqu’à 3 réponses fixes, sans CTA. La réponse est liée au message et au bouton, sans action automatique.'
+            : 'Up to 3 static replies, separate from CTA. Customer replies link to their message and button without automatic actions.'}</p></> : <>
       <p>{locale==='ar' ? 'أزرار اختيارية: رابط HTTPS واحد ورقم اتصال واحد. URL تدعم {{1}} مرة واحدة في النهاية؛ أدخل مثال اللاحقة مستقلاً عن HEADER/BODY.'
         : locale==='fr' ? 'Boutons facultatifs : un lien HTTPS et un numéro. URL accepte {{1}} une seule fois à la fin ; son exemple est indépendant de HEADER/BODY.'
           : 'Optional buttons: one HTTPS link and one phone number. URL allows {{1}} once at the end, with a suffix example separate from HEADER/BODY.'}</p>
@@ -165,7 +180,7 @@ export function TemplateSetup({ connectionId, status, canManage, locale, api }: 
       </fieldset>)}
       {buttons.some((button)=>button.type==='URL' && button.target.includes('{{1}}')) && <label>
         {locale==='ar' ? 'مثال لاحقة URL' : locale==='fr' ? 'Exemple du suffixe URL' : 'URL suffix example'}
-        <input required maxLength={2000} value={urlExample} onChange={(event)=> { setUrlExample(event.target.value);setKey(crypto.randomUUID()); }} /></label>}
+        <input required maxLength={2000} value={urlExample} onChange={(event)=> { setUrlExample(event.target.value);setKey(crypto.randomUUID()); }} /></label>}</>}
       <button disabled={busy || status === 'DISABLED'}>{t.create}</button>
     </form>}
   </section>;

@@ -3,6 +3,8 @@ import type { Database } from '../db.js';
 import { HttpError, type Principal } from '../security.js';
 import { MediaError, parseInboundMedia } from '../media/validation.js';
 import { processOneIntegrationEvent } from './event-processing.js';
+import { parseInboundQuickReply } from './quick-replies.js';
+import { parseTextTemplate } from './approved-template.js';
 
 type InboundPayload = { senderExternalId: string; message: Record<string, unknown> };
 type EventRow = { id: string; connection_id: string; sender_id: string | null;
@@ -75,12 +77,15 @@ export async function processInboundEvent(tx: postgres.TransactionSql, eventId: 
   if (!message || typeof message.id !== 'string' || !message.id || message.id.length > 255)
     return attention(tx, event.id, 'INBOUND_PAYLOAD_INVALID');
   let body: string; let attachmentId: string | null = null;
+  const quickReply=message.type==='button' ? parseInboundQuickReply(message) : null;
+  if (message.type==='button' && !quickReply) return attention(tx,event.id,'QUICK_REPLY_PAYLOAD_INVALID');
   if (message.type === 'text' && message.text && typeof message.text === 'object'
     && typeof (message.text as Record<string, unknown>).body === 'string'
     && (message.text as { body: string }).body.trim()
     && (message.text as { body: string }).body.length <= 20000) {
     body = (message.text as { body: string }).body;
-  } else {
+  } else if (quickReply) { body=quickReply.body; }
+  else {
     let media;
     try { media = parseInboundMedia(message); }
     catch (error) { return attention(tx, event.id, error instanceof MediaError ? error.code : 'MEDIA_PAYLOAD_INVALID'); }
@@ -106,6 +111,25 @@ export async function processInboundEvent(tx: postgres.TransactionSql, eventId: 
     if (decision.actor.organizationId !== sender.organization_id
       || (decision.actor.role === 'MANAGER' && sender.branch_id !== decision.actor.branchId))
       throw new HttpError(404, 'INBOUND_EVENT_NOT_FOUND');
+  }
+  if (quickReply) {
+    const prior=(await tx`SELECT prior.id,prior.provider_message_id,prior.template_snapshot,
+        cv.id AS conversation_id,cv.lead_id,cv.state
+      FROM conversation_message prior JOIN conversation cv ON cv.id=prior.conversation_id
+      WHERE prior.id=${quickReply.messageId} AND prior.direction='OUTBOUND' AND prior.message_kind='TEMPLATE'
+        AND prior.connection_id=${event.connection_id} AND prior.sender_id=${event.sender_id}
+        AND cv.participant_ref=${event.participant_ref}`)[0];
+    if (!prior) return attention(tx,event.id,'QUICK_REPLY_REFERENCE_NOT_FOUND');
+    const parsed=parseTextTemplate(prior.template_snapshot?.components);const button=parsed?.buttons[quickReply.index];
+    if (!button || button.type!=='QUICK_REPLY' || button.text!==body
+      || prior.template_snapshot?.quickReplyPayloads?.[quickReply.index]!==quickReply.payload)
+      return attention(tx,event.id,'QUICK_REPLY_REFERENCE_MISMATCH');
+    if (!prior.provider_message_id) return attention(tx,event.id,'QUICK_REPLY_REFERENCE_PENDING');
+    if (contextId && contextId!==prior.provider_message_id) return attention(tx,event.id,'QUICK_REPLY_CONTEXT_MISMATCH');
+    if (decision && ((conversationId && conversationId!==prior.conversation_id) || (leadId && leadId!==prior.lead_id)))
+      throw new HttpError(409,'INBOUND_CONTEXT_TARGET_CONFLICT');
+    if (prior.state==='CLOSED') return attention(tx,event.id,'CLOSED_CONVERSATION');
+    conversationId=prior.conversation_id;leadId=prior.lead_id;
   }
   if (contextId) {
     const references = await tx`SELECT cv.id, cv.lead_id, cv.state, cv.participant_ref
@@ -184,9 +208,10 @@ export async function processInboundEvent(tx: postgres.TransactionSql, eventId: 
   }
   const inserted = await tx`INSERT INTO conversation_message (conversation_id, connection_id,
     sender_id, direction, author_type, body, provider_message_id, delivery_state, received_at,
-    message_kind, attachment_id)
+    message_kind, attachment_id,reply_to_message_id,reply_button_index)
     VALUES (${conversationId}, ${event.connection_id}, ${event.sender_id}, 'INBOUND', 'CUSTOMER',
-      ${body}, ${message.id}, 'RECEIVED', ${timestamp}, ${attachmentId ? 'ATTACHMENT' : 'TEXT'}, ${attachmentId})
+      ${body}, ${message.id}, 'RECEIVED', ${timestamp}, ${attachmentId ? 'ATTACHMENT' : 'TEXT'}, ${attachmentId},
+      ${quickReply?.messageId ?? null},${quickReply?.index ?? null})
     ON CONFLICT DO NOTHING RETURNING id`;
   const existing = inserted.length ? null : (await tx`SELECT id, conversation_id FROM conversation_message
     WHERE connection_id = ${event.connection_id} AND provider_message_id = ${message.id}`)[0];

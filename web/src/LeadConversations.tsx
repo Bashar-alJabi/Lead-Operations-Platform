@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { MessageAttachment, type Attachment } from './MessageAttachment';
 import { MessageDelivery } from './MessageDelivery';
-import { TemplateButtons, type CallToActionButton } from './TemplateButtons';
+import { TemplateButtons, type TemplateButton } from './TemplateButtons';
 
 type Api = <T>(path: string, options?: RequestInit) => Promise<T>;
 type Locale = 'ar'|'fr'|'en';
@@ -22,9 +22,10 @@ type Consent = { status: 'GRANTED'|'REVOKED'|'UNKNOWN'; do_not_contact: boolean;
   source: string | null; updated_at: string | null; version: number; editable: boolean };
 type Message = { id: string; direction: 'INBOUND'|'OUTBOUND'; author_type: string; body: string;
   message_kind: 'TEXT'|'TEMPLATE'|'ATTACHMENT'; attachment: Attachment | null;
-  delivery_state: string; last_error_code: string | null; created_at: string;templateButtons:CallToActionButton[] };
+  delivery_state: string; last_error_code: string | null; created_at: string;templateButtons:TemplateButton[];
+  reply_to_message_id:string|null;reply_button_index:number|null };
 type AvailableTemplate = { id: string; name: string; language: string; body: string; parameterCount: number;headerParameterCount:0|1;
-  components:{ type:'HEADER'|'BODY'|'FOOTER';text:string }[];buttons:CallToActionButton[];urlParameterIndex:number|null };
+  components:{ type:'HEADER'|'BODY'|'FOOTER';text:string }[];buttons:TemplateButton[];urlParameterIndex:number|null };
 type AttentionReview = { id: string; previous_reason: string; review_note: string;
   reviewer_name: string; created_at: string };
 const labels = {
@@ -280,12 +281,15 @@ export function LeadConversations({ leadId, lifecycle, role, actorId, locale, ap
       </label><button className="secondary" disabled={busy || takeoverReason.trim().length < 3}
         onClick={() => void takeover()}>{t.takeover}</button></div>}
       {!messages.length && <p>{t.noMessages}</p>}
-      <ul className="conversation-messages">{messages.map((message) => <li key={message.id}>
+      <ul className="conversation-messages">{messages.map((message) => <li key={message.id} id={'message-'+message.id}>
         <strong>{message.direction === 'INBOUND' ? t.customer : message.author_type}</strong>
         {' · '}{message.message_kind}{' · '}{message.delivery_state}{message.last_error_code && ` · ${message.last_error_code}`}
         {' · '}<time dateTime={message.created_at}>{new Date(message.created_at).toLocaleString(locale)}</time>
         <p style={{ whiteSpace: 'pre-wrap' }}>{message.body}</p>
         {message.templateButtons?.length ? <TemplateButtons buttons={message.templateButtons} /> : null}
+        {message.reply_to_message_id && <small><a href={'#message-'+message.reply_to_message_id}>
+          {locale==='ar' ? 'رد على زر القالب' : locale==='fr' ? 'Réponse au bouton du modèle' : 'Template button reply'}
+          {' '+((message.reply_button_index ?? 0)+1)}</a></small>}
         {message.attachment && <MessageAttachment key={`${message.attachment.id}:${message.attachment.version}`}
           attachment={message.attachment} locale={locale} canRetry={role !== 'AGENT'} api={api} />}
         {message.delivery_state === 'UNKNOWN' && <p role="alert">{t.unknown}</p>}

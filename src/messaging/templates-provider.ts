@@ -1,10 +1,10 @@
 import type { MessagingConnectionConfig, MessagingCredentials } from './providers.js';
-import { parseTextTemplate, validHeaderExample, validUrlExample, renderTemplateUrl, urlParameterCount, type CallToActionButton } from './approved-template.js';
+import { parseTextTemplate, validHeaderExample, validUrlExample, renderTemplateUrl, urlParameterCount, type TemplateButton } from './approved-template.js';
 
 export type ProviderTemplate = { externalId: string; name: string; language: string;
   status: string; category: string | null; components: unknown[] };
 export type CreateTemplateInput = { name: string; language: string; category: 'MARKETING'|'UTILITY';
-  body: string; examples?: string[];header?:string;footer?:string;headerExample?:string;buttons?:CallToActionButton[];urlExample?:string };
+  body: string; examples?: string[];header?:string;footer?:string;headerExample?:string;buttons?:TemplateButton[];urlExample?:string };
 export interface MessagingTemplateAdapter {
   list(config: MessagingConnectionConfig, credentials: MessagingCredentials): Promise<ProviderTemplate[]>;
   create(config: MessagingConnectionConfig, credentials: MessagingCredentials,

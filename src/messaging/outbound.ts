@@ -1,4 +1,5 @@
 import type { Database } from '../db.js';
+import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { HttpError, type Principal } from '../security.js';
 import type { SendAuthor } from './policy.js';
@@ -54,13 +55,14 @@ export async function enqueueOutboundMessage(db: Database, input: OutboundReques
     const decision = await checkCurrentOutbound(tx, locked, input.actor, input.author,
       undefined, input.templateId, attachment?.media_kind);
     if (!decision.allowed) return { blocked: decision.reason } as const;
+    const messageId=randomUUID();
     const template = input.templateId ? await approvedBodyTemplate(tx,
-      conversation.connection_id, scope.campaign_id, input.templateId, input.templateParameters,input.templateHeaderParameter,input.templateUrlParameter) : null;
+      conversation.connection_id, scope.campaign_id, input.templateId, input.templateParameters,input.templateHeaderParameter,input.templateUrlParameter,{ messageId }) : null;
     const body = template?.body ?? input.body ?? '';
-    const message = (await tx`INSERT INTO conversation_message (conversation_id, connection_id,
+    const message = (await tx`INSERT INTO conversation_message (id,conversation_id, connection_id,
         sender_id, direction, author_type, author_user_id, body, delivery_state, idempotency_key,
         message_kind, template_id, template_snapshot, attachment_id)
-      VALUES (${conversation.id}, ${conversation.connection_id}, ${conversation.sender_id},
+      VALUES (${messageId},${conversation.id}, ${conversation.connection_id}, ${conversation.sender_id},
         'OUTBOUND', ${input.author}, ${input.author === 'HUMAN' ? input.actor.id : null},
         ${body}, 'QUEUED', ${input.idempotencyKey}, ${kind}, ${input.templateId ?? null},
         ${template ? tx.json(template.snapshot) : null}, ${attachment?.id ?? null}) RETURNING id`)[0]!;

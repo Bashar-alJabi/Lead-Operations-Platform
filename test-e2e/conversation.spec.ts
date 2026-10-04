@@ -365,3 +365,49 @@ test('Manager creates and binds an approved composite text template; Agent sends
   await expect(operational).toContainText('SUCCEEDED');
   expect(errors).toEqual([]);
 });
+
+test('Quick Reply templates send approved labels, correlate signed customer replies and retain duplicate-safe history in the browser',async({ page,browser })=> {
+  const errors:string[]=[];page.on('pageerror',(error)=>errors.push(error.message));await login(page,'manager');
+  await page.getByRole('button',{ name:'Messaging setup',exact:true }).click();
+  await page.getByRole('row').filter({ hasText:'Browser Media Connection' }).getByRole('button').click();
+  const setup=page.getByRole('heading',{ name:'Meta templates',exact:true }).locator('..');const name='browser_quick_notice';
+  await setup.getByLabel('Template name',{ exact:true }).fill(name);await setup.getByLabel('BODY text',{ exact:true }).fill('Please choose a reply');
+  await setup.getByLabel('Template button mode',{ exact:true }).selectOption('QUICK_REPLY');
+  await setup.getByLabel('Quick reply label 1',{ exact:true }).fill('Yes <b>literal</b>');
+  await setup.getByLabel('Quick reply label 2',{ exact:true }).fill('No');
+  await setup.getByRole('button',{ name:'Submit template',exact:true }).click();
+  await expect(setup.getByRole('row').filter({ hasText:name })).toContainText('PENDING');
+  await control(page,{ approveTemplates:true });await setup.getByRole('button',{ name:'Sync approvals',exact:true }).click();
+  await expect(setup.getByRole('row').filter({ hasText:name })).toContainText('APPROVED');
+  const operational=page.getByRole('heading',{ name:'Test send',exact:true }).locator('..');
+  await operational.getByRole('button',{ name:'Refresh templates',exact:true }).click();
+  await expect(operational.getByLabel('Approved template',{ exact:true }).locator('option').filter({ hasText:name })).toHaveCount(0);
+  await page.getByRole('button',{ name:'Campaigns',exact:true }).click();
+  await page.getByRole('row').filter({ hasText:'Browser Media Campaign' }).getByRole('button',{ name:'Details',exact:true }).click();
+  await page.getByRole('heading',{ name:'Campaign templates',exact:true }).locator('..').locator('li').filter({ hasText:name }).getByRole('button',{ name:'Allow',exact:true }).click();
+  const context=await browser.newContext();const agent=await context.newPage();agent.on('pageerror',(error)=>errors.push(error.message));
+  try {
+    await login(agent);await agent.getByRole('row').filter({ hasText:'Browser Media Customer' }).getByRole('button',{ name:'Details',exact:true }).click();
+    const panel=agent.getByRole('heading',{ name:'Customer conversations',exact:true }).locator('..');await panel.getByRole('button',{ name:'View messages',exact:true }).click();
+    await panel.getByLabel('Message type',{ exact:true }).selectOption('TEMPLATE');await panel.getByLabel('Template',{ exact:true }).selectOption({ label:name+' · en_US' });
+    const composer=panel.getByLabel('Message type',{ exact:true }).locator('..').locator('..');
+    await expect(composer).toContainText('Yes <b>literal</b>');await expect(composer.locator('b')).toHaveCount(0);
+    await expect(composer.getByRole('button',{ name:'Yes <b>literal</b>',exact:true })).toHaveCount(0);
+    const before=await control(agent);await panel.getByRole('button',{ name:'Queue message',exact:true }).click();
+    const message=panel.locator('.conversation-messages li').filter({ hasText:'Please choose a reply' });await expect(message).toContainText('QUEUED');
+    const sent=await control(agent,{ process:true,mode:'accept' });expect(sent.providerCalls).toBe(before.providerCalls+1);
+    const source=sent.messages.find((item:{ body:string })=>item.body==='Please choose a reply');expect(source).toBeTruthy();
+    await panel.getByRole('button',{ name:'View messages',exact:true }).click();await expect(message).toContainText('SENT');await expect(message).toContainText('Yes <b>literal</b>');
+    const reply=await control(agent,{ replyTo:source.id,replyIndex:0 });expect(reply.replies).toHaveLength(1);
+    expect((await control(agent,{ replyTo:source.id,replyIndex:0 })).replies).toHaveLength(1);
+    await panel.getByRole('button',{ name:'View messages',exact:true }).click();
+    const inbound=panel.locator('.conversation-messages li').filter({ hasText:'Template button reply 1' });
+    await expect(inbound).toContainText('Yes <b>literal</b>');await expect(inbound.locator('b')).toHaveCount(0);
+    await expect(inbound.getByRole('link',{ name:'Template button reply 1',exact:true })).toHaveAttribute('href','#message-'+source.id);
+    await agent.setViewportSize({ width:390,height:844 });await agent.getByRole('combobox',{ name:'Language' }).selectOption('ar');
+    await expect(agent.getByRole('link',{ name:'رد على زر القالب 1',exact:true })).toHaveAttribute('href','#message-'+source.id);
+    expect(await agent.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
+    await agent.getByRole('link',{ name:'رد على زر القالب 1',exact:true }).scrollIntoViewIfNeeded();await agent.screenshot({ path:'.local/e2e/quick-reply-ar.png' });
+    expect(errors).toEqual([]);
+  } finally { await context.close(); }
+});

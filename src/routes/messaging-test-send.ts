@@ -22,7 +22,8 @@ type TestInput = { senderId: string; templateId: string; recipient: string;
 
 function staticBody(components: unknown): boolean {
   const parsed=parseTextTemplate(components);
-  return parsed?.parameterCount===0 && parsed.headerParameterCount===0 && parsed.urlParameterIndex===null;
+  return parsed?.parameterCount===0 && parsed.headerParameterCount===0 && parsed.urlParameterIndex===null
+    && !parsed.buttons.some((button)=>button.type==='QUICK_REPLY');
 }
 
 export function registerMessagingTestSendRoutes(app: FastifyInstance, db: Database,

@@ -1,26 +1,31 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { randomBytes } from 'node:crypto';
+import { randomBytes,createHmac } from 'node:crypto';
 import { buildApp } from '../src/app.js';
 import { createDatabase } from '../src/db.js';
 import { sha256 } from '../src/security.js';
 import { sealSecret } from '../src/credentials.js';
 import { processOneMessagingJob } from '../src/messaging/send-worker.js';
 import type { ProviderTemplate } from '../src/messaging/templates-provider.js';
-import type { MessagingSendAdapter } from '../src/messaging/providers.js';
+import { ProviderSendError, type MessagingSendAdapter } from '../src/messaging/providers.js';
 import { renderTemplateUrl } from '../src/messaging/approved-template.js';
+import { processOneInboundEvent } from '../src/messaging/inbound-events.js';
 const url=process.env.TEST_DATABASE_URL;
 if (!url || new URL(url).pathname!=='/lead_operations_test') throw new Error('Isolated TEST_DATABASE_URL required');
 test('composite text templates preserve approval/scope, bind dynamic bodies, pin snapshots and revalidate recovery and dispatch',async(t)=> {
   process.env.APP_ORIGIN='http://127.0.0.1:5173';process.env.CREDENTIAL_ENCRYPTION_KEY=randomBytes(32).toString('hex');
-  const db=createDatabase(url);const catalog:ProviderTemplate[]=[];let creates=0;let sends=0;
+  const db=createDatabase(url);const catalog:ProviderTemplate[]=[];let creates=0;let sends=0;let rejectQuick=true;
+  const quickDispatches:unknown[]=[];
   const adapter:MessagingSendAdapter={ sendText:async()=> { throw new Error('Unexpected freeform send'); },
     sendTemplate:async(input)=> { sends++;
       if (input.templateName==='composite_notice') { assert.deepEqual(input.bodyParameters,['Alice']);assert.equal(input.headerParameter,undefined); }
       else if (input.templateName==='header_notice') { assert.deepEqual(input.bodyParameters,['Order Body']);assert.equal(input.headerParameter,'Alice Header'); }
       else if (input.templateName==='cta_notice') { assert.deepEqual(input.bodyParameters,['Order CTA']);assert.equal(input.headerParameter,undefined); }
-      else { assert.equal(input.templateName,'dynamic_url_notice');assert.deepEqual(input.bodyParameters,['Body Order']);assert.equal(input.headerParameter,'Header Alice');
+      else if (input.templateName==='dynamic_url_notice') { assert.deepEqual(input.bodyParameters,['Body Order']);assert.equal(input.headerParameter,'Header Alice');
         assert.deepEqual(input.urlButton,{ index:1,suffix:'order-123?source=crm' }); }
+      else { assert.equal(input.templateName,'quick_notice');assert.deepEqual(input.bodyParameters,[]);assert.equal(input.headerParameter,undefined);
+        assert.equal(input.quickReplyButtons?.length,2);quickDispatches.push(input.quickReplyButtons);
+        if (rejectQuick) throw new ProviderSendError('REJECTED','PROVIDER_SEND_REJECTED'); }
       if (input.templateName!=='dynamic_url_notice') assert.equal(input.urlButton,undefined);
       return { providerMessageId:'wamid.composite-'+sends }; } };
   const app=await buildApp(db,{ logger:false,globalRateLimitMax:10000,messagingSendAdapter:{ sendText:adapter.sendText,
@@ -50,7 +55,7 @@ test('composite text templates preserve approval/scope, bind dynamic bodies, pin
     VALUES (${org},${branch},'Template','ACTIVE','{"enabled":true}'::jsonb) RETURNING id`)[0]!.id;
   const connection=(await db`INSERT INTO integration_connection (organization_id,branch_id,kind,provider,name,status,config)
     VALUES (${org},${branch},'MESSAGING','META_WHATSAPP_CLOUD','Template','CONNECTED','{"graphVersion":"v25.0","wabaId":"123456789"}'::jsonb) RETURNING id`)[0]!.id;
-  const sealed=sealSecret(connection,JSON.stringify({ accessToken:'test-only-no-live' }));
+  const sealed=sealSecret(connection,JSON.stringify({ accessToken:'test-only-no-live',appSecret:'test-only-quick-secret',verifyToken:'test-verify' }));
   await db`INSERT INTO connection_secret (connection_id,ciphertext,nonce,auth_tag) VALUES (${connection},${sealed.ciphertext},${sealed.nonce},${sealed.authTag})`;
   const sender=(await db`INSERT INTO messaging_sender (organization_id,connection_id,external_sender_id,display_name,health,capabilities)
     VALUES (${org},${connection},'15550001111','Template','HEALTHY','{"text":true,"template":true}'::jsonb) RETURNING id`)[0]!.id;
@@ -166,7 +171,7 @@ test('composite text templates preserve approval/scope, bind dynamic bodies, pin
   clientAddress='127.0.0.2';
   const ctaInput={ ...headerInput,name:'cta_notice',header:'CTA greeting',headerExample:undefined,buttons,idempotencyKey:'cta-create-1' };
   for (const value of [[{ ...buttons[0],url:'javascript:alert(1)' }],[buttons[0],buttons[0]],[{ ...buttons[1],phone_number:'1234' }],
-    [{ ...buttons[1],phone_number:'+15550007777\n' }],[{ type:'QUICK_REPLY',text:'Reply' }],[{ ...buttons[0],text:' ' }]])
+    [{ ...buttons[1],phone_number:'+15550007777\n' }],[{ type:'FLOW',text:'Reply' }],[{ ...buttons[0],text:' ' }]])
     assert.equal((await api('POST',path,{ ...ctaInput,buttons:value },'manager')).statusCode,400);
   assert.equal(creates,4);
   const ctaCreated=await api('POST',path,ctaInput,'manager');assert.equal(ctaCreated.statusCode,201,ctaCreated.body);const ctaId=ctaCreated.json().id;
@@ -261,15 +266,103 @@ test('composite text templates preserve approval/scope, bind dynamic bodies, pin
   assert.equal(urlOnly.statusCode,201,urlOnly.body);catalog[7]!.status='APPROVED';await api('POST',path+'/sync',undefined,'manager');
   assert.equal((await api('POST',`/api/messaging/connections/${connection}/test-send`,{ senderId:sender,templateId:urlOnly.json().id,
     recipient:'+15550005555',recipientConfirmed:true,idempotencyKey:'no-url-only-test-send' },'manager')).statusCode,409);
+  clientAddress='127.0.0.4';
+  const quickButtons=[{ type:'QUICK_REPLY',text:'Yes <b>literal</b>' },{ type:'QUICK_REPLY',text:'No' }];
+  const quickInput={ name:'quick_notice',language:'en_US',category:'UTILITY',body:'Please choose',buttons:quickButtons,idempotencyKey:'quick-create' };
+  for (const buttons of [[...quickButtons,{ type:'URL',text:'Site',url:'https://example.test' }],Array(4).fill(quickButtons[0]),[{ type:'QUICK_REPLY',text:'{{1}}' }]])
+    assert.equal((await api('POST',path,{ ...quickInput,buttons },'manager')).statusCode,400);
+  const quickCreated=await api('POST',path,quickInput,'manager');assert.equal(quickCreated.statusCode,201,quickCreated.body);const quickId=quickCreated.json().id;
+  const quickBinding=`/api/messaging/campaigns/${campaign}/templates/${quickId}`;
+  assert.equal((await api('PUT',quickBinding,{ bound:true,version:0 },'manager')).statusCode,409);
+  catalog[8]!.status='APPROVED';await api('POST',path+'/sync',undefined,'manager');
+  assert.equal((await api('PUT',quickBinding,{ bound:true,version:0 },'manager')).statusCode,200);
+  assert.deepEqual((await api('GET',availablePath)).json().items.find((row:{ id:string })=>row.id===quickId).buttons,quickButtons);
+  const quickIntent={ templateId:quickId,idempotencyKey:'quick-send' };
+  assert.equal((await api('POST',messages,{ ...quickIntent,quickReplyPayloads:['client-chosen'] })).statusCode,400);
+  const quickQueued=await Promise.all([api('POST',messages,quickIntent),api('POST',messages,quickIntent)]);
+  assert.deepEqual(quickQueued.map((result)=>result.statusCode).sort(),[200,202]);const quickMessageId=quickQueued[0]!.json().id;
+  const quickSaved=(await db`SELECT template_snapshot FROM conversation_message WHERE id=${quickMessageId}`)[0]!.template_snapshot;
+  assert.equal(quickSaved.quickReplyPayloads.length,2);assert.notEqual(quickSaved.quickReplyPayloads[0],quickSaved.quickReplyPayloads[1]);
+  const otherLead=(await db`INSERT INTO lead (organization_id,branch_id,campaign_id,contact_id,source_kind,assigned_agent_id)
+    VALUES (${org},${branch},${campaign},${contact},'MANUAL',${users.agent!.id}) RETURNING id`)[0]!.id;
+  const otherCv=(await db`INSERT INTO conversation (lead_id,connection_id,sender_id,channel,participant_ref,controller_type,controller_user_id,state)
+    VALUES (${otherLead},${connection},${sender},'WHATSAPP','+15550002222','HUMAN',${users.agent!.id},'HUMAN_ACTIVE') RETURNING id`)[0]!.id;
+  const webhook=`/api/webhooks/messaging/meta/${connection}`;
+  const reply=(id:string,fields:object={})=>({ id,from:'15550002222',timestamp:String(Math.floor(Date.now()/1000)),type:'button',
+    button:{ text:quickButtons[1]!.text,payload:quickSaved.quickReplyPayloads[1] },context:{ id:'wamid.composite-6' },...fields });
+  async function receive(message:object,signed=true) {
+    const raw=JSON.stringify({ object:'whatsapp_business_account',entry:[{ id:'123456789',changes:[{ field:'messages',value:{
+      messaging_product:'whatsapp',metadata:{ phone_number_id:'15550001111' },messages:[message] } }] }] });
+    return app.inject({ method:'POST',url:webhook,payload:raw,headers:{ 'content-type':'application/json',
+      ...(signed ? { 'x-hub-signature-256':'sha256='+createHmac('sha256','test-only-quick-secret').update(raw).digest('hex') } : {}) } });
+  }
+  assert.equal((await receive(reply('wamid.quick-unsigned'),false)).statusCode,403);
+  assert.equal((await receive(reply('wamid.quick-pending'))).statusCode,200);await processOneInboundEvent(db);
+  const pendingReply=(await db`SELECT id,state,failure_code FROM integration_event WHERE connection_id=${connection}
+    AND payload->'message'->>'id'='wamid.quick-pending'`)[0]!;
+  assert.equal(pendingReply.failure_code,'QUICK_REPLY_REFERENCE_PENDING');
+  await processOneMessagingJob(db,adapter);assert.equal(sends,5);
+  const quickCv=(await api('GET',`/api/conversations/${cv}`)).json().conversation;
+  assert.equal(quickCv.needs_attention_reason,null); // A confirmed pre-acceptance rejection can be recovered directly.
+  rejectQuick=false;const quickRetry=await api('POST',`${messages}/${quickMessageId}/retry`,{ version:1,reason:'Provider rejection reviewed, retry identical buttons' });
+  assert.equal(quickRetry.statusCode,202,quickRetry.body);await processOneMessagingJob(db,adapter);assert.equal(sends,6);
+  assert.deepEqual(quickDispatches[0],quickDispatches[1]);
+  assert.deepEqual((await db`SELECT template_snapshot FROM conversation_message WHERE id=${quickMessageId}`)[0]!.template_snapshot,quickSaved);
+  const review=`/api/messaging/connections/${connection}/inbound-review/${pendingReply.id}`;
+  assert.equal((await api('GET',review)).statusCode,403);assert.equal((await api('GET',review,undefined,'other')).statusCode,404);
+  const reviewed=await api('GET',review,undefined,'manager');assert.equal(reviewed.json().event.body,'No');assert.ok(!reviewed.body.includes(quickSaved.quickReplyPayloads[1]));
+  assert.equal((await api('POST',review+'/resolve',{ conversationId:otherCv },'manager')).statusCode,409);
+  const resolved=await api('POST',review+'/resolve',{ conversationId:cv },'manager');assert.equal(resolved.statusCode,200,resolved.body);
+  const signedReply=reply('wamid.quick-valid');const callbacks=await Promise.all([receive(signedReply),receive(signedReply)]);
+  assert.ok(callbacks.every((result)=>result.statusCode===200));await Promise.all([processOneInboundEvent(db),processOneInboundEvent(db)]);
+  assert.equal((await db`SELECT count(*)::int AS n FROM conversation_message WHERE provider_message_id='wamid.quick-valid'`)[0]!.n,1);
+  assert.equal((await receive(reply('wamid.quick-no-context',{ context:undefined }))).statusCode,200);await processOneInboundEvent(db);
+  for (const [id,fields,reason] of [
+    ['wamid.quick-bad-token',{ button:{ text:'No',payload:quickSaved.quickReplyPayloads[1].slice(0,-1)+'z' } },'QUICK_REPLY_PAYLOAD_INVALID'],
+    ['wamid.quick-forged-token',{ button:{ text:'No',payload:quickSaved.quickReplyPayloads[1].slice(0,-1)+(quickSaved.quickReplyPayloads[1].endsWith('a') ? 'b' : 'a') } },'QUICK_REPLY_REFERENCE_MISMATCH'],
+    ['wamid.quick-wrong-text',{ button:{ text:'Changed label',payload:quickSaved.quickReplyPayloads[1] } },'QUICK_REPLY_REFERENCE_MISMATCH'],
+    ['wamid.quick-wrong-context',{ context:{ id:'wamid.composite-1' } },'QUICK_REPLY_CONTEXT_MISMATCH'],
+    ['wamid.quick-wrong-participant',{ from:'15550009999' },'QUICK_REPLY_REFERENCE_NOT_FOUND'],
+    ['wamid.quick-unknown',{ button:{ text:'No',payload:'external-template-payload' } },'QUICK_REPLY_PAYLOAD_INVALID'],
+  ] as const) {
+    assert.equal((await receive(reply(id,fields))).statusCode,200);await processOneInboundEvent(db);
+    const failed=(await db`SELECT state,failure_code FROM integration_event WHERE connection_id=${connection} AND payload->'message'->>'id'=${id}`)[0]!;
+    assert.equal(failed.state,'NEEDS_ATTENTION');assert.equal(failed.failure_code,reason);
+    assert.equal((await db`SELECT 1 FROM conversation_message WHERE provider_message_id=${id}`).length,0);
+  }
+  const replyHistory=(await api('GET',messages+'?limit=100')).json().items;
+  const customerReply=replyHistory.find((row:{ provider_message_id?:string;id:string;reply_to_message_id:string;body:string })=>row.reply_to_message_id===quickMessageId);
+  assert.equal(customerReply.body,'No');assert.equal(customerReply.reply_button_index,1);assert.equal(customerReply.reply_to_message_id,quickMessageId);
+  assert.ok(!JSON.stringify(replyHistory).includes(quickSaved.quickReplyPayloads[0]));
+  await db`UPDATE conversation SET state='CLOSED' WHERE id=${cv}`;
+  assert.equal((await receive(reply('wamid.quick-closed'))).statusCode,200);await processOneInboundEvent(db);
+  assert.equal((await db`SELECT failure_code FROM integration_event WHERE connection_id=${connection} AND payload->'message'->>'id'='wamid.quick-closed'`)[0]!.failure_code,'CLOSED_CONVERSATION');
+  assert.equal((await db`SELECT 1 FROM conversation_message WHERE provider_message_id='wamid.quick-closed'`).length,0);
+  await db`UPDATE conversation SET state='HUMAN_ACTIVE' WHERE id=${cv}`;
+  const consentAfter=(await db`SELECT status,do_not_contact FROM messaging_consent WHERE contact_id=${contact}`)[0]!;
+  assert.equal(consentAfter.status,'GRANTED');assert.equal(consentAfter.do_not_contact,false);assert.equal(sends,6);
+  await assert.rejects(db`UPDATE conversation_message SET reply_button_index=0 WHERE id=${customerReply.id}`,/CUSTOMER_MESSAGE_IMMUTABLE/);
+  await assert.rejects(db`INSERT INTO conversation_message (conversation_id,connection_id,sender_id,direction,author_type,body,delivery_state,reply_to_message_id,reply_button_index)
+    VALUES (${otherCv},${connection},${sender},'INBOUND','CUSTOMER','No','RECEIVED',${quickMessageId},1)`,/TEMPLATE_REPLY_REFERENCE_INVALID/);
+  await assert.rejects(db`INSERT INTO conversation_message (conversation_id,connection_id,sender_id,direction,author_type,body,delivery_state,reply_button_index)
+    VALUES (${cv},${connection},${sender},'INBOUND','CUSTOMER','No','RECEIVED',1)`,/template_reply_shape/);
+  assert.equal((await api('POST',`/api/messaging/connections/${connection}/test-send`,{ senderId:sender,templateId:quickId,
+    recipient:'+15550005555',recipientConfirmed:true,idempotencyKey:'no-uncorrelated-quick-test-send' },'manager')).statusCode,409);
   const tested=await api('POST',`/api/messaging/connections/${connection}/test-send`,{ senderId:sender,templateId:staticCreated.json().id,
     recipient:'+15550005555',recipientConfirmed:true,idempotencyKey:'static-operational-test' },'manager');
   assert.equal(tested.statusCode,200,tested.body);
   const audit=await db`SELECT action,detail FROM audit_log WHERE organization_id=${org}`;
-  assert.equal(audit.filter((row)=>row.action==='MESSAGING_TEMPLATE_CREATED').length,7);
-  assert.equal(audit.filter((row)=>row.action==='CAMPAIGN_TEMPLATE_BOUND').length,5);
-  assert.equal(audit.filter((row)=>row.action==='OUTBOUND_MESSAGE_QUEUED').length,4);
+  assert.equal(audit.filter((row)=>row.action==='MESSAGING_TEMPLATE_CREATED').length,8);
+  assert.equal(audit.filter((row)=>row.action==='CAMPAIGN_TEMPLATE_BOUND').length,6);
+  assert.equal(audit.filter((row)=>row.action==='OUTBOUND_MESSAGE_QUEUED').length,5);
   assert.ok(!JSON.stringify(audit).includes('test-only-no-live'));
   assert.ok(!JSON.stringify(audit).includes('Example not for Agent'));
   assert.ok(!JSON.stringify(audit).includes('SECRET HEADER APPROVAL'));
   assert.ok(!JSON.stringify(audit).includes('SECRET-URL-APPROVAL'));assert.ok(!JSON.stringify(audit).includes('order-123?source=crm'));
+  assert.ok(!JSON.stringify(audit).includes(quickSaved.quickReplyPayloads[0]));
+  await db`UPDATE lead SET assigned_agent_id=${users.second!.id} WHERE id=${lead}`;
+  assert.equal((await api('GET',messages)).statusCode,404);
+  const newOwner=await api('GET',messages+'?limit=100',undefined,'second');assert.equal(newOwner.statusCode,200,newOwner.body);
+  assert.ok(newOwner.json().items.some((row:{ reply_to_message_id:string })=>row.reply_to_message_id===quickMessageId));
+  assert.ok(!newOwner.body.includes(quickSaved.quickReplyPayloads[0]));
 });

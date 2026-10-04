@@ -1,9 +1,10 @@
-export type CallToActionButton = { type:'URL';text:string;url:string } | { type:'PHONE_NUMBER';text:string;phone_number:string };
+export type TemplateButton = { type:'URL';text:string;url:string } | { type:'PHONE_NUMBER';text:string;phone_number:string } | { type:'QUICK_REPLY';text:string };
 
-export function TemplateButtons({ buttons }:{ buttons:CallToActionButton[] }) {
-  return <div className="actions">{(Array.isArray(buttons) ? buttons.slice(0,2) : []).map((button,index)=> {
+export function TemplateButtons({ buttons }:{ buttons:TemplateButton[] }) {
+  return <div className="actions">{(Array.isArray(buttons) ? buttons.slice(0,3) : []).map((button,index)=> {
     // Backend validates the canonical historical snapshot; render only safe targets even for malformed cached data.
     if (!button || typeof button.text!=='string') return null;
+    if (button.type==='QUICK_REPLY') return <span className="badge" key={index}>{button.text}</span>;
     if (button.type==='PHONE_NUMBER') return typeof button.phone_number==='string' && !/[\x00-\x20\x7f]/.test(button.phone_number)
       && /^\+[1-9][0-9]{7,14}$/.test(button.phone_number)
       ? <a key={index} href={'tel:'+button.phone_number}>{button.text} · {button.phone_number}</a> : null;
