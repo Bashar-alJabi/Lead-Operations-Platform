@@ -48,7 +48,8 @@ export function sourceBindingIssues(row:Record<string,unknown>):string[] {
   if (!row.form_active || !row.page_active) issues.push('SOURCE_RESOURCE_NOT_AVAILABLE');
   if (row.connection_version!==row.current_connection_version || row.form_connection_version!==row.current_connection_version
     || row.page_connection_version!==row.current_connection_version) issues.push('SOURCE_CONFIGURATION_CHANGED');
-  issues.push('SOURCE_MAPPING_NOT_CONFIGURED','SOURCE_INTAKE_NOT_CONFIGURED');return issues;
+  if (!row.mapping_configured) issues.push('SOURCE_MAPPING_NOT_CONFIGURED');
+  issues.push('SOURCE_INTAKE_NOT_CONFIGURED');return issues;
 }
 export function sourceBindingConflict(error:unknown):never {
   if (error instanceof Error && error.message==='SOURCE_BINDING_CONTEXT_CONFLICT') throw new HttpError(409,'SOURCE_BINDING_CONTEXT_CONFLICT');

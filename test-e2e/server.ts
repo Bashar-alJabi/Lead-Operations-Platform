@@ -39,6 +39,10 @@ const campaign = (await db`INSERT INTO campaign (organization_id,branch_id,name,
   VALUES (${org},${branch},'Browser Campaign','ACTIVE','{"enabled":true}'::jsonb) RETURNING id`)[0]!.id;
 const sourceCampaign=(await db`INSERT INTO campaign (organization_id,branch_id,name,source_kind)
   VALUES (${org},${branch},'Browser Intake Campaign','META') RETURNING id`)[0]!.id;
+const sourceScore=(await db`INSERT INTO field_definition (organization_id,branch_id,campaign_id,key,label,field_type,value_mode,validation)
+  VALUES (${org},${branch},${sourceCampaign},'interest','Browser source score','NUMBER','SOURCE','{"min":0}'::jsonb) RETURNING id`)[0]!.id;
+await db`INSERT INTO campaign_field (campaign_id,field_id,required_stage,editable_by_agent,editable_by_manager)
+  VALUES (${sourceCampaign},${sourceScore},'LEAD_CREATION',false,false)`;
 const connection = (await db`INSERT INTO integration_connection (organization_id,branch_id,kind,provider,name,status,config)
   VALUES (${org},${branch},'MESSAGING','META_WHATSAPP_CLOUD','Browser Connection','CONNECTED',
     '{"graphVersion":"v25.0","wabaId":"123456789"}'::jsonb) RETURNING id`)[0]!.id;
@@ -99,7 +103,9 @@ const app = await buildApp(db, { logger:false,globalRateLimitMax:10000,mediaStor
       return [{ externalId:'100001',name:'Browser Page <b>literal</b>',accessToken:'synthetic-browser-page-private-token' }]; },
     discoverForms:async(_config,page)=> { sourceCatalogCalls++;if (page.externalId!=='100001') throw new Error('Unexpected browser Page');
       return [{ externalId:'200001',name:'Browser Form',status:'ACTIVE',questions:[{ key:'interest',externalId:'question-1',
-        type:'CUSTOM',label:'Interest <img src=x onerror=alert(1)>',options:[{ key:'yes',value:'Yes <b>literal</b>' }] }] }]; },
+        type:'CUSTOM',label:'Interest <img src=x onerror=alert(1)>',options:[{ key:'yes',value:'Yes <b>literal</b>' }] },
+        { key:'full_name',externalId:'question-2',type:'CUSTOM',label:'Full name',options:[] },
+        { key:'phone',externalId:'question-3',type:'CUSTOM',label:'Phone',options:[] }] }]; },
   },
   mediaScanner:{ scan:async()=>({ clean:true,version:'BrowserFakeScanner/test-only' }) },
   messagingSendAdapter:{ sendText:async()=> { throw new Error('Unexpected operational freeform send'); },
