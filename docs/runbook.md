@@ -34,7 +34,7 @@
 
 ### workers المطلوبة الآن
 
-بعد migrations `001`–`036` والبناء، شغّل `npm run worker:messaging` للإرسال و`npm run worker:events` لمعالجة inbound وDelivery callbacks، و`npm run worker:media` للملفات. كل عملية لها `DATABASE_URL` ومفتاح التشفير المناسبان للبيئة نفسها. `worker:messaging` لم تعد تحل inbound/callbacks؛ غياب `worker:events` يبقي الأحداث محفوظة ومعلقة، ولا يضيعها أو يجعل قبول Webhook دليلاً على نجاح معالجتها. لا تُشغل worker بأسرار Production في بيئة الاختبار.
+بعد migrations `001`–`037` والبناء، شغّل `npm run worker:messaging` للإرسال و`npm run worker:events` لمعالجة inbound وDelivery callbacks، و`npm run worker:media` للملفات. كل عملية لها `DATABASE_URL` ومفتاح التشفير المناسبان للبيئة نفسها. `worker:messaging` لم تعد تحل inbound/callbacks؛ غياب `worker:events` يبقي الأحداث محفوظة ومعلقة، ولا يضيعها أو يجعل قبول Webhook دليلاً على نجاح معالجتها. لا تُشغل worker بأسرار Production في بيئة الاختبار.
 
 Worker الأحداث لا تتصل بمزود خارجي. `MESSAGING_EVENT_BATCH_SIZE` الافتراضي 50 (1–500)، و`MESSAGING_EVENT_POLL_MS` الافتراضي 2000 (100–60000)؛ هذه إعدادات deployment تقنية، وBusiness connections لا تزال من UI. تعرض صفحة Webhook أعداد pending/failed/Needs Attention وآخر معالجة وأقدم حدث معلق، ويمكن تصفية الحالة وقراءة سجل المحاولات. عند فشل DB/domain processing تحفظ backoff وخمس محاولات مع rollback لأي أثر جزئي. بعد FAILED أصلح السبب ثم أعد المعالجة من UI بملاحظة وversion؛ Manager اتصال فرعه أو Super Admin فقط. لا تعدل payload أو counters يدوياً، ولا تستخدم Event retry لإعادة إرسال Customer message.
 
@@ -49,6 +49,14 @@ Worker الأحداث لا تتصل بمزود خارجي. `MESSAGING_EVENT_BATC
 الأنواع المدعومة حالياً للوارد هي JPEG/PNG وPDF وOGG/MP3/M4A وMP4 وWebP sticker. يظهر المرفق في المحادثة بحالة `QUEUED/RUNNING` مع تعليق العميل كنص؛ التحميل محجوب حتى `READY`. عند malware/type/hash/size rejection يبقى `REJECTED` بلا bypass. عند provider/scanner/storage failure تحدث حتى خمس محاولات وbackoff، ثم `FAILED`؛ بعد معالجة السبب يستطيع Super Admin أو Manager ضمن النطاق طلب دورة جديدة من UI بملاحظة وversion، دون تعديل Message أو حذف سجل المحاولات. Agent يحمل مرفقات Leads المملوكة له فقط. Media الملتبسة تبقى في مراجعة Connection، والربط الصريح ينقل الصلاحية إلى Lead؛ لا تُخمن الحملة. الإرسال الصادر متاح لـJPEG/PNG/PDF المفحوصة من Composer حسب Sender capability: اختر مرفقاً وارفعه للفحص ثم أرسل بتعليق اختياري. يخضع للـController وConsent/DNC والنافذة والسياسة؛ خارج نافذة Meta لا يرسل هذا المسار media freeform. Worker يرفع asset ثم يعيد فحص السياسة قبل customer dispatch؛ upload failure retryable، وUNKNOWN من send تحتاج مراجعة دون retry تلقائي. Audio/video/sticker وmedia templates الصادرة غير مدعومة حالياً.
 
 تضمّن backup ملفات التخزين الخاصة مع PostgreSQL ونسخ object versions/lifecycle المناسبة. لا تحذف object مرتبطة بـ`READY` أو Message تاريخية؛ ملفات `.part-*` المحلية ليست قابلة للتحميل، وتُنظف بعد انقطاع كتابة عند التحقق من أنها غير نشطة وضمن Media root فقط. لم يجر اختبار restore للمرفقات أو S3 live، ويبقي Coverage ذلك واضحاً.
+
+## استرداد فشل إرسال Message
+
+في Lead Conversation اختر **تفاصيل الإرسال والمحاولات** بجوار outbound Message. تعرض الحالة ومعرف المزود وتوقيتاته وQueue error وعدد محاولات worker، وسجل dispatch وDelivery events والاسترداد مع pagination. فشل رفع media قبل customer dispatch قد يملك Queue attempt دون dispatch attempt؛ هذا ليس فقداً للتاريخ. الصفحات تعيد فحص Lead access؛ Agent السابق يفقدها بعد إعادة الإسناد.
+
+عندما يظهر إجراء إعادة القائمة، أصلح سبب الخطأ ثم أدخل سبباً واضحاً وأكد إرسال المحتوى المحفوظ نفسه. يشترط المؤلف البشري الأصلي الذي بقي Controller وصلاحية Lead، وFAILED/DEAD مؤكدة قبل قبول المزود. الطلب يحفظ Audit وversion/history ويمنح خمس محاولات worker إضافية دون تصفير الأرقام، ثم يعيد فحص السياسة قبل الإرسال. إعادة الطلب بالنسخة القديمة تعرض conflict ولا ترسل نسخة أخرى. تغيير DNC/Controller/Template/Scope أو تعطيل Sender يمنع المسار ولا يختار رقماً بديلاً.
+
+UNKNOWN أو PREPARED/accepted outcome لا تستخدم هذا الإجراء، وكذلك FAILED بعد قبول/Delivery callback. راجع المزود وNeeds Attention وفق الإجراء السابق؛ إزالة سبب المراجعة لا تسمح بإعادة Message مجهولة. لا تغيّر Message/Job states أو Provider ID يدوياً. إذا تولّى مستخدم آخر المحادثة، لا يغير author في سجل سابق؛ يبدأ Message جديدة بهويته الحالية من composer وفق السياسة. تحقق المسار بPostgreSQL وfakes، لا Meta live أو UI E2E.
 
 ## الاختبارات العامة والنسخ الاحتياطي
 
