@@ -38,6 +38,7 @@ import type { LeadSourceCatalogAdapter } from './sources/meta-provider.js';
 import { registerMetaSourceWebhookRoutes } from './routes/meta-source-webhook.js';
 import type { LeadSourceSubscriptionAdapter } from './sources/meta-subscription.js';
 import { safeRequestUrl } from './safe-logging.js';
+import { registerSourceReviewRoutes } from './routes/source-review.js';
 
 export async function buildApp(db: Database, options: { logger?: boolean; emailAdapter?: IdentityEmailAdapter;
   messagingAdapter?: MessagingProviderAdapter; messagingTemplateAdapter?: MessagingTemplateAdapter;
@@ -115,5 +116,6 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   registerSourceBindingRoutes(app,db);
   registerSourceMappingRoutes(app,db);
   registerMetaSourceWebhookRoutes(app,db,options.leadSourceSubscriptionAdapter);
+  registerSourceReviewRoutes(app,db);
   return app;
 }

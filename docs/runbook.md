@@ -19,6 +19,12 @@ Submission raw محفوظة مع notification +provider lead +external context �
 
 ## الحالة الحالية
 
+### مراجعة المصدر وإعادة تقييم Mapping
+
+من Meta Sources → الاتصال أوCampaign → Sources افتح **مراجعة بيانات المصدر**. PENDING تنتظر `worker:sources`، وNEEDS_ATTENTION تعرض كود فشل آمن: Form غير مكتشفة تحتاج discovery، وbinding غير مطابقة تحتاج مراجعة identifiers وشروط الربط، وMapping غير منشورة/قديمة تحتاج publish وفق Catalog وFields الحالية. خطأ قيم/required/scalar ambiguity لا يُحل بتغيير Raw Source؛ أصلح Mapping المسموح بها ثم أدخل سببًا لإعادة المعالجة. لا يمكنك اختيار Campaign عشوائية لتجاوز قواعد السياق.
+
+إعادة المعالجة تضع PENDING وتحفظ history، والworker تفحص الأصل والإعدادات الحالية دون GET جديدة. VALIDATED تعني التحويل فقط؛ إنشاء Contact/Lead/routing ما زال غير مكتمل، وintakeReady=false/Activation الخارجية محجوبة. لا يظهر raw أوcustomer values في هذه المراجعة. Organization Submission غير المحلولة للـSuper Admin فقط؛ Manager تحتاج Campaign فرعها المحلولة ومنحة Form الحالية. إلغاء المنحة يمنع review/history/reprocess؛ استعادتها لا تعيد تفعيل binding تلقائيًا. بعد تفعيل binding الصحيحة أعد الفحص من scope مخولة؛ قد تحتاج Super Admin إذا فقدت Submission سياق الحملة. Pending بعد DB failure يعاد التقاطها، ولا تعدل DB يدويًا لاستردادها.
+
 التعليمات هنا لتشغيل **الأجزاء المنفذة حالياً** ومراجعتها. المنصة ليست مكتملة أو جاهزة للإنتاج؛ راجع `codex-progress.md` و`requirement-coverage.md` قبل أي نشر. تحققت migrations واختبارات API على PostgreSQL 18 المحلي عبر Docker Desktop.
 
 ## المتطلبات

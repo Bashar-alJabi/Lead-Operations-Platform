@@ -1,5 +1,6 @@
 import { useEffect,useRef,useState } from 'react';
 import { SourceFieldMapping } from './SourceFieldMapping';
+import { SourceSubmissions } from './SourceSubmissions';
 type Api=<T>(path:string,options?:RequestInit)=>Promise<T>;
 type Locale='ar'|'fr'|'en';
 type Connection={ id:string;name:string;branch_id:string|null;status:string;version:number };
@@ -109,5 +110,6 @@ export function CampaignSources({ campaignId,locale,api }: { campaignId:string;l
       <p>Campaign: {h.snapshot.externalCampaignId ?? '—'} · Ad Set: {h.snapshot.externalAdSetId ?? '—'} · Ad: {h.snapshot.externalAdId ?? '—'}</p></li>)}</ul>
       {before && <button disabled={busy} onClick={()=>void run(()=>loadHistory(historyId,before))}>{t.more}</button>}</section>}
     {mappingId && <SourceFieldMapping key={mappingId} campaignId={campaignId} bindingId={mappingId} locale={locale} api={api} onChanged={load}/>}
+    <SourceSubmissions key={campaignId} campaignId={campaignId} locale={locale} api={api}/>
   </section>;
 }

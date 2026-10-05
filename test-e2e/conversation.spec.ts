@@ -659,11 +659,37 @@ test('source Webhook and retrieval preserve signed replays, source submissions a
     await webhook.getByRole('button',{ name:'Refresh Webhook status',exact:true }).click();await expect(notification).toContainText('SUCCEEDED');await expect(webhook).toContainText('Source data retrieved: 1');
     await notification.getByRole('button',{ name:'Source retrieval attempts',exact:true }).click();await expect(notification).toContainText('#2');await expect(notification.getByRole('button',{ name:'Retry source retrieval',exact:true })).toHaveCount(0);
     const replay=await control(page,{ sourceNotification:connectionId,retrieveSource:true });expect(replay.sourceRetrievalCalls).toBe(2);expect(replay.sourceSubmissions).toBe(1);
+    const review=setup.locator('.source-submissions');await review.getByRole('button',{ name:'Refresh source submissions',exact:true }).click();
+    const submission=review.locator('[data-submission-id]');await expect(submission).toHaveCount(1);await expect(submission).toContainText('PENDING');
+    await control(page,{ evaluateSource:true });await review.getByRole('button',{ name:'Refresh source submissions',exact:true }).click();
+    await expect(submission).toContainText('SOURCE_FORM_NOT_FOUND');await expect(submission.getByRole('button',{ name:'Reprocess source submission',exact:true })).toBeDisabled();
+    await setup.getByRole('button',{ name:'Discover Forms',exact:true }).click();
+    await expect(setup.getByLabel('Select Form',{ exact:true }).locator('option')).toHaveCount(2);
+    const resources=await page.request.get(`/api/sources/meta/connections/${connectionId}/resources?kind=FORM`);const form=(await resources.json()).items[0];
+    const campaign=(await (await page.request.get('/api/campaigns/'+fixture.sourceCampaignId)).json());
+    const branchId=campaign.campaign.branch_id;
+    const headers={ origin:'http://127.0.0.1:4100' };
+    const grant=await page.request.put(`/api/sources/meta/connections/${connectionId}/resources/${form.id}/access/${branchId}`,{ headers,data:{ version:0,active:true,reason:'Browser approve runtime source' } });expect(grant.ok()).toBeTruthy();
+    const bound=await page.request.post(`/api/sources/campaigns/${fixture.sourceCampaignId}/bindings`,{ headers,data:{ connectionId,formId:form.id,requestId:crypto.randomUUID(),
+      connectionVersion:1,externalCampaignId:'555',externalAdSetId:null,externalAdId:null,active:true,reason:'Browser deterministic source' } });expect(bound.ok()).toBeTruthy();
+    const runtimeBinding=(await bound.json()).id;const runtimeMapping=`/api/sources/campaigns/${fixture.sourceCampaignId}/bindings/${runtimeBinding}/mapping`;
+    const targets=await (await page.request.get(runtimeMapping+'/targets')).json();const score=targets.items.find((f:{ key:string })=>f.key==='interest');expect(score).toBeTruthy();
+    const mapped=await page.request.put(runtimeMapping,{ headers,data:{ version:0,bindingVersion:1,connectionVersion:1,resourceVersion:form.version,status:'PUBLISHED',reason:'Browser approve source values',entries:[
+      { sourceKey:'full_name',kind:'CONTACT_NAME',transform:'TEXT',optionMap:[] },{ sourceKey:'phone',kind:'CONTACT_PHONE',transform:'TEXT',optionMap:[] },
+      { sourceKey:'interest',kind:'LEAD_FIELD',fieldId:score.id,transform:'NUMBER',optionMap:[] }] } });expect(mapped.ok()).toBeTruthy();
+    await submission.getByLabel('Source reprocess reason',{ exact:true }).fill('Browser catalog and mapping repaired');
+    await submission.getByRole('button',{ name:'Reprocess source submission',exact:true }).click();await expect(submission).toContainText('PENDING');
+    await control(page,{ evaluateSource:true });await review.getByRole('button',{ name:'Refresh source submissions',exact:true }).click();
+    await expect(submission).toContainText('VALIDATED');await expect(submission).toContainText('Mapped fields: 1');await expect(submission).toContainText('Mapped Contact fields: 2');
+    await submission.getByRole('button',{ name:'Source processing history',exact:true }).click();await expect(review).toContainText('Browser catalog and mapping repaired');
+    await expect(review).toContainText('SOURCE_FORM_NOT_FOUND');await expect(review).not.toContainText('15550008888');await expect(review.locator('img')).toHaveCount(0);
     const manager=await browser.newContext({ storageState:managerStorageState });try { expect((await manager.request.get(`/api/sources/meta/connections/${connectionId}/webhook`)).status()).toBe(404); } finally { await manager.close(); }
     const agent=await browser.newContext({ storageState:agentStorageState });try { expect((await agent.request.get(`/api/sources/meta/connections/${connectionId}/webhook-events`)).status()).toBe(403); } finally { await agent.close(); }
     await page.setViewportSize({ width:390,height:844 });await page.getByRole('combobox',{ name:'Language' }).selectOption('ar');await expect(page.locator('html')).toHaveAttribute('dir','rtl');
     await webhook.getByRole('heading',{ name:'Webhook المصدر واشتراك Page',exact:true }).scrollIntoViewIfNeeded();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
     await page.screenshot({ path:'.local/e2e/source-webhook-ar.png' });expect(errors).toEqual([]);
     await notification.scrollIntoViewIfNeeded();await page.screenshot({ path:'.local/e2e/source-retrieval-ar.png' });expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
+    await review.evaluate((element)=>element.scrollIntoView({ block:'start' }));await page.screenshot({ path:'.local/e2e/source-evaluation-ar.png' });
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);expect(errors).toEqual([]);
   } finally { await context.close(); }
 });

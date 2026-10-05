@@ -1,6 +1,7 @@
 import { useEffect,useRef,useState } from 'react';
 import { SourceResourceAccess } from './SourceResourceAccess';
 import { MetaSourceWebhook } from './MetaSourceWebhook';
+import { SourceSubmissions } from './SourceSubmissions';
 type Locale='ar'|'fr'|'en';type Api=<T>(path:string,options?:RequestInit)=>Promise<T>;
 type Connection={ id:string;name:string;branch_id:string|null;status:string;version:number;config:{ graphVersion:string;appId?:string };
   last_success_at:string|null;last_failure_at:string|null;last_error_code:string|null };
@@ -95,6 +96,7 @@ export function MetaSourceSetup({ locale,role,branches,api }: { locale:Locale;ro
       {pageAfter && <button disabled={busy} onClick={()=>void run(()=>resources(selected.id,'PAGE',undefined,pageAfter))}>{t.more}</button>}
       <button disabled={busy || !page?.active || page.connection_version!==selected.version || selected.status==='DISABLED'} onClick={()=>void run(()=>discover(pageId))}>{t.discoverForms}</button>
       <MetaSourceWebhook key={`${selected.id}:${selected.version}:${pageId}:${page?.version ?? 0}`} locale={locale} connection={selected} page={page} api={api} changed={()=>load()}/>
+      <SourceSubmissions key={selected.id} connectionId={selected.id} locale={locale} api={api}/>
       <h4>{t.forms}</h4>{!forms.length && <p>{t.empty}</p>}<label>{t.pickForm}<select aria-label={t.pickForm} value={formId} onChange={(event)=>setFormId(event.target.value)}><option value="">—</option>
         {forms.map((item)=><option key={item.id} value={item.id}>{item.name} · {item.external_id} · {item.provider_status ?? '—'} · {item.active && item.connection_version===selected.version ? t.active : t.inactive}</option>)}</select></label>
       {formAfter && <button disabled={busy} onClick={()=>void run(()=>resources(selected.id,'FORM',pageId,formAfter))}>{t.more}</button>}

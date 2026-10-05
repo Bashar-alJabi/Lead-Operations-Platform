@@ -15,13 +15,20 @@ export function mappingTargetHash(target:MappingTarget):string {
   return createHash('sha256').update(JSON.stringify([target.id,target.field_type,target.value_mode,target.options,target.validation,target.version,target.binding_version,target.required_stage])).digest('hex');
 }
 export async function mappingTargets(db:Database,actor:Principal,campaignId:string,ids:string[],lock=false):Promise<MappingTarget[]> {
+  return loadMappingTargets(db,actor.organizationId,campaignId,ids,actor.role==='MANAGER',lock);
+}
+// Runtime executes an approved publication within its Campaign, independently of the reviewing user's field visibility.
+export async function sourceRuntimeTargets(db:Database,organizationId:string,campaignId:string,ids:string[],lock=false):Promise<MappingTarget[]> {
+  return loadMappingTargets(db,organizationId,campaignId,ids,false,lock);
+}
+async function loadMappingTargets(db:Database,organizationId:string,campaignId:string,ids:string[],manager:boolean,lock:boolean):Promise<MappingTarget[]> {
   if (!ids.length) return [];
   const select=db`SELECT fd.id,fd.key,fd.label,fd.field_type,fd.value_mode,fd.options,fd.validation,fd.version,cf.version AS binding_version,cf.required_stage
     FROM field_definition fd JOIN campaign_field cf ON cf.field_id=fd.id JOIN campaign c ON c.id=cf.campaign_id
-    WHERE cf.campaign_id=${campaignId} AND fd.id IN ${db(ids)} AND cf.active AND fd.active AND fd.organization_id=${actor.organizationId}
+    WHERE cf.campaign_id=${campaignId} AND fd.id IN ${db(ids)} AND cf.active AND fd.active AND fd.organization_id=${organizationId}
       AND (fd.branch_id IS NULL OR fd.branch_id=c.branch_id) AND (fd.campaign_id IS NULL OR fd.campaign_id=c.id)
       AND fd.value_mode IN ('SOURCE','MANUAL') AND fd.field_type<>'CALCULATED'
-      AND (${actor.role==='SUPER_ADMIN'} OR (cf.visible_to_manager AND (fd.value_mode='SOURCE' OR cf.editable_by_manager)))`;
+      AND (${!manager} OR (cf.visible_to_manager AND (fd.value_mode='SOURCE' OR cf.editable_by_manager)))`;
   // Lock definitions as well as field bindings to prevent publishing after a concurrent definition change.
   const rows=lock ? await db`${select} ORDER BY fd.id FOR SHARE OF fd,cf` : await select;
   return rows as unknown as MappingTarget[];

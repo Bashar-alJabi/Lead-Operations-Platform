@@ -15,6 +15,7 @@ import type { ProviderTemplate } from '../src/messaging/templates-provider.js';
 import { renderTemplateUrl } from '../src/messaging/approved-template.js';
 import { processOneInboundEvent } from '../src/messaging/inbound-events.js';
 import { processOneTemplateSample } from '../src/media/template-sample-worker.js';
+import { processOneSourceEvaluation } from '../src/sources/evaluation.js';
 import { MediaError } from '../src/media/validation.js';
 import { SourceProviderError } from '../src/sources/meta-provider.js';
 import { processOneSourceRetrieval } from '../src/sources/retrieval-worker.js';
@@ -147,7 +148,7 @@ app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:bool
     processSample:{ type:'boolean' },rejectSample:{ type:'boolean' },
     sourceFailure:{ type:'boolean' },
     sourceSubscriptionFailure:{ type:'boolean' },sourceNotification:{ type:'string',format:'uuid' },
-    retrieveSource:{ type:'boolean' },sourceRetrievalFailure:{ type:'boolean' },
+    retrieveSource:{ type:'boolean' },sourceRetrievalFailure:{ type:'boolean' },evaluateSource:{ type:'boolean' },
     replyTo:{ type:'string',format:'uuid' },replyIndex:{ type:'integer',minimum:0,maximum:2 },
   } } } },async (request)=> {
     const header = request.headers.authorization;
@@ -167,6 +168,7 @@ app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:bool
       return { id:input.leadId,form_id:input.formId,created_time:'2023-11-14T22:13:19+0000',ad_id:'500001',adset_id:'400001',campaign_id:'555',
         field_data:[{ name:'full_name',values:['<img src=x onerror=alert(1)> Browser source customer'] },{ name:'phone',values:['+15550008888'] },{ name:'interest',values:['12.5'] }] };
     } });
+    if ((request.body as { evaluateSource?:boolean }).evaluateSource) await processOneSourceEvaluation(db);
     if (request.body.approveTemplates) for (const template of templates) template.status='APPROVED';
     if (typeof request.body.dnc === 'boolean')
       await db`UPDATE messaging_consent SET do_not_contact=${request.body.dnc} WHERE contact_id=${contact}`;
