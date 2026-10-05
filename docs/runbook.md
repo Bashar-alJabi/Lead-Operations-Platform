@@ -1,5 +1,15 @@
 # دليل التشغيل والتطوير
 
+## تشغيل Historical Meta sync
+
+من **مصادر Meta** اختر Connection ثم Page وForm من Catalog الحالية. Super Admin تدير Organization source، وManager مصدر فرعها؛ منح Form مشتركة للحملة لا يجيز قراءة سجلها الكامل. أدخل البداية والنهاية بصيغة UTC (تشمل البداية وتستثني النهاية)، ثم «إنشاء معاينة تاريخية». انتظر Preview Ready واستخدم «تحديث المزامنات التاريخية» لرؤية الصفحات والسجلات المقروءة والمطابقة والمعروفة. المعاينة لا تنشئ Lead ولا تعرض بيانات العميل. النتائج تقتصر على السجل المتاح لدى Meta؛ العدد النهائي غير معروف حتى اكتمال المعاينة.
+
+اكتب سببًا ثم «تأكيد الاستيراد التاريخي» بعد مراجعة النطاق والملخص. خدمة worker:sources تشغل preview/import/evaluation/intake بمواعيد مستقلة. Imported تعني Source Submission محفوظة؛ راقب عدد Leads المنشأة والحالات التي تحتاج مراجعة، ثم افتح «مراجعة المصدر» للحالات غير المحسومة. تبقى Campaign ACTIVE وMapping الحالية وrequired fields ومطابقة Contact قواعد نافذة. لا ترسل هذه المهمة رسائل للعميل. DUPLICATE_SUBMISSION تحفظ الأصل؛ DUPLICATE_RECEIPT تنتظر retrieval الواردة؛ CONTEXT_CONFLICT تحفظ تعارض الهوية دون استبدال الأصل، ويجب مراجعة Connection والمصدر الصحيحين.
+
+Timeout و429 تؤديان إلى backoff ومحاولات محدودة، مع رمز فشل آمن. «إعادة محاولة» تتطلب reason/version وتستأنف Failed/Blocked ضمن الإصدارات والصلاحيات الأصلية. إذا تغيرت resources/config، أكمل reconnect/discovery ثم ألغِ المهمة القديمة وأنشئ معاينة جديدة. إذا تعطّل حساب requester، أنشئ معاينة بالحساب المصرح حاليًا. Cancel توقف العمل القادم وتُسقط نتائج Provider المتأخرة؛ تبقى الدفعات المحفوظة والسجلات التي لم تستورد محفوظة للمراجعة. SUCCEEDED تعني اكتمال حفظ الاستيراد، وليس ضمان إنشاء كل Lead.
+
+حدود Infrastructure: SOURCE_HISTORICAL_MAX_PAGES=10000 افتراضيًا (1..100000)، وSOURCE_RETRIEVAL_MAX_FAILURES=5 وlease=30s وbackoff=30..1800s؛ حتى20 item لكل import transaction، و100 record/512KiB/8s لكل Provider page. PAGE_LIMIT تحفظ cursor/items وتعرض الفشل؛ راجع قياسات السعة وحد runtime قبل retry. لا تعدّل DB أوcursor يدويًا. expired lease تحفظ Attempt SUPERSEDED وتعيد حجز الصفحة بأمان. المحاولات والنتائج مرئية من UI، وlogs الآمنة تستخدم component source-historical-worker/source-historical-import. تشمل استراتيجية backup قاعدة البيانات والمعاينات وSource PII. تحقق Live Meta وretention وApp Review ما زال يتطلب إعدادًا خارجيًا مقصودًا.
+
 ## جاهزية Source Campaign وتفعيلها
 
 من Campaigns افتح الحملة ثم راجع «الجاهزية». لكل active binding: Connection/موارد متاحة ومنحة Form الحالية، Mapping PUBLISHED صالحة تشمل required LEAD_CREATION، App ID وcredentials محفوظة، Verify and Save للـCallback واشتراك Page مثبت للإصدارات الحالية. Manager تعمل ضمن فرعها والموارد المخولة؛ Organization connection setup أوPage subscription تحتاج Super Admin. لا تحتاج name/phone/email ثابتة إن لم تحددها Mapping أوالقواعد. عطّل binding غير المقصودة صراحة مع reason/version؛ لا يتجاهل الفحص binding مفعلة ناقصة لأن ربطاً آخر صالح.

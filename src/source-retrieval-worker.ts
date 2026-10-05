@@ -3,6 +3,7 @@ import { createDatabase } from './db.js';
 import { processOneSourceRetrieval,sourceWorkerOptions } from './sources/retrieval-worker.js';
 import { processOneSourceEvaluation } from './sources/evaluation.js';
 import { processOneSourceIntake } from './sources/intake.js';
+import { processOneHistoricalPreview,processOneHistoricalImport } from './sources/historical.js';
 const db=createDatabase();const options=sourceWorkerOptions();let running=false;let evaluating=false;let intaking=false;let stopping=false;
 async function tick() {
   if (running || stopping) return;running=true;
@@ -29,6 +30,23 @@ void tick();void evaluationTick();void intakeTick();
 const timer=setInterval(()=> { void tick(); },options.pollMs);
 const evaluationTimer=setInterval(()=> { void evaluationTick(); },options.pollMs);
 const intakeTimer=setInterval(()=> { void intakeTick(); },options.pollMs);
+let previewing=false;let importing=false;
+async function historyTick() {
+  if (previewing || stopping) return;previewing=true;
+  try { await processOneHistoricalPreview(db); }
+  catch { process.stderr.write(JSON.stringify({ level:'error',component:'source-historical-worker',code:'SOURCE_HISTORICAL_CYCLE_FAILED',at:new Date().toISOString() })+'\n'); }
+  finally { previewing=false; }
+}
+async function historyImportTick() {
+  if (importing || stopping) return;importing=true;
+  try { for (let i=0;i<options.batchSize && !stopping;i++) if (!await processOneHistoricalImport(db)) break; }
+  catch { process.stderr.write(JSON.stringify({ level:'error',component:'source-historical-import',code:'SOURCE_HISTORICAL_IMPORT_CYCLE_FAILED',at:new Date().toISOString() })+'\n'); }
+  finally { importing=false; }
+}
+void historyTick();void historyImportTick();
+const historyTimer=setInterval(()=> { void historyTick(); },options.pollMs);
+const historyImportTimer=setInterval(()=> { void historyImportTick(); },options.pollMs);
 for (const signal of ['SIGINT','SIGTERM'] as const) process.once(signal,async()=> {
-  stopping=true;clearInterval(timer);clearInterval(evaluationTimer);clearInterval(intakeTimer);while (running || evaluating || intaking) await delay(50);await db.end();
+  stopping=true;clearInterval(timer);clearInterval(evaluationTimer);clearInterval(intakeTimer);clearInterval(historyTimer);clearInterval(historyImportTimer);
+  while (running || evaluating || intaking || previewing || importing) await delay(50);await db.end();
 });

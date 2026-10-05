@@ -19,6 +19,7 @@ export async function processOneSourceRetrieval(db:Database,adapter:LeadSourceRe
       WHERE c.kind='META' AND c.provider='META_LEAD_ADS' AND EXISTS (SELECT 1 FROM source_retrieval_job j WHERE j.connection_id=c.id
         AND ((j.state='PENDING' AND j.available_at<=now()) OR (j.state='RUNNING' AND j.lease_until<=now())))
       AND NOT EXISTS (SELECT 1 FROM source_retrieval_job j WHERE j.connection_id=c.id AND j.state='RUNNING' AND j.lease_until>now())
+      AND NOT EXISTS (SELECT 1 FROM source_historical_job j WHERE j.connection_id=c.id AND j.state='RUNNING' AND j.lease_until>now())
       ORDER BY CASE WHEN c.status IN ('DISABLED','AUTH_EXPIRED') THEN 1 ELSE 0 END,
         (SELECT min(j.available_at) FROM source_retrieval_job j WHERE j.connection_id=c.id AND j.state IN ('PENDING','RUNNING')),c.id
       FOR UPDATE OF c SKIP LOCKED LIMIT 1`)[0];

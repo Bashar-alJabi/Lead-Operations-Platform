@@ -8,3 +8,4 @@ textarea{font:inherit;border:1px solid #bdcfc5;border-radius:8px;padding:.7rem;m
 .lead-search-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:.8rem;align-items:end}.lead-search-form button{align-self:end}
 .lead-column-options{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:.5rem 1rem;border:1px solid #dce9df;border-radius:8px}.lead-column-options label{display:flex;align-items:center;gap:.4rem}.lead-column-options input{width:auto}
 .workflow-form fieldset{min-width:0;border:1px solid #dce9df;border-radius:8px;display:grid;gap:.6rem;padding:.8rem}
+.source-historical dl>div{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:.8rem;padding:.4rem 0;border-bottom:1px solid #edf2ef}.source-historical dd{margin:0;font-weight:700}.source-historical bdi{overflow-wrap:anywhere}
