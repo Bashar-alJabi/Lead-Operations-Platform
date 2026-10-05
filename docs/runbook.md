@@ -1,5 +1,17 @@
 # دليل التشغيل والتطوير
 
+## إعداد Payment Webhook ومراجعة الاستلام
+
+بعد migrations001–062، من **إعداد الدفع** اختر Connection المسموحة ثم **Webhooks الدفع**. Manager تدير فرعها، Super Admin المؤسسة والفروع، Agent ممنوعة. أدخل سببًا ثم **تجهيز callback للدفع** وانسخ العنوان نفسه. في [Stripe Developers Dashboard](https://docs.stripe.com/development/dashboard/webhooks): Webhooks → Create an event destination → Account، بيئة Sandbox/LIVE المطابقة، ثم العنوان والأحداث الأربعة المعروضة → Add endpoint. هذه profile تستعمل v1 we_ ولا تقبل v2 ed_ أوConnect/thin. إذا كانت الواجهة Workbench اختر Developers Dashboard من Developers preferences لدى Stripe، كما توثق صفحة المزود؛ لا CLI أوتعديل server. انسخ we_ Endpoint ID وwhsec_ Signing Secret إلى الشاشة ثم احفظ. لا حسابًا شخصيًا أوProduction key في التطوير، ولا source/env/DB edits تشغيلية. APP_ORIGIN العام وHTTPS متطلبات deployment؛ HTTP المحلي لا يستقبل Stripe العامة.
+
+Restricted key تحتاج Webhook Endpoints read لاختبار الوجهة، مع صلاحيات Authentication/options حسب الفحص. **اختبار Endpoint الدفع** يتحقق من ID/URL/mode/enabled/events لدى حساب المفتاح، ولا يثبت Secret. أرسل Test event من Workbench ثم **تحديث Webhooks الدفع** لإثبات وصول موقّع بصورة مستقلة. السر مشفّر ولا يعرض ثانية. endpointVerified وsignedDeliveryVerified منفصلان، والمعالجة المالية غير جاهزة هنا. RECEIVED_NOT_PROCESSED ليست Paid ولا تنشئ Enrollment، ولا Customer claim أوsuccess page تؤكد الدفع.
+
+AUTH_FAILED: راجع المفتاح وصلاحيات read؛ MODE_MISMATCH: طابق البيئة؛ ENDPOINT_MISMATCH: راجع ID وURL الدقيقة؛ EVENTS_MISSING: حدّث أحداث الوجهة؛ ENDPOINT_DISABLED: فعّلها لدى المزود ثم اختبر. RATE_LIMITED/UNAVAILABLE قابلة لفحص جديد بعد التعافي. FAILED لا تمحو history؛ SUPERSEDED/BLOCKED/INTERRUPTED لا تعني نجاحًا. حدّث الإعداد والجلسة والصلاحية ثم اختبر من UI دون تعديل DB.
+
+Receiver ترفض signature/payload/mode/Connect scope الفاسدة دون حفظها. Retry موقّعة حديثًا لنفس الهوية والمحتوى لا تكرر Event؛ content conflict409 يحتاج تحقيقًا لدى المزود ولا يعالج بمحو الأصل. Provider timestamp القديمة لا تمنع signature حديثة. Body64KiB وrate300/min/IP؛ overload429/DB500 تبقي retry للمزود، ولا2xx قبل الحفظ الذري. UI تعرض ID/type/mode/timestamps فقط، دون raw customer/amount أوfinancial status claim. Processor المالية تأتي مع Links التالية، دون worker وهمية أوأوامر DB يدوية.
+
+لتدوير Secret جهّز Endpoint جديدة وافحصها واحتفظ بالقديمة للمدفوعات المعلقة. Connection/Branch disable يحجب عملًا جديدًا ويبقي callbacks الأصلية؛ receipt قديمة لا تعيد current readiness. **تعطيل Webhook الدفع** نهائي يوقف هذه Endpoint ولا يمحو history؛ نفذه بعد reconciliation وعطّل وجهة Workbench أيضًا. Events immutable ومشفّرة؛ backups تحتاج مفتاح encryption مستقلًا وآمنًا. كل التحقق mocks/PostgreSQL/Local Browser؛ Live Stripe Pending External Setup. لا ترفع أسرارًا أوfixture أوlogs/صور .local.
+
 ## فحص خيارات مزود الدفع
 
 اختر Connection من **إعداد الدفع** ثم **فحص خيارات الدفع**. يلزم server key الموافق TEST/LIVE بصلاحية قراءة Balance وAccount وCountry Specs؛ اقرأ [API keys](https://docs.stripe.com/keys) و[Account API](https://docs.stripe.com/api/accounts/retrieve). الفحص read-only؛ لا ينشئ Checkout أوWebhook ولا يؤكد Payment. تعرض الواجهة بلد الحساب/default currency/country currencies-methods وcharges/card status ووقت الفحص. Country options ليست ضمانًا لتفعيل كل rail للحساب أوصلاحية Checkout write؛ WARNING/PAYMENT_FLOW_NOT_READY باقية حتى اكتمال financial flow.

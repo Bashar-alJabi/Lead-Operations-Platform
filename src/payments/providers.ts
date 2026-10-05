@@ -5,13 +5,17 @@ export type PaymentConfig={ mode:'TEST'|'LIVE' };
 export type PaymentCredentials={ apiKey:string };
 export type PaymentProviderOptions={ accountRef:string;country:string;defaultCurrency:string;currencies:string[];paymentMethods:string[];
   chargesEnabled:boolean;cardPayments:'ACTIVE'|'INACTIVE'|'PENDING'|'UNKNOWN' };
+export type PaymentWebhookInspection={ mode:'TEST'|'LIVE';endpointId:string;url:string;enabled:boolean;enabledEvents:string[] };
+export const stripePaymentEvents=['checkout.session.completed','checkout.session.async_payment_succeeded','checkout.session.async_payment_failed','checkout.session.expired'] as const;
 export type PaymentConnectionAdapter={
   verify(config:PaymentConfig,credentials:PaymentCredentials):Promise<{ mode:'TEST'|'LIVE' }>;
   inspect?(config:PaymentConfig,credentials:PaymentCredentials):Promise<{ mode:'TEST'|'LIVE';options:PaymentProviderOptions }>;
+  inspectWebhook?(config:PaymentConfig,credentials:PaymentCredentials,endpointId:string):Promise<PaymentWebhookInspection>;
 };
 export class PaymentProviderError extends Error {
   constructor(public code:'PAYMENT_PROVIDER_AUTH_FAILED'|'PAYMENT_PROVIDER_RATE_LIMITED'|'PAYMENT_PROVIDER_UNAVAILABLE'
-    |'PAYMENT_PROVIDER_RESPONSE_INVALID'|'PAYMENT_MODE_MISMATCH'|'PAYMENT_PROVIDER_OPTIONS_UNSUPPORTED') { super(code); }
+    |'PAYMENT_PROVIDER_RESPONSE_INVALID'|'PAYMENT_MODE_MISMATCH'|'PAYMENT_PROVIDER_OPTIONS_UNSUPPORTED'|'PAYMENT_WEBHOOK_UNSUPPORTED'
+    |'PAYMENT_WEBHOOK_ENDPOINT_MISMATCH'|'PAYMENT_WEBHOOK_EVENTS_MISSING'|'PAYMENT_WEBHOOK_ENDPOINT_DISABLED') { super(code); }
 }
 export function validatePaymentCredentials(config:PaymentConfig,credentials:PaymentCredentials):void {
   const mode=config.mode==='TEST' ? 'test' : config.mode==='LIVE' ? 'live' : null;
@@ -67,6 +71,16 @@ export const stripeConnectionAdapter:PaymentConnectionAdapter={ async verify(con
   return { ...verified,options:normalizePaymentProviderOptions({ accountRef:account.id,country:account.country,defaultCurrency:account.default_currency.toUpperCase(),
     currencies:spec.supported_payment_currencies.map((code:string)=>code.toUpperCase()),paymentMethods:spec.supported_payment_methods,
     chargesEnabled:account.charges_enabled,cardPayments:typeof card==='string' ? card.toUpperCase() : 'UNKNOWN' }) };
+},async inspectWebhook(config,credentials,endpointId) {
+  validatePaymentCredentials(config,credentials);
+  if(!/^we_[A-Za-z0-9]{6,100}$/.test(endpointId))throw new PaymentProviderError('PAYMENT_PROVIDER_RESPONSE_INVALID');
+  const data=await stripeRead('/v1/webhook_endpoints/'+endpointId,credentials) as Record<string,unknown>|null;
+  if(!data || Array.isArray(data) || data.object!=='webhook_endpoint' || data.id!==endpointId || typeof data.livemode!=='boolean'
+    || typeof data.url!=='string' || data.url.length>2048 || !['enabled','disabled'].includes(data.status as string)
+    || !Array.isArray(data.enabled_events) || data.enabled_events.length<1 || data.enabled_events.length>256
+    || data.enabled_events.some((e)=>typeof e!=='string' || !/^(\*|[a-z][a-z0-9_.]{1,127})$/.test(e)))throw new PaymentProviderError('PAYMENT_PROVIDER_RESPONSE_INVALID');
+  const mode=data.livemode ? 'LIVE' : 'TEST';if(mode!==config.mode)throw new PaymentProviderError('PAYMENT_MODE_MISMATCH');
+  return { mode,endpointId,url:data.url,enabled:data.status==='enabled',enabledEvents:[...new Set(data.enabled_events as string[])].sort() };
 } };
 
 export type PaymentAdapterRegistry=Readonly<Record<string,PaymentConnectionAdapter>>;

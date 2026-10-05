@@ -1,6 +1,7 @@
 import { test, expect, type Page,type BrowserContext } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { createHmac } from 'node:crypto';
 type Fixture = { password:string;testToken:string;leadId:string;conversationId:string;untrusted:string;mediaLeadId:string;mediaConversationId:string;sourceCampaignId:string;noContactLeadId:string };
 let fixture:Fixture;
 let agentStorageState:Awaited<ReturnType<BrowserContext['storageState']>>|undefined;
@@ -838,7 +839,7 @@ test('Payment setup encrypts and rotates test keys, verifies authentication only
     const connections=(await (await page.request.get('/api/payments/connections')).json()).items;const id=connections.find((item:{ name:string })=>item.name===name).id;
     expect(JSON.stringify(connections)).not.toContain(key);
     await panel.getByRole('button',{ name:'Test authentication',exact:true }).click();await expect(row).toContainText('PAYMENT_FLOW_NOT_READY');
-    await expect(panel).toContainText('VERIFIED');await expect(panel).toContainText('Payment links, webhook and Enrollment are not ready');
+    await expect(panel).toContainText('VERIFIED');await expect(panel).toContainText('payment links, financial processing and Enrollment are not ready yet');
     await control(page,{ paymentFailure:true });await panel.getByRole('button',{ name:'Test authentication',exact:true }).click();
     await expect(panel.getByRole('alert')).toContainText('PAYMENT_PROVIDER_AUTH_FAILED');await expect(row).toContainText('AUTH_EXPIRED');await expect(panel).toContainText('FAILED');
     await panel.getByLabel('Payment connection change reason',{ exact:true }).fill('Browser verifies replacement before use');
@@ -945,4 +946,51 @@ test('Payment provider options show safe country capabilities, fence credential 
     await options.getByRole('heading',{ name:'خيارات الدفع لدى المزود',exact:true }).scrollIntoViewIfNeeded();
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);await page.screenshot({ path:'.local/e2e/payment-provider-options-ar.png' });expect(errors).toEqual([]);
   } finally { await control(page,{ paymentFailure:false });await context.close(); }
+});
+
+test('Payment webhook UI prepares an immutable callback, verifies provider configuration and signed delivery separately and retains scoped safe failure/event history',async({ browser })=> {
+  const context=await browser.newContext({ storageState:managerStorageState });const page=await context.newPage();const errors:string[]=[];page.on('pageerror',(e)=>errors.push(e.message));
+  const secret='whsec_'+'BrowserSigningSyntheticOnly'.repeat(3);
+  try {
+    await page.goto('/');await page.getByRole('combobox',{ name:'Language' }).selectOption('en');await page.getByRole('button',{ name:'Payment setup',exact:true }).click();
+    const setup=page.locator('.payment-setup');await setup.getByRole('button',{ name:'New payment connection',exact:true }).click();
+    await setup.getByLabel('Payment connection name',{ exact:true }).fill('Browser signed payment <img src=x>');
+    await setup.getByLabel('Payment API key',{ exact:true }).fill('rk_test_'+'BrowserWebhookSyntheticOnly'.repeat(3));
+    await setup.getByRole('button',{ name:'Save payment connection',exact:true }).click();
+    await expect(setup.getByLabel('Payment API key',{ exact:true })).toHaveValue('');
+    const row=setup.getByRole('row').filter({ hasText:'Browser signed payment <img src=x>' });await expect(row).toContainText('NOT_CONFIGURED');
+    const panel=page.locator('.payment-webhooks');await panel.getByLabel('Webhook change reason',{ exact:true }).fill('Browser registers exact snapshot destination');
+    await panel.getByRole('button',{ name:'Prepare payment callback',exact:true }).click();
+    await expect(panel.getByLabel('Payment callback URL',{ exact:true })).toBeVisible();
+    const url=await panel.getByLabel('Payment callback URL',{ exact:true }).inputValue();expect(url).toContain('/api/webhooks/payments/stripe/');
+    await expect(panel).toContainText('This local HTTP URL cannot receive public Stripe deliveries');
+    await panel.getByLabel('Stripe endpoint ID',{ exact:true }).fill('we_BrowserSynthetic123');await panel.getByLabel('Payment signing secret',{ exact:true }).fill(secret);
+    await expect(panel.getByLabel('Payment signing secret',{ exact:true })).toHaveAttribute('type','password');
+    await panel.getByRole('button',{ name:'Save webhook credentials',exact:true }).click();await expect(panel.getByLabel('Payment signing secret',{ exact:true })).toHaveCount(0);
+    await panel.getByRole('button',{ name:'Test payment endpoint',exact:true }).click();
+    await expect(panel.getByText('Provider endpoint verified',{ exact:true }).locator('..')).toContainText('Yes');
+    await expect(panel.getByText('Signed delivery verified',{ exact:true }).locator('..')).toContainText('No');
+    const connection=(await (await page.request.get('/api/payments/connections')).json()).items.find((item:{ name:string })=>item.name==='Browser signed payment <img src=x>');
+    const id=new URL(url).pathname.split('/').at(-1)!;const root='/api/payments/connections/'+connection.id;const w=await page.request.get(root+'/webhooks/'+id);expect((await w.text()).includes(secret)).toBe(false);
+    const payload=JSON.stringify({ id:'evt_BrowserSynthetic123',object:'event',type:'checkout.session.completed',livemode:false,created:1234567890,
+      data:{ object:{ id:'cs_test_BrowserSynthetic123',object:'checkout.session',payment_status:'unpaid',amount_total:1250,currency:'usd',customer_email:'private-browser@example.test' } } });
+    const timestamp=Math.floor(Date.now()/1000);const signature=`t=${timestamp},v1=${createHmac('sha256',secret).update(timestamp+'.').update(payload).digest('hex')}`;
+    const send=(signed=signature)=>page.request.post(new URL(url).pathname,{ data:payload,headers:{ origin:new URL(url).origin,'content-type':'application/json','stripe-signature':signed } });
+    expect((await send('t='+timestamp+',v1='+'0'.repeat(64))).status()).toBe(403);expect((await send()).ok()).toBe(true);expect((await (await send()).json()).duplicate).toBe(true);
+    await panel.getByRole('button',{ name:'Refresh payment webhooks',exact:true }).click();await expect(panel.getByText('Signed delivery verified',{ exact:true }).locator('..')).toContainText('Yes');
+    await expect(panel.locator('.payment-webhook-events')).toContainText('evt_BrowserSynthetic123');await expect(panel.locator('.payment-webhook-events li')).toHaveCount(1);
+    await expect(panel).toContainText('RECEIVED_NOT_PROCESSED');expect(await panel.textContent()).not.toContain('private-browser');
+    const receipt=(await (await page.request.get(root+'/webhook-events')).json());expect(receipt.items).toHaveLength(1);expect(receipt.financialProcessingReady).toBe(false);
+    const agent=await browser.newContext({ storageState:agentStorageState });try { expect((await agent.request.get(root+'/webhook-events')).status()).toBe(403); }finally{ await agent.close(); }
+    await control(page,{ paymentFailure:true });await panel.getByRole('button',{ name:'Test payment endpoint',exact:true }).click();await expect(panel.getByRole('alert')).toContainText('PAYMENT_PROVIDER_AUTH_FAILED');
+    await expect(panel.getByText('Provider endpoint verified',{ exact:true }).locator('..')).toContainText('No');await expect(panel).toContainText('FAILED');
+    await control(page,{ paymentFailure:false });await panel.getByRole('button',{ name:'Test payment endpoint',exact:true }).click();await expect(panel.getByText('Provider endpoint verified',{ exact:true }).locator('..')).toContainText('Yes');
+    await page.getByRole('combobox',{ name:'Language' }).selectOption('fr');await expect(panel.getByRole('heading',{ name:'Webhooks de paiement',exact:true })).toBeVisible();
+    await page.setViewportSize({ width:390,height:844 });await page.getByRole('combobox',{ name:'Language' }).selectOption('ar');
+    await panel.getByRole('heading',{ name:'Webhooks الدفع',exact:true }).scrollIntoViewIfNeeded();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
+    await page.screenshot({ path:'.local/e2e/payment-webhook-ar.png' });expect(errors).toEqual([]);
+    await page.getByRole('combobox',{ name:'Language' }).selectOption('en');await panel.getByLabel('Webhook change reason',{ exact:true }).fill('Browser reconciled pending payments and disables endpoint');
+    await panel.getByRole('button',{ name:'Disable payment webhook',exact:true }).click();await expect(panel.locator('.payment-webhook-detail')).toContainText('DISABLED');
+    expect((await send()).status()).toBe(409);await expect(panel.locator('.payment-webhook-events')).toContainText('evt_BrowserSynthetic123');
+  }finally{ await control(page,{ paymentFailure:false });await context.close(); }
 });

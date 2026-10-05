@@ -113,7 +113,11 @@ const storage=localMediaStorage(mediaRoot);
 const app = await buildApp(db, { logger:false,globalRateLimitMax:10000,mediaStorage:storage,
   paymentConnectionAdapters:{ STRIPE:{ verify:async(config)=>{ paymentCalls++;if(paymentFailure)throw new PaymentProviderError('PAYMENT_PROVIDER_AUTH_FAILED');return { mode:config.mode }; },
     inspect:async(config)=>{ paymentCalls++;if(paymentFailure)throw new PaymentProviderError('PAYMENT_PROVIDER_UNAVAILABLE');return { mode:config.mode,options:{ accountRef:'acct_BrowserSynthetic123',country:'US',defaultCurrency:'USD',
-      currencies:['USD','EUR'],paymentMethods:['card','ach'],chargesEnabled:false,cardPayments:'PENDING' } }; } } },
+      currencies:['USD','EUR'],paymentMethods:['card','ach'],chargesEnabled:false,cardPayments:'PENDING' } }; },
+    inspectWebhook:async(config,_credentials,id)=>{ paymentCalls++;if(paymentFailure)throw new PaymentProviderError('PAYMENT_PROVIDER_AUTH_FAILED');
+      const w=(await db`SELECT callback_url FROM payment_webhook WHERE external_endpoint_id=${id} ORDER BY created_at DESC LIMIT 1`)[0];
+      if(!w)throw new PaymentProviderError('PAYMENT_PROVIDER_RESPONSE_INVALID');
+      return { mode:config.mode,endpointId:id,url:w.callback_url,enabled:true,enabledEvents:['checkout.session.completed','checkout.session.async_payment_succeeded','checkout.session.async_payment_failed','checkout.session.expired'] }; } } },
   leadSourceSubscriptionAdapter:{ check:async(input)=> {
     if (input.page.externalId!=='100001' || input.config.appId!=='700001') throw new Error('Unexpected browser source subscription');
     if (sourceSubscriptionFailure) throw new SourceProviderError('SOURCE_PROVIDER_AUTH_FAILED');

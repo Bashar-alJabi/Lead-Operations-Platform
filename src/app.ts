@@ -42,6 +42,7 @@ import { registerSourceReviewRoutes } from './routes/source-review.js';
 import { registerSourceHistoryRoutes } from './routes/source-history.js';
 import { registerPaymentConnectionRoutes } from './routes/payment-connections.js';
 import { registerPaymentMethodRoutes } from './routes/payment-methods.js';
+import { registerPaymentWebhookRoutes } from './routes/payment-webhooks.js';
 import type { PaymentAdapterRegistry } from './payments/providers.js';
 
 export async function buildApp(db: Database, options: { logger?: boolean; emailAdapter?: IdentityEmailAdapter;
@@ -125,5 +126,6 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   registerSourceHistoryRoutes(app,db);
   registerPaymentConnectionRoutes(app,db,options.paymentConnectionAdapters);
   registerPaymentMethodRoutes(app,db);
+  registerPaymentWebhookRoutes(app,db,options.paymentConnectionAdapters);
   return app;
 }
