@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { Database } from '../db.js';
 import { decodeCursor, encodeCursor } from '../pagination.js';
-import { identityLockKeys, normalizeContact } from '../contacts.js';
+import { identityLockKeys, normalizeSourceContact } from '../contacts.js';
 import { routeLead } from '../routing.js';
 import { prepareManualFieldValues, storeManualFieldValues, type ManualFieldInput } from '../field-values.js';
 import { HttpError, principalFromRequest, requireBranch, requireRole } from '../security.js';
@@ -59,13 +59,23 @@ export function registerContactRoutes(app: FastifyInstance, db: Database): void 
 
   app.patch<{ Params: { id: string }; Body: { name: string; phone?: string | null; email?: string | null; version: number } }>('/api/contacts/:id', {
     schema: { params: idParam, body: { type: 'object', additionalProperties: false, required: ['name','version'], properties: {
-      name: { type: 'string', minLength: 1, maxLength: 200 }, phone: { anyOf: [{ type: 'string', maxLength: 50 }, { type: 'null' }] },
+      name: { type: 'string', maxLength: 200 }, phone: { anyOf: [{ type: 'string', maxLength: 50 }, { type: 'null' }] },
       email: { anyOf: [{ type: 'string', maxLength: 320 }, { type: 'null' }] }, version: { type: 'integer', minimum: 1 },
     } } },
   }, async (request) => {
     const actor = await principalFromRequest(request, db);
     requireRole(actor, 'SUPER_ADMIN', 'MANAGER');
     return db.begin(async (tx) => {
+      const [initial]=await tx`SELECT * FROM contact WHERE id=${request.params.id} AND organization_id=${actor.organizationId}`;
+      if (!initial) throw new HttpError(404,'CONTACT_NOT_FOUND');
+      const normalized = normalizeSourceContact({ name: request.body.name,
+        phone: request.body.phone === undefined ? initial.phone ?? undefined : request.body.phone ?? undefined,
+        email: request.body.email === undefined ? initial.email ?? undefined : request.body.email ?? undefined });
+      if (!normalized) throw new HttpError(400,'CONTACT_DATA_REQUIRED');
+      const oldKeys=identityLockKeys(actor.organizationId,{ ...normalized,phoneNormalized:initial.phone_normalized,emailNormalized:initial.email_normalized });
+      // Match/create and edit share identity-first lock ordering; lock identities being removed as well as added.
+      for (const key of [...new Set([...oldKeys,...identityLockKeys(actor.organizationId,normalized)])].sort())
+        await tx`SELECT pg_advisory_xact_lock(hashtextextended(${key},0))`;
       const locked = await tx`SELECT id, organization_id, name, phone, phone_normalized, email, email_normalized, version
         FROM contact WHERE id = ${request.params.id} AND organization_id = ${actor.organizationId} FOR UPDATE`;
       const contact = locked[0];
@@ -78,11 +88,7 @@ export function registerContactRoutes(app: FastifyInstance, db: Database): void 
         const own = await tx`SELECT 1 FROM lead WHERE contact_id = ${contact.id} AND branch_id = ${actor.branchId} LIMIT 1`;
         if (!own.length || leadScope[0]!.other_count > 0) throw new HttpError(403, 'CONTACT_SHARED_ACROSS_BRANCHES');
       }
-      if (contact.version !== request.body.version) throw new HttpError(409, 'CONTACT_VERSION_CONFLICT');
-      const normalized = normalizeContact({ name: request.body.name,
-        phone: request.body.phone === undefined ? contact.phone ?? undefined : request.body.phone ?? undefined,
-        email: request.body.email === undefined ? contact.email ?? undefined : request.body.email ?? undefined });
-      for (const key of identityLockKeys(actor.organizationId, normalized)) await tx`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`;
+      if (contact.version !== request.body.version || contact.version !== initial.version) throw new HttpError(409, 'CONTACT_VERSION_CONFLICT');
       const conflict = await tx`SELECT 1 FROM contact WHERE organization_id = ${actor.organizationId} AND id <> ${contact.id}
         AND ((${normalized.phoneNormalized}::text IS NOT NULL AND phone_normalized = ${normalized.phoneNormalized})
           OR (${normalized.emailNormalized}::text IS NOT NULL AND email_normalized = ${normalized.emailNormalized})) LIMIT 1`;

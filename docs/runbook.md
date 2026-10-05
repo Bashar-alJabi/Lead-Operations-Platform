@@ -1,5 +1,11 @@
 # دليل التشغيل والتطوير
 
+## تشغيل Source intake ومراجعة المطابقة
+
+بعد migrations001–053 وbuild شغّل worker:sources. VALIDATED تنتظر transaction الإنشاء؛ PROCESSED تعرض Lead UUID في Source review وتاريخ التنفيذ والسبب والMapping المستعملة. ابحث عن UUID في Leads لفتح تفاصيلها حسب الصلاحية. SOURCE_CAMPAIGN_INACTIVE تحتاج تفعيل الحملة بعد جاهزية setup؛ SOURCE_CAMPAIGN_FLOW_NOT_READY تعني أن Messaging/AI المفعلة تحتاج dispatch dependencies التالية. public Source activation محجوبة حتى checkpoint readiness؛ ACTIVE في اختبارات intake domain fixture صريحة.
+
+CONTACT_AMBIGUOUS: افتح «مراجعة مطابقة Contact»، راجع incoming Contact والمرشحين المتاحين، اختر الشخص واكتب سبباً ثم اعتمد المطابقة لإنشاء Lead. بيانات العميل نص غير موثوق، ولا HTML. Manager تحتاج Super Admin عند scope restriction؛ لا تختار Contact خارج المرشحين ولا تعرض IDs/أسماء المقيدين. تغير Mapping/identities أوversion يتطلب تحديث المطابقة وإعادة مراجعتها. PROCESSED لا يمكن إعادة معالجتها أوتبديل Lead link لها. التصحيح التشغيلي من Contact/Lead fields حسب الصلاحية ويحفظ الأصل والتاريخ؛ لا تعديل DB يدوي للاسترداد.
+
 ## إعداد Source Webhook وPage subscription
 
 1. من Meta Sources أنشئ أو عدّل Connection وأدخل App ID وGraph version وcredentials الخاصة بالمؤسسة. App ID مطلوبة لـsubscription/test، وليست secret. استبدال config/credentials يبطل Catalog الحالي وverification status؛ أعد اكتشاف Pages/Forms. الأسرار لا تعاد بعد الحفظ.
@@ -7,7 +13,7 @@
 3. Subscribe Page to leadgen تنفذ subscription API ثم verification GET، وTest Page subscription تفحص الحالة فقط. existing fields لنفس التطبيق محفوظة؛ App/Page token mismatch يمنع أي mutation. فشل الصلاحيات/token يظهر بكود آمن وسجل محاولة؛ أصلح إعدادات المزود أو credentials ثم اختبر من الواجهة.
 4. Refresh Webhook status تقرأ handshake الحقيقي وvalid signed event وآخر Incoming وnotifications pending؛ لا تولد verification أو Leads وهمية. استخدم Meta Lead Ads Testing للمورد المخول لإرسال حدث اختبار. POST تحفظ الأحداث الموقعة فقط، وForm numeric الجديدة تحفظ دون تخمين، replay لا يزيد العدد أو يغير الأصل. نتيجة subscription قديمة بعد Catalog/config changes تظهر قديمة حتى إعادة الاختبار.
 5. local disable يمنع handshake/callbacks ويحفظ التاريخ؛ لا يحذف subscription لدى Meta. بعد إعادة الإعداد أعد discovery ثم subscription test. فشل محلي بعد mutation خارجية لا يعني إلغاءها لدى المزود؛ test/resubscribe يفحص الحالة قبل POST جديد. RUNNING بعد crash تنتهي بعد lease120s عند طلب جديد، ثم تسجل FAILED قبل محاولة جديدة، دون تحرير DB يدوي.
-6. retrieval worker تحفظ Source Submission الأصلية دون إنشاء Lead حتى اكتمال intake؛ intakeReady=false وCampaign activation محجوبة. نجاح verification/subscription/retrieval ليس إثباتاً لـlead delivery. DTO/history لا تعيد raw notifications أو Page/App secrets. Agent/Manager خارج النطاق لا تستطيع قراءتها؛ Organization connection setup للمسؤول الأعلى فقط. لا production credentials للاختبارات المحلية.
+6. retrieval تحفظ Submission الأصلية، ثم evaluation وintake schedules تنشئ Lead عند صلاحية الإعدادات وCampaign ACTIVE. نجاح verification/subscription/retrieval وحده ليس إثباتاً لإنشاء Lead؛ راقب PROCESSED. Activation readiness العامة للـSource ما زالت dependency تالية في checkpoint intake، وintakeReady=false لهذا setup gate. DTO/history لا تعيد raw أوPage/App secrets؛ Organization setup للمسؤول الأعلى فقط. لا production credentials للاختبارات المحلية.
 
 ## Source retrieval worker وfailure recovery
 
@@ -15,7 +21,7 @@
 
 من Source Webhook setup راجع Pending/Running/Retrieved/Failed/Blocked وآخر event، ثم Source retrieval attempts للإشعار المطلوب. FAILED تحتاج إصلاح المزود أوpayload issue، وBLOCKED قد تتطلب credential/config/catalog repair: عدّل credentials عند الحاجة، أعد discovery واختبار اشتراك Page، ثم أدخل سبب retry. Recovery ترفض نسخة قديمة وتحتفظ بالتاريخ والعدد الكلي للمحاولات؛ تفتح cycle آلية جديدة محدودة، ولا SUCCEEDED retry أوraw overwrite. تغيّر config/catalog أثناء GET يجعل النتيجة SUPERSEDED ويحتاج retry بعد إصلاح readiness؛ `AUTH_EXPIRED` تمنع الجلب إلى حين repair. expired RUNNING lease تتعافى آلياً عند tick جديدة، وليس بتعديل DB.
 
-Submission raw محفوظة مع notification +provider lead +external context وsource timestamp الأصلية، Multi-values وprovider metadata لا تتسطح. تعرض setup UUID Submission فقط دون Customer PII؛ ربط campaign/mapping وContact/Lead/Needs Attention review/reprocess يتبع مرحلة intake. لا تستخدم manual Contact review لتجاوزها. اختبارات worker تستعمل adapter fakes على Docker؛ تشغيل worker الافتراضية ضد حساب Meta حقيقي ليس جزءاً من الاختبار المحلي ولا تدعي هذه checkpoint Live Verified.
+Submission raw محفوظة مع notification +provider lead +external context وsource timestamp الأصلية، دون تسطيح Multi-values أوmetadata. retrieval وevaluation لا تنشئان Lead؛ intake تعيد current published setup وتنفذ المطابقة/الحقول/routing أوNeeds Attention. لا تستخدم manual Contact review لتجاوز Source rules. اختبارات worker adapter fakes على Docker فقط، وليست Live Meta.
 
 ## الحالة الحالية
 
@@ -27,7 +33,7 @@ Submission raw محفوظة مع notification +provider lead +external context �
 
 من Meta Sources → الاتصال أوCampaign → Sources افتح **مراجعة بيانات المصدر**. PENDING تنتظر `worker:sources`، وNEEDS_ATTENTION تعرض كود فشل آمن: Form غير مكتشفة تحتاج discovery، وbinding غير مطابقة تحتاج مراجعة identifiers وشروط الربط، وMapping غير منشورة/قديمة تحتاج publish وفق Catalog وFields الحالية. خطأ قيم/required/scalar ambiguity لا يُحل بتغيير Raw Source؛ أصلح Mapping المسموح بها ثم أدخل سببًا لإعادة المعالجة. لا يمكنك اختيار Campaign عشوائية لتجاوز قواعد السياق.
 
-إعادة المعالجة تضع PENDING وتحفظ history، والworker تفحص الأصل والإعدادات الحالية دون GET جديدة. VALIDATED تعني التحويل فقط؛ إنشاء Contact/Lead/routing ما زال غير مكتمل، وintakeReady=false/Activation الخارجية محجوبة. لا يظهر raw أوcustomer values في هذه المراجعة. Organization Submission غير المحلولة للـSuper Admin فقط؛ Manager تحتاج Campaign فرعها المحلولة ومنحة Form الحالية. إلغاء المنحة يمنع review/history/reprocess؛ استعادتها لا تعيد تفعيل binding تلقائيًا. بعد تفعيل binding الصحيحة أعد الفحص من scope مخولة؛ قد تحتاج Super Admin إذا فقدت Submission سياق الحملة. Pending بعد DB failure يعاد التقاطها، ولا تعدل DB يدويًا لاستردادها.
+إعادة المعالجة تضع PENDING وتحفظ history، والworker تفحص الأصل والإعدادات الحالية دون GET جديدة. VALIDATED تحويل فقط وتنتظر intake؛ PROCESSED نجاح Contact/Lead/fields/routing. Organization Submission غير المحلولة للـSuper Admin فقط؛ Manager تحتاج Campaign فرعها والمنحة الحالية. سحب المنحة يمنع review/history/reprocess، وإعادتها لا تعيد binding تلقائياً. بعد repair/republication أدخل سبباً وأعد الفحص. DB exception أثناء intake تبقي VALIDATED وتعيد الدورة المحاولة؛ لا تعديل يدوي للبيانات للاسترداد. Status/history لا تعيد raw أوcustomer values؛ Contact review المخولة وحدها تعرض mapped Contact وvisible candidates.
 
 التعليمات هنا لتشغيل **الأجزاء المنفذة حالياً** ومراجعتها. المنصة ليست مكتملة أو جاهزة للإنتاج؛ راجع `codex-progress.md` و`requirement-coverage.md` قبل أي نشر. تحققت migrations واختبارات API على PostgreSQL 18 المحلي عبر Docker Desktop.
 
@@ -82,7 +88,7 @@ Submission raw محفوظة مع notification +provider lead +external context �
 
 Disable يحافظ على الاتصال والموارد والتاريخ ويبطل availability، وReconfigure تعيد NOT_CONFIGURED؛ يلزم اكتشاف Pages/Forms من جديد. Edit يحافظ على النطاق ويزيد version، وأي provider result بدأت بإعداد قديم لا تصبح صالحة. الحدود التقنية الحالية10 صفحات×100 مورد،512KiB لكل استجابة و90s للعملية؛ SOURCE_CATALOG_TOO_LARGE ليست حذفاً أو نجاحاً جزئياً. القوائم paginated ولا تحمل جميع موارد المنظمة إلى الواجهة دفعة واحدة.
 
-التحقق الحالي Mock/PostgreSQL/Local Browser فقط، وليس Meta live أو OAuth/App Review verification. لا يُشغل أي Source intake worker في هذه checkpoint لأن intake لم تنفذ بعد. تتطلب تلك المراحل Campaign resolution/contact ambiguity/source preservation قبل إنشاء Leads أو تشغيل Messaging/AI.
+التحقق الحالي Mock/PostgreSQL/Local Browser فقط، وليس Meta live أوOAuth/App Review verification. `worker:sources` تشغل retrieval/evaluation/intake schedules مستقلة؛ Campaign resolution/current publication/Contact review والتحقق من ACTIVE تسبق Lead creation. Messaging/AI enabled تحتاج flow dependencies الموثقة قبل التشغيل، وActivation readiness/historical sync تستكمل بعد checkpoint intake.
 
 ## تشغيل مرفقات Messaging الواردة
 

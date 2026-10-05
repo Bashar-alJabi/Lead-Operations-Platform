@@ -699,5 +699,26 @@ test('source Webhook and retrieval preserve signed replays, source submissions a
     await notification.scrollIntoViewIfNeeded();await page.screenshot({ path:'.local/e2e/source-retrieval-ar.png' });expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
     await review.evaluate((element)=>element.scrollIntoView({ block:'start' }));await page.screenshot({ path:'.local/e2e/source-evaluation-ar.png' });
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);expect(errors).toEqual([]);
+    await page.getByRole('combobox',{ name:'Language' }).selectOption('en');await page.setViewportSize({ width:1280,height:900 });
+    await control(page,{ prepareSourceMatchFixture:true,intakeSource:true });await review.getByRole('button',{ name:'Refresh source submissions',exact:true }).click();
+    await expect(submission).toContainText('CONTACT_AMBIGUOUS');await expect(submission).not.toContainText('PROCESSED');
+    await submission.getByRole('button',{ name:'Review Contact match',exact:true }).click();const matching=review.locator('.source-contact-review');
+    await expect(matching.getByLabel('Matching Contact',{ exact:true }).locator('option')).toHaveCount(3);
+    await expect(matching.getByRole('button',{ name:'Confirm match and create Lead',exact:true })).toBeDisabled();
+    await matching.getByLabel('Matching Contact',{ exact:true }).selectOption({ label:'Browser match A · +15550008888 · —' });
+    await matching.getByLabel('Contact match reason',{ exact:true }).fill('Browser approved matching person');
+    await expect(matching.locator('img')).toHaveCount(0);await expect(matching).toContainText('<img src=x onerror=alert(1)> Browser source customer');
+    await page.setViewportSize({ width:390,height:844 });await page.getByRole('combobox',{ name:'Language' }).selectOption('ar');
+    await matching.evaluate((element)=>element.scrollIntoView({ block:'start' }));await page.screenshot({ path:'.local/e2e/source-match-review-ar.png' });
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
+    await matching.getByRole('button',{ name:'اعتماد المطابقة وإنشاء Lead',exact:true }).click();await expect(submission).toContainText('PROCESSED');
+    await expect(submission.getByRole('button',{ name:'إعادة معالجة المصدر',exact:true })).toHaveCount(0);
+    const submissionId=await submission.getAttribute('data-submission-id');
+    const processed=(await (await page.request.get('/api/sources/submissions?connectionId='+connectionId)).json()).items.find((r:{ submission_id:string })=>r.submission_id===submissionId);
+    expect(processed.lead_id).toBeTruthy();const created=await page.request.get('/api/leads/'+processed.lead_id);expect(created.ok()).toBeTruthy();
+    expect((await created.json()).lead.contact_name).toBe('Browser match A');
+    await submission.getByRole('button',{ name:'تاريخ معالجة المصدر',exact:true }).click();await expect(review).toContainText('Browser approved matching person');
+    await submission.evaluate((element)=>element.scrollIntoView({ block:'start' }));await page.screenshot({ path:'.local/e2e/source-intake-processed-ar.png' });
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);expect(errors).toEqual([]);
   } finally { await context.close(); }
 });

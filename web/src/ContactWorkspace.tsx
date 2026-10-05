@@ -89,20 +89,20 @@ export function ContactWorkspace({ mode, locale, canManage, api, onOpenLead }: {
   return <section className="panel contact-workspace">
     {error && <div role="alert" className="error">{error}</div>}
     {mode === 'contacts' ? <>
-      {detail ? <><button className="link" onClick={() => setDetail(null)}>{t.back}</button><h2>{detail.contact.name}</h2>
+      {detail ? <><button className="link" onClick={() => setDetail(null)}>{t.back}</button><h2>{detail.contact.name || detail.contact.phone || detail.contact.email || detail.contact.id}</h2>
         <div className="facts"><div><small>{t.phone}</small><strong>{detail.contact.phone || '—'}</strong></div><div><small>{t.email}</small><strong>{detail.contact.email || '—'}</strong></div></div>
         {canManage && detail.contact.editable && <form className="contact-form" onSubmit={(event) => { event.preventDefault(); void saveContact(); }}>
-          <label>{t.name}<input required maxLength={200} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
+          <label>{t.name}<input maxLength={200} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
           <label>{t.phone}<input type="tel" maxLength={50} value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} /></label>
           <label>{t.email}<input type="email" maxLength={320} value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></label>
-          <button disabled={busy}>{t.save}</button></form>}
+          <button disabled={busy || !form.name.trim() && !form.phone.trim() && !form.email.trim()}>{t.save}</button></form>}
         <h3>{t.leads}</h3><ul>{detail.leads.map((lead) => <li key={lead.id}><button className="link" onClick={() => onOpenLead(lead.id)}>{lead.id}</button> · {lead.lifecycle}</li>)}</ul>
         {detail.nextLeadCursor && <button className="secondary" disabled={busy} onClick={() => void loadMoreLeads()}>{t.more}</button>}
       </> : <><form className="toolbar" onSubmit={(event) => { event.preventDefault(); setQuery(search); }}>
         <input aria-label={t.search} placeholder={t.search} value={search} onChange={(event) => setSearch(event.target.value)} />
         <button disabled={busy}>{t.searchButton}</button></form>
         <div className="table-scroll"><table><thead><tr><th>{t.name}</th><th>{t.phone}</th><th>{t.email}</th><th>{t.leads}</th><th>{t.details}</th></tr></thead><tbody>
-          {items.map((item) => <tr key={item.id}><td>{item.name}</td><td>{item.phone || '—'}</td><td>{item.email || '—'}</td><td>{item.accessible_lead_count}</td>
+          {items.map((item) => <tr key={item.id}><td>{item.name || '—'}</td><td>{item.phone || '—'}</td><td>{item.email || '—'}</td><td>{item.accessible_lead_count}</td>
             <td><button className="link" onClick={() => void openContact(item.id)}>{t.details}</button></td></tr>)}
         </tbody></table></div>{items.length === 0 && <p>{t.noData}</p>}</>}
     </> : <>{reviews.length === 0 && <p>{t.noData}</p>}{reviews.map((review) => <div className="panel" key={review.id}>

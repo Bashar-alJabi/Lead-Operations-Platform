@@ -27,10 +27,10 @@ export function sourceSubmissionData(connectionId:string,externalEventId:string,
   return { pageId:context.pageId as string,values:lead.values,context:{ connectionId,formId:context.formId,
     externalCampaignId:refs.campaign_id!,externalAdSetId:refs.adset_id!,externalAdId:refs.ad_id! } satisfies BindingContext };
 }
-type Evaluation={ state:'VALIDATED'|'NEEDS_ATTENTION';errorCode:string|null;codes:string[];resourceId:string|null;campaignId:string|null;
+export type Evaluation={ state:'VALIDATED'|'NEEDS_ATTENTION';errorCode:string|null;codes:string[];resourceId:string|null;campaignId:string|null;
   branchId:string|null;bindingId:string|null;bindingVersion:number|null;mappingVersion:number|null;connectionVersion:number;resourceVersion:number|null;
-  mappedFields:number;mappedContactFields:number };
-async function evaluate(db:Database,connection:Record<string,any>,submission:Record<string,any>):Promise<Evaluation> {
+  mappedFields:number;mappedContactFields:number;prepared?:{ contact:Partial<Record<'name'|'phone'|'email',string>>;fields:{ fieldId:string;value:unknown }[];campaign:Record<string,any> } };
+export async function evaluateSource(db:Database,connection:Record<string,any>,submission:Record<string,any>,intake=false):Promise<Evaluation> {
   const result:Evaluation={ state:'NEEDS_ATTENTION',errorCode:null,codes:[],resourceId:null,campaignId:null,branchId:null,bindingId:null,
     bindingVersion:null,mappingVersion:null,connectionVersion:connection.version,resourceVersion:null,mappedFields:0,mappedContactFields:0 };
   const fail=(code:string,codes=[code]):Evaluation=>({ ...result,errorCode:code,codes:[...new Set(codes)] });
@@ -48,7 +48,9 @@ async function evaluate(db:Database,connection:Record<string,any>,submission:Rec
     externalCampaignId:b.external_campaign_id as string|null,externalAdSetId:b.external_adset_id as string|null,externalAdId:b.external_ad_id as string|null })),source.context);
   if (resolution.state!=='RESOLVED') return fail(resolution.state==='UNMATCHED' ? 'SOURCE_BINDING_UNMATCHED' : 'SOURCE_BINDING_AMBIGUOUS');
   const binding=resolution.binding;result.bindingId=binding.id;result.bindingVersion=binding.version;result.campaignId=binding.campaign_id;
-  const [campaign]=await db`SELECT c.*,b.active AS branch_active FROM campaign c JOIN branch b ON b.id=c.branch_id
+  // Intake also routes: acquire the branch serialization lock before the campaign, avoiding a SHARE→UPDATE upgrade.
+  if (intake) await db`SELECT id FROM branch WHERE id=(SELECT branch_id FROM campaign WHERE id=${binding.campaign_id}) FOR NO KEY UPDATE`;
+  const [campaign]=await db`SELECT c.*,b.active AS branch_active,b.timezone FROM campaign c JOIN branch b ON b.id=c.branch_id
     WHERE c.id=${binding.campaign_id} AND c.organization_id=${submission.organization_id} FOR SHARE OF b FOR UPDATE OF c`;
   if (!campaign) return fail('SOURCE_CAMPAIGN_NOT_FOUND');result.branchId=campaign.branch_id;
   if (campaign.source_kind!=='META') return fail('SOURCE_CAMPAIGN_KIND_MISMATCH');
@@ -73,7 +75,7 @@ async function evaluate(db:Database,connection:Record<string,any>,submission:Rec
     const preview=previewSourceMapping(entries,form.questions as SourceQuestion[],targets,source.values,required.map((r)=>r.field_id as string));
     if (!preview.valid) return fail('SOURCE_MAPPING_VALUE_INVALID',preview.errors.map((e)=>e.code));
     result.mappedFields=preview.fields.length;result.mappedContactFields=Object.keys(preview.contact).length;
-    return { ...result,state:'VALIDATED',errorCode:null,codes:preview.warnings };
+    return { ...result,state:'VALIDATED',errorCode:null,codes:preview.warnings,prepared:{ contact:preview.contact,fields:preview.fields,campaign } };
   } catch (error) { if (error instanceof HttpError) return fail(error.code);throw error; }
 }
 // Connection first, then submission/processing/campaign/definitions. All effects commit together or remain PENDING on DB failure.
@@ -90,7 +92,7 @@ export async function processOneSourceEvaluation(db:Database):Promise<boolean> {
     if (!pending) return false;
     const [submission]=await tx`SELECT * FROM source_submission WHERE id=${pending.submission_id} FOR UPDATE`;
     if (!submission || submission.lead_id) throw new HttpError(409,'SOURCE_SUBMISSION_ALREADY_PROCESSED');
-    const outcome=await evaluate(sql,connection,submission);
+    const outcome=await evaluateSource(sql,connection,submission);
     await tx`UPDATE source_processing SET state=${outcome.state},version=version+1,evaluations=evaluations+1,
       campaign_id=${outcome.campaignId},branch_id=${outcome.branchId},resource_id=${outcome.resourceId},binding_id=${outcome.bindingId},
       binding_version=${outcome.bindingVersion},mapping_version=${outcome.mappingVersion},connection_version=${outcome.connectionVersion},resource_version=${outcome.resourceVersion},

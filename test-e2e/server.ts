@@ -16,6 +16,7 @@ import { renderTemplateUrl } from '../src/messaging/approved-template.js';
 import { processOneInboundEvent } from '../src/messaging/inbound-events.js';
 import { processOneTemplateSample } from '../src/media/template-sample-worker.js';
 import { processOneSourceEvaluation } from '../src/sources/evaluation.js';
+import { processOneSourceIntake } from '../src/sources/intake.js';
 import { MediaError } from '../src/media/validation.js';
 import { SourceProviderError } from '../src/sources/meta-provider.js';
 import { processOneSourceRetrieval } from '../src/sources/retrieval-worker.js';
@@ -151,7 +152,7 @@ app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:bool
     processSample:{ type:'boolean' },rejectSample:{ type:'boolean' },
     sourceFailure:{ type:'boolean' },
     sourceSubscriptionFailure:{ type:'boolean' },sourceNotification:{ type:'string',format:'uuid' },
-    retrieveSource:{ type:'boolean' },sourceRetrievalFailure:{ type:'boolean' },evaluateSource:{ type:'boolean' },
+    retrieveSource:{ type:'boolean' },sourceRetrievalFailure:{ type:'boolean' },evaluateSource:{ type:'boolean' },intakeSource:{ type:'boolean' },prepareSourceMatchFixture:{ type:'boolean' },
     replyTo:{ type:'string',format:'uuid' },replyIndex:{ type:'integer',minimum:0,maximum:2 },
   } } } },async (request)=> {
     const header = request.headers.authorization;
@@ -172,6 +173,17 @@ app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:bool
         field_data:[{ name:'full_name',values:['<img src=x onerror=alert(1)> Browser source customer'] },{ name:'phone',values:['+15550008888'] },{ name:'interest',values:['12.5'] }] };
     } });
     if ((request.body as { evaluateSource?:boolean }).evaluateSource) await processOneSourceEvaluation(db);
+    if ((request.body as { prepareSourceMatchFixture?:boolean }).prepareSourceMatchFixture) {
+      // Domain fixtures only: activation readiness is exercised separately, never bypassed in production code.
+      await db`UPDATE campaign SET status='ACTIVE' WHERE id=${sourceCampaign}`;
+      for (const name of ['Browser match A','Browser match B']) {
+        const [candidate]=await db`INSERT INTO contact (organization_id,name,phone,phone_normalized)
+          VALUES (${org},${name},'+15550008888','+15550008888') RETURNING id`;
+        await db`INSERT INTO lead (organization_id,branch_id,campaign_id,contact_id,source_kind)
+          VALUES (${org},${branch},${sourceCampaign},${candidate!.id},'MANUAL')`;
+      }
+    }
+    if ((request.body as { intakeSource?:boolean }).intakeSource) await processOneSourceIntake(db);
     if (request.body.approveTemplates) for (const template of templates) template.status='APPROVED';
     if (typeof request.body.dnc === 'boolean')
       await db`UPDATE messaging_consent SET do_not_contact=${request.body.dnc} WHERE contact_id=${contact}`;

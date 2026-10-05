@@ -299,7 +299,7 @@ export function registerFieldRoutes(app: FastifyInstance, db: Database): void {
       const updated = await tx`INSERT INTO lead_field_value (lead_id, field_id, value, source, updated_by)
         VALUES (${lead.id}, ${field.id}, ${tx.json(value as postgres.JSONValue)}, 'MANUAL', ${actor.id})
         ON CONFLICT (lead_id, field_id) DO UPDATE SET value = EXCLUDED.value, source = EXCLUDED.source, updated_by = EXCLUDED.updated_by,
-          version = lead_field_value.version + 1, updated_at = now() RETURNING version`;
+          version = lead_field_value.version + 1, updated_at = now(),source_submission_id=NULL,source_binding_id=NULL,source_mapping_version=NULL RETURNING version`;
       await tx`INSERT INTO field_value_history (lead_id, field_id, old_value, new_value, source, actor_user_id)
         VALUES (${lead.id}, ${field.id}, ${previous.length ? tx.json(previous[0]!.value) : null}, ${tx.json(value as postgres.JSONValue)}, 'MANUAL', ${actor.id})`;
       await tx`INSERT INTO lead_activity (lead_id, actor_user_id, event_type, detail)
