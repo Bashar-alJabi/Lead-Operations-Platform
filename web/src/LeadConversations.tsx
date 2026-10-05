@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { MessageAttachment, type Attachment } from './MessageAttachment';
 import { MessageDelivery } from './MessageDelivery';
 import { TemplateButtons, type TemplateButton } from './TemplateButtons';
+import { MessageSourceReference, type SourceReference } from './MessageSourceReference';
 
 type Api = <T>(path: string, options?: RequestInit) => Promise<T>;
 type Locale = 'ar'|'fr'|'en';
@@ -23,7 +24,7 @@ type Consent = { status: 'GRANTED'|'REVOKED'|'UNKNOWN'; do_not_contact: boolean;
 type Message = { id: string; direction: 'INBOUND'|'OUTBOUND'; author_type: string; body: string;
   message_kind: 'TEXT'|'TEMPLATE'|'ATTACHMENT'; attachment: Attachment | null;
   delivery_state: string; last_error_code: string | null; created_at: string;templateButtons:TemplateButton[];
-  reply_to_message_id:string|null;reply_button_index:number|null };
+  reply_to_message_id:string|null;reply_button_index:number|null;source_reference:SourceReference|null };
 type AvailableTemplate = { id: string; name: string; language: string; body: string; parameterCount: number;headerParameterCount:0|1;
   components:{ type:'HEADER'|'BODY'|'FOOTER';format?:string;text?:string }[];buttons:TemplateButton[];urlParameterIndex:number|null;headerMediaKind:'image'|'video'|'document'|null };
 type AttentionReview = { id: string; previous_reason: string; review_note: string;
@@ -288,6 +289,7 @@ export function LeadConversations({ leadId, lifecycle, role, actorId, locale, ap
         {' · '}{message.message_kind}{' · '}{message.delivery_state}{message.last_error_code && ` · ${message.last_error_code}`}
         {' · '}<time dateTime={message.created_at}>{new Date(message.created_at).toLocaleString(locale)}</time>
         <p style={{ whiteSpace: 'pre-wrap' }}>{message.body}</p>
+        <MessageSourceReference reference={message.source_reference} locale={locale} />
         {message.templateButtons?.length ? <TemplateButtons buttons={message.templateButtons} /> : null}
         {message.reply_to_message_id && <small><a href={'#message-'+message.reply_to_message_id}>
           {locale==='ar' ? 'رد على زر القالب' : locale==='fr' ? 'Réponse au bouton du modèle' : 'Template button reply'}

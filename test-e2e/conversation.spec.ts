@@ -768,3 +768,58 @@ test('source Webhook and retrieval preserve signed replays, source submissions a
     await historical.getByRole('button',{ name:'Cancel historical job',exact:true }).click();await expect(historical.getByRole('status')).toContainText('Cancelled');expect(errors).toEqual([]);
   } finally { await context.close(); }
 });
+
+test('source referral picks the proven Campaign over another active thread, preserves safe history and requires explicit review for unknown metadata',async({ browser })=> {
+  // Serial prerequisite: Source journey above created and processed the historical Lead.
+  const context=await browser.newContext({ storageState:managerStorageState });const page=await context.newPage();
+  const errors:string[]=[];page.on('pageerror',(error)=>errors.push(error.message));
+  try {
+  await page.goto('/');await page.getByRole('combobox',{ name:'Language' }).selectOption('en');
+  await expect(page.getByRole('button',{ name:'Sign out',exact:true })).toBeVisible();
+  await control(page,{ sourceReferenceFixture:true });
+  const known=await control(page,{ sourceReferral:'KNOWN' });
+  const attached=known.sourceReferenceEvents.find((event:{ provider_id:string })=>event.provider_id==='wamid.browser-source-KNOWN');
+  expect(attached.state).toBe('PROCESSED');expect(attached.lead_id).toBeTruthy();
+  const leadRow=page.getByRole('row').filter({ hasText:'Historical customer' }).filter({ hasText:'Browser Intake Campaign' });
+  await leadRow.getByRole('button',{ name:'Details',exact:true }).click();
+  const panel=page.locator('.conversation-panel');
+  await panel.getByRole('button',{ name:'View messages',exact:true }).click();
+  const message=panel.locator('.conversation-messages > li').filter({ has:page.getByText('Browser source referral KNOWN',{ exact:true }) });
+  await expect(message).toContainText('Meta ad');await expect(message).toContainText('500001');
+  await expect(message).toContainText('<img src=x onerror="window.__referralXss=true"> Ad caption');
+  await expect(message.locator('img,a')).toHaveCount(0);expect(await page.evaluate(()=>Object.hasOwn(window,'__referralXss'))).toBe(false);
+  const replay=await control(page,{ sourceReferral:'KNOWN' });expect(replay.sourceReferenceEvents).toHaveLength(1);
+  expect((await (await page.request.get(`/api/conversations/${attached.conversation_id}/messages`)).json()).items
+    .filter((item:{ body:string })=>item.body==='Browser source referral KNOWN')).toHaveLength(1);
+  await page.setViewportSize({ width:390,height:844 });await page.getByRole('combobox',{ name:'Language' }).selectOption('ar');
+  await message.locator('.message-source-reference').scrollIntoViewIfNeeded();await expect(message).toContainText('مرجع المصدر الوارد');
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
+  await page.screenshot({ path:'.local/e2e/messaging-source-reference-ar.png' });
+  await page.getByRole('combobox',{ name:'Language' }).selectOption('fr');await expect(message).toContainText('Référence de source entrante');
+  await page.getByRole('combobox',{ name:'Language' }).selectOption('en');await page.setViewportSize({ width:1280,height:900 });
+  await control(page,{ sourceReferral:'UNKNOWN' });await page.getByRole('button',{ name:'Messaging setup',exact:true }).click();
+  await page.getByRole('row').filter({ hasText:'Browser Media Connection' }).getByRole('button').click();
+  const review=page.locator('.inbound-review');
+  await review.getByRole('button',{ name:'Refresh',exact:true }).click();
+  await review.locator('li').filter({ hasText:'SOURCE_REFERENCE_UNRESOLVED' }).getByRole('button',{ name:'Details',exact:true }).click();
+  await expect(review).toContainText('999999');await expect(review.locator('img')).toHaveCount(0);
+  await expect(review.getByRole('button',{ name:'Resolve',exact:true })).toBeDisabled();
+  await review.getByLabel('Attach to',{ exact:true }).selectOption('lead:'+attached.lead_id);
+  await expect(review.locator('.inbound-target-summary')).toContainText('Browser Intake Campaign');
+  await review.getByRole('button',{ name:'Resolve',exact:true }).click();
+  await expect(review.getByRole('button',{ name:'Resolve',exact:true })).toHaveCount(0);
+  const history=(await (await page.request.get(`/api/conversations/${attached.conversation_id}/messages`)).json()).items;
+  expect(history.find((item:{ body:string })=>item.body==='Browser source referral UNKNOWN').source_reference.externalId).toBe('999999');
+  await control(page,{ sourceReferral:'INVALID' });await review.getByRole('button',{ name:'Refresh',exact:true }).click();
+  await review.locator('li').filter({ hasText:'INBOUND_SOURCE_REFERENCE_INVALID' }).getByRole('button',{ name:'Details',exact:true }).click();
+  await review.getByLabel('Attach to',{ exact:true }).selectOption('lead:'+attached.lead_id);
+  await expect(review.getByRole('button',{ name:'Resolve',exact:true })).toBeDisabled();
+  await page.setViewportSize({ width:390,height:844 });await page.getByRole('combobox',{ name:'Language' }).selectOption('ar');
+  await review.getByRole('status').scrollIntoViewIfNeeded();await page.screenshot({ path:'.local/e2e/messaging-source-review-ar.png' });
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
+  await page.getByRole('combobox',{ name:'Language' }).selectOption('en');
+  await review.getByLabel('Reason to ignore',{ exact:true }).fill('Malformed provider reference retained for investigation');
+  await review.getByRole('button',{ name:'Ignore and retain event',exact:true }).click();
+  await expect(review.getByRole('button',{ name:'Resolve',exact:true })).toHaveCount(0);expect(errors).toEqual([]);
+  } finally { await context.close(); }
+});

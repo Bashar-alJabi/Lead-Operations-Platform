@@ -26,7 +26,7 @@ export function registerConversationMessageRoutes(app: FastifyInstance, db: Data
       const limit = request.query.limit ?? 50;
       const cursor = decodeCursor(request.query.cursor);
       const rows = await db`SELECT m.id, m.direction, m.author_type, m.author_user_id, m.body,
-          m.message_kind, m.template_id, m.template_snapshot,m.reply_to_message_id,m.reply_button_index,
+          m.message_kind, m.template_id, m.template_snapshot,m.reply_to_message_id,m.reply_button_index,m.source_reference,
           CASE WHEN a.id IS NULL THEN NULL ELSE jsonb_build_object('id', a.id, 'state', a.state,
             'mediaKind', a.media_kind, 'mime', coalesce(a.mime_type, a.declared_mime), 'sizeBytes', a.size_bytes,
             'errorCode', a.last_error_code, 'version', a.version) END AS attachment,

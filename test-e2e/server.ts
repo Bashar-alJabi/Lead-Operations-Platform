@@ -43,7 +43,7 @@ const campaign = (await db`INSERT INTO campaign (organization_id,branch_id,name,
   VALUES (${org},${branch},'Browser Campaign','ACTIVE','{"enabled":true}'::jsonb) RETURNING id`)[0]!.id;
 const sourceCampaign=(await db`INSERT INTO campaign (organization_id,branch_id,name,source_kind)
   VALUES (${org},${branch},'Browser Intake Campaign','META') RETURNING id`)[0]!.id;
-// Model prerequisite fixture, independent of Source intake (which is not implemented yet).
+// Model prerequisite fixture, independent of the actual Source intake journey.
 const noContactLead=(await db`INSERT INTO lead (organization_id,branch_id,campaign_id,source_kind,assigned_agent_id)
   VALUES (${org},${branch},${sourceCampaign},'META',${users.agent!}) RETURNING id`)[0]!.id;
 const sourceScore=(await db`INSERT INTO field_definition (organization_id,branch_id,campaign_id,key,label,field_type,value_mode,validation)
@@ -90,6 +90,8 @@ const mediaSender=(await db`INSERT INTO messaging_sender
   VALUES (${org},${mediaConnection},'15550005555','Browser Media Sender','HEALTHY',true,
     ${db.json({ text:true,template:true,...metaMediaCapabilities() })}) RETURNING id`)[0]!.id;
 await db`UPDATE campaign SET sender_override_id=${mediaSender} WHERE id=${mediaCampaign}`;
+// Initial explicit sender configuration; the reference journey uses real Source intake results.
+await db`UPDATE campaign SET sender_override_id=${mediaSender} WHERE id=${sourceCampaign}`;
 const mediaCv=(await db`INSERT INTO conversation (lead_id,connection_id,sender_id,channel,participant_ref,controller_type,controller_user_id,state)
   VALUES (${mediaLead},${mediaConnection},${mediaSender},'WHATSAPP','+15550004444','HUMAN',${users.agent!},'HUMAN_ACTIVE') RETURNING id`)[0]!.id;
 await db`INSERT INTO conversation_message
@@ -145,7 +147,7 @@ app.get<{ Params:{ name:string } }>('/assets/:name',async (request,reply)=> {
   const type = request.params.name.endsWith('.js') ? 'text/javascript' : 'text/css';
   return reply.type(type).send(await readFile(resolve('dist-web/assets',request.params.name)));
 });
-app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:boolean; assigned?:'agent'|'second'; approveTemplates?:boolean;replyTo?:string;replyIndex?:number;processSample?:boolean;rejectSample?:boolean;sourceFailure?:boolean;sourceSubscriptionFailure?:boolean;sourceNotification?:string;retrieveSource?:boolean;sourceRetrievalFailure?:boolean;historicalPreview?:boolean;historicalImport?:boolean;historicalFailure?:boolean } }>(
+app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:boolean; assigned?:'agent'|'second'; approveTemplates?:boolean;replyTo?:string;replyIndex?:number;processSample?:boolean;rejectSample?:boolean;sourceFailure?:boolean;sourceSubscriptionFailure?:boolean;sourceNotification?:string;retrieveSource?:boolean;sourceRetrievalFailure?:boolean;historicalPreview?:boolean;historicalImport?:boolean;historicalFailure?:boolean;sourceReferenceFixture?:boolean;sourceReferral?:'KNOWN'|'UNKNOWN'|'INVALID' } }>(
   '/__test__/control', { schema: { body:{ type:'object',additionalProperties:false,properties: {
     process:{ type:'boolean' },mode:{ type:'string',enum:['accept','reject','unknown'] },
     dnc:{ type:'boolean' },assigned:{ type:'string',enum:['agent','second'] },
@@ -155,6 +157,7 @@ app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:bool
     sourceSubscriptionFailure:{ type:'boolean' },sourceNotification:{ type:'string',format:'uuid' },
     retrieveSource:{ type:'boolean' },sourceRetrievalFailure:{ type:'boolean' },evaluateSource:{ type:'boolean' },intakeSource:{ type:'boolean' },prepareSourceMatchFixture:{ type:'boolean' },
     historicalPreview:{ type:'boolean' },historicalImport:{ type:'boolean' },historicalFailure:{ type:'boolean' },
+    sourceReferenceFixture:{ type:'boolean' },sourceReferral:{ type:'string',enum:['KNOWN','UNKNOWN','INVALID'] },
     replyTo:{ type:'string',format:'uuid' },replyIndex:{ type:'integer',minimum:0,maximum:2 },
   } } } },async (request)=> {
     const header = request.headers.authorization;
@@ -193,6 +196,30 @@ app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:bool
         ...(!input.after ? { paging:{ next:'ignored',cursors:{ after:'browser-next' } } } : {}) };
     } });
     if (request.body.historicalImport) await processOneHistoricalImport(db);
+    if (request.body.sourceReferenceFixture) {
+      const target=(await db`SELECT l.id,l.contact_id FROM lead l JOIN contact c ON c.id=l.contact_id
+        WHERE l.campaign_id=${sourceCampaign} AND c.phone_normalized='+15550009999'
+          AND EXISTS (SELECT 1 FROM source_submission s WHERE s.lead_id=l.id AND s.state='PROCESSED')`)[0];
+      if (!target) throw new HttpError(500,'TEST_SOURCE_INTAKE_REQUIRED');
+      // Deliberate competing Campaign, same Contact/sender, existing active conversation.
+      const competing=(await db`INSERT INTO lead(organization_id,branch_id,campaign_id,contact_id,source_kind)
+        VALUES (${org},${branch},${mediaCampaign},${target.contact_id},'MANUAL') RETURNING id`)[0]!;
+      await db`INSERT INTO conversation(lead_id,connection_id,sender_id,channel,participant_ref,controller_type,state,needs_attention_reason)
+        VALUES (${competing.id},${mediaConnection},${mediaSender},'WHATSAPP','+15550009999','NONE','WAITING_FOR_HUMAN','NO_HUMAN_CONTROLLER')`;
+    }
+    if (request.body.sourceReferral) {
+      const state=request.body.sourceReferral;
+      const raw=JSON.stringify({ object:'whatsapp_business_account',entry:[{ id:'987654321',changes:[{ field:'messages',value:{ messaging_product:'whatsapp',
+        metadata:{ phone_number_id:'15550005555' },messages:[{ id:'wamid.browser-source-'+state,from:'15550009999',
+          timestamp:'1791200000',type:'text',text:{ body:'Browser source referral '+state },
+          referral:{ source_type:'ad',source_id:state==='KNOWN' ? '500001' : '999999',
+            headline:state==='INVALID' ? {} : '<img src=x onerror="window.__referralXss=true"> Ad caption',body:'Literal source description',
+            source_url:'http://127.0.0.1/never-fetch' } }] } }] }] });
+      const response=await app.inject({ method:'POST',url:`/api/webhooks/messaging/meta/${mediaConnection}`,payload:raw,
+        headers:{ 'content-type':'application/json','x-hub-signature-256':'sha256='+createHmac('sha256','test-only-e2e-secret').update(raw).digest('hex') } });
+      if (response.statusCode!==200) throw new HttpError(500,'TEST_SOURCE_REFERENCE_WEBHOOK_FAILED');
+      await processOneInboundEvent(db);
+    }
     if (request.body.approveTemplates) for (const template of templates) template.status='APPROVED';
     if (typeof request.body.dnc === 'boolean')
       await db`UPDATE messaging_consent SET do_not_contact=${request.body.dnc} WHERE contact_id=${contact}`;
@@ -228,7 +255,9 @@ app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:bool
     const recoveries = (await db`SELECT count(*)::integer AS n FROM outbound_message_recovery`)[0]!.n;
     const replies=await db`SELECT id,body,reply_to_message_id,reply_button_index FROM conversation_message WHERE conversation_id=${mediaCv} AND reply_to_message_id IS NOT NULL`;
     const sourceSubmissions=(await db`SELECT count(*)::integer AS n FROM source_submission WHERE source_kind='META'`)[0]!.n;
-    return { providerCalls,mediaUploads,sampleUploads,sourceCatalogCalls,sourceRetrievalCalls,sourceSubmissions,messages,recoveries,replies };
+    const sourceReferenceEvents=await db`SELECT id,state,failure_code,lead_id,conversation_id,payload->'message'->>'id' AS provider_id
+      FROM integration_event WHERE connection_id=${mediaConnection} AND payload->'message'->>'id' LIKE 'wamid.browser-source-%'`;
+    return { providerCalls,mediaUploads,sampleUploads,sourceCatalogCalls,sourceRetrievalCalls,sourceSubmissions,messages,recoveries,replies,sourceReferenceEvents };
   });
 await mkdir(resolve('.local/e2e'),{ recursive:true });
 await writeFile(resolve('.local/e2e/fixture.json'),JSON.stringify({ password,testToken,leadId:lead,conversationId:cv,untrusted,mediaLeadId:mediaLead,mediaConversationId:mediaCv,sourceCampaignId:sourceCampaign,noContactLeadId:noContactLead }),{ mode:0o600 });

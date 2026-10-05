@@ -1,5 +1,13 @@
 # دليل التشغيل والتطوير
 
+## مراجعة مراجع المصدر فيMessaging
+
+شغّل worker:events المعتادة بعد migrations001–058. signed webhook تحفظ raw/referral دون provider GET إضافية؛ worker تربط Ad context المثبتة أوتحفظ Needs Attention. لا تحتاج Production credentials لإعادة الاختبارات المحلية. إعداد Source Ad binding الصريحة يتم من Campaign Sources القائمة، وإعداد Sender/Connection من Messaging setup؛ لا تعديل كود أوDB تشغيلي يدويًا.
+
+من Messaging setup اختر Connection ثم Inbound review. تعرض الرسالة المحفوظة وreference ID/type/captions الآمنة، مع أهداف حالية مسموحة. SOURCE_REFERENCE_UNRESOLVED تعني أن Ad/Post لم تثبت Campaign/Thread؛ تحقق من العميل والحملة ثم حدد Lead أوConversation صراحة. MULTIPLE_ACTIVE_CONVERSATIONS/LEADS تبقى غامضة ولا تُخمن. SOURCE_REFERENCE_TARGET_CONFLICT أوINBOUND_CONTEXT_TARGET_CONFLICT تتطلب التحقق من سياق المزود؛ تغيير هدف يدوي لا يتجاوز الدليل. PINNED_SENDER_MISMATCH لا يسقط إلى رقم بديل. المرجع الفاسد يمنع الربط؛ يمكن تجاهل Event بسبب موثق مع حفظ الأصل. لا يرسل Resolve/Ignore أي Customer message.
+
+بعد الحسم يظهر reference snapshot في تاريخ المحادثة للمستخدم المصرح حاليًا؛ reassignment تنقل الوصول دون حذف التاريخ، ونقل Lead خارج Branch Connection يمنع inbound attach الجديدة حتى توجد resolution صحيحة. Source connection المعطلة لا تمحو السياق المثبت في Source Submission؛ current Sender/Connection scope وpinning تبقى نافذة. الصور المحلية الجديدة في `.local/e2e/messaging-source-reference-ar.png` و`messaging-source-review-ar.png`، ولا ترفع fixture/cookies/screenshots/traces إلى Git.
+
 ## تشغيل Historical Meta sync
 
 من **مصادر Meta** اختر Connection ثم Page وForm من Catalog الحالية. Super Admin تدير Organization source، وManager مصدر فرعها؛ منح Form مشتركة للحملة لا يجيز قراءة سجلها الكامل. أدخل البداية والنهاية بصيغة UTC (تشمل البداية وتستثني النهاية)، ثم «إنشاء معاينة تاريخية». انتظر Preview Ready واستخدم «تحديث المزامنات التاريخية» لرؤية الصفحات والسجلات المقروءة والمطابقة والمعروفة. المعاينة لا تنشئ Lead ولا تعرض بيانات العميل. النتائج تقتصر على السجل المتاح لدى Meta؛ العدد النهائي غير معروف حتى اكتمال المعاينة.

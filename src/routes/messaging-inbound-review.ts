@@ -1,7 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import type { Database } from '../db.js';
 import { HttpError, principalFromRequest, requireRole, type Principal } from '../security.js';
-import { candidateLeads, processInboundEvent } from '../messaging/inbound-events.js';
+import { activeConversations, candidateLeads, hasSourceReferenceContext, processInboundEvent } from '../messaging/inbound-events.js';
+import { parseMetaSourceReference, type SourceReference } from '../messaging/source-reference.js';
 import { publicAttachment } from './messaging-attachments.js';
 
 const connectionParams = { type: 'object', additionalProperties: false, required: ['id'],
@@ -53,31 +54,32 @@ export function registerMessagingInboundReviewRoutes(app: FastifyInstance, db: D
             AND connection_id = ${connection.id} AND event_kind = 'INBOUND_MESSAGE'`)[0];
         if (!event) throw new HttpError(404, 'INBOUND_EVENT_NOT_FOUND');
         const message = event.payload?.message;
+        let sourceReference: SourceReference|null=null;let sourceReferenceInvalid=false;
+        try { if (message) sourceReference=parseMetaSourceReference(message); } catch { sourceReferenceInvalid=true; }
+        const knownReference=await hasSourceReferenceContext(tx,connection.id,sourceReference);
         const attachment = (await tx`SELECT * FROM message_attachment WHERE integration_event_id = ${event.id}`)[0];
         const text = message?.type === 'text' && typeof message?.text?.body === 'string'
           ? message.text.body as string : message?.type==='button' && typeof message?.button?.text==='string'
             ? String(message.button.text).slice(0,25) : typeof message?.[message?.type]?.caption === 'string'
             ? message[message.type].caption as string : null;
         const leads = (await candidateLeads(tx, { sender_id: event.sender_id,
-          participant_ref: event.participant_ref })).filter((lead) =>
+          participant_ref: event.participant_ref },knownReference ? sourceReference : null)).filter((lead) =>
           actor.role === 'SUPER_ADMIN' || lead.branch_id === actor.branchId);
-        const conversations = await tx`SELECT cv.id, cv.lead_id, l.branch_id, cv.state
-          FROM conversation cv JOIN lead l ON l.id = cv.lead_id
-          WHERE cv.connection_id = ${connection.id} AND cv.sender_id = ${event.sender_id}
-            AND cv.participant_ref = ${event.participant_ref} AND cv.state <> 'CLOSED'
-            AND (${actor.role === 'SUPER_ADMIN'} OR l.branch_id = ${actor.branchId})
-          ORDER BY cv.started_at DESC, cv.id DESC LIMIT 101`;
+        const conversations = (await activeConversations(tx,{ sender_id:event.sender_id,connection_id:connection.id,
+          participant_ref:event.participant_ref },knownReference ? sourceReference : null))
+          .filter((cv)=>actor.role==='SUPER_ADMIN' || cv.branch_id===actor.branchId);
         return { event: { id: event.id, state: event.state, failureCode: event.failure_code,
           reviewNote: event.review_note, senderId: event.sender_id,
           participantLast4: String(event.participant_ref).slice(-4),
           messageType: message?.type ?? null, body: text, attachment: attachment ? publicAttachment(attachment) : null,
+          sourceReference,sourceReferenceInvalid,
           receivedAt: event.received_at,
           leadId: event.lead_id, conversationId: event.conversation_id },
           leads: leads.map((lead) => ({ id: lead.id, branchId: lead.branch_id,
             campaignName: lead.campaign_name, branchName: lead.branch_name,
             contactName: lead.contact_name })),
           conversations: conversations.map((cv) => ({ id: cv.id, leadId: cv.lead_id,
-            state: cv.state })) };
+            state: cv.state,contactName:cv.contact_name,campaignName:cv.campaign_name,branchName:cv.branch_name })) };
       });
     });
 
