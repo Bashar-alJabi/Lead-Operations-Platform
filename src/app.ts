@@ -40,12 +40,15 @@ import type { LeadSourceSubscriptionAdapter } from './sources/meta-subscription.
 import { safeRequestUrl } from './safe-logging.js';
 import { registerSourceReviewRoutes } from './routes/source-review.js';
 import { registerSourceHistoryRoutes } from './routes/source-history.js';
+import { registerPaymentConnectionRoutes } from './routes/payment-connections.js';
+import type { PaymentAdapterRegistry } from './payments/providers.js';
 
 export async function buildApp(db: Database, options: { logger?: boolean; emailAdapter?: IdentityEmailAdapter;
   messagingAdapter?: MessagingProviderAdapter; messagingTemplateAdapter?: MessagingTemplateAdapter;
   messagingSendAdapter?: MessagingSendAdapter;
   leadSourceCatalogAdapter?: LeadSourceCatalogAdapter;
   leadSourceSubscriptionAdapter?: LeadSourceSubscriptionAdapter;
+  paymentConnectionAdapters?:PaymentAdapterRegistry;
   mediaStorage?: MediaStorage;
   mediaScanner?: MediaScanner;
   globalRateLimitMax?: number } = {}): Promise<FastifyInstance> {
@@ -119,5 +122,6 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   registerMetaSourceWebhookRoutes(app,db,options.leadSourceSubscriptionAdapter);
   registerSourceReviewRoutes(app,db);
   registerSourceHistoryRoutes(app,db);
+  registerPaymentConnectionRoutes(app,db,options.paymentConnectionAdapters);
   return app;
 }

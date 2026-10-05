@@ -1,5 +1,13 @@
 # دليل التشغيل والتطوير
 
+## Payment Connection Authentication
+
+من **إعداد الدفع** أنشئ اتصال Stripe باسم واضح وTEST/LIVE المطابقة لمفتاحه؛ Super Admin تختار المؤسسة أوالفرع، وManager تعمل بفرعها. أنشئ الحساب/Sandbox والمفتاح من [Stripe API keys](https://docs.stripe.com/keys)، ثم أدخل restricted server key بصلاحية قراءة Balance لفحص Authentication الحالي. استخدم test key مخصصة في التطوير؛ لا حسابات شخصية أوProduction credential. لا تتطلب العملية تعديل source أوenv أوDB. المفتاح يحفظ مشفرًا ولا يعرض ثانية؛ في التعديل اترك الحقل فارغًا للاحتفاظ به أوأدخل replacement لتدويره.
+
+**اختبار Authentication** يحفظ attempt ونتيجة آمنة. VERIFIED مع WARNING/PAYMENT_FLOW_NOT_READY تعني نجاحAuthentication فقط؛ لا Payment Links أوtrusted webhook أوEnrollment في هذه checkpoint. لا تعتبر Customer claim أوsuccess page دفعًا. AUTH_EXPIRED تحتاج تصحيح صلاحية المفتاح ثم إعادة الاختبار؛ RATE_LIMITED/UNAVAILABLE تحتاج انتظار المزود ثم اختبارًا جديدًا. RESPONSE_INVALID/MODE_MISMATCH تحتاج إعداد البيئة الصحيحة. لا raw provider errors أوأرصدة في UI/history.
+
+Disable وReconnect تتطلبان السبب ونسخة الإعداد الحالية، وتحفظان التاريخ. Reconfigure/rotate/reconnect ترجع NOT_CONFIGURED حتى الاختبار التالي. SUPERSEDED تعني تغييرconfig/disable أوفحص أحدث أثناء الطلب؛ BLOCKED تعني تغيرجلسة/دور/نطاق أوتعطيلفرع. INTERRUPTED تعني انتهاء TTL بعد interruption، وتسترد باختبار جديد من UI؛ لا تعديل DB. عند version conflict حدّث القائمة وراجع الإعداد قبل المحاولة. الصور/logs/fixture credentials في.local لا ترفع إلىGit. Browser ar/en/fr وRTL390px محلية وfakes، وليستLive Stripe.
+
 ## مراجعة مراجع المصدر فيMessaging
 
 شغّل worker:events المعتادة بعد migrations001–058. signed webhook تحفظ raw/referral دون provider GET إضافية؛ worker تربط Ad context المثبتة أوتحفظ Needs Attention. لا تحتاج Production credentials لإعادة الاختبارات المحلية. إعداد Source Ad binding الصريحة يتم من Campaign Sources القائمة، وإعداد Sender/Connection من Messaging setup؛ لا تعديل كود أوDB تشغيلي يدويًا.

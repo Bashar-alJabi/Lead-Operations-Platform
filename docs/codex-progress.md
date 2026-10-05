@@ -1,5 +1,17 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: Payment Connection authentication foundation
+
+بدأت من checkpoint `6f62dd1` المحفوظة والمرفوعة. Migration059 مطبقة على development/test Docker PostgreSQL وتضيف سجل Probe محفوظًا ومرقمًا وفهارس Connection/history. API وواجهة ar/en/fr تدعم إنشاء اتصالات Stripe مستقلة على مستوى المؤسسة أو الفرع، وتعديل الاسم/TEST-LIVE وتدوير credential المشفرة، واختبار Authentication، وdisable/reconnect بسبب وversion، وsafe status/history مع pagination. Manager تدير فرعها فقط؛ Agent ممنوعة من setup وcredentials. لم تُستخدم مفاتيح حقيقية أو Live Provider.
+
+Adapter تنفذ read-only GET ثابتة إلى Stripe Balance مع timeout8s وredirect rejection وresponse bound64KiB، وتقبل server restricted/secret key الموافقة للبيئة، وتتحقق من livemode. لا تحفظ أو تعيد مبالغ Balance. نجاح الفحص يجعل Connection WARNING/PAYMENT_FLOW_NOT_READY؛ authenticationVerified لا تعني Payment Links أوwebhook أوEnrollment ready. Provider failure تعرض رمزًا محدودًا دون raw response أوsecret، وتبقى Core Lead operations متاحة.
+
+Provider I/O خارج SQL. Claim وfinish تعيدان current user/role/org/branch/session بما فيها expiry/revocation، وConnection version/disabled وBranch active. أحدث probe_number فقط يمكنها تحديث الصحة؛ config change أوdisable أونتيجة أقدم تصبح SUPERSEDED، وإبطال صلاحية المستخدم أوالجلسة تصبح BLOCKED. سجل الاختبارات immutable/no-delete، وRUNNING متروكة بعد TTL تظهر INTERRUPTED وتُسترد باختبار جديد من UI دون تعديل DB. Audit لا تحفظ key أوfinancial response.
+
+التحقق المثبت: migrations001–059 development/test،74/74 unit،28/28 PostgreSQL integration،12/12 Edge Browser E2E، وBackend/Web typecheck/build exit0. Unit3 جديدة للتحقق من keys/mode/fixed request/timeout/bounds/finite errors، وintegration جديدة تشمل ACL/foreign org/shared vs branch/secrets/rotation/version/history/pagination وconcurrent probes/late result/config change/disabled user/revoked-expired session/disabled Connection/inactive Branch/crash recovery. Browser12 تغطي create/escaped name/key clearing/test failure/history/disable/reconnect/rotation/Agent denial/French/Arabic390px؛ فُحصت payment-auth-history-ar.png. فشل fixture انتهاء الجلسة صحح بإنشاء test session بتاريخ قديم صالح؛ لم تُضعّف DB constraint. العزل منع socket5432، وأعيدت الاختبارات بصلاحية localhost المحددة.
+
+المنصة وPayments/Enrollment ما زالت جزئية. هذه checkpoint Authentication فقط وStripe هو adapter profile الحالي؛ Methods/Links/trusted callbacks/Enrollment/webhook UI غير منفذة ولا جاهزية دفع مزيفة. الخطوة التالية الدقيقة بعد commit/push لهذه checkpoint: Branch Payment Methods بربط Connection مناسب للنطاق وcurrency/active/Agent availability، version/history/current authorization وsafe UI واختبارات؛ ثم durable per-Lead Links وsigned trusted confirmation/idempotency/monotonic Payment events→separate Enrollment/history، ثم AI. لا main merge أوProduction deployment.
+
 ## آخر حالة مستقرة: external Messaging source references
 
 Recovery من0e90261 على codex/full-platform-build نظيفة ومتزامنة؛ Docker PostgreSQL18/ClamAV healthy، وbaseline69 unit/26 integration نجحت مجددًا. Migrations056–058 additive مطبقة development/test: indexed Ad→Campaign evidence منimmutable PROCESSED Source context أوcurrent explicit Ad binding، Message→signed event FK وimmutable source_reference snapshot، وحفظraw/identity/terminal resolution للأحداث. السجلات القديمة لا تعادتصنيفها أوbackfill. لا reset أوdiscard.

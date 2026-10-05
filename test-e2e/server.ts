@@ -21,6 +21,7 @@ import { MediaError } from '../src/media/validation.js';
 import { SourceProviderError } from '../src/sources/meta-provider.js';
 import { processOneSourceRetrieval } from '../src/sources/retrieval-worker.js';
 import { processOneHistoricalPreview,processOneHistoricalImport } from '../src/sources/historical.js';
+import { PaymentProviderError } from '../src/payments/providers.js';
 
 const connectionUrl = requireLocalE2ETarget(process.env.TEST_DATABASE_URL,process.env.E2E_RESET_TEST_DATABASE,process.env.NODE_ENV);
 
@@ -101,6 +102,7 @@ let mode: 'accept'|'reject'|'unknown' = 'reject'; let providerCalls = 0;let medi
 let sourceFailure=false;let sourceCatalogCalls=0;
 let sourceSubscribed=false;let sourceSubscriptionFailure=false;
 let sourceRetrievalFailure=false;let sourceRetrievalCalls=0;
+let paymentFailure=false;let paymentCalls=0;
 const templates:ProviderTemplate[]=[{ externalId:'7000',name:'header_only_template',language:'en_US',category:'UTILITY',status:'APPROVED',
   components:[{ type:'HEADER',format:'TEXT',text:'Welcome {{1}}',example:{ header_text:['Approval sample only'] } },
     { type:'BODY',text:'Fixed body' }] },
@@ -109,6 +111,7 @@ const templates:ProviderTemplate[]=[{ externalId:'7000',name:'header_only_templa
 await mkdir(resolve('.local/e2e'),{ recursive:true });const mediaRoot=await mkdtemp(resolve('.local/e2e/media-'));
 const storage=localMediaStorage(mediaRoot);
 const app = await buildApp(db, { logger:false,globalRateLimitMax:10000,mediaStorage:storage,
+  paymentConnectionAdapters:{ STRIPE:{ verify:async(config)=>{ paymentCalls++;if(paymentFailure)throw new PaymentProviderError('PAYMENT_PROVIDER_AUTH_FAILED');return { mode:config.mode }; } } },
   leadSourceSubscriptionAdapter:{ check:async(input)=> {
     if (input.page.externalId!=='100001' || input.config.appId!=='700001') throw new Error('Unexpected browser source subscription');
     if (sourceSubscriptionFailure) throw new SourceProviderError('SOURCE_PROVIDER_AUTH_FAILED');
@@ -147,7 +150,7 @@ app.get<{ Params:{ name:string } }>('/assets/:name',async (request,reply)=> {
   const type = request.params.name.endsWith('.js') ? 'text/javascript' : 'text/css';
   return reply.type(type).send(await readFile(resolve('dist-web/assets',request.params.name)));
 });
-app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:boolean; assigned?:'agent'|'second'; approveTemplates?:boolean;replyTo?:string;replyIndex?:number;processSample?:boolean;rejectSample?:boolean;sourceFailure?:boolean;sourceSubscriptionFailure?:boolean;sourceNotification?:string;retrieveSource?:boolean;sourceRetrievalFailure?:boolean;historicalPreview?:boolean;historicalImport?:boolean;historicalFailure?:boolean;sourceReferenceFixture?:boolean;sourceReferral?:'KNOWN'|'UNKNOWN'|'INVALID' } }>(
+app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:boolean; assigned?:'agent'|'second'; approveTemplates?:boolean;replyTo?:string;replyIndex?:number;processSample?:boolean;rejectSample?:boolean;sourceFailure?:boolean;sourceSubscriptionFailure?:boolean;sourceNotification?:string;retrieveSource?:boolean;sourceRetrievalFailure?:boolean;historicalPreview?:boolean;historicalImport?:boolean;historicalFailure?:boolean;sourceReferenceFixture?:boolean;sourceReferral?:'KNOWN'|'UNKNOWN'|'INVALID';paymentFailure?:boolean } }>(
   '/__test__/control', { schema: { body:{ type:'object',additionalProperties:false,properties: {
     process:{ type:'boolean' },mode:{ type:'string',enum:['accept','reject','unknown'] },
     dnc:{ type:'boolean' },assigned:{ type:'string',enum:['agent','second'] },
@@ -158,11 +161,13 @@ app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:bool
     retrieveSource:{ type:'boolean' },sourceRetrievalFailure:{ type:'boolean' },evaluateSource:{ type:'boolean' },intakeSource:{ type:'boolean' },prepareSourceMatchFixture:{ type:'boolean' },
     historicalPreview:{ type:'boolean' },historicalImport:{ type:'boolean' },historicalFailure:{ type:'boolean' },
     sourceReferenceFixture:{ type:'boolean' },sourceReferral:{ type:'string',enum:['KNOWN','UNKNOWN','INVALID'] },
+    paymentFailure:{ type:'boolean' },
     replyTo:{ type:'string',format:'uuid' },replyIndex:{ type:'integer',minimum:0,maximum:2 },
   } } } },async (request)=> {
     const header = request.headers.authorization;
     if (typeof header !== 'string' || !safeTokenEqual(header,'Bearer '+testToken)) throw new HttpError(403,'TEST_CONTROL_DENIED');
     if (request.body.mode) mode=request.body.mode;
+    if(typeof request.body.paymentFailure==='boolean')paymentFailure=request.body.paymentFailure;
     if (typeof request.body.sourceFailure==='boolean') sourceFailure=request.body.sourceFailure;
     if (typeof request.body.sourceSubscriptionFailure==='boolean') sourceSubscriptionFailure=request.body.sourceSubscriptionFailure;
     if (typeof request.body.sourceRetrievalFailure==='boolean') sourceRetrievalFailure=request.body.sourceRetrievalFailure;
@@ -257,7 +262,7 @@ app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:bool
     const sourceSubmissions=(await db`SELECT count(*)::integer AS n FROM source_submission WHERE source_kind='META'`)[0]!.n;
     const sourceReferenceEvents=await db`SELECT id,state,failure_code,lead_id,conversation_id,payload->'message'->>'id' AS provider_id
       FROM integration_event WHERE connection_id=${mediaConnection} AND payload->'message'->>'id' LIKE 'wamid.browser-source-%'`;
-    return { providerCalls,mediaUploads,sampleUploads,sourceCatalogCalls,sourceRetrievalCalls,sourceSubmissions,messages,recoveries,replies,sourceReferenceEvents };
+    return { providerCalls,mediaUploads,sampleUploads,sourceCatalogCalls,sourceRetrievalCalls,sourceSubmissions,messages,recoveries,replies,sourceReferenceEvents,paymentCalls };
   });
 await mkdir(resolve('.local/e2e'),{ recursive:true });
 await writeFile(resolve('.local/e2e/fixture.json'),JSON.stringify({ password,testToken,leadId:lead,conversationId:cv,untrusted,mediaLeadId:mediaLead,mediaConversationId:mediaCv,sourceCampaignId:sourceCampaign,noContactLeadId:noContactLead }),{ mode:0o600 });

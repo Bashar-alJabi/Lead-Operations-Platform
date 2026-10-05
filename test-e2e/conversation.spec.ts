@@ -823,3 +823,43 @@ test('source referral picks the proven Campaign over another active thread, pres
   await expect(review.getByRole('button',{ name:'Resolve',exact:true })).toHaveCount(0);expect(errors).toEqual([]);
   } finally { await context.close(); }
 });
+
+test('Payment setup encrypts and rotates test keys, verifies authentication only, recovers failure and preserves scoped Arabic history',async({ browser })=> {
+  const context=await browser.newContext({ storageState:managerStorageState });const page=await context.newPage();const errors:string[]=[];
+  page.on('pageerror',(error)=>errors.push(error.message));
+  try {
+    await page.goto('/');await page.getByRole('combobox',{ name:'Language' }).selectOption('en');
+    await page.getByRole('button',{ name:'Payment setup',exact:true }).click();const panel=page.locator('.payment-setup');
+    const name='Browser Payment <b>literal</b>';const key='rk_test_'+ 'browserSynthetic'.repeat(3);
+    await panel.getByLabel('Payment connection name',{ exact:true }).fill(name);await panel.getByLabel('Payment API key',{ exact:true }).fill(key);
+    await panel.getByRole('button',{ name:'Save payment connection',exact:true }).click();
+    const row=panel.getByRole('row').filter({ hasText:name });await expect(row).toContainText('NOT_CONFIGURED');
+    await expect(row.locator('b')).toHaveCount(0);await expect(panel.getByLabel('Payment API key',{ exact:true })).toHaveValue('');
+    const connections=(await (await page.request.get('/api/payments/connections')).json()).items;const id=connections.find((item:{ name:string })=>item.name===name).id;
+    expect(JSON.stringify(connections)).not.toContain(key);
+    await panel.getByRole('button',{ name:'Test authentication',exact:true }).click();await expect(row).toContainText('PAYMENT_FLOW_NOT_READY');
+    await expect(panel).toContainText('VERIFIED');await expect(panel).toContainText('Payment links, webhook and Enrollment are not ready');
+    await control(page,{ paymentFailure:true });await panel.getByRole('button',{ name:'Test authentication',exact:true }).click();
+    await expect(panel.getByRole('alert')).toContainText('PAYMENT_PROVIDER_AUTH_FAILED');await expect(row).toContainText('AUTH_EXPIRED');await expect(panel).toContainText('FAILED');
+    await panel.getByLabel('Payment connection change reason',{ exact:true }).fill('Browser verifies replacement before use');
+    await panel.getByRole('button',{ name:'Disable payment connection',exact:true }).click();await expect(row).toContainText('DISABLED');
+    await expect(panel.getByRole('button',{ name:'Test authentication',exact:true })).toBeDisabled();
+    const before=(await control(page)).paymentCalls;
+    const rejected=await page.request.post(`/api/payments/connections/${id}/test`,{ data:{ version:2 },headers:{ origin:'http://127.0.0.1:4100' } });
+    expect(rejected.status()).toBe(409);expect((await control(page)).paymentCalls).toBe(before);
+    await panel.getByRole('button',{ name:'Reconnect payment connection',exact:true }).click();await expect(row).toContainText('NOT_CONFIGURED');
+    await panel.getByLabel('Payment API key',{ exact:true }).fill('rk_test_'+ 'browserReplacement'.repeat(3));
+    await panel.getByRole('button',{ name:'Save payment connection',exact:true }).click();await expect(panel.getByLabel('Payment API key',{ exact:true })).toHaveValue('');
+    await control(page,{ paymentFailure:false });await panel.getByRole('button',{ name:'Test authentication',exact:true }).click();await expect(row).toContainText('WARNING');
+    await expect(panel.getByRole('alert')).toHaveCount(0);expect((await (await page.request.get(`/api/payments/connections/${id}`)).json()).version).toBe(4);
+    const agent=await browser.newContext({ storageState:agentStorageState });try {
+      expect((await agent.request.get('/api/payments/connections')).status()).toBe(403);
+      expect((await agent.request.get(`/api/payments/connections/${id}/history`)).status()).toBe(403);
+    } finally { await agent.close(); }
+    await page.getByRole('combobox',{ name:'Language' }).selectOption('fr');await expect(panel.getByRole('heading',{ name:'Connexions de paiement',exact:true })).toBeVisible();
+    await page.setViewportSize({ width:390,height:844 });await page.getByRole('combobox',{ name:'Language' }).selectOption('ar');
+    await panel.getByRole('heading',{ name:'تاريخ اختبارات الدفع',exact:true }).scrollIntoViewIfNeeded();
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
+    await page.screenshot({ path:'.local/e2e/payment-auth-history-ar.png' });expect(errors).toEqual([]);
+  } finally { await context.close(); }
+});

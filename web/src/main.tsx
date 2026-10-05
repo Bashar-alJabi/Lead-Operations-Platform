@@ -10,6 +10,7 @@ import { LeadSearch, defaultLeadColumns, type LeadColumn } from './LeadSearch.js
 import { MessagingSetup } from './MessagingSetup.js';
 import { LeadConversations } from './LeadConversations.js';
 import { MetaSourceSetup } from './MetaSourceSetup.js';
+import { PaymentSetup } from './PaymentSetup.js';
 
 type Role = 'SUPER_ADMIN' | 'MANAGER' | 'AGENT';
 type User = { id: string; organizationId: string; branchId: string | null; role: Role; name: string; email: string };
@@ -22,7 +23,7 @@ type ManagedUser = { id: string; branch_id: string | null; role: Role; name: str
 type EmailConnection = { configured: boolean; id?: string; name?: string; status?: string; hasCredential?: boolean; settings?: { host: string; port: number; secure: boolean; username: string; fromAddress: string } };
 type DeliveryJob = { id: string; kind: string; status: string; attempts: number; max_attempts: number; last_error_code: string | null; email: string; name: string; created_at: string };
 type Locale = 'ar' | 'fr' | 'en';
-type Page = 'leads' | 'contacts' | 'contactReviews' | 'fields' | 'campaigns' | 'branches' | 'users' | 'profile' | 'identityEmail' | 'followups' | 'messagingSetup' | 'metaSources';
+type Page = 'leads' | 'contacts' | 'contactReviews' | 'fields' | 'campaigns' | 'branches' | 'users' | 'profile' | 'identityEmail' | 'followups' | 'messagingSetup' | 'metaSources' | 'paymentSetup';
 type AuthMode = 'login' | 'forgot' | 'reset' | 'invite';
 const linkParameters = new URLSearchParams(window.location.hash.slice(1));
 const initialLinkMode: AuthMode = linkParameters.has('invite') ? 'invite' : linkParameters.has('reset') ? 'reset' : 'login';
@@ -69,9 +70,9 @@ const contactLabels = {
   en: { contacts: 'Contacts', contactReviews: 'Match reviews', reviewSaved: 'Saved for review; no lead was created until a contact is selected.' },
 } as const;
 const fieldLabels = { ar: { fields: 'الحقول الديناميكية' }, fr: { fields: 'Champs dynamiques' }, en: { fields: 'Dynamic fields' } } as const;
-const workflowLabels = { ar: { followups: 'المتابعات', messagingSetup: 'إعداد الرسائل',metaSources:'مصادر Meta' },
-  fr: { followups: 'Suivis', messagingSetup: 'Messagerie',metaSources:'Sources Meta' },
-  en: { followups: 'Follow-ups', messagingSetup: 'Messaging setup',metaSources:'Meta sources' } } as const;
+const workflowLabels = { ar: { followups: 'المتابعات', messagingSetup: 'إعداد الرسائل',metaSources:'مصادر Meta',paymentSetup:'إعداد الدفع' },
+  fr: { followups: 'Suivis', messagingSetup: 'Messagerie',metaSources:'Sources Meta',paymentSetup:'Configuration du paiement' },
+  en: { followups: 'Follow-ups', messagingSetup: 'Messaging setup',metaSources:'Meta sources',paymentSetup:'Payment setup' } } as const;
 type LabelKey = keyof typeof labels.en | keyof typeof profileLabels.en | keyof typeof managementLabels.en |
   keyof typeof identityLabels.en | keyof typeof deliveryLabels.en | keyof typeof contactLabels.en |
   keyof typeof fieldLabels.en | keyof typeof workflowLabels.en;
@@ -282,8 +283,8 @@ function App() {
     }
   };
   return <div className="app-shell"><aside className="sidebar"><div className="brand">{t.app}</div><div className="user-block"><strong>{user.name}</strong><span>{user.role.replace('_', ' ')}</span></div>
-    <nav>{(['leads','contacts','contactReviews','followups','campaigns','fields','branches','users','identityEmail','messagingSetup','metaSources','profile'] as Page[]).filter((item) =>
-      item === 'identityEmail' || item === 'contactReviews' || item === 'messagingSetup' || item === 'metaSources' ? canManage : canManage || item === 'leads' || item === 'contacts' || item === 'profile' || item === 'followups').map((item) =>
+    <nav>{(['leads','contacts','contactReviews','followups','campaigns','fields','branches','users','identityEmail','messagingSetup','metaSources','paymentSetup','profile'] as Page[]).filter((item) =>
+      item === 'identityEmail' || item === 'contactReviews' || item === 'messagingSetup' || item === 'metaSources' || item === 'paymentSetup' ? canManage : canManage || item === 'leads' || item === 'contacts' || item === 'profile' || item === 'followups').map((item) =>
       <button key={item} className={page === item ? 'selected' : ''} onClick={() => { setPage(item); setSelectedLead(null); setSelectedCampaign(null); setShowForm(false); setForm({}); setNotice(''); }}>{t[item]}</button>)}</nav>
     <div className="sidebar-bottom">{language}<button onClick={() => { void api('/api/auth/logout', { method: 'POST' }).then(() => setUser(null)); }}>{t.logout}</button></div>
   </aside><main className="content"><header><div><small>Lead Operations</small><h1>{selectedLead ? t.details : t[page]}</h1></div><button className="secondary" onClick={() => void (page === 'identityEmail' ? refreshDeliveryJobs() : page === 'contacts' || page === 'contactReviews' || page === 'fields' ? setWorkspaceRefresh((value) => value + 1) : refresh())} disabled={busy}>{t.retry}</button></header>
@@ -309,7 +310,8 @@ function App() {
         void api<{ items: DeliveryJob[]; nextCursor: string | null }>(`/api/identity/deliveries?cursor=${encodeURIComponent(nextDeliveryCursor)}`)
           .then((result) => { setDeliveryJobs((current) => [...current, ...result.items]); setNextDeliveryCursor(result.nextCursor); })
           .catch((failure) => setError(String(failure))).finally(() => setBusy(false)); }}>{locale === 'ar' ? 'تحميل المزيد' : locale === 'fr' ? 'Afficher plus' : 'Load more'}</button>}
-    </section> : page === 'metaSources' && canManage ? <MetaSourceSetup locale={locale} role={user.role as 'SUPER_ADMIN'|'MANAGER'} branches={branches} api={api} />
+    </section> : page === 'paymentSetup' && canManage ? <PaymentSetup locale={locale} role={user.role as 'SUPER_ADMIN'|'MANAGER'} branches={branches} api={api} />
+      : page === 'metaSources' && canManage ? <MetaSourceSetup locale={locale} role={user.role as 'SUPER_ADMIN'|'MANAGER'} branches={branches} api={api} />
       : page === 'messagingSetup' && canManage ? <MessagingSetup locale={locale} role={user.role as 'SUPER_ADMIN'|'MANAGER'}
       branchId={user.branchId} branches={branches} api={api} />
       : page === 'contacts' || page === 'contactReviews' ? <ContactWorkspace key={`${page}-${workspaceRefresh}`} mode={page === 'contacts' ? 'contacts' : 'reviews'} locale={locale} canManage={canManage} api={api} onOpenLead={(id) => { setPage('leads'); setSelectedLead(id); setNotice(''); }} />

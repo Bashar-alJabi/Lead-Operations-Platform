@@ -1,5 +1,15 @@
 # المعمارية التقنية
 
+## Payment Connection: فصل Authentication عن جاهزية الدفع
+
+وفق01 §§42–45 و02 §§59–63 و03 §§32–38/69–70/81 و06 §14، تبدأ Payments باتصال مستقل وليس بمفتاح عالمي. integration_connection.kind=PAYMENT تستخدم تشفير connection_secret القائم، وscope ثابتة: Super Admin للمؤسسة أوأي فرع، Manager لفرعها فقط. APIs تعيد DTO محددة وsecret_configured، ولا تعيد credential. API/UI ar/en/fr تدعم create/edit/rotate/test/reconnect/disable وpagination/history. Agent لا تصل إلى هذه المسارات. Methods وLinks وPayment وEnrollment تُبنى بعد هذا الأساس ولا تُستنتج من نتيجة Authentication.
+
+PaymentConnectionAdapter/registry تعزل transport عن lifecycle. Profile الحالية Stripe فقط؛ تستخدم [Stripe API keys](https://docs.stripe.com/keys) و[Balance API](https://docs.stripe.com/api/balance) للتحقق read-only: fixed HTTPS host/path، redirect:error، AbortSignal8s، response64KiB، server rk/sk key مطابقة TEST/LIVE وstrict livemode. لا يحتفظ التطبيق بمبالغ الرصيد أوraw response. Restricted key بصلاحية Balance read تكفي لهذا الفحص؛ صلاحيات إنشاء الدفع وWebhook تُحدد مع adapter المالي التالي، ولا يدعي هذا الفحص توفرها.
+
+Migration059 تضيف payment_connection_probe immutable/no-delete: connection version، current actor scope، probe_number monotonic وexpiry30s. Claim قصيرة تحت Connection lock/current user+session+Branch locks؛ Provider I/O خارج المعاملة؛ finish تقفل Connection/Probe وتعيد authority/session expiry وversion/status/latest probe. Late success لا تعكس failure أحدث، ولاconfig/disable/session revocation أثناءI/O. Failure code محدودة؛ success تحفظ WARNING/PAYMENT_FLOW_NOT_READY وcapabilities authenticationVerified=true/paymentLinksReady=false/webhookReady=false. Health لا تزيد config version؛ latest probe_number تفصل ordering عن pagination الزمنية.
+
+RUNNING بعد expiry تظهر INTERRUPTED في history ولا تعد نجاحًا. اختبار جديد من UI يستعيد التشخيص؛ لا يحتاج operator تعديل DB أوserver. Audit تحفظ IDs/outcome/version/reason دون secrets أوfinancial response. المدة والحدود assumptions تقنية، لا Business capacity claims. الاختبارات PostgreSQL/Browser وfakes فقط؛ Live verification تتطلب external account/credential مقصودة ولم تحصل.
+
 ## External Messaging references وربط السياق
 
 وفق 05 §§9/10 و03 Conversation resolution، يحتفظ signed WhatsApp inbound بالـreferral الأصلية داخل IntegrationEvent. Adapter parser تطبع source_type=ad/post وsource_id رقمية محدودة وheadline/body نصيتين محدودتين. لا تستعمل source_url أوmedia URL أوctwa_clid لاختيار شخص أوThread، ولا تجلب رابطًا خارجيًا. شكل referral موضح في [مجموعة Meta الرسمية للـWhatsApp Cloud API](https://www.postman.com/meta/whatsapp-business-platform/documentation/wlk6lh4/whatsapp-cloud-api?entity=request-13382743-accf558f-2cde-4c15-8921-8fcb11b375ac)؛ الاختبارات محلية موقعة بـtest secrets وليست Live Meta.
