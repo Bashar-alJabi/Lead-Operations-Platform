@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import type postgres from 'postgres';
-import type { FastifyInstance,FastifyRequest } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import type { Database } from '../db.js';
 import { openSecret,sealSecret } from '../credentials.js';
-import { HttpError,principalFromRequest,requireRole,sha256,type Principal } from '../security.js';
+import { HttpError,principalFromRequest,requireRole,type Principal } from '../security.js';
 import { decodeCursor,encodeCursor } from '../pagination.js';
-import { sessionCookie } from '../config.js';
+import { currentPaymentActor } from '../payments/access.js';
 import { paymentConnectionAdapters,PaymentProviderError,validatePaymentCredentials,
   type PaymentAdapterRegistry,type PaymentConfig,type PaymentCredentials } from '../payments/providers.js';
 
@@ -24,14 +24,6 @@ async function connection(tx:Database|postgres.TransactionSql,actor:Principal,id
     AND c.organization_id=${actor.organizationId} AND (${actor.role==='SUPER_ADMIN'} OR c.branch_id=${actor.branchId})
     ${lock ? tx`FOR UPDATE OF c` : tx``}`)[0];
   if (!row) throw new HttpError(404,'PAYMENT_CONNECTION_NOT_FOUND');return row;
-}
-async function actorStillAuthorized(tx:postgres.TransactionSql,actor:Principal,request:FastifyRequest) {
-  const token=request.cookies[sessionCookie];
-  if (!token) return false;
-  return (await tx`SELECT 1 FROM user_account u JOIN user_session ss ON ss.user_id=u.id
-    WHERE u.id=${actor.id} AND u.active AND u.organization_id=${actor.organizationId} AND u.role=${actor.role}
-      AND u.branch_id IS NOT DISTINCT FROM ${actor.branchId}::uuid AND ss.token_hash=${sha256(token)}
-      AND ss.revoked_at IS NULL AND ss.expires_at>clock_timestamp() FOR SHARE OF u,ss`).length>0;
 }
 async function branchActive(tx:postgres.TransactionSql,branchId:string|null) {
   return branchId===null || (await tx`SELECT 1 FROM branch WHERE id=${branchId} AND active FOR SHARE`).length>0;
@@ -70,7 +62,7 @@ export function registerPaymentConnectionRoutes(app:FastifyInstance,db:Database,
     validatePaymentCredentials(request.body.config,request.body.credentials!);if (!request.body.name.trim()) throw new HttpError(400,'NAME_REQUIRED');
     const id=randomUUID();const sealed=sealSecret(id,JSON.stringify(request.body.credentials));
     await db.begin(async(tx)=> {
-      if (!(await actorStillAuthorized(tx,actor,request))) throw new HttpError(403,'PAYMENT_ACCESS_REVOKED');
+      if (!(await currentPaymentActor(tx,actor,request))) throw new HttpError(403,'PAYMENT_ACCESS_REVOKED');
       if (branchId && !(await tx`SELECT 1 FROM branch WHERE id=${branchId} AND organization_id=${actor.organizationId} AND active FOR SHARE`).length)
         throw new HttpError(404,'BRANCH_NOT_AVAILABLE');
       await tx`INSERT INTO integration_connection(id,organization_id,branch_id,kind,provider,name,config,created_by)
@@ -84,7 +76,7 @@ export function registerPaymentConnectionRoutes(app:FastifyInstance,db:Database,
     const actor=await principalFromRequest(request,db);
     return db.begin(async(tx)=> {
       const row=await connection(tx,actor,request.params.id,true);
-      if (!(await actorStillAuthorized(tx,actor,request))) throw new HttpError(403,'PAYMENT_ACCESS_REVOKED');
+      if (!(await currentPaymentActor(tx,actor,request))) throw new HttpError(403,'PAYMENT_ACCESS_REVOKED');
       if (row.version!==request.body.version) throw new HttpError(409,'CONNECTION_VERSION_CONFLICT');
       if (row.status==='DISABLED') throw new HttpError(409,'CONNECTION_DISABLED');
       if (row.provider!==request.body.provider || (Object.hasOwn(request.body,'branchId') && request.body.branchId!==row.branch_id)) throw new HttpError(400,'CONNECTION_SCOPE_IMMUTABLE');
@@ -102,7 +94,7 @@ export function registerPaymentConnectionRoutes(app:FastifyInstance,db:Database,
     { schema:{ params,body:{ type:'object',additionalProperties:false,required:['version','reason'],properties:{ version,reason:{ type:'string',minLength:3,maxLength:500 } } } } },async(request)=> {
     const actor=await principalFromRequest(request,db);if (request.body.reason.trim().length<3) throw new HttpError(400,'REASON_REQUIRED');
     return db.begin(async(tx)=> { const row=await connection(tx,actor,request.params.id,true);
-      if (!(await actorStillAuthorized(tx,actor,request))) throw new HttpError(403,'PAYMENT_ACCESS_REVOKED');
+      if (!(await currentPaymentActor(tx,actor,request))) throw new HttpError(403,'PAYMENT_ACCESS_REVOKED');
       if (row.version!==request.body.version) throw new HttpError(409,'CONNECTION_VERSION_CONFLICT');
       if (action==='reconnect' && !(await branchActive(tx,row.branch_id))) throw new HttpError(409,'BRANCH_DISABLED');
       const result=(await tx`UPDATE integration_connection SET status=${action==='disable' ? 'DISABLED' : 'NOT_CONFIGURED'},version=version+1,
@@ -126,7 +118,7 @@ export function registerPaymentConnectionRoutes(app:FastifyInstance,db:Database,
     config:{ rateLimit:{ max:10,timeWindow:'15 minutes' } } },async(request,reply)=> {
     const actor=await principalFromRequest(request,db);
     const claim=await db.begin(async(tx)=> { const row=await connection(tx,actor,request.params.id,true);
-      if (!(await actorStillAuthorized(tx,actor,request))) throw new HttpError(403,'PAYMENT_ACCESS_REVOKED');
+      if (!(await currentPaymentActor(tx,actor,request))) throw new HttpError(403,'PAYMENT_ACCESS_REVOKED');
       if (row.version!==request.body.version) throw new HttpError(409,'CONNECTION_VERSION_CONFLICT');
       if (row.status==='DISABLED') throw new HttpError(409,'CONNECTION_DISABLED');
       if (!(await branchActive(tx,row.branch_id))) throw new HttpError(409,'BRANCH_DISABLED');
@@ -143,7 +135,7 @@ export function registerPaymentConnectionRoutes(app:FastifyInstance,db:Database,
     const result=await db.begin(async(tx)=> {
       const row=(await tx`SELECT * FROM integration_connection WHERE id=${claim.row.id} FOR UPDATE`)[0]!;
       const probe=(await tx`SELECT * FROM payment_connection_probe WHERE id=${claim.probeId} FOR UPDATE`)[0]!;
-      const allowed=await actorStillAuthorized(tx,actor,request);
+      const allowed=await currentPaymentActor(tx,actor,request);
       const latest=(await tx`SELECT id FROM payment_connection_probe WHERE connection_id=${row.id} ORDER BY probe_number DESC LIMIT 1`)[0]!.id===probe.id;
       const stale=row.version!==claim.row.version || row.status==='DISABLED' || !latest || new Date(probe.expires_at).getTime()<Date.now();
       const available=await branchActive(tx,row.branch_id);

@@ -1,5 +1,13 @@
 # المعمارية التقنية
 
+## Branch Payment Methods: نطاق الاستخدام مستقل عن إدارة Credential
+
+وفق01 §42 و02 §59 و03 §34، Method ثابتة المؤسسة والفرع وترتبط باتصال PAYMENT من الفرع نفسه أوالمؤسسة. Manager تختار اتصال فرعها؛ Super Admin فقط تنشئ أوتعيد ربط Method باتصال المؤسسة. هذا الربط الصريح يجيز استخدام Method الفرع وإدارة availability، ولا يمنح Manager حق قراءة أوتدوير secret أوإدارة Organization Connection. Manager يمكنها إبقاء الربط المشترك الموجود عند تعديل Method، ولا تنشئ ربطًا مشتركًا جديدًا بمعرف مخمن.
+
+Availability تخزن currencies مستقلة وALL/SELECTED Agent/Campaign IDs من الفرع نفسه. لا ينقل إعداد Method أي Lead أوCredential؛ current Lead/branch/Campaign/actor access والقواعد الحالية تفحص في SQL عند قراءة availability ويعاد فحصها عند إنشاء Links لاحقًا. Currency code تتحقق من قائمة ISO/CLDR في Node Intl الحالية، ولا تعني ضمان دعم المزود لتلك العملة؛ adapter المالي التالي مسؤول عن options ودعم العملة الفعلي. active تعني قرار الإدارة، وليس provider readiness؛ auth-only WARNING تبقى PAYMENT_FLOW_NOT_READY.
+
+Migration060 تحرس immutable branch/org identity وconnection scope وcurrent actor وtyped selected references، وتحفظ snapshot عند كلversion داخل المعاملة نفسها. Connection→Branch→Method ثم current actor/session وAgent/Campaign locks قبل الحفظ؛ expiry تعاد بعد أي wait. Lead DTO تعيد id/name/currencies/version/available/issues فقط، وتقيد current assignment وCampaign/Agent rules في SQL قبل LIMIT. خيارات الإدارة paginated حسب الفرع، وselected options خارج الصفحة الأولى تستعاد من detail دون تحميل catalog كاملة. History paginated بالنسخة، ولاdelete أوsnapshot rewrite. الاختبارات77unit/29integration/13Browser تشمل rollback/concurrency/ACL والواجهة، ولا Provider financial flow. Bundle509KB الحالي يحتاج code splitting في مرحلة performance/acceptance؛ تحذير Vite لا يرفع حدود build لإخفائه.
+
 ## Payment Connection: فصل Authentication عن جاهزية الدفع
 
 وفق01 §§42–45 و02 §§59–63 و03 §§32–38/69–70/81 و06 §14، تبدأ Payments باتصال مستقل وليس بمفتاح عالمي. integration_connection.kind=PAYMENT تستخدم تشفير connection_secret القائم، وscope ثابتة: Super Admin للمؤسسة أوأي فرع، Manager لفرعها فقط. APIs تعيد DTO محددة وsecret_configured، ولا تعيد credential. API/UI ar/en/fr تدعم create/edit/rotate/test/reconnect/disable وpagination/history. Agent لا تصل إلى هذه المسارات. Methods وLinks وPayment وEnrollment تُبنى بعد هذا الأساس ولا تُستنتج من نتيجة Authentication.

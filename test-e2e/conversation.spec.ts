@@ -863,3 +863,53 @@ test('Payment setup encrypts and rotates test keys, verifies authentication only
     await page.screenshot({ path:'.local/e2e/payment-auth-history-ar.png' });expect(errors).toEqual([]);
   } finally { await context.close(); }
 });
+
+test('Branch Payment Methods support explicit shared accounts, scoped Agent/Campaign availability, immutable history and truthful payment readiness in the browser',async({ browser })=> {
+  const admin=await browser.newContext({ storageState:adminStorageState });const page=await admin.newPage();const errors:string[]=[];page.on('pageerror',(e)=>errors.push(e.message));
+  const manager=await browser.newContext({ storageState:managerStorageState });const agent=await browser.newContext({ storageState:agentStorageState });
+  try {
+    await page.goto('/');await page.getByRole('combobox',{ name:'Language' }).selectOption('en');
+    const detail=await (await page.request.get('/api/leads/'+fixture.noContactLeadId)).json();const lead=detail.lead;
+    await page.getByRole('button',{ name:'Payment setup',exact:true }).click();const setup=page.locator('.payment-setup');
+    await setup.getByLabel('Payment connection name',{ exact:true }).fill('Browser shared payment');
+    await setup.getByLabel('Payment API key',{ exact:true }).fill('rk_test_'+'browserSharedSynthetic'.repeat(3));
+    await setup.getByRole('button',{ name:'Save payment connection',exact:true }).click();
+    await expect(setup.getByRole('row').filter({ hasText:'Browser shared payment' })).toContainText('NOT_CONFIGURED');
+    const connection=(await (await page.request.get('/api/payments/connections')).json()).items.find((item:{ name:string })=>item.name==='Browser shared payment');
+    await setup.getByRole('button',{ name:'Test authentication',exact:true }).click();await expect(setup.getByRole('row').filter({ hasText:'Browser shared payment' })).toContainText('WARNING');
+    const methods=page.locator('.payment-methods');const name='Browser Method <img src=x>';
+    await methods.getByLabel('Payment method name',{ exact:true }).fill(name);await methods.getByLabel('Payment method branch',{ exact:true }).selectOption(lead.branch_id);
+    await expect(methods.getByLabel('Method provider connection',{ exact:true }).locator('option').filter({ hasText:'Browser shared payment' })).toHaveCount(1);
+    await methods.getByLabel('Method provider connection',{ exact:true }).selectOption(connection.id);await methods.getByLabel('Method currencies',{ exact:true }).fill('USD, EUR');
+    await methods.getByLabel('Method enabled',{ exact:true }).check();await methods.getByLabel('Agent availability',{ exact:true }).selectOption('SELECTED');
+    await methods.getByLabel('Allowed payment Agents',{ exact:true }).selectOption([lead.assigned_agent_id]);
+    await methods.getByLabel('Campaign availability',{ exact:true }).selectOption('SELECTED');await methods.getByLabel('Allowed payment Campaigns',{ exact:true }).selectOption([lead.campaign_id]);
+    await methods.getByLabel('Payment method change reason',{ exact:true }).fill('Explicit shared account assigned to branch method');
+    await methods.getByRole('button',{ name:'Save payment method',exact:true }).click();const row=methods.getByRole('row').filter({ hasText:name });
+    await expect(row).toContainText('PAYMENT_FLOW_NOT_READY');await expect(row.locator('img')).toHaveCount(0);await expect(methods).toContainText('Version: 1');
+    const method=(await (await page.request.get('/api/payments/methods')).json()).items.find((item:{ name:string })=>item.name===name);
+    const tab=await manager.newPage();tab.on('pageerror',(e)=>errors.push(e.message));await tab.goto('/');await tab.getByRole('combobox',{ name:'Language' }).selectOption('en');
+    await tab.getByRole('button',{ name:'Payment setup',exact:true }).click();const managed=tab.locator('.payment-methods');
+    await managed.getByRole('row').filter({ hasText:name }).getByRole('button',{ name:'Edit payment method',exact:true }).click();
+    await expect(managed.getByLabel('Method provider connection',{ exact:true })).toHaveValue(connection.id);
+    expect((await tab.request.get('/api/payments/connections/'+connection.id)).status()).toBe(404);
+    await managed.getByLabel('Payment method name',{ exact:true }).fill('Manager maintained shared method');
+    await managed.getByLabel('Payment method change reason',{ exact:true }).fill('Manager adjusts method without access to credentials');
+    await managed.getByRole('button',{ name:'Save payment method',exact:true }).click();await expect(managed).toContainText('Version: 2');await expect(managed).toContainText(name);
+    await managed.getByLabel('Method currencies',{ exact:true }).fill('XYZ');await managed.getByRole('button',{ name:'Save payment method',exact:true }).click();
+    await expect(managed.getByRole('alert')).toContainText('PAYMENT_CURRENCIES_INVALID');expect((await (await tab.request.get('/api/payments/methods/'+method.id)).json()).version).toBe(2);
+    await managed.getByLabel('Method currencies',{ exact:true }).fill('EUR');
+    const customer=await agent.newPage();customer.on('pageerror',(e)=>errors.push(e.message));await customer.goto('/');await customer.getByRole('combobox',{ name:'Language' }).selectOption('en');
+    await customer.getByRole('row').filter({ hasText:'Contact unavailable' }).getByRole('button',{ name:'Details',exact:true }).click();const available=customer.locator('.lead-payment-methods');
+    await expect(available).toContainText('Manager maintained shared method');await expect(available).toContainText('PAYMENT_FLOW_NOT_READY');
+    expect((await customer.request.get('/api/payments/methods')).status()).toBe(403);expect((await customer.request.get('/api/payments/methods/'+method.id+'/history')).status()).toBe(403);
+    const safe=await (await customer.request.get(`/api/leads/${fixture.noContactLeadId}/payment-methods`)).json();expect(JSON.stringify(safe)).not.toContain('connection_id');
+    await managed.getByLabel('Method enabled',{ exact:true }).uncheck();await managed.getByRole('button',{ name:'Save payment method',exact:true }).click();await expect(managed).toContainText('Version: 3');
+    await available.getByRole('button',{ name:'Refresh Lead payment methods',exact:true }).click();await expect(available).toContainText('No methods allowed for this Lead and user.');
+    await managed.getByLabel('Method enabled',{ exact:true }).check();await managed.getByRole('button',{ name:'Save payment method',exact:true }).click();await expect(managed).toContainText('Version: 4');
+    await tab.getByRole('combobox',{ name:'Language' }).selectOption('fr');await expect(managed.getByRole('heading',{ name:'Moyens de paiement des agences',exact:true })).toBeVisible();
+    await tab.setViewportSize({ width:390,height:844 });await tab.getByRole('combobox',{ name:'Language' }).selectOption('ar');
+    await managed.getByRole('heading',{ name:'تاريخ طريقة الدفع: Manager maintained shared method',exact:true }).scrollIntoViewIfNeeded();
+    expect(await tab.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);await tab.screenshot({ path:'.local/e2e/payment-method-history-ar.png' });expect(errors).toEqual([]);
+  } finally { await admin.close();await manager.close();await agent.close(); }
+});

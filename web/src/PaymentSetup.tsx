@@ -1,4 +1,5 @@
 import { useEffect,useRef,useState } from 'react';
+import { PaymentMethods } from './PaymentMethods.js';
 type Api=<T>(path:string,options?:RequestInit)=>Promise<T>;
 type Locale='ar'|'en'|'fr';
 type Connection={ id:string;name:string;provider:string;branch_id:string|null;config:{ mode:'TEST'|'LIVE' };version:number;status:string;
@@ -72,5 +73,6 @@ export function PaymentSetup({ locale,role,branches,api }: { locale:Locale;role:
       <h4>{t.history}</h4><ul>{probes.map((probe)=><li key={probe.id}><time>{new Date(probe.created_at).toLocaleString(locale)}</time> · <bdi>{probe.state}</bdi> · {t.version} {probe.connection_version}{probe.error_code && <> · <bdi>{probe.error_code}</bdi></>}</li>)}</ul>
       {probeCursor && <button disabled={busy} className="secondary" onClick={()=>void history(selected.id,probeCursor).catch((e)=>setError(String(e)))}>{t.moreHistory}</button>}
     </section>}
+    <PaymentMethods locale={locale} role={role} branches={branches} api={api} />
   </section>;
 }

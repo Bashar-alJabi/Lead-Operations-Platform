@@ -1,5 +1,11 @@
 # دليل التشغيل والتطوير
 
+## طرق الدفع للفروع
+
+من **إعداد الدفع → طرق الدفع للفروع** اختر الفرع وConnection، وأدخل اسمًا وعملات مثل USD, EUR، وإتاحة ALL أوSELECTED Agents/Campaigns من الفرع. فعّل الطريقة صراحة وحدد السبب ثم احفظ. Super Admin فقط تربط اتصال المؤسسة بطريقة فرع؛ Manager تستطيع إدارة الطريقة المخولة لفرعها، ولا تدير أسرار الاتصال المشترك. خيارات Connection/Agent/Campaign وMethods paginated، ولا يقبل Backend IDs من فرع آخر. حالة active لا تؤكد قدرة الدفع: PAYMENT_AUTHENTICATION_REQUIRED تحتاج فحص الاتصال، وPAYMENT_FLOW_NOT_READY تعني أن Links/trusted webhook غير مكتملة بعد.
+
+Version conflict تحتاج تحديث الطرق وفتح التفاصيل ومراجعة أحدث نسخة قبل إعادة المحاولة. عند تعطيل Connection أوBranch يمكن تعطيل Method الحالية مع حفظ تاريخها؛ لا يعاد تفعيل طريقة blocked بصمت. افتح Method لرؤية النسخ والأسباب والعملات والاسم التاريخي. Agent ترى **طرق الدفع المتاحة** داخل Lead المصرح بها فقط، دون Connection config/secret/history؛ إعادة الإسناد تنقل الوصول، وتغيير availability ينعكس بعد التحديث. Currency code المعروفة ليست ضمان دعم Provider؛ لا تستخدم هذه الشاشة لتأكيد Payment أوإنشاء Enrollment أوCustomer link. هذه المرحلة local PostgreSQL/mock/Browser Verified وليستLive Stripe.
+
 ## Payment Connection Authentication
 
 من **إعداد الدفع** أنشئ اتصال Stripe باسم واضح وTEST/LIVE المطابقة لمفتاحه؛ Super Admin تختار المؤسسة أوالفرع، وManager تعمل بفرعها. أنشئ الحساب/Sandbox والمفتاح من [Stripe API keys](https://docs.stripe.com/keys)، ثم أدخل restricted server key بصلاحية قراءة Balance لفحص Authentication الحالي. استخدم test key مخصصة في التطوير؛ لا حسابات شخصية أوProduction credential. لا تتطلب العملية تعديل source أوenv أوDB. المفتاح يحفظ مشفرًا ولا يعرض ثانية؛ في التعديل اترك الحقل فارغًا للاحتفاظ به أوأدخل replacement لتدويره.
