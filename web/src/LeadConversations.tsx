@@ -19,7 +19,7 @@ type Conversation = { id: string; sender_id: string; sender_name: string; partic
   controller_type: string; controller_user_id: string | null; controller_name: string | null; state: string; version: number;
   needs_attention_reason: string | null; started_at: string };
 type Consent = { status: 'GRANTED'|'REVOKED'|'UNKNOWN'; do_not_contact: boolean; evidence: string | null;
-  source: string | null; updated_at: string | null; version: number; editable: boolean };
+  source: string | null; updated_at: string | null; version: number; editable: boolean;unavailable_reason?:string|null };
 type Message = { id: string; direction: 'INBOUND'|'OUTBOUND'; author_type: string; body: string;
   message_kind: 'TEXT'|'TEMPLATE'|'ATTACHMENT'; attachment: Attachment | null;
   delivery_state: string; last_error_code: string | null; created_at: string;templateButtons:TemplateButton[];
@@ -387,7 +387,7 @@ export function LeadConversations({ leadId, lifecycle, role, actorId, locale, ap
         <label>{t.evidence}<input required={status === 'GRANTED'} maxLength={2000} value={evidence}
           onChange={(event) => setEvidence(event.target.value)} /></label>
         <button disabled={busy}>{t.save}</button>
-      </form> : <p>{t.shared}</p>}
+      </form> : <p>{consent.unavailable_reason==='CONTACT_REQUIRED' ? (locale==='ar' ? 'بيانات Contact مطلوبة لإدارة إذن التواصل.' : locale==='fr' ? 'Un Contact est requis pour gérer le consentement.' : 'Contact data is required to manage consent.') : t.shared}</p>}
     </div>}
   </section>;
 }

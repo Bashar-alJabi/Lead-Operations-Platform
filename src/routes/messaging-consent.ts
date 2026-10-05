@@ -12,11 +12,11 @@ export function registerMessagingConsentRoutes(app: FastifyInstance, db: Databas
     schema: { params: idParam },
   }, async (request) => {
     const actor = await principalFromRequest(request, db);
-    const row = (await db`SELECT mc.status, mc.do_not_contact, mc.evidence, mc.source,
+    const row = (await db`SELECT l.contact_id, mc.status, mc.do_not_contact, mc.evidence, mc.source,
         mc.updated_at, mc.version,
-        (${actor.role === 'SUPER_ADMIN'} OR (${actor.role === 'MANAGER'} AND NOT EXISTS
+        (l.contact_id IS NOT NULL AND (${actor.role === 'SUPER_ADMIN'} OR (${actor.role === 'MANAGER'} AND NOT EXISTS
           (SELECT 1 FROM lead other WHERE other.contact_id = l.contact_id
-            AND other.branch_id <> ${actor.branchId}))) AS editable
+            AND other.branch_id <> ${actor.branchId})))) AS editable
       FROM lead l LEFT JOIN messaging_consent mc
           ON mc.contact_id = l.contact_id AND mc.channel = 'WHATSAPP'
       WHERE l.id = ${request.params.id} AND l.organization_id = ${actor.organizationId}
@@ -25,7 +25,7 @@ export function registerMessagingConsentRoutes(app: FastifyInstance, db: Databas
           (${actor.role === 'AGENT'} AND l.assigned_agent_id = ${actor.id}))`)[0];
     if (!row) throw new HttpError(404, 'LEAD_NOT_FOUND');
     return row.status ? row : { status: 'UNKNOWN', do_not_contact: false, evidence: null,
-      source: null, updated_at: null, version: 0, editable: row.editable };
+      source: null, updated_at: null, version: 0, editable: row.editable,unavailable_reason:row.contact_id ? null : 'CONTACT_REQUIRED' };
   });
 
   app.put<{ Params: { id: string }; Body: ConsentBody }>('/api/leads/:id/messaging-consent', {
@@ -47,6 +47,7 @@ export function registerMessagingConsentRoutes(app: FastifyInstance, db: Databas
         AND organization_id = ${actor.organizationId}
         AND (${actor.role === 'SUPER_ADMIN'} OR branch_id = ${actor.branchId}) FOR SHARE`)[0];
       if (!lead) throw new HttpError(404, 'LEAD_NOT_FOUND');
+      if (!lead.contact_id) throw new HttpError(409,'CONTACT_REQUIRED');
       await tx`SELECT id FROM contact WHERE id = ${lead.contact_id} FOR UPDATE`;
       if (actor.role === 'MANAGER') {
         const shared = await tx`SELECT 1 FROM lead WHERE contact_id = ${lead.contact_id}

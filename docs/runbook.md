@@ -19,6 +19,10 @@ Submission raw محفوظة مع notification +provider lead +external context �
 
 ## الحالة الحالية
 
+### Lead بدون بيانات Contact
+
+تدعم Core Lead الآن غياب Contact عندما لا تتوفر بيانات الشخص؛ تظهر حالة واضحة في القائمة والتفاصيل، ويمكن متابعة Field values/notes/assignment/follow-ups حسب صلاحية Lead. لا يُنشأ Contact فارغ أواسم وهمي. إذن التواصل readonly مع CONTACT_REQUIRED، وإنشاء WhatsApp conversation يحتاج Contact phone؛ historical thread لا تسمح بالإرسال دون Contact الحالية. Source intake/Contact matching/link review ما زالت قيد التنفيذ، وهذه checkpoint لا توفر إنشاء Lead من Meta بعد؛ لا تستخدم Manual Contact Review لتجاوزها أواصلاحها بتعديل DB.
+
 ### مراجعة المصدر وإعادة تقييم Mapping
 
 من Meta Sources → الاتصال أوCampaign → Sources افتح **مراجعة بيانات المصدر**. PENDING تنتظر `worker:sources`، وNEEDS_ATTENTION تعرض كود فشل آمن: Form غير مكتشفة تحتاج discovery، وbinding غير مطابقة تحتاج مراجعة identifiers وشروط الربط، وMapping غير منشورة/قديمة تحتاج publish وفق Catalog وFields الحالية. خطأ قيم/required/scalar ambiguity لا يُحل بتغيير Raw Source؛ أصلح Mapping المسموح بها ثم أدخل سببًا لإعادة المعالجة. لا يمكنك اختيار Campaign عشوائية لتجاوز قواعد السياق.

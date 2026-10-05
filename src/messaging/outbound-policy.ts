@@ -9,7 +9,7 @@ export async function lockOutboundScope(tx: postgres.TransactionSql, actor: Prin
       b.active AS branch_active, b.timezone, b.messaging_window,
       ca.status AS campaign_status, ca.messaging_config, ca.messaging_policy
     FROM conversation cv JOIN lead l ON l.id = cv.lead_id
-    JOIN contact ct ON ct.id = l.contact_id JOIN branch b ON b.id = l.branch_id
+    LEFT JOIN contact ct ON ct.id = l.contact_id JOIN branch b ON b.id = l.branch_id
     JOIN campaign ca ON ca.id = l.campaign_id
     WHERE cv.id = ${conversationId} AND l.organization_id = ${actor.organizationId}
       AND (${actor.role === 'SUPER_ADMIN'} OR
@@ -29,6 +29,7 @@ export type LockedOutboundScope = Awaited<ReturnType<typeof lockOutboundScope>>;
 export async function checkCurrentOutbound(tx: postgres.TransactionSql, locked: LockedOutboundScope,
   actor: Principal, author: SendAuthor, excludeMessageId?: string, templateId?: string | null, mediaKind?: string) {
   const { scope, conversation } = locked;
+  if (!scope.contact_id) return { allowed: false as const, reason: 'CONTACT_REQUIRED' };
   if (!scope.branch_active || scope.campaign_status !== 'ACTIVE' || scope.messaging_config?.enabled !== true)
     return { allowed: false as const, reason: 'MESSAGING_NOT_ACTIVE' };
   if (scope.lifecycle !== 'OPEN') return { allowed: false as const, reason: 'LEAD_NOT_OPEN' };

@@ -2,6 +2,14 @@
 
 ## قرار البناء
 
+### Lead مع Contact اختيارية
+
+المشكلة المحددة: migration001 فرضت lead.contact_id NOT NULL، بينما 02 §15 تطلب ربط ما يتوفر، و02 §21 لا تسمح بFields ثابتة إجبارية لكل Campaign، و01 §8 تجعل Contact data اختيارية. Source Mapping قد تكون صالحة دون أي Contact value؛ جلب المصدر وتقييمه أثبتا هذا بالفعل. فرض phone/email/name على كل Source أوإنشاء Contact فارغة يمثل شخصًا غير موثق لا يحقق هذين المتطلبين.
+
+الحل التقني المختار قبل تغيير النموذج: migration additive تجعل رابط Contact اختيارياً؛ UUID Lead/Submission والسياق الدقيق يحفظان الهوية التشغيلية، وFK Organization تبقى مفروضة عند وجود Contact. LEFT JOIN في Lead details/search/follow-ups يحفظ الوصول ضمن Lead scope الحالية؛ UI تعرض غياب بيانات Contact صراحة. Consent mutation وConversation creation/outbound لا تعمل دون Contact/participant المطلوبين، ولا يستنتج Contact أوconsent من Provider Lead ID. لا automatic person merge أواختيار حسب name. هذه dependency لإنشاء Source Lead بدون fixed mandatory fields؛ Source matching وoperational creation تبني فوقها لاحقاً، ولا تغير Manual entry الحالية في هذه checkpoint.
+
+طبقت migration052 دون rewrite للبيانات القائمة. requireLead وlist/search/follow-up queue وConversation creation/central outbound scope تسمح بNULL Contact ثم تفرض المتطلبات عند Action التي تحتاجها. Consent GET readonly وتعيد unavailable_reason، PUT ترفض CONTACT_REQUIRED، وConversation creation ترفض CONTACT_PHONE_REQUIRED. historical Messages لا تضيع بسبب غياب Contact الحالي، ولا participant_ref التاريخية تمنح Consent أوتولد Contact ضمنية. integration وBrowser تثبت التفاصيل في progress/coverage؛ Source→Lead service ما زالت غير منفذة، وfixture Lead بلا Contact تختبر Core API/UI فقط.
+
 ### Source binding/Mapping runtime وreview
 
 `source_processing` تقنية مستقلة عن immutable Source Submission: trigger تنشئ PENDING ذرياً مع Submission وbackfill للسابقة. evaluation معاملة PostgreSQL قصيرة دون Provider I/O، تحجز Connection ثم processing/submission ثم Campaign/Branch وField definitions/bindings. SKIP LOCKED يسمح بتوسيع workers؛ ترتيب أقدم pending لكل Connection يمنع تثبيت الأولوية على UUID اتصال. `worker:sources` يشغّل retrieval وevaluation بجدولين مستقلين، لكل منهما batch/poll وعدم تداخل ذاتي وgraceful shutdown؛ بطء GET لا يؤخر تقييم بيانات جُلبت سابقاً. كلاهما يستخدم حدود SOURCE_RETRIEVAL الحالية التقنية، وليست قواعد Campaign أوحدود Meta.

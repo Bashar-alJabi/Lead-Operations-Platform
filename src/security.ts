@@ -52,7 +52,7 @@ export async function requireLead(db: Database, principal: Principal, leadId: st
     SELECT l.id, l.branch_id, l.campaign_id, l.contact_id, l.assigned_agent_id, l.lifecycle, l.version,
       l.source_kind, l.needs_attention_reason, l.created_at, l.updated_at,
       c.name AS contact_name, c.phone, c.email
-    FROM lead l JOIN contact c ON c.id = l.contact_id
+    FROM lead l LEFT JOIN contact c ON c.id = l.contact_id
     WHERE l.id = ${leadId} AND l.organization_id = ${principal.organizationId}
       AND (${principal.role === 'SUPER_ADMIN'} OR
         (${principal.role === 'MANAGER'} AND l.branch_id = ${principal.branchId}) OR

@@ -154,10 +154,10 @@ export function registerOperationsRoutes(app: FastifyInstance, db: Database): vo
     const phoneSearch = search.replace(/[\s().-]/g, '');
     const exactId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(search) ? search : null;
     const rows = await db`
-      SELECT l.id, l.branch_id, l.campaign_id, l.assigned_agent_id, l.lifecycle, l.version, l.source_kind,
+      SELECT l.id, l.branch_id, l.campaign_id, l.contact_id, l.assigned_agent_id, l.lifecycle, l.version, l.source_kind,
         l.needs_attention_reason, l.created_at, c.name AS contact_name, c.phone, c.email,
         (SELECT min(f.due_at) FROM follow_up f WHERE f.lead_id = l.id AND f.status = 'OPEN') AS next_followup_at
-      FROM lead l JOIN contact c ON c.id = l.contact_id
+      FROM lead l LEFT JOIN contact c ON c.id = l.contact_id
       WHERE l.organization_id = ${actor.organizationId}
         AND (${actor.role === 'SUPER_ADMIN'} OR (${actor.role === 'MANAGER'} AND l.branch_id = ${actor.branchId})
           OR (${actor.role === 'AGENT'} AND l.assigned_agent_id = ${actor.id}))

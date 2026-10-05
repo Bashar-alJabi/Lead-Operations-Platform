@@ -29,7 +29,7 @@ export function registerConversationRoutes(app: FastifyInstance, db: Database): 
     const actor = await principalFromRequest(request, db);
     const result = await db.begin(async (tx) => {
       const lead = (await tx`SELECT l.id, l.branch_id, l.campaign_id, l.lifecycle, l.assigned_agent_id,
-          c.phone_normalized FROM lead l JOIN contact c ON c.id = l.contact_id
+          c.phone_normalized FROM lead l LEFT JOIN contact c ON c.id = l.contact_id
         WHERE l.id = ${request.params.id} AND l.organization_id = ${actor.organizationId}
           AND (${actor.role === 'SUPER_ADMIN'} OR
             (${actor.role === 'MANAGER'} AND l.branch_id = ${actor.branchId}) OR

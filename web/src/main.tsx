@@ -16,7 +16,7 @@ type User = { id: string; organizationId: string; branchId: string | null; role:
 type Branch = { id: string; name: string; timezone: string; active: boolean };
 type Campaign = { id: string; branch_id: string; name: string; status: string; routing_method?: string; agents?: { agentId: string; name: string }[] };
 type Lead = { id: string; branch_id: string; campaign_id: string; assigned_agent_id: string | null; lifecycle: string; source_kind: string;
-  contact_name: string; phone: string | null; email: string | null; needs_attention_reason: string | null;
+  contact_id:string|null; contact_name: string|null; phone: string | null; email: string | null; needs_attention_reason: string | null;
   created_at: string; next_followup_at: string | null; version: number };
 type ManagedUser = { id: string; branch_id: string | null; role: Role; name: string; email: string; active: boolean; credential_state: 'INVITED'|'READY' };
 type EmailConnection = { configured: boolean; id?: string; name?: string; status?: string; hasCredential?: boolean; settings?: { host: string; port: number; secure: boolean; username: string; fromAddress: string } };
@@ -39,6 +39,11 @@ const profileLabels = {
   fr: { profile: 'Mon compte', currentPassword: 'Mot de passe actuel', newPassword: 'Nouveau mot de passe', passwordChanged: 'Toutes vos sessions seront fermées après le changement.' },
   en: { profile: 'My account', currentPassword: 'Current password', newPassword: 'New password', passwordChanged: 'All your sessions will end after changing your password.' },
 } as const;
+
+const missingContact={ ar:'بيانات جهة الاتصال غير متوفرة',fr:'Contact indisponible',en:'Contact unavailable' } as const;
+function contactLabel(lead:Pick<Lead,'contact_id'|'contact_name'>,locale:Locale):string {
+  return lead.contact_name || (lead.contact_id ? labels[locale].contact : missingContact[locale]);
+}
 
 const managementLabels = {
   ar: { assignAgent: 'إضافة وكيل', disable: 'تعطيل', enable: 'تفعيل الحساب' },
@@ -265,7 +270,7 @@ function App() {
     created_at: { ar: 'تاريخ الإنشاء', fr: 'Créé le', en: 'Created' }[locale], followup: t.followups };
   const leadCell = (lead: Lead, column: LeadColumn) => {
     switch (column) {
-      case 'contact': return <><strong>{lead.contact_name}</strong><small>{lead.phone || lead.email}</small></>;
+      case 'contact': return <><strong>{contactLabel(lead,locale)}</strong><small>{lead.phone || lead.email}</small></>;
       case 'campaign': return campaigns.find((item) => item.id === lead.campaign_id)?.name || lead.campaign_id;
       case 'branch': return branches.find((item) => item.id === lead.branch_id)?.name || '—';
       case 'lifecycle': return <><span className="badge">{lead.lifecycle}</span>{lead.needs_attention_reason && <small className="attention">{t.attention}</small>}</>;
@@ -317,9 +322,9 @@ function App() {
         void api('/api/auth/password', { method: 'POST', body: JSON.stringify({ currentPassword: form.currentPassword, newPassword: form.newPassword }) })
           .then(() => { setUser(null); setForm({}); setPage('leads'); }).catch((failure) => setError(String(failure))).finally(() => setBusy(false)); }}>
         {field('currentPassword', t.currentPassword, 'password')}{field('newPassword', t.newPassword, 'password')}
-        <button disabled={busy}>{t.save}</button></form></section> : selectedLead && detail ? <section className="panel"><button className="link" onClick={() => setSelectedLead(null)}>{t.back}</button><h2>{detail.lead.contact_name}</h2>
+        <button disabled={busy}>{t.save}</button></form></section> : selectedLead && detail ? <section className="panel"><button className="link" onClick={() => setSelectedLead(null)}>{t.back}</button><h2>{contactLabel(detail.lead,locale)}</h2>
       <div className="facts"><div><small>{t.phone}</small><strong>{detail.lead.phone || '—'}</strong></div><div><small>{t.email}</small><strong>{detail.lead.email || '—'}</strong></div>
-      <div><small>{t.lifecycle}</small><strong>{detail.lead.lifecycle}</strong></div><div><small>{t.assign}</small><strong>{users.find((item) => item.id === detail.lead.assigned_agent_id)?.name || '—'}</strong></div></div>
+      <div><small>{t.lifecycle}</small><strong>{detail.lead.lifecycle}</strong></div><div><small>{t.assign}</small><strong>{leadCell(detail.lead,'owner')}</strong></div></div>
       {canManage && <div className="actions">{(['OPEN','CLOSED','ARCHIVED'] as const).filter((state) => state !== detail.lead.lifecycle).map((state) =>
         <button key={state} className="secondary" onClick={() => { setBusy(true); api(`/api/leads/${selectedLead}/lifecycle`, { method: 'POST', body: JSON.stringify({ lifecycle: state }) })
           .then(() => api<typeof detail>(`/api/leads/${selectedLead}`)).then(setDetail).catch((failure) => setError(String(failure))).finally(() => setBusy(false)); }}>{state === 'OPEN' ? t.reopen : state === 'CLOSED' ? t.close : t.archive}</button>)}</div>}
@@ -363,7 +368,7 @@ function App() {
         page === 'campaigns' ? <><th>{t.name}</th><th>{t.branch}</th><th>{t.status}</th><th>{t.routing}</th><th>{t.actions}</th></> :
         page === 'branches' ? <><th>{t.name}</th><th>{t.timezone}</th><th>{t.status}</th></> :
         <><th>{t.name}</th><th>{t.email}</th><th>{t.role}</th><th>{t.branch}</th><th>{t.status}</th><th>{t.actions}</th></>}</tr></thead><tbody>
-        {page === 'leads' && leads.map((lead) => <tr key={lead.id}>{canManage && <td><input type="checkbox" aria-label={`${t.contact}: ${lead.contact_name}`}
+        {page === 'leads' && leads.map((lead) => <tr key={lead.id}>{canManage && <td><input type="checkbox" aria-label={`${t.contact}: ${contactLabel(lead,locale)}`}
           checked={selectedLeadIds.includes(lead.id)} disabled={selectedLeadIds.length >= 50 && !selectedLeadIds.includes(lead.id)}
           onChange={(event) => setSelectedLeadIds((current) => event.target.checked ? [...current, lead.id] : current.filter((id) => id !== lead.id))} /></td>}{leadColumns.map((column) =>
           <td key={column}>{leadCell(lead, column)}</td>)}<td><button className="link" onClick={() => setSelectedLead(lead.id)}>{t.details}</button></td></tr>)}

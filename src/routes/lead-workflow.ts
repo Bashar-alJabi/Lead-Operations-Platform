@@ -283,7 +283,7 @@ export function registerLeadWorkflowRoutes(app: FastifyInstance, db: Database): 
     const status = request.query.status ?? 'OPEN';
     const rows = await db`SELECT f.id, f.lead_id, f.owner_user_id, f.due_at, f.status, f.priority, f.note,
         f.version, f.created_at, l.branch_id, l.campaign_id, c.name AS contact_name
-      FROM follow_up f JOIN lead l ON l.id = f.lead_id JOIN contact c ON c.id = l.contact_id
+      FROM follow_up f JOIN lead l ON l.id = f.lead_id LEFT JOIN contact c ON c.id = l.contact_id
       WHERE l.organization_id = ${actor.organizationId}
         AND (${actor.role === 'SUPER_ADMIN'} OR (${actor.role === 'MANAGER'} AND l.branch_id = ${actor.branchId})
           OR (${actor.role === 'AGENT'} AND l.assigned_agent_id = ${actor.id} AND f.owner_user_id = ${actor.id}))

@@ -1,7 +1,7 @@
 import { test, expect, type Page,type BrowserContext } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-type Fixture = { password:string;testToken:string;leadId:string;conversationId:string;untrusted:string;mediaLeadId:string;mediaConversationId:string;sourceCampaignId:string };
+type Fixture = { password:string;testToken:string;leadId:string;conversationId:string;untrusted:string;mediaLeadId:string;mediaConversationId:string;sourceCampaignId:string;noContactLeadId:string };
 let fixture:Fixture;
 let agentStorageState:Awaited<ReturnType<BrowserContext['storageState']>>|undefined;
 let managerStorageState:Awaited<ReturnType<BrowserContext['storageState']>>|undefined;
@@ -27,7 +27,15 @@ async function control(page:Page,body:object={}) {
 }
 test('real browser composes, recovers a confirmed failure, shows history and enforces control, DNC, unknown and assignment access',async({ page,browser })=> {
   const browserErrors:string[]=[]; page.on('pageerror',(error)=>browserErrors.push(error.message));
-  await login(page); let panel=await openLead(page);
+  await login(page);
+  const unnamed=page.getByRole('row').filter({ hasText:'Contact unavailable' });await expect(unnamed).toBeVisible();await unnamed.getByRole('button',{ name:'Details',exact:true }).click();
+  await expect(page.getByRole('heading',{ name:'Contact unavailable',exact:true })).toBeVisible();await expect(page.getByText('Contact data is required to manage consent.',{ exact:true })).toBeVisible();
+  await expect(page.locator('.facts')).toContainText('Browser agent');
+  const noContactDenied=await page.request.post(`/api/leads/${fixture.noContactLeadId}/conversations`,{ headers:{ origin:'http://127.0.0.1:4100' } });expect(noContactDenied.status()).toBe(409);expect((await noContactDenied.json()).error).toBe('CONTACT_PHONE_REQUIRED');
+  await page.getByRole('combobox',{ name:'Language' }).selectOption('ar');await expect(page.getByRole('heading',{ name:'بيانات جهة الاتصال غير متوفرة',exact:true })).toBeVisible();
+  await page.setViewportSize({ width:390,height:844 });await page.screenshot({ path:'.local/e2e/optional-contact-ar.png' });expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
+  await page.setViewportSize({ width:1280,height:900 });await page.getByRole('combobox',{ name:'Language' }).selectOption('en');await page.getByRole('button',{ name:'Back',exact:true }).click();
+  let panel=await openLead(page);
   await expect(panel.getByText(fixture.untrusted,{ exact:true })).toBeVisible();
   expect(await page.evaluate(()=>Object.hasOwn(window,'__customerXss'))).toBe(false);
   await expect(panel.locator('img')).toHaveCount(0);

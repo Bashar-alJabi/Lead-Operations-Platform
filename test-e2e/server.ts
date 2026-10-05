@@ -41,6 +41,9 @@ const campaign = (await db`INSERT INTO campaign (organization_id,branch_id,name,
   VALUES (${org},${branch},'Browser Campaign','ACTIVE','{"enabled":true}'::jsonb) RETURNING id`)[0]!.id;
 const sourceCampaign=(await db`INSERT INTO campaign (organization_id,branch_id,name,source_kind)
   VALUES (${org},${branch},'Browser Intake Campaign','META') RETURNING id`)[0]!.id;
+// Model prerequisite fixture, independent of Source intake (which is not implemented yet).
+const noContactLead=(await db`INSERT INTO lead (organization_id,branch_id,campaign_id,source_kind,assigned_agent_id)
+  VALUES (${org},${branch},${sourceCampaign},'META',${users.agent!}) RETURNING id`)[0]!.id;
 const sourceScore=(await db`INSERT INTO field_definition (organization_id,branch_id,campaign_id,key,label,field_type,value_mode,validation)
   VALUES (${org},${branch},${sourceCampaign},'interest','Browser source score','NUMBER','SOURCE','{"min":0}'::jsonb) RETURNING id`)[0]!.id;
 await db`INSERT INTO campaign_field (campaign_id,field_id,required_stage,editable_by_agent,editable_by_manager)
@@ -207,7 +210,7 @@ app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:bool
     return { providerCalls,mediaUploads,sampleUploads,sourceCatalogCalls,sourceRetrievalCalls,sourceSubmissions,messages,recoveries,replies };
   });
 await mkdir(resolve('.local/e2e'),{ recursive:true });
-await writeFile(resolve('.local/e2e/fixture.json'),JSON.stringify({ password,testToken,leadId:lead,conversationId:cv,untrusted,mediaLeadId:mediaLead,mediaConversationId:mediaCv,sourceCampaignId:sourceCampaign }),{ mode:0o600 });
+await writeFile(resolve('.local/e2e/fixture.json'),JSON.stringify({ password,testToken,leadId:lead,conversationId:cv,untrusted,mediaLeadId:mediaLead,mediaConversationId:mediaCv,sourceCampaignId:sourceCampaign,noContactLeadId:noContactLead }),{ mode:0o600 });
 app.post('/__test__/stop',async(request,reply)=> {
   const header=request.headers.authorization;
   if (typeof header !== 'string' || !safeTokenEqual(header,'Bearer '+testToken)) throw new HttpError(403,'TEST_CONTROL_DENIED');

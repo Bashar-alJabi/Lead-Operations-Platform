@@ -133,11 +133,11 @@ export function LeadWorkflow({ lead, role, locale, api, onChanged }: {
 
 export function FollowupQueue({ locale, api, onOpenLead }: { locale: Locale; api: Api; onOpenLead: (id: string) => void }) {
   const t = labels[locale];
-  const [items, setItems] = useState<Array<Followup & { lead_id: string; contact_name: string }>>([]);
+  const [items, setItems] = useState<Array<Followup & { lead_id: string; contact_name: string|null }>>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [error, setError] = useState('');
   async function load(next?: string) {
-    const page = await api<Page<Followup & { lead_id: string; contact_name: string }>>(
+    const page = await api<Page<Followup & { lead_id: string; contact_name: string|null }>>(
       `/api/followups${next ? '?cursor=' + encodeURIComponent(next) : ''}`);
     setItems((current) => next ? [...current, ...page.items] : page.items);
     setCursor(page.nextCursor as string | null);
@@ -145,7 +145,7 @@ export function FollowupQueue({ locale, api, onOpenLead }: { locale: Locale; api
   useEffect(() => { void load().catch((failure) => setError(String(failure))); }, []);
   return <section className="panel"><h2>{t.followups}</h2>{error && <p role="alert" className="error">{error}</p>}
     <div className="table-scroll"><table><thead><tr><th>{t.current}</th><th>{t.due}</th><th>{t.priority}</th><th></th></tr></thead><tbody>
-      {items.map((item) => <tr key={item.id}><td>{item.contact_name}</td><td>{new Date(item.due_at).toLocaleString(locale)}
+      {items.map((item) => <tr key={item.id}><td>{item.contact_name || `Lead ${item.lead_id}`}</td><td>{new Date(item.due_at).toLocaleString(locale)}
         <small>{new Date(item.due_at) < new Date() ? t.overdue : t.upcoming}</small></td><td>{item.priority}</td>
         <td><button className="link" onClick={() => onOpenLead(item.lead_id)}>{t.edit}</button></td></tr>)}</tbody></table></div>
     {cursor && <button className="secondary" onClick={() => { void load(cursor).catch((failure) => setError(String(failure))); }}>{t.more}</button>}
