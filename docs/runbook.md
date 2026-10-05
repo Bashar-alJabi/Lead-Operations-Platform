@@ -1,5 +1,13 @@
 # دليل التشغيل والتطوير
 
+## Hosted Checkout profile الحالية
+
+money validation وStripe create/retrieve adapter متاحة تقنيًا ومختبرة بمزود HTTP وهمي، لكنها غير موصولة بعد بـLead Link API/worker/UI أوPayment confirmation. لا تستخدمها من CLI بcredential حقيقية لتفعيل سلوك مالي؛ التشغيل المعتمد يأتي من application service والواجهة في المرحلة التالية. لا زر إنشاء صوري أوجاهزية true بسبب وجود adapter وحدها.
+
+عند اكتمال UI التالية: Restricted Key تحتاج Account read وCheckout Session create/read والصلاحيات المطلوبة لإنشاء price/product inline حسب مزودها. charges_enabled=false تمنع إنشاء جديد ولا تمنع retrieval تاريخية. UNKNOWN بعدPOST تعني احتمال قبول المزود؛ لا تغيّر intent/idempotency key أوتعاملها كرفض ثمتنشئ duplicate. Worker يجب أن تحفظ first dispatch و24h safety deadline وتجري reconciliation من Session/Event موثوقة بعد الانقطاع. 400/401/403 رفض للمحاولة الحالية لا يمحو UNKNOWN تاريخية؛ 429/concurrent409 قابلة لمحاولة محدودة بنفس params/key ضمن retention، وparameter conflict تحتاج مراجعة. UI/recovery job لهذه المرحلة التالية غير منفذة بعد.
+
+المبالغ decimal strings لا floats، والعملة/precision حسب provider profile لاpayout أوCLDR وحدها. Stripe ISK/UGX integer-major×100، zero-decimal كما توثق المزود، وHUF/TWD two-decimal charges. actual account offers وmin/max/rail limits تحتاج runtime gates ولا تستنتج من صحة currency code وحدها. لا Live Checkout verification، ولا Production/personal credentials أوprovider URLs معدلة يدويًا.
+
 ## إعداد Payment Webhook ومراجعة الاستلام
 
 بعد migrations001–062، من **إعداد الدفع** اختر Connection المسموحة ثم **Webhooks الدفع**. Manager تدير فرعها، Super Admin المؤسسة والفروع، Agent ممنوعة. أدخل سببًا ثم **تجهيز callback للدفع** وانسخ العنوان نفسه. في [Stripe Developers Dashboard](https://docs.stripe.com/development/dashboard/webhooks): Webhooks → Create an event destination → Account، بيئة Sandbox/LIVE المطابقة، ثم العنوان والأحداث الأربعة المعروضة → Add endpoint. هذه profile تستعمل v1 we_ ولا تقبل v2 ed_ أوConnect/thin. إذا كانت الواجهة Workbench اختر Developers Dashboard من Developers preferences لدى Stripe، كما توثق صفحة المزود؛ لا CLI أوتعديل server. انسخ we_ Endpoint ID وwhsec_ Signing Secret إلى الشاشة ثم احفظ. لا حسابًا شخصيًا أوProduction key في التطوير، ولا source/env/DB edits تشغيلية. APP_ORIGIN العام وHTTPS متطلبات deployment؛ HTTP المحلي لا يستقبل Stripe العامة.
