@@ -1,5 +1,15 @@
 # المعمارية التقنية
 
+## Payment Provider options: بيانات عامة محكومة وليست Payment readiness
+
+PaymentConnectionAdapter.inspect اختيارية وتستخدم نفس durable probe/controller scope وconfig/latest-result fencing، مع purpose AUTH أوOPTIONS وsnapshot محفوظة في061. Normalizer مشتركة تقبل opaque provider identity محدودة وتعيد DTO محددة؛ Stripe-specific acct_ validation تبقى داخل profile ولا تمنع provider آخر. Existing AUTH history تحصل purpose=AUTH وsnapshot=NULL، وتبقى غير قابلة للتعديل. Current options cache مرتبطة بـConnection.version ووقت الفحص؛ auth-only success لا تبدل ذلك الوقت، وfailure/reconfigure/rotation تبطل cache، بينما snapshot التاريخية محفوظة.
+
+Stripe inspection تقرأ Balance لتأكيد TEST/LIVE، ثم [Account الحالية للمفتاح](https://docs.stripe.com/api/accounts/retrieve) ثم [Country Spec](https://docs.stripe.com/api/country_specs/retrieve) برمز country مثبت. الحقول الأخيرة توفر country payment currencies/methods، وقد تحتاج طرق الحساب تفعيلًا منفصلًا؛ charges_enabled وcard capability معلومات تشغيلية فقط. تستخدم fixed host/path وcountry[A-Z]{2} وredirect:error وtimeout8s لكل طلب و64KiB Balance و256KiB Account/Spec وarrays≤256currency/100methods وstrict typed IDs/default membership/enums. لا bank/PII أوraw response في Database/DTO. whole probe TTL30s تفترض أن الطلبات الثلاثة المحدودة تنتهي قبلها؛ نتيجة متأخرة تصبح SUPERSEDED ولا تكتب success.
+
+TTL وfinished/options timestamps مصدرها PostgreSQL clock_timestamp، دون اعتماد قرار الصلاحية على ساعة نسخة API. الاختبارات تعكس Node clock+60s وانتهاء TTL فعليًا عبر trigger اختبارية أزيلت؛ newest failed/config change/session expiry لا تتراجع بنتيجة OPTIONS قديمة. Verified snapshot تحفظ حتى تعطيل Connection، وcurrent health/caps ما زالت paymentLinksReady=false/webhookReady=false. Method active configuration ترفض currency خارج current offers، وdisable لا يحجبه هذا الشرط. عند إنشاء Links لاحقًا يجب إعادة فحص current currency/options/scope دون الاعتماد على اختيار Frontend أوsnapshot قديمة.
+
+Operational Webhook registration/security وfinancial Link/Payment/Enrollment بعد هذا الأساس، ولم تنفذ بعد. [Stripe Webhooks](https://docs.stripe.com/webhooks) توثق Endpoint وRaw Body وSignature verification؛ المرجع روجع فقط ولم تركب Stripe CLI أويُستخدم Account حقيقي. هذه المرحلة80unit/30integration/14Browser وMock/PostgreSQL Verified، وLive Setup خارجي غير منفذ.
+
 ## Branch Payment Methods: نطاق الاستخدام مستقل عن إدارة Credential
 
 وفق01 §42 و02 §59 و03 §34، Method ثابتة المؤسسة والفرع وترتبط باتصال PAYMENT من الفرع نفسه أوالمؤسسة. Manager تختار اتصال فرعها؛ Super Admin فقط تنشئ أوتعيد ربط Method باتصال المؤسسة. هذا الربط الصريح يجيز استخدام Method الفرع وإدارة availability، ولا يمنح Manager حق قراءة أوتدوير secret أوإدارة Organization Connection. Manager يمكنها إبقاء الربط المشترك الموجود عند تعديل Method، ولا تنشئ ربطًا مشتركًا جديدًا بمعرف مخمن.

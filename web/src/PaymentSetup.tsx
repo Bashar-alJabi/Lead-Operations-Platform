@@ -3,8 +3,10 @@ import { PaymentMethods } from './PaymentMethods.js';
 type Api=<T>(path:string,options?:RequestInit)=>Promise<T>;
 type Locale='ar'|'en'|'fr';
 type Connection={ id:string;name:string;provider:string;branch_id:string|null;config:{ mode:'TEST'|'LIVE' };version:number;status:string;
-  last_error_code:string|null;last_success_at:string|null;last_failure_at:string|null;secret_configured:boolean;capabilities:{ authenticationVerified?:boolean } };
-type Probe={ id:string;connection_version:number;state:string;error_code:string|null;created_at:string;finished_at:string|null };
+  last_error_code:string|null;last_success_at:string|null;last_failure_at:string|null;secret_configured:boolean;
+  capabilities:{ authenticationVerified?:boolean;paymentOptions?:ProviderOptions;paymentOptionsVersion?:number;paymentOptionsAt?:string } };
+type ProviderOptions={ accountRef:string;country:string;defaultCurrency:string;currencies:string[];paymentMethods:string[];chargesEnabled:boolean;cardPayments:string };
+type Probe={ id:string;connection_version:number;state:string;error_code:string|null;created_at:string;finished_at:string|null;purpose:string;options_snapshot:ProviderOptions|null };
 const labels={
   ar:{ title:'اتصالات الدفع',guide:'أنشئ حسابًا أو Sandbox لدى Stripe. من API keys أنشئ Restricted Key بصلاحية قراءة Balance لاختبار الاتصال، واختر TEST أو LIVE المطابقة. استخدم مفاتيح اختبار مخصصة أثناء التطوير.',
     note:'هذا الفحص يثبتAuthentication فقط. Payment links وwebhook وEnrollment غير جاهزة في هذه المرحلة؛ لا يعتبرCustomer claim أوsuccess page دفعًا مؤكدًا.',
@@ -22,8 +24,16 @@ const labels={
     secret:'Identifiants chiffrés et jamais réaffichés. Laissez la clé vide pour la conserver ou saisissez une nouvelle clé pour la remplacer.',
     test:'Tester l’authentification',disable:'Désactiver la connexion',reconnect:'Reconnecter la connexion',reason:'Motif du changement',refresh:'Actualiser les connexions',more:'Autres connexions',history:'Historique des tests',moreHistory:'Suite de l’historique',empty:'Aucune connexion.',status:'État',version:'Version',success:'Dernier succès',failure:'Dernier échec',pending:'L’authentification ne valide pas le paiement.',result:'Résultat du test' },
 };
+const optionLabels={
+  en:{ inspect:'Inspect payment options',title:'Provider payment options',country:'Account country',defaultCurrency:'Default currency',currencies:'Country payment currencies',methods:'Country payment methods',charges:'Charges enabled',card:'Card payments capability',at:'Options inspected at',yes:'Yes',no:'No',
+    guide:'For this read-only inspection, the key also needs read access to your Account and Country Specs. Country options do not prove account activation, Checkout write permission, or webhook readiness.' },
+  ar:{ inspect:'فحص خيارات الدفع',title:'خيارات الدفع لدى المزود',country:'بلد الحساب',defaultCurrency:'العملة الافتراضية',currencies:'عملات الدفع للبلد',methods:'طرق الدفع للبلد',charges:'قبول المدفوعات مفعّل',card:'صلاحية الدفع بالبطاقة',at:'وقت فحص الخيارات',yes:'نعم',no:'لا',
+    guide:'يتطلب هذا الفحص للقراءة فقط صلاحية قراءة Account وCountry Specs للمفتاح أيضًا. خيارات البلد لا تثبت تفعيل الحساب أوصلاحية إنشاء Checkout أوجاهزية Webhook.' },
+  fr:{ inspect:'Inspecter les options de paiement',title:'Options de paiement du fournisseur',country:'Pays du compte',defaultCurrency:'Devise par défaut',currencies:'Devises de paiement du pays',methods:'Moyens de paiement du pays',charges:'Paiements activés',card:'Capacité de paiement par carte',at:'Date de vérification des options',yes:'Oui',no:'Non',
+    guide:'Ce contrôle en lecture seule nécessite aussi l’accès en lecture au compte et à Country Specs. Les options du pays ne prouvent ni l’activation du compte, ni les droits de création Checkout, ni la disponibilité du webhook.' },
+};
 export function PaymentSetup({ locale,role,branches,api }: { locale:Locale;role:'SUPER_ADMIN'|'MANAGER';branches:{ id:string;name:string }[];api:Api }) {
-  const t=labels[locale];const [items,setItems]=useState<Connection[]>([]);const [cursor,setCursor]=useState<string|null>(null);
+  const t=labels[locale];const ot=optionLabels[locale];const [items,setItems]=useState<Connection[]>([]);const [cursor,setCursor]=useState<string|null>(null);
   const [selected,setSelected]=useState<Connection|null>(null);const selectedRef=useRef<string|null>(null);
   const [name,setName]=useState('');const [branchId,setBranchId]=useState('');const [mode,setMode]=useState<'TEST'|'LIVE'>('TEST');
   const [key,setKey]=useState('');const [reason,setReason]=useState('');const [busy,setBusy]=useState(false);const [error,setError]=useState('');
@@ -43,9 +53,9 @@ export function PaymentSetup({ locale,role,branches,api }: { locale:Locale;role:
     const result=await api<{ id?:string;version:number;status:string }>('/api/payments/connections'+(selected ? '/'+selected.id : ''),{ method:selected ? 'PUT' : 'POST',body:JSON.stringify(input) });
     setKey('');const id=selected?.id ?? result.id!;selectedRef.current=id;await load();await history(id);setNotice(result.status);
   } catch(e) { setError(String(e)); } finally { setBusy(false); } }
-  async function action(kind:'test'|'disable'|'reconnect') { if(!selected)return;setBusy(true);setError('');setNotice('');const id=selected.id;
-    try { const result=await api<{ state?:string;status?:string;errorCode?:string|null }>(`/api/payments/connections/${id}/${kind}`,{
-      method:'POST',body:JSON.stringify({ version:selected.version,...(kind==='test' ? {} : { reason }) }) });setNotice(result.state ?? result.status ?? ''); }
+  async function action(kind:'test'|'options'|'disable'|'reconnect') { if(!selected)return;setBusy(true);setError('');setNotice('');const id=selected.id;
+    try { const result=await api<{ state?:string;status?:string;errorCode?:string|null }>(`/api/payments/connections/${id}/${kind==='options' ? 'test' : kind}`,{
+      method:'POST',body:JSON.stringify({ version:selected.version,...(kind==='options' ? { inspectOptions:true } : kind==='test' ? {} : { reason }) }) });setNotice(result.state ?? result.status ?? ''); }
     catch(e) { setError(String(e)); } finally { await load().catch((e)=>setError(String(e)));await history(id).catch((e)=>setError(String(e)));setBusy(false); } }
   return <section className="payment-setup"><h2>{t.title}</h2><p>{t.guide} <a href="https://docs.stripe.com/keys" target="_blank" rel="noopener noreferrer">Stripe API keys</a></p><p role="status">{t.note}</p>
     {error && <p role="alert" className="error">{error}</p>}{notice && <p role="status">{t.result}: <bdi>{notice}</bdi></p>}
@@ -68,9 +78,19 @@ export function PaymentSetup({ locale,role,branches,api }: { locale:Locale;role:
       <div><dt>{t.success}</dt><dd>{selected.last_success_at ? new Date(selected.last_success_at).toLocaleString(locale) : '—'}</dd></div>
       <div><dt>{t.failure}</dt><dd>{selected.last_failure_at ? new Date(selected.last_failure_at).toLocaleString(locale) : '—'}</dd></div></dl>
       <p>{t.pending} <bdi>{selected.last_error_code}</bdi></p><button disabled={busy || selected.status==='DISABLED'} onClick={()=>void action('test')}>{t.test}</button>
+      <p>{ot.guide}</p><button disabled={busy || selected.status==='DISABLED'} onClick={()=>void action('options')}>{ot.inspect}</button>
+      {selected.capabilities.paymentOptions && selected.capabilities.paymentOptionsVersion===selected.version && <section className="payment-provider-options"><h4>{ot.title}</h4>
+        <dl className="inbound-target-summary"><div><dt>{ot.country}</dt><dd><bdi>{selected.capabilities.paymentOptions.country}</bdi></dd></div>
+          <div><dt>{ot.defaultCurrency}</dt><dd><bdi>{selected.capabilities.paymentOptions.defaultCurrency}</bdi></dd></div>
+          <div><dt>{ot.charges}</dt><dd>{selected.capabilities.paymentOptions.chargesEnabled ? ot.yes : ot.no}</dd></div>
+          <div><dt>{ot.card}</dt><dd><bdi>{selected.capabilities.paymentOptions.cardPayments}</bdi></dd></div>
+          <div><dt>{ot.at}</dt><dd>{selected.capabilities.paymentOptionsAt ? new Date(selected.capabilities.paymentOptionsAt).toLocaleString(locale) : '—'}</dd></div></dl>
+        <p>{ot.currencies}: <bdi>{selected.capabilities.paymentOptions.currencies.join(', ')}</bdi></p><p>{ot.methods}: <bdi>{selected.capabilities.paymentOptions.paymentMethods.join(', ')}</bdi></p>
+      </section>}
       <label>{t.reason}<input aria-label={t.reason} maxLength={500} value={reason} onChange={(e)=>setReason(e.target.value)} /></label>
       <button disabled={busy || reason.trim().length<3} className="secondary" onClick={()=>void action(selected.status==='DISABLED' ? 'reconnect' : 'disable')}>{selected.status==='DISABLED' ? t.reconnect : t.disable}</button>
-      <h4>{t.history}</h4><ul>{probes.map((probe)=><li key={probe.id}><time>{new Date(probe.created_at).toLocaleString(locale)}</time> · <bdi>{probe.state}</bdi> · {t.version} {probe.connection_version}{probe.error_code && <> · <bdi>{probe.error_code}</bdi></>}</li>)}</ul>
+      <h4>{t.history}</h4><ul>{probes.map((probe)=><li key={probe.id}><time>{new Date(probe.created_at).toLocaleString(locale)}</time> · <bdi>{probe.purpose}</bdi> · <bdi>{probe.state}</bdi> · {t.version} {probe.connection_version}{probe.error_code && <> · <bdi>{probe.error_code}</bdi></>}
+        {probe.options_snapshot && <p>{ot.country}: <bdi>{probe.options_snapshot.country}</bdi> · {ot.currencies}: <bdi>{probe.options_snapshot.currencies.join(', ')}</bdi></p>}</li>)}</ul>
       {probeCursor && <button disabled={busy} className="secondary" onClick={()=>void history(selected.id,probeCursor).catch((e)=>setError(String(e)))}>{t.moreHistory}</button>}
     </section>}
     <PaymentMethods locale={locale} role={role} branches={branches} api={api} />

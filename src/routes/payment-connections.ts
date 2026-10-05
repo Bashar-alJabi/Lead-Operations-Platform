@@ -6,8 +6,8 @@ import { openSecret,sealSecret } from '../credentials.js';
 import { HttpError,principalFromRequest,requireRole,type Principal } from '../security.js';
 import { decodeCursor,encodeCursor } from '../pagination.js';
 import { currentPaymentActor } from '../payments/access.js';
-import { paymentConnectionAdapters,PaymentProviderError,validatePaymentCredentials,
-  type PaymentAdapterRegistry,type PaymentConfig,type PaymentCredentials } from '../payments/providers.js';
+import { paymentConnectionAdapters,PaymentProviderError,validatePaymentCredentials,normalizePaymentProviderOptions,
+  type PaymentAdapterRegistry,type PaymentConfig,type PaymentCredentials,type PaymentProviderOptions } from '../payments/providers.js';
 
 const root='/api/payments/connections';
 const params={ type:'object',additionalProperties:false,required:['id'],properties:{ id:{ type:'string',format:'uuid' } } } as const;
@@ -105,7 +105,7 @@ export function registerPaymentConnectionRoutes(app:FastifyInstance,db:Database,
   app.get<{ Params:{ id:string };Querystring:{ limit?:number;cursor?:string } }>(root+'/:id/history',{ schema:{ params,querystring:{ type:'object',additionalProperties:false,
     properties:{ limit:{ type:'integer',minimum:1,maximum:100 },cursor:{ type:'string',maxLength:256 } } } } },async(request)=> {
     const actor=await principalFromRequest(request,db);await connection(db,actor,request.params.id);const limit=request.query.limit ?? 20;const cursor=decodeCursor(request.query.cursor);
-    const rows=await db`SELECT p.id,p.connection_version,p.created_at,p.finished_at,
+    const rows=await db`SELECT p.id,p.connection_version,p.created_at,p.finished_at,p.purpose,p.options_snapshot,
       CASE WHEN p.state='RUNNING' AND p.expires_at<now() THEN 'INTERRUPTED' ELSE p.state END AS state,
       CASE WHEN p.state='RUNNING' AND p.expires_at<now() THEN 'PAYMENT_TEST_INTERRUPTED' ELSE p.error_code END AS error_code
       FROM payment_connection_probe p JOIN integration_connection c ON c.id=p.connection_id
@@ -114,7 +114,7 @@ export function registerPaymentConnectionRoutes(app:FastifyInstance,db:Database,
       ORDER BY p.created_at DESC,p.id DESC LIMIT ${limit+1}`;
     const items=rows.slice(0,limit);const last=items.at(-1);return { items,nextCursor:rows.length>limit && last ? encodeCursor({ timestamp:last.created_at.toISOString(),id:last.id }) : null };
   });
-  app.post<{ Params:{ id:string };Body:{ version:number } }>(root+'/:id/test',{ schema:{ params,body:{ type:'object',additionalProperties:false,required:['version'],properties:{ version } } },
+  app.post<{ Params:{ id:string };Body:{ version:number;inspectOptions?:boolean } }>(root+'/:id/test',{ schema:{ params,body:{ type:'object',additionalProperties:false,required:['version'],properties:{ version,inspectOptions:{ type:'boolean' } } } },
     config:{ rateLimit:{ max:10,timeWindow:'15 minutes' } } },async(request,reply)=> {
     const actor=await principalFromRequest(request,db);
     const claim=await db.begin(async(tx)=> { const row=await connection(tx,actor,request.params.id,true);
@@ -123,27 +123,36 @@ export function registerPaymentConnectionRoutes(app:FastifyInstance,db:Database,
       if (row.status==='DISABLED') throw new HttpError(409,'CONNECTION_DISABLED');
       if (!(await branchActive(tx,row.branch_id))) throw new HttpError(409,'BRANCH_DISABLED');
       const credentials=await savedCredentials(tx,row.id);validatePaymentCredentials(row.config,credentials);
-      const probe=(await tx`INSERT INTO payment_connection_probe(connection_id,connection_version,actor_user_id,actor_role,actor_branch_id)
-        VALUES (${row.id},${row.version},${actor.id},${actor.role},${actor.branchId}) RETURNING id`)[0]!;
-      await audit(tx,actor,row,'PAYMENT_CONNECTION_TEST_STARTED',{ probeId:probe.id,version:row.version });return { row,credentials,probeId:probe.id as string };
+      const purpose=request.body.inspectOptions ? 'OPTIONS' : 'AUTH';
+      const probe=(await tx`INSERT INTO payment_connection_probe(connection_id,connection_version,actor_user_id,actor_role,actor_branch_id,purpose)
+        VALUES (${row.id},${row.version},${actor.id},${actor.role},${actor.branchId},${purpose}) RETURNING id`)[0]!;
+      await audit(tx,actor,row,'PAYMENT_CONNECTION_TEST_STARTED',{ probeId:probe.id,version:row.version,purpose });return { row,credentials,probeId:probe.id as string,purpose };
     });
-    let code:string|null=null;
+    let code:string|null=null;let providerOptions:PaymentProviderOptions|null=null;
     try { const adapter=adapters[claim.row.provider];if (!adapter) throw new PaymentProviderError('PAYMENT_PROVIDER_RESPONSE_INVALID');
-      const verified=await adapter.verify(claim.row.config,claim.credentials);
-      if (!verified || verified.mode!==claim.row.config.mode) throw new PaymentProviderError('PAYMENT_MODE_MISMATCH'); }
+      if(claim.purpose==='OPTIONS') {
+        if(!adapter.inspect)throw new PaymentProviderError('PAYMENT_PROVIDER_OPTIONS_UNSUPPORTED');
+        const inspected=await adapter.inspect(claim.row.config,claim.credentials);
+        if(!inspected || inspected.mode!==claim.row.config.mode)throw new PaymentProviderError('PAYMENT_MODE_MISMATCH');
+        providerOptions=normalizePaymentProviderOptions(inspected.options);
+      } else { const verified=await adapter.verify(claim.row.config,claim.credentials);
+        if (!verified || verified.mode!==claim.row.config.mode) throw new PaymentProviderError('PAYMENT_MODE_MISMATCH'); } }
     catch(error) { code=error instanceof PaymentProviderError ? error.code : 'PAYMENT_PROVIDER_UNAVAILABLE'; }
     const result=await db.begin(async(tx)=> {
       const row=(await tx`SELECT * FROM integration_connection WHERE id=${claim.row.id} FOR UPDATE`)[0]!;
-      const probe=(await tx`SELECT * FROM payment_connection_probe WHERE id=${claim.probeId} FOR UPDATE`)[0]!;
+      const probe=(await tx`SELECT *,expires_at<=clock_timestamp() AS expired FROM payment_connection_probe WHERE id=${claim.probeId} FOR UPDATE`)[0]!;
       const allowed=await currentPaymentActor(tx,actor,request);
       const latest=(await tx`SELECT id FROM payment_connection_probe WHERE connection_id=${row.id} ORDER BY probe_number DESC LIMIT 1`)[0]!.id===probe.id;
-      const stale=row.version!==claim.row.version || row.status==='DISABLED' || !latest || new Date(probe.expires_at).getTime()<Date.now();
+      const stale=row.version!==claim.row.version || row.status==='DISABLED' || !latest || probe.expired===true;
       const available=await branchActive(tx,row.branch_id);
       const outcome=!allowed || !available ? 'BLOCKED' : stale ? 'SUPERSEDED' : code ? 'FAILED' : 'VERIFIED';
       const errorCode=!allowed ? 'PAYMENT_ACCESS_REVOKED' : !available ? 'BRANCH_DISABLED' : stale ? 'PAYMENT_TEST_SUPERSEDED' : code;
-      await tx`UPDATE payment_connection_probe SET state=${outcome},error_code=${errorCode},finished_at=now() WHERE id=${probe.id}`;
+      const finished=(await tx`UPDATE payment_connection_probe SET state=${outcome},error_code=${errorCode},options_snapshot=${outcome==='VERIFIED' && providerOptions ? tx.json(providerOptions) : null},finished_at=clock_timestamp() WHERE id=${probe.id} RETURNING finished_at`)[0]!;
+      const priorOptions=row.capabilities.paymentOptionsVersion===row.version && row.capabilities.paymentOptions
+        ? { paymentOptions:row.capabilities.paymentOptions,paymentOptionsVersion:row.version,paymentOptionsAt:row.capabilities.paymentOptionsAt } : {};
       if (allowed && available && !stale) await tx`UPDATE integration_connection SET status=${code ? code==='PAYMENT_PROVIDER_AUTH_FAILED' ? 'AUTH_EXPIRED' : 'ERROR' : 'WARNING'},
-        capabilities=${tx.json(code ? {} : { authenticationVerified:true,mode:row.config.mode,paymentLinksReady:false,webhookReady:false })},
+        capabilities=${tx.json(code ? {} : { authenticationVerified:true,mode:row.config.mode,paymentLinksReady:false,webhookReady:false,...priorOptions,
+          ...(providerOptions ? { paymentOptions:providerOptions,paymentOptionsVersion:row.version,paymentOptionsAt:finished.finished_at.toISOString() } : {}) })},
         last_success_at=CASE WHEN ${code===null} THEN now() ELSE last_success_at END,last_failure_at=CASE WHEN ${code!==null} THEN now() ELSE last_failure_at END,
         last_error_code=${code ?? 'PAYMENT_FLOW_NOT_READY'},updated_at=now() WHERE id=${row.id}`;
       await audit(tx,actor,row,'PAYMENT_CONNECTION_TEST_FINISHED',{ probeId:probe.id,outcome,errorCode });

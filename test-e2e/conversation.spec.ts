@@ -913,3 +913,36 @@ test('Branch Payment Methods support explicit shared accounts, scoped Agent/Camp
     expect(await tab.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);await tab.screenshot({ path:'.local/e2e/payment-method-history-ar.png' });expect(errors).toEqual([]);
   } finally { await admin.close();await manager.close();await agent.close(); }
 });
+
+test('Payment provider options show safe country capabilities, fence credential rotation and retain failure/history without Checkout readiness',async({ browser })=> {
+  const context=await browser.newContext({ storageState:adminStorageState });const page=await context.newPage();const errors:string[]=[];page.on('pageerror',(e)=>errors.push(e.message));
+  try {
+    await page.goto('/');await page.getByRole('combobox',{ name:'Language' }).selectOption('en');await page.getByRole('button',{ name:'Payment setup',exact:true }).click();
+    const setup=page.locator('.payment-setup');const row=setup.getByRole('row').filter({ hasText:'Browser shared payment' });
+    await row.getByRole('button',{ name:'Edit payment connection',exact:true }).click();await expect(setup.getByLabel('Payment connection name',{ exact:true })).toHaveValue('Browser shared payment');
+    const connection=(await (await page.request.get('/api/payments/connections')).json()).items.find((item:{ name:string })=>item.name==='Browser shared payment');
+    await setup.getByRole('button',{ name:'Inspect payment options',exact:true }).click();const options=page.locator('.payment-provider-options');
+    await expect(options).toContainText('EUR, USD');await expect(options).toContainText('PENDING');await expect(options).toContainText('Country payment methods: ach, card');
+    await expect(row).toContainText('PAYMENT_FLOW_NOT_READY');await expect(setup).toContainText('Country options do not prove account activation');
+    let detail=await (await page.request.get('/api/payments/connections/'+connection.id)).json();expect(detail.capabilities.paymentOptions.chargesEnabled).toBe(false);
+    expect(detail.capabilities.paymentLinksReady).toBe(false);expect(detail.capabilities.webhookReady).toBe(false);
+    await setup.getByRole('button',{ name:'Test authentication',exact:true }).click();await expect(setup.getByRole('button',{ name:'Inspect payment options',exact:true })).toBeEnabled();
+    await expect(options).toContainText('EUR, USD');
+    await control(page,{ paymentFailure:true });await setup.getByRole('button',{ name:'Inspect payment options',exact:true }).click();
+    await expect(setup.locator(':scope > [role=alert]')).toContainText('PAYMENT_PROVIDER_UNAVAILABLE');await expect(options).toHaveCount(0);await expect(row).toContainText('ERROR');
+    const history=await (await page.request.get(`/api/payments/connections/${connection.id}/history`)).json();expect(history.items.some((p:{ purpose:string;state:string;options_snapshot:unknown })=>p.purpose==='OPTIONS' && p.state==='VERIFIED' && p.options_snapshot)).toBe(true);
+    await control(page,{ paymentFailure:false });await setup.getByRole('button',{ name:'Inspect payment options',exact:true }).click();await expect(options).toContainText('EUR, USD');
+    await setup.getByLabel('Payment API key',{ exact:true }).fill('rk_test_'+'browserOptionsReplacement'.repeat(3));
+    await setup.getByRole('button',{ name:'Save payment connection',exact:true }).click();await expect(row).toContainText('NOT_CONFIGURED');await expect(options).toHaveCount(0);
+    await setup.getByRole('button',{ name:'Inspect payment options',exact:true }).click();await expect(options).toContainText('EUR, USD');
+    detail=await (await page.request.get('/api/payments/connections/'+connection.id)).json();expect(detail.version).toBe(2);expect(detail.capabilities.paymentOptionsVersion).toBe(2);
+    const methods=page.locator('.payment-methods');await methods.getByRole('row').filter({ hasText:'Manager maintained shared method' }).getByRole('button',{ name:'Edit payment method',exact:true }).click();
+    await methods.getByLabel('Method currencies',{ exact:true }).fill('GBP');await methods.getByLabel('Payment method change reason',{ exact:true }).fill('Browser rejects currency not offered by inspected provider');
+    await methods.getByRole('button',{ name:'Save payment method',exact:true }).click();await expect(methods.getByRole('alert')).toContainText('PAYMENT_CURRENCY_NOT_OFFERED');await expect(methods).toContainText('Version: 4');
+    await methods.getByRole('button',{ name:'New payment method',exact:true }).click();
+    await page.getByRole('combobox',{ name:'Language' }).selectOption('fr');await expect(options.getByRole('heading',{ name:'Options de paiement du fournisseur',exact:true })).toBeVisible();
+    await page.setViewportSize({ width:390,height:844 });await page.getByRole('combobox',{ name:'Language' }).selectOption('ar');
+    await options.getByRole('heading',{ name:'خيارات الدفع لدى المزود',exact:true }).scrollIntoViewIfNeeded();
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);await page.screenshot({ path:'.local/e2e/payment-provider-options-ar.png' });expect(errors).toEqual([]);
+  } finally { await control(page,{ paymentFailure:false });await context.close(); }
+});

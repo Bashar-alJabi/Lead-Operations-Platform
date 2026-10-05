@@ -1,5 +1,13 @@
 # دليل التشغيل والتطوير
 
+## فحص خيارات مزود الدفع
+
+اختر Connection من **إعداد الدفع** ثم **فحص خيارات الدفع**. يلزم server key الموافق TEST/LIVE بصلاحية قراءة Balance وAccount وCountry Specs؛ اقرأ [API keys](https://docs.stripe.com/keys) و[Account API](https://docs.stripe.com/api/accounts/retrieve). الفحص read-only؛ لا ينشئ Checkout أوWebhook ولا يؤكد Payment. تعرض الواجهة بلد الحساب/default currency/country currencies-methods وcharges/card status ووقت الفحص. Country options ليست ضمانًا لتفعيل كل rail للحساب أوصلاحية Checkout write؛ WARNING/PAYMENT_FLOW_NOT_READY باقية حتى اكتمال financial flow.
+
+Unknown/malformed/mismatched/oversized response تعطي PAYMENT_PROVIDER_RESPONSE_INVALID، و403 AUTH_EXPIRED تحتاج صلاحية المفتاح، و429/UNAVAILABLE تحتاج انتظار المزود ثم فحصًا جديدًا. لا raw error أوbank/business info في الواجهة. Rotation أوreconfigure تلغي current options حتى فحص نسخة الإعداد الجديدة؛ Authentication الناجحة بعد OPTIONS تحتفظ بالنتيجة ووقتها فقط إذا كانت من نفس version. History تعرض OPTIONS/VERIFIED snapshot القديمة حتى بعد failure/disable دون جعلها current. Active Method غير المطابقة للعملات المطروحة ترفض PAYMENT_CURRENCY_NOT_OFFERED؛ صحح currencies أوعطّلها بسبب موثق.
+
+لا Stack/CLI/DB edits مطلوبة لفحص Business connection. Credentials/images/logs/fixtures المحلية تبقى خارج Git؛ صورة Arabic في.local/e2e/payment-provider-options-ar.png فُحصت، والتشغيل Mock/PostgreSQL/Browser فقط. Webhook setup وPayment Links/Enrollment ما زالت غير متاحة؛ لا success page أوcustomer claim تؤكد الدفع.
+
 ## طرق الدفع للفروع
 
 من **إعداد الدفع → طرق الدفع للفروع** اختر الفرع وConnection، وأدخل اسمًا وعملات مثل USD, EUR، وإتاحة ALL أوSELECTED Agents/Campaigns من الفرع. فعّل الطريقة صراحة وحدد السبب ثم احفظ. Super Admin فقط تربط اتصال المؤسسة بطريقة فرع؛ Manager تستطيع إدارة الطريقة المخولة لفرعها، ولا تدير أسرار الاتصال المشترك. خيارات Connection/Agent/Campaign وMethods paginated، ولا يقبل Backend IDs من فرع آخر. حالة active لا تؤكد قدرة الدفع: PAYMENT_AUTHENTICATION_REQUIRED تحتاج فحص الاتصال، وPAYMENT_FLOW_NOT_READY تعني أن Links/trusted webhook غير مكتملة بعد.

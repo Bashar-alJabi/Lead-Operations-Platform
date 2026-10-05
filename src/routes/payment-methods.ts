@@ -98,6 +98,8 @@ export function registerPaymentMethodRoutes(app:FastifyInstance,db:Database) {
         if(actor.role!=='SUPER_ADMIN' && connection.branch_id===null && current?.connection_id!==connection.id)throw new HttpError(403,'PAYMENT_SHARED_METHOD_BINDING_FORBIDDEN');
         if(!branch.active && (input.active || !current))throw new HttpError(409,'BRANCH_DISABLED');
         if(connection.status==='DISABLED' && (input.active || current?.connection_id!==connection.id))throw new HttpError(409,'CONNECTION_DISABLED');
+        const offered=connection.capabilities.paymentOptionsVersion===connection.version ? connection.capabilities.paymentOptions?.currencies : null;
+        if(input.active && Array.isArray(offered) && input.currencies.some((code)=>!offered.includes(code)))throw new HttpError(400,'PAYMENT_CURRENCY_NOT_OFFERED');
         const agents=await tx`SELECT id FROM user_account WHERE id IN (SELECT value::uuid FROM jsonb_array_elements_text(${tx.json(input.agents.ids)}) x(value))
           AND organization_id=${actor.organizationId} AND branch_id=${input.branchId} AND role='AGENT' ORDER BY id FOR SHARE`;
         const campaigns=await tx`SELECT id FROM campaign WHERE id IN (SELECT value::uuid FROM jsonb_array_elements_text(${tx.json(input.campaigns.ids)}) x(value))
