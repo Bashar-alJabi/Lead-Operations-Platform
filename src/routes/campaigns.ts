@@ -3,6 +3,8 @@ import type postgres from 'postgres';
 import type { Database } from '../db.js';
 import { decodeCursor, encodeCursor } from '../pagination.js';
 import { HttpError, principalFromRequest, requireBranch, requireRole, type Principal } from '../security.js';
+import { sourceCampaignIssues } from '../sources/readiness.js';
+import { recheckSourceActor } from '../sources/catalog-sync.js';
 
 const idParam = { type: 'object', additionalProperties: false, required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } as const;
 const routingMethods = ['MANUAL', 'ROUND_ROBIN', 'WEIGHTED', 'PERFORMANCE'] as const;
@@ -19,6 +21,15 @@ type CampaignUpdate = {
 
 async function managedCampaign(sql: Database | postgres.TransactionSql, actor: Principal, id: string, lock = false) {
   requireRole(actor, 'SUPER_ADMIN', 'MANAGER');
+  if (lock) {
+    const [initial]=await sql`SELECT id,branch_id,source_kind FROM campaign WHERE id=${id} AND organization_id=${actor.organizationId}`;
+    if (!initial) throw new HttpError(404,'CAMPAIGN_NOT_FOUND');requireBranch(actor,initial.branch_id);
+    // Source changes and intake hold Connection before Branch/Campaign; activation uses the same order.
+    await sql`SELECT c.id FROM integration_connection c WHERE c.organization_id=${actor.organizationId}
+      AND EXISTS (SELECT 1 FROM source_campaign_binding b WHERE b.connection_id=c.id AND b.campaign_id=${id} AND b.active)
+      ORDER BY c.id FOR UPDATE OF c`;
+    await sql`SELECT id FROM branch WHERE id=${initial.branch_id} FOR NO KEY UPDATE`;
+  }
   const rows = lock
     ? await sql`SELECT c.*, b.active AS branch_active FROM campaign c JOIN branch b ON b.id = c.branch_id
         WHERE c.id = ${id} AND c.organization_id = ${actor.organizationId} FOR UPDATE OF c`
@@ -26,11 +37,12 @@ async function managedCampaign(sql: Database | postgres.TransactionSql, actor: P
         WHERE c.id = ${id} AND c.organization_id = ${actor.organizationId}`;
   const campaign = rows[0];
   if (!campaign) throw new HttpError(404, 'CAMPAIGN_NOT_FOUND');
+  if (lock) await recheckSourceActor(sql as Database,actor);
   requireBranch(actor, campaign.branch_id);
   return campaign;
 }
 
-async function readiness(sql: Database | postgres.TransactionSql, campaign: postgres.Row): Promise<string[]> {
+async function readiness(sql: Database | postgres.TransactionSql, campaign: postgres.Row,lock=false): Promise<string[]> {
   const issues: string[] = [];
   if (!campaign.branch_active) issues.push('BRANCH_INACTIVE');
   if (campaign.routing_method !== 'MANUAL') {
@@ -41,7 +53,7 @@ async function readiness(sql: Database | postgres.TransactionSql, campaign: post
   }
   // Performance scoring requires human-only metrics and a configured sample/fallback policy.
   if (campaign.routing_method === 'PERFORMANCE') issues.push('PERFORMANCE_ROUTING_NOT_READY');
-  if (campaign.source_kind !== 'MANUAL') issues.push('SOURCE_BINDING_NOT_READY');
+  issues.push(...await sourceCampaignIssues(sql as Database,campaign,lock));
   if (campaign.messaging_config?.enabled) issues.push('MESSAGING_CONFIGURATION_NOT_READY');
   if (campaign.ai_config?.enabled) issues.push('AI_CONFIGURATION_NOT_READY');
   return issues;
@@ -221,7 +233,7 @@ export function registerCampaignRoutes(app: FastifyInstance, db: Database): void
     const actor = await principalFromRequest(request, db);
     return db.begin(async (tx) => {
       const campaign = await managedCampaign(tx, actor, request.params.id, true);
-      const issues = await readiness(tx, campaign);
+      const issues = await readiness(tx, campaign,true);
       if (issues.length) throw new HttpError(409, 'CAMPAIGN_NOT_READY', issues.join(','));
       if (campaign.status === 'ACTIVE') return { status: 'ACTIVE', version: campaign.version };
       const changed = await tx`UPDATE campaign SET status = 'ACTIVE', version = version + 1, last_activated_at = now(), updated_at = now()

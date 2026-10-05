@@ -174,8 +174,7 @@ app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:bool
     } });
     if ((request.body as { evaluateSource?:boolean }).evaluateSource) await processOneSourceEvaluation(db);
     if ((request.body as { prepareSourceMatchFixture?:boolean }).prepareSourceMatchFixture) {
-      // Domain fixtures only: activation readiness is exercised separately, never bypassed in production code.
-      await db`UPDATE campaign SET status='ACTIVE' WHERE id=${sourceCampaign}`;
+      // Legacy duplicate identities are deliberate test fixtures. Campaign activation uses the public UI/API.
       for (const name of ['Browser match A','Browser match B']) {
         const [candidate]=await db`INSERT INTO contact (organization_id,name,phone,phone_normalized)
           VALUES (${org},${name},'+15550008888','+15550008888') RETURNING id`;

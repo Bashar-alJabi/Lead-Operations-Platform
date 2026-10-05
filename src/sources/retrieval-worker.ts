@@ -70,7 +70,7 @@ export async function processOneSourceRetrieval(db:Database,adapter:LeadSourceRe
       const raw={ notification:reserved.rawNotification,lead:result.raw,context:{ pageId:reserved.page.externalId,formId:reserved.formId,leadId:reserved.leadId } };
       const created=await tx`INSERT INTO source_submission (organization_id,branch_id,source_kind,connection_id,external_event_id,raw_payload,source_timestamp,state,failure_code)
         VALUES (${reserved.organizationId},${reserved.branchId},'META',${reserved.connectionId},${reserved.leadId},${tx.json(raw as Parameters<typeof tx.json>[0])},
-          ${result.createdAt},'NEEDS_ATTENTION','SOURCE_INTAKE_NOT_CONFIGURED') ON CONFLICT (connection_id,external_event_id) WHERE connection_id IS NOT NULL AND external_event_id IS NOT NULL DO NOTHING RETURNING id`;
+          ${result.createdAt},'NEEDS_ATTENTION','SOURCE_EVALUATION_PENDING') ON CONFLICT (connection_id,external_event_id) WHERE connection_id IS NOT NULL AND external_event_id IS NOT NULL DO NOTHING RETURNING id`;
       const submission=created[0] ?? (await tx`SELECT id,raw_payload,source_kind FROM source_submission WHERE connection_id=${reserved.connectionId} AND external_event_id=${reserved.leadId}`)[0]!;
       if (!created.length && (submission.source_kind!=='META' || submission.raw_payload.context?.formId!==reserved.formId || submission.raw_payload.context?.pageId!==reserved.page.externalId))
         throw new SourceProviderError('SOURCE_RESPONSE_INVALID');

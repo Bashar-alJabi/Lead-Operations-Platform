@@ -102,7 +102,7 @@ test('Source bindings preserve scoped shared access, deterministic contexts, con
   const page1=(await api('GET',base+'/bindings?limit=1')).json();assert.equal(page1.items.length,1);assert.ok(page1.nextAfter);
   assert.notEqual((await api('GET',base+'/bindings?limit=1&after='+page1.nextAfter)).json().items[0].id,page1.items[0].id);
   const bound=(await api('GET',base+'/bindings')).json().items.find((b:{ id:string })=>b.id===firstId);
-  assert.equal(bound.ready,false);assert.ok(bound.issues.includes('SOURCE_MAPPING_NOT_CONFIGURED'));assert.ok(bound.issues.includes('SOURCE_INTAKE_NOT_CONFIGURED'));
+  assert.equal(bound.ready,false);assert.ok(bound.issues.includes('SOURCE_MAPPING_NOT_CONFIGURED'));assert.ok(bound.issues.includes('SOURCE_PAGE_SUBSCRIPTION_REQUIRED'));
   assert.equal((await api('POST','/api/campaigns/'+camp+'/activate',{})).statusCode,409);
   const history=(await api('GET',base+'/bindings/'+firstId+'/history?limit=1')).json();assert.equal(history.items[0].version,2);assert.equal(history.nextBefore,2);
   assert.equal((await api('GET',base+'/bindings/'+firstId+'/history?beforeVersion=2')).json().items[0].snapshot.externalCampaignId,null);

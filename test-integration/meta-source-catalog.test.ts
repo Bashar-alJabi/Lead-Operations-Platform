@@ -82,7 +82,7 @@ test('Meta source catalog encrypts resource tokens, isolates scopes and fences f
   await assert.rejects(db`UPDATE source_resource_sync SET resource_count=999 WHERE id=${hist.items[0].id}`);
   await assert.rejects(db`DELETE FROM source_resource_sync WHERE id=${hist.items[0].id}`);
   assert.notEqual((await api('GET',base+'/sync-history?limit=1&cursor='+encodeURIComponent(hist.nextCursor))).json().items[0].id,hist.items[0].id);
-  const connection=(await api('GET',root)).json().items[0];assert.equal(connection.status,'WARNING');assert.equal(connection.capabilities.intakeReady,false);
+  const connection=(await api('GET',root)).json().items[0];assert.equal(connection.status,'CONNECTED');assert.equal(connection.capabilities.catalogDiscovered,true);assert.equal(connection.capabilities.intakeReady,undefined);
   assert.equal((await db`SELECT count(*)::integer AS n FROM lead`)[0]!.n,0);
   let release!:()=>void;let ready!:()=>void;wait=new Promise<void>((resolve)=> { release=resolve; });const started=new Promise<void>((resolve)=> { ready=resolve; });entered=ready;
   const running=api('POST',base+'/discover',{ version:1 });await started;

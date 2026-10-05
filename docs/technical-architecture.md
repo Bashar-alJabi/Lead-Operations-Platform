@@ -2,6 +2,14 @@
 
 ## قرار البناء
 
+### Source operational readiness وCampaign activation
+
+الـreadiness لم تعد milestone flag ثابتة. `sourceBindingRows` query paginated تعيد metadata آمنة وتفحص current Connection/Form/Page versions وscope/grants والـencrypted credential references وApp ID وWebhook handshake وlatest subscription SUCCEEDED/subscribed/current Page+Connection. latest PUBLISHED فقط، مع current Field/Campaign Field versions/type/mode/options/validation/scope/required-stage؛ لا hidden destination IDs أوPII أوsecret payloads في النتيجة. inactive bindings لا تمنع Activation، لكن **كل active binding** يجب أن تكون جاهزة؛ وجود ربط صحيح لا يغطي ربطاً مفعلاً ناقصاً. public Activation تفحص هذه المتطلبات مع Branch/Routing وMessaging/AI dependencies القائمة، دون فرض Contact fields ثابتة.
+
+Campaign mutations تقفل Source Connections المرتبطة بترتيب UUID ثم Branch ثم Campaign، كما في source intake/setup، وتعيد current actor تحت الأقفال. Activation تقفل Field/Campaign Field rows المعنية SHARE قبل readiness كي لا تتغير publication inputs أثناء commit. Grants/catalog/config/subscription lifecycle كلها Connection-first. concurrent activation idempotent بنفس النسخة وAudit واحدة؛ تغير prerequisite أثناء انتظار القفل أوتعطيل requester يمنع التفعيل. runtime intake تعيد قواعد mapping/scope/ACTIVE؛ سوء الإعداد لاحقاً يحفظ Needs Attention ولا يحذف Leads أويسمح bypass.
+
+نجاح Provider catalog/subscription يعني Connection CONNECTED/last_success، وليس جاهزية جميع الحملات؛ اكتشاف فارغ WARNING/SOURCE_NO_RESOURCES. migration054 تنظف milestone-only INTAKE_NOT_CONFIGURED/capabilities.intakeReady القديمة وتضيف Campaign/Connection cursor indexes. `sourceConnectionRuntime` تشتق intakeReady من وجود active ready target بلا Messaging/AI flow غير مكتملة؛ ليست live verification أوإثبات أن جميع الحملات جاهزة. Mapping DTO تفصل configured عنsetupReady وintakeReady، وSubmission list تعلن processingAvailable دون boolean readiness شامل مضلل. UI تعرض تعليمات readiness/action status؛ لا Provider I/O أثناء الفحص أوالتفعيل. غياب production credentials لا يمنع اكتمال هذا setup/data path محلياً، والتحقق الحي مستقل.
+
 ### Source→Contact/Lead transaction وmatching review
 
 `VALIDATED` هي حالة durable للتحويل فقط؛ schedule ثالثة مستقلة في `worker:sources` تلتقطها Connection-first/SKIP LOCKED. قبل الإنشاء تعيد parsing للسياق وbinding/current grant وآخر PUBLISHED Mapping وcurrent field snapshots/required values تحت الأقفال، ثم Campaign ACTIVE. الفرع يقفل NO KEY UPDATE قبل Campaign كي تشترك قرارات Routing بين Connections ولا يحدث SHARE→UPDATE upgrade متبادل. لا HTTP أوProvider send داخل transaction. Campaign ذات Messaging/AI enabled تبقى SOURCE_CAMPAIGN_FLOW_NOT_READY إلى أن تجهز dispatch dependencies؛ لا يُنشأ مسار يتجاهل flow مفعلة.

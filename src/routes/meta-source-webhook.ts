@@ -7,6 +7,7 @@ import { sourceCredentials,checkSourceSubscription } from '../sources/subscripti
 import { metaLeadSourceSubscriptionAdapter,type LeadSourceSubscriptionAdapter } from '../sources/meta-subscription.js';
 import { parseSourceWebhook,sourceSecretEqual,verifySourceSignature } from '../sources/webhook.js';
 import { decodeCursor,encodeCursor } from '../pagination.js';
+import { sourceConnectionRuntime } from '../sources/readiness.js';
 
 const root='/api/sources/meta/connections';
 const params={ type:'object',additionalProperties:false,required:['id'],properties:{ id:{ type:'string',format:'uuid' } } } as const;
@@ -36,7 +37,7 @@ export function registerMetaSourceWebhookRoutes(app:FastifyInstance,db:Database,
       lastIncomingAt:health.last_incoming_at,pending:health.pending,oldestPendingAt:health.oldest_pending_at,
       running:health.running,failed:health.failed,blocked:health.blocked,retrieved:health.retrieved,
       subscription:latest ? { ...latest,current:!!page?.active && connection.status!=='DISABLED' && latest.connection_version===connection.version && latest.page_version===page.version } : null,
-      appIdConfigured:!!connection.config.appId,intakeReady:false,processingStatus:'SOURCE_INTAKE_NOT_CONFIGURED' };
+      appIdConfigured:!!connection.config.appId,...await sourceConnectionRuntime(db,connection.id) };
   });
   app.post<{ Params:{ id:string };Body:{ version:number;pageId:string;pageVersion:number;subscribe:boolean } }>(root+'/:id/subscription',{
     schema:{ params,body:{ type:'object',additionalProperties:false,required:['version','pageId','pageVersion','subscribe'],properties:{
@@ -147,7 +148,7 @@ export function registerMetaSourceWebhookRoutes(app:FastifyInstance,db:Database,
             if (original.external_page_id!==event.pageId || original.external_form_id!==event.formId) throw new HttpError(409,'SOURCE_WEBHOOK_IDENTITY_CONFLICT');
           }
         }
-        await tx`UPDATE integration_connection SET capabilities=capabilities || '{"sourceSignedCallbackVerified":true,"intakeReady":false}'::jsonb WHERE id=${connection.id}`;
+        await tx`UPDATE integration_connection SET capabilities=(capabilities-'intakeReady') || '{"sourceSignedCallbackVerified":true}'::jsonb WHERE id=${connection.id}`;
         return { received:true };
       });
     });

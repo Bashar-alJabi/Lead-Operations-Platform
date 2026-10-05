@@ -55,11 +55,11 @@ export async function checkSourceSubscription(db:Database,actor:Principal,connec
         throw new HttpError(409,'SOURCE_CONFIGURATION_CHANGED');
       if (attempt.state!=='RUNNING' || !attempt.live) throw new HttpError(409,'SOURCE_SUBSCRIPTION_LEASE_LOST');
       await tx`UPDATE source_subscription_attempt SET state='SUCCEEDED',subscribed=${result.subscribed},finished_at=now() WHERE id=${id}`;
-      await tx`UPDATE integration_connection SET status='WARNING',last_success_at=now(),last_error_code='INTAKE_NOT_CONFIGURED',
-        capabilities=capabilities || '{"intakeReady":false}'::jsonb,updated_at=now() WHERE id=${connectionId}`;
+      await tx`UPDATE integration_connection SET status='CONNECTED',last_success_at=now(),last_error_code=NULL,
+        capabilities=capabilities-'intakeReady',updated_at=now() WHERE id=${connectionId}`;
       await tx`INSERT INTO audit_log (organization_id,branch_id,actor_user_id,action,target_type,target_id,detail)
         VALUES (${actor.organizationId},${connection.branch_id},${actor.id},'SOURCE_SUBSCRIPTION_CHECKED','CONNECTION',${connectionId},${tx.json({ attemptId:id,pageId:input.pageId,subscribed:result.subscribed })})`;
-      return { attemptId:id,subscribed:result.subscribed,intakeReady:false };
+      return { attemptId:id,subscribed:result.subscribed,processingAvailable:true };
     });
   } catch (error) {
     const code=error instanceof HttpError ? error.code : error instanceof SourceProviderError ? error.code : 'SOURCE_SUBSCRIPTION_FAILED';

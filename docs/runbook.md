@@ -1,8 +1,15 @@
 # دليل التشغيل والتطوير
 
+## جاهزية Source Campaign وتفعيلها
+
+من Campaigns افتح الحملة ثم راجع «الجاهزية». لكل active binding: Connection/موارد متاحة ومنحة Form الحالية، Mapping PUBLISHED صالحة تشمل required LEAD_CREATION، App ID وcredentials محفوظة، Verify and Save للـCallback واشتراك Page مثبت للإصدارات الحالية. Manager تعمل ضمن فرعها والموارد المخولة؛ Organization connection setup أوPage subscription تحتاج Super Admin. لا تحتاج name/phone/email ثابتة إن لم تحددها Mapping أوالقواعد. عطّل binding غير المقصودة صراحة مع reason/version؛ لا يتجاهل الفحص binding مفعلة ناقصة لأن ربطاً آخر صالح.
+
+بعد تغيير config/credentials أوPage catalog أعد discovery/subscription test كما تشير الأكواد؛ بعد تغيير Fields/required/options انشر Mapping محدثة. Draft لا تحل محل Published. إذا Messaging/AI enabled تعرض Dependencies حتى اكتمال setup/dispatch لوحدتيهما؛ لا تُفعّل بصمت. Activate يعيد current requester/config checks، وconcurrent requests تحفظ Audit وversion واحدة. CONNECTED تعني نجاح الاتصال بالمزود؛ انتظر readiness الصحيحة ثم ACTIVE وPROCESSED لإثبات نتائج الإنشاء. التشغيل المحلي هنا فakes/signatures اصطناعية/PostgreSQL، ولا يثبت Meta App Review أوProduction webhook delivery.
+
+
 ## تشغيل Source intake ومراجعة المطابقة
 
-بعد migrations001–053 وbuild شغّل worker:sources. VALIDATED تنتظر transaction الإنشاء؛ PROCESSED تعرض Lead UUID في Source review وتاريخ التنفيذ والسبب والMapping المستعملة. ابحث عن UUID في Leads لفتح تفاصيلها حسب الصلاحية. SOURCE_CAMPAIGN_INACTIVE تحتاج تفعيل الحملة بعد جاهزية setup؛ SOURCE_CAMPAIGN_FLOW_NOT_READY تعني أن Messaging/AI المفعلة تحتاج dispatch dependencies التالية. public Source activation محجوبة حتى checkpoint readiness؛ ACTIVE في اختبارات intake domain fixture صريحة.
+بعد migrations001–054 وbuild شغّل worker:sources. VALIDATED تنتظر transaction الإنشاء؛ PROCESSED تعرض Lead UUID في Source review وتاريخ التنفيذ والسبب والMapping المستعملة. ابحث عن UUID في Leads لفتح تفاصيلها حسب الصلاحية. SOURCE_CAMPAIGN_INACTIVE تحتاج تفعيل الحملة بعد جاهزية setup؛ SOURCE_CAMPAIGN_FLOW_NOT_READY تعني أن Messaging/AI المفعلة تحتاج dispatch dependencies التالية. فعّل Campaign من شاشة Campaigns بعد أن تعرض الجاهزية دون أخطاء؛ Activation تعيد الفحص في Backend. Browser readiness تختبر public Activation ثم actual intake؛ اختبارات data path السابقة تحتفظ بـACTIVE domain fixtures الصريحة.
 
 CONTACT_AMBIGUOUS: افتح «مراجعة مطابقة Contact»، راجع incoming Contact والمرشحين المتاحين، اختر الشخص واكتب سبباً ثم اعتمد المطابقة لإنشاء Lead. بيانات العميل نص غير موثوق، ولا HTML. Manager تحتاج Super Admin عند scope restriction؛ لا تختار Contact خارج المرشحين ولا تعرض IDs/أسماء المقيدين. تغير Mapping/identities أوversion يتطلب تحديث المطابقة وإعادة مراجعتها. PROCESSED لا يمكن إعادة معالجتها أوتبديل Lead link لها. التصحيح التشغيلي من Contact/Lead fields حسب الصلاحية ويحفظ الأصل والتاريخ؛ لا تعديل DB يدوي للاسترداد.
 
@@ -13,7 +20,7 @@ CONTACT_AMBIGUOUS: افتح «مراجعة مطابقة Contact»، راجع inc
 3. Subscribe Page to leadgen تنفذ subscription API ثم verification GET، وTest Page subscription تفحص الحالة فقط. existing fields لنفس التطبيق محفوظة؛ App/Page token mismatch يمنع أي mutation. فشل الصلاحيات/token يظهر بكود آمن وسجل محاولة؛ أصلح إعدادات المزود أو credentials ثم اختبر من الواجهة.
 4. Refresh Webhook status تقرأ handshake الحقيقي وvalid signed event وآخر Incoming وnotifications pending؛ لا تولد verification أو Leads وهمية. استخدم Meta Lead Ads Testing للمورد المخول لإرسال حدث اختبار. POST تحفظ الأحداث الموقعة فقط، وForm numeric الجديدة تحفظ دون تخمين، replay لا يزيد العدد أو يغير الأصل. نتيجة subscription قديمة بعد Catalog/config changes تظهر قديمة حتى إعادة الاختبار.
 5. local disable يمنع handshake/callbacks ويحفظ التاريخ؛ لا يحذف subscription لدى Meta. بعد إعادة الإعداد أعد discovery ثم subscription test. فشل محلي بعد mutation خارجية لا يعني إلغاءها لدى المزود؛ test/resubscribe يفحص الحالة قبل POST جديد. RUNNING بعد crash تنتهي بعد lease120s عند طلب جديد، ثم تسجل FAILED قبل محاولة جديدة، دون تحرير DB يدوي.
-6. retrieval تحفظ Submission الأصلية، ثم evaluation وintake schedules تنشئ Lead عند صلاحية الإعدادات وCampaign ACTIVE. نجاح verification/subscription/retrieval وحده ليس إثباتاً لإنشاء Lead؛ راقب PROCESSED. Activation readiness العامة للـSource ما زالت dependency تالية في checkpoint intake، وintakeReady=false لهذا setup gate. DTO/history لا تعيد raw أوPage/App secrets؛ Organization setup للمسؤول الأعلى فقط. لا production credentials للاختبارات المحلية.
+6. retrieval تحفظ Submission الأصلية، ثم evaluation وintake schedules تنشئ Lead عند صلاحية الإعدادات وCampaign ACTIVE. نجاح verification/subscription/retrieval وحده ليس إثباتاً لإنشاء Lead؛ راقب PROCESSED. Activation تفحص current setup لكل active binding؛ source Connection intakeReady مشتقة من وجود target جاهزة في Campaign مفعلة، وليست إثبات Live Meta. DTO/history لا تعيد raw أوPage/App secrets؛ Organization setup للمسؤول الأعلى فقط. لا production credentials للاختبارات المحلية.
 
 ## Source retrieval worker وfailure recovery
 
@@ -88,7 +95,7 @@ Submission raw محفوظة مع notification +provider lead +external context �
 
 Disable يحافظ على الاتصال والموارد والتاريخ ويبطل availability، وReconfigure تعيد NOT_CONFIGURED؛ يلزم اكتشاف Pages/Forms من جديد. Edit يحافظ على النطاق ويزيد version، وأي provider result بدأت بإعداد قديم لا تصبح صالحة. الحدود التقنية الحالية10 صفحات×100 مورد،512KiB لكل استجابة و90s للعملية؛ SOURCE_CATALOG_TOO_LARGE ليست حذفاً أو نجاحاً جزئياً. القوائم paginated ولا تحمل جميع موارد المنظمة إلى الواجهة دفعة واحدة.
 
-التحقق الحالي Mock/PostgreSQL/Local Browser فقط، وليس Meta live أوOAuth/App Review verification. `worker:sources` تشغل retrieval/evaluation/intake schedules مستقلة؛ Campaign resolution/current publication/Contact review والتحقق من ACTIVE تسبق Lead creation. Messaging/AI enabled تحتاج flow dependencies الموثقة قبل التشغيل، وActivation readiness/historical sync تستكمل بعد checkpoint intake.
+التحقق الحالي Mock/PostgreSQL/Local Browser فقط، وليس Meta live أوOAuth/App Review verification. `worker:sources` تشغل retrieval/evaluation/intake schedules مستقلة؛ Campaign resolution/current publication/Contact review والتحقق من ACTIVE تسبق Lead creation. Messaging/AI enabled تحتاج flow dependencies الموثقة قبل التشغيل، وhistorical sync تستكمل بعد checkpoint readiness.
 
 ## تشغيل مرفقات Messaging الواردة
 

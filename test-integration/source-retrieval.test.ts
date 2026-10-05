@@ -43,7 +43,7 @@ test('Source retrieval preserves original submissions, fences concurrent workers
   let release!:()=>void;wait=new Promise<void>((resolve)=> { release=resolve; });const started=new Promise<void>((resolve)=> { entered=resolve; });
   const running=processOneSourceRetrieval(db,adapter);await started;assert.equal(await processOneSourceRetrieval(db,adapter),false);release();assert.equal(await running,true);wait=undefined;entered=undefined;
   assert.equal(calls,1);await event('900');assert.equal(await processOneSourceRetrieval(db,adapter),false);
-  const submission=(await db`SELECT * FROM source_submission`)[0]!;assert.equal(submission.source_kind,'META');assert.equal(submission.state,'NEEDS_ATTENTION');assert.equal(submission.failure_code,'SOURCE_INTAKE_NOT_CONFIGURED');
+  const submission=(await db`SELECT * FROM source_submission`)[0]!;assert.equal(submission.source_kind,'META');assert.equal(submission.state,'NEEDS_ATTENTION');assert.equal(submission.failure_code,'SOURCE_EVALUATION_PENDING');
   assert.equal(submission.source_timestamp.toISOString(),'2023-11-14T22:13:19.000Z');assert.equal(submission.raw_payload.notification.change.value.adgroup_id,'77');assert.equal(submission.raw_payload.lead.adset_id,'32');
   assert.deepEqual(submission.raw_payload.lead.field_data[2].values,['a','b']);assert.equal(submission.branch_id,branch);assert.equal(submission.campaign_id,null);
   await assert.rejects(db`UPDATE source_submission SET raw_payload='{}'::jsonb WHERE id=${submission.id}`);await assert.rejects(db`UPDATE source_submission SET source_timestamp=now() WHERE id=${submission.id}`);await assert.rejects(db`DELETE FROM source_submission WHERE id=${submission.id}`);

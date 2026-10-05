@@ -49,7 +49,12 @@ export function sourceBindingIssues(row:Record<string,unknown>):string[] {
   if (row.connection_version!==row.current_connection_version || row.form_connection_version!==row.current_connection_version
     || row.page_connection_version!==row.current_connection_version) issues.push('SOURCE_CONFIGURATION_CHANGED');
   if (!row.mapping_configured) issues.push('SOURCE_MAPPING_NOT_CONFIGURED');
-  issues.push('SOURCE_INTAKE_NOT_CONFIGURED');return issues;
+  if (!row.connection_credential_available) issues.push('SOURCE_CREDENTIAL_UNAVAILABLE');
+  if (!row.page_credential_available) issues.push('SOURCE_PAGE_CREDENTIAL_UNAVAILABLE');
+  if (!row.app_id_configured) issues.push('SOURCE_APP_ID_REQUIRED');
+  if (!row.handshake_verified) issues.push('SOURCE_WEBHOOK_HANDSHAKE_REQUIRED');
+  if (!row.subscription_verified) issues.push('SOURCE_PAGE_SUBSCRIPTION_REQUIRED');
+  return issues;
 }
 export function sourceBindingConflict(error:unknown):never {
   if (error instanceof Error && error.message==='SOURCE_BINDING_CONTEXT_CONFLICT') throw new HttpError(409,'SOURCE_BINDING_CONTEXT_CONFLICT');

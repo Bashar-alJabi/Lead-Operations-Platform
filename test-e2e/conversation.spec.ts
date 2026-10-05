@@ -529,21 +529,21 @@ test('Meta source setup creates encrypted credentials, discovers scoped Pages an
     await expect(setup.getByRole('heading',{ name:'Browser Lead Source',exact:true })).toBeVisible();const before=await control(page);
     await control(page,{ sourceFailure:true });await setup.getByRole('button',{ name:'Test and discover Pages',exact:true }).click();
     await expect(row).toContainText('AUTH_EXPIRED');await expect(setup.getByRole('alert')).toContainText('SOURCE_PROVIDER_AUTH_FAILED');
-    await control(page,{ sourceFailure:false });await setup.getByRole('button',{ name:'Test and discover Pages',exact:true }).click();await expect(row).toContainText('WARNING');
+    await control(page,{ sourceFailure:false });await setup.getByRole('button',{ name:'Test and discover Pages',exact:true }).click();await expect(row).toContainText('CONNECTED');
     const pageSelector=setup.getByLabel('Select Page',{ exact:true });await expect(pageSelector.locator('option')).toHaveCount(2);
     const pageId=await pageSelector.locator('option').nth(1).getAttribute('value');await pageSelector.selectOption(pageId!);
     await setup.getByRole('button',{ name:'Discover Forms',exact:true }).click();const formSelector=setup.getByLabel('Select Form',{ exact:true });
     await expect(formSelector.locator('option')).toHaveCount(2);await formSelector.selectOption((await formSelector.locator('option').nth(1).getAttribute('value'))!);
     await expect(setup).toContainText('Interest <img src=x onerror=alert(1)>');await expect(setup).toContainText('Yes <b>literal</b>');await expect(setup.locator('img,b')).toHaveCount(0);
     await expect(setup).not.toContainText('synthetic-browser-page-private-token');await expect(setup).not.toContainText('synthetic-browser-root-token');
-    await expect(setup).toContainText('Lead intake is not configured');await expect(setup).toContainText('SUCCEEDED');await expect(setup).toContainText('FAILED');
+    await expect(setup).toContainText('Complete source setup and check campaign readiness');await expect(setup).toContainText('SUCCEEDED');await expect(setup).toContainText('FAILED');
     await setup.getByRole('button',{ name:'Edit source',exact:true }).click();await expect(setup.getByLabel('Meta access token',{ exact:true })).toHaveValue('');
     await setup.getByRole('button',{ name:'Cancel',exact:true }).click();
     await setup.getByRole('button',{ name:'Disable source',exact:true }).click();await expect(row).toContainText('DISABLED');
     await expect(setup.getByRole('button',{ name:'Test and discover Pages',exact:true })).toBeDisabled();await expect(setup.getByRole('button',{ name:'Discover Forms',exact:true })).toBeDisabled();
     await setup.getByRole('button',{ name:'Reconfigure source',exact:true }).click();await expect(row).toContainText('NOT_CONFIGURED');
     await expect(setup.getByRole('button',{ name:'Discover Forms',exact:true })).toBeDisabled();
-    await setup.getByRole('button',{ name:'Test and discover Pages',exact:true }).click();await expect(row).toContainText('WARNING');
+    await setup.getByRole('button',{ name:'Test and discover Pages',exact:true }).click();await expect(row).toContainText('CONNECTED');
     const after=await control(page);expect(after.providerCalls).toBe(before.providerCalls);expect(after.messages).toHaveLength(before.messages.length);expect(after.sourceCatalogCalls).toBe(before.sourceCatalogCalls+4);
     const agentContext=await browser.newContext({ storageState:agentStorageState });
     try { const agent=await agentContext.newPage();await agent.goto('/');await agent.getByRole('combobox',{ name:'Language' }).selectOption('en');
@@ -577,7 +577,7 @@ test('shared Form grants and campaign bindings enforce explicit scope, conflicts
     await manager.goto('/');await manager.getByRole('combobox',{ name:'Language' }).selectOption('en');await manager.getByRole('button',{ name:'Campaigns',exact:true }).click();
     await manager.getByRole('row').filter({ hasText:'Browser Intake Campaign' }).getByRole('button',{ name:'Details',exact:true }).click();const bindings=manager.locator('.campaign-sources');
     await expect(bindings.getByRole('heading',{ name:'Campaign source bindings',exact:true })).toBeVisible();await bindings.getByRole('button',{ name:'Bind another Form',exact:true }).click();
-    await bindings.getByLabel('Campaign source connection',{ exact:true }).selectOption({ label:'Browser Shared Intake · WARNING · Shared source authorized for this branch' });
+    await bindings.getByLabel('Campaign source connection',{ exact:true }).selectOption({ label:'Browser Shared Intake · CONNECTED · Shared source authorized for this branch' });
     const campaignPage=bindings.getByLabel('Campaign source Page',{ exact:true });await expect(campaignPage.locator('option')).toHaveCount(2);
     await campaignPage.selectOption((await campaignPage.locator('option').nth(1).getAttribute('value'))!);const campaignForm=bindings.getByLabel('Campaign source Form',{ exact:true });
     await expect(campaignForm.locator('option')).toHaveCount(2);const formId=(await campaignForm.locator('option').nth(1).getAttribute('value'))!;await campaignForm.selectOption(formId);
@@ -617,8 +617,8 @@ test('shared Form grants and campaign bindings enforce explicit scope, conflicts
     await expect(mapping.getByRole('status')).toContainText('Preview is valid');await expect(mapping.getByRole('status')).toContainText('Browser source score: 12.5');
     await expect(mapping.getByRole('status')).toContainText('+15550009999');expect(await mapping.locator('img').count()).toBe(0);
     await mapping.getByLabel('Mapping change reason',{ exact:true }).fill('Browser publish reviewed mapping');await mapping.getByRole('button',{ name:'Publish mapping',exact:true }).click();
-    await expect(mapping).toContainText('Mapping status: PUBLISHED · v2');await expect(mapping).toContainText('Configuration is published and valid');
-    await expect(binding).not.toContainText('SOURCE_MAPPING_NOT_CONFIGURED');await expect(binding).toContainText('SOURCE_INTAKE_NOT_CONFIGURED');
+    await expect(mapping).toContainText('Mapping status: PUBLISHED · v2');await expect(mapping).toContainText('Mapping is published and valid');
+    await expect(binding).not.toContainText('SOURCE_MAPPING_NOT_CONFIGURED');await expect(binding).toContainText('SOURCE_PAGE_SUBSCRIPTION_REQUIRED');
     await expect(manager.getByRole('button',{ name:'Activate',exact:true })).toBeDisabled();
     await mapping.getByLabel('Mapping change reason',{ exact:true }).fill('Browser next draft retains published');await mapping.getByRole('button',{ name:'Save mapping draft',exact:true }).click();
     await expect(mapping).toContainText('Mapping status: DRAFT · v3 · Published v2');await expect(mapping).toContainText('Browser publish reviewed mapping');
@@ -689,6 +689,24 @@ test('source Webhook and retrieval preserve signed replays, source submissions a
     await submission.getByRole('button',{ name:'Reprocess source submission',exact:true }).click();await expect(submission).toContainText('PENDING');
     await control(page,{ evaluateSource:true });await review.getByRole('button',{ name:'Refresh source submissions',exact:true }).click();
     await expect(submission).toContainText('VALIDATED');await expect(submission).toContainText('Mapped fields: 1');await expect(submission).toContainText('Mapped Contact fields: 2');
+    // Retire the earlier journey's incomplete setup using its public versioned binding action.
+    const previousBindings=(await (await page.request.get(`/api/sources/campaigns/${fixture.sourceCampaignId}/bindings`)).json()).items;
+    expect((await (await page.request.get(`/api/campaigns/${fixture.sourceCampaignId}/readiness`)).json()).ready).toBe(false);
+    for (const old of previousBindings.filter((b:{ id:string;active:boolean })=>b.active && b.id!==runtimeBinding)) {
+      const retired=await page.request.put(`/api/sources/campaigns/${fixture.sourceCampaignId}/bindings/${old.id}`,{ headers,data:{ version:old.version,
+        connectionVersion:old.current_connection_version,externalCampaignId:old.external_campaign_id,externalAdSetId:old.external_adset_id,externalAdId:old.external_ad_id,
+        active:false,reason:'Retire prior browser fixture context' } });expect(retired.ok()).toBeTruthy();
+    }
+    await page.getByRole('button',{ name:'Campaigns',exact:true }).click();await page.getByRole('row').filter({ hasText:'Browser Intake Campaign' }).getByRole('button',{ name:'Details',exact:true }).click();
+    await expect(page.getByText('Ready to activate',{ exact:true })).toBeVisible();await page.getByRole('button',{ name:'Activate',exact:true }).click();
+    await expect(page.getByRole('button',{ name:'Deactivate',exact:true })).toBeEnabled();
+    await page.setViewportSize({ width:390,height:844 });await page.getByRole('combobox',{ name:'Language' }).selectOption('ar');
+    await page.getByRole('heading',{ name:'الجاهزية',exact:true }).scrollIntoViewIfNeeded();await page.screenshot({ path:'.local/e2e/source-activation-ar.png' });
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
+    await page.getByRole('combobox',{ name:'Language' }).selectOption('en');await page.setViewportSize({ width:1280,height:900 });
+    await page.getByRole('button',{ name:'Meta sources',exact:true }).click();await setup.getByRole('row').filter({ hasText:'Browser Webhook Source' }).getByRole('button',{ name:'Select source',exact:true }).click();
+    await expect(submission).toContainText('VALIDATED');await webhook.getByRole('button',{ name:'Refresh Webhook status',exact:true }).click();
+    await expect(webhook).toContainText('Source is ready for an active campaign');
     await submission.getByRole('button',{ name:'Source processing history',exact:true }).click();await expect(review).toContainText('Browser catalog and mapping repaired');
     await expect(review).toContainText('SOURCE_FORM_NOT_FOUND');await expect(review).not.toContainText('15550008888');await expect(review.locator('img')).toHaveCount(0);
     const manager=await browser.newContext({ storageState:managerStorageState });try { expect((await manager.request.get(`/api/sources/meta/connections/${connectionId}/webhook`)).status()).toBe(404); } finally { await manager.close(); }

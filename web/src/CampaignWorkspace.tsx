@@ -23,6 +23,12 @@ const issueLabels: Record<string, Record<Locale, string>> = {
   NO_ELIGIBLE_AGENTS_CONFIGURED: { ar: 'لا يوجد وكيل نشط مؤهل', fr: 'Aucun agent admissible actif', en: 'No active eligible agent' },
   PERFORMANCE_ROUTING_NOT_READY: { ar: 'توزيع الأداء يحتاج مقاييس بشرية وسياسة عينة وبديل', fr: 'Le routage par performance nécessite des mesures humaines et une politique de repli', en: 'Performance routing needs human metrics, sample and fallback policy' },
   SOURCE_BINDING_NOT_READY: { ar: 'ربط المصدر الخارجي لم يكتمل', fr: 'Source externe non reliée', en: 'External source binding is not ready' },
+  SOURCE_MAPPING_NOT_CONFIGURED: { ar:'انشر Mapping صالحة لكل ربط مصدر مفعّل',fr:'Publiez un mapping valide pour chaque liaison active',en:'Publish valid mapping for every active source binding' },
+  SOURCE_CREDENTIAL_UNAVAILABLE: { ar:'راجع بيانات اعتماد Source Connection',fr:'Vérifiez les secrets de la connexion source',en:'Check source connection credentials' },
+  SOURCE_PAGE_CREDENTIAL_UNAVAILABLE: { ar:'أعد اكتشاف Page المخولة وبيانات اعتمادها',fr:'Redécouvrez la Page autorisée et ses secrets',en:'Rediscover the authorized Page and its credentials' },
+  SOURCE_APP_ID_REQUIRED: { ar:'أدخل App ID في إعداد المصدر',fr:'Configurez App ID dans la source',en:'Configure App ID in source setup' },
+  SOURCE_WEBHOOK_HANDSHAKE_REQUIRED: { ar:'أكمل Verify and Save للـWebhook لدى Meta',fr:'Terminez Verify and Save du Webhook chez Meta',en:'Complete Webhook Verify and Save at Meta' },
+  SOURCE_PAGE_SUBSCRIPTION_REQUIRED: { ar:'اختبر أوأعد اشتراك Page للإعدادات الحالية',fr:'Testez ou réabonnez la Page avec la configuration actuelle',en:'Test or resubscribe the Page with current configuration' },
   MESSAGING_CONFIGURATION_NOT_READY: { ar: 'إعداد المراسلة والمرسل لم يكتمل', fr: 'Messagerie et expéditeur non prêts', en: 'Messaging and sender setup is not ready' },
   AI_CONFIGURATION_NOT_READY: { ar: 'مزود AI والمعرفة المنشورة غير جاهزين', fr: 'Fournisseur IA et connaissances publiées non prêts', en: 'AI provider and published knowledge are not ready' },
 };
@@ -172,7 +178,8 @@ export function CampaignWorkspace({ id, locale, api, onBack, onChanged }: {
       }}>{t.more}</button>}
     </section>
     <section className="panel"><h3>{t.readiness}</h3>
-      {detail.issues.length ? <ul>{detail.issues.map((issue) => <li key={issue}>{issueLabels[issue]?.[locale] ?? issue}</li>)}</ul> : <p>{t.ready}</p>}
+      {detail.issues.length ? <ul>{detail.issues.map((issue) => <li key={issue}>{issueLabels[issue]?.[locale] ?? issue}</li>)}</ul> :
+        <p>{campaign.status==='ACTIVE' ? locale==='ar' ? 'إعدادات الحملة المفعلة جاهزة' : locale==='fr' ? 'Configuration prête pour la campagne active' : 'Active campaign setup is ready' : t.ready}</p>}
       <div className="actions">{campaign.status !== 'ACTIVE' && <button disabled={busy || detail.issues.length > 0}
         onClick={() => void mutate(`/api/campaigns/${id}/activate`, 'POST')}>{t.activate}</button>}
         {campaign.status === 'ACTIVE' && <button className="secondary" disabled={busy}

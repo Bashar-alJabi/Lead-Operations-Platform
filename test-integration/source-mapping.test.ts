@@ -67,7 +67,7 @@ test('Source Mapping draft/publication/preview preserve raw records, versions, r
   const races=await Promise.all([api('PUT',base,{ ...save,version:1 }),api('PUT',base,{ ...save,version:1 })]);assert.deepEqual(races.map((r)=>r.statusCode).sort(),[200,409]);
   const published=(await api('GET',base)).json();assert.equal(published.publishedVersion,2);assert.equal(published.configured,true);assert.equal(published.intakeReady,false);
   const bindings=(await api('GET',`/api/sources/campaigns/${campaign}/bindings`)).json();assert.equal(bindings.items[0].mapping_configured,true);
-  assert.ok(!bindings.items[0].issues.includes('SOURCE_MAPPING_NOT_CONFIGURED'));assert.ok(bindings.items[0].issues.includes('SOURCE_INTAKE_NOT_CONFIGURED'));
+  assert.ok(!bindings.items[0].issues.includes('SOURCE_MAPPING_NOT_CONFIGURED'));assert.ok(bindings.items[0].issues.includes('SOURCE_PAGE_SUBSCRIPTION_REQUIRED'));
   const values=[{ key:'full_name',values:['<img src=x>'] },{ key:'phone',values:['+1 (555) 000-1111'] },{ key:'email',values:[' USER@EXAMPLE.COM '] },
     { key:'score',values:['5.50'] },{ key:'choice',values:['Provider A'] },{ key:'enabled',values:['false'] },{ key:'amount',values:['99.00'] }];
   const preview=await api('POST',base+'/preview',{ ...versions,entries,values });assert.equal(preview.statusCode,200);assert.equal(preview.json().valid,true);

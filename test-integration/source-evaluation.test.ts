@@ -77,7 +77,7 @@ test('Source runtime evaluates current publications atomically with scope, revie
   const original=await db`SELECT state,failure_code,source_timestamp,campaign_id,lead_id FROM source_submission WHERE id=${first.id}`;
   assert.equal(original[0]!.failure_code,'SOURCE_LEAD_CREATION_PENDING');assert.equal(original[0]!.campaign_id,null);assert.equal(original[0]!.lead_id,null);
   assert.equal(original[0]!.source_timestamp.toISOString(),'2023-11-14T22:13:19.000Z');
-  const dto=await list('manager');assert.equal(dto.intakeReady,false);assert.ok(!JSON.stringify(dto).includes('private customer'));assert.ok(!JSON.stringify(dto).includes('15550009999'));
+  const dto=await list('manager');assert.equal(dto.processingAvailable,true);assert.ok(!JSON.stringify(dto).includes('private customer'));assert.ok(!JSON.stringify(dto).includes('15550009999'));
   const history=(await api('GET',`${review}/${first.id}/history?limit=1`)).json();assert.equal(history.items[0].state,'VALIDATED');assert.ok(history.nextBefore);
   assert.ok((await api('GET',`${review}/${first.id}/history?beforeVersion=${history.nextBefore}`)).json().items.length);
   assert.ok(!JSON.stringify(history).includes('private customer'));

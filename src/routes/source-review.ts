@@ -38,7 +38,7 @@ export function registerSourceReviewRoutes(app:FastifyInstance,db:Database):void
         AND (${cursor?.timestamp ?? null}::timestamptz IS NULL OR (s.created_at,s.id)<(${cursor?.timestamp ?? null}::timestamptz,${cursor?.id ?? null}::uuid))
       ORDER BY s.created_at DESC,s.id DESC LIMIT ${limit+1}`;
     const items=rows.slice(0,limit);const last=items.at(-1);
-    return { items,nextCursor:rows.length>limit ? encodeCursor({ timestamp:last!.created_at.toISOString(),id:last!.submission_id }) : null,intakeReady:false };
+    return { items,nextCursor:rows.length>limit ? encodeCursor({ timestamp:last!.created_at.toISOString(),id:last!.submission_id }) : null,processingAvailable:true };
   });
   async function matchingContext(sql:Database,actor:Principal,id:string) {
     const row=await accessible(sql,actor,id);

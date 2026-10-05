@@ -82,13 +82,13 @@ export async function syncSourceCatalog(db:Database,actor:Principal,connectionId
       if (kind==='PAGE') await tx`UPDATE source_resource f SET active=false,version=f.version+1 FROM source_resource p
         WHERE f.parent_id=p.id AND p.connection_id=${connectionId} AND NOT p.active AND f.active`;
       await tx`UPDATE source_resource_sync SET state='SUCCEEDED',resource_count=${resources.length},finished_at=now() WHERE id=${operationId}`;
-      await tx`UPDATE integration_connection SET status='WARNING',last_success_at=now(),updated_at=now(),
-        last_error_code=${resources.length ? 'INTAKE_NOT_CONFIGURED' : 'SOURCE_NO_RESOURCES'},
-        capabilities=capabilities || ${tx.json({ catalogDiscovered:true,intakeReady:false })} WHERE id=${connectionId}`;
+      await tx`UPDATE integration_connection SET status=${resources.length ? 'CONNECTED' : 'WARNING'},last_success_at=now(),updated_at=now(),
+        last_error_code=${resources.length ? null : 'SOURCE_NO_RESOURCES'},
+        capabilities=(capabilities-'intakeReady') || ${tx.json({ catalogDiscovered:true })} WHERE id=${connectionId}`;
       await tx`INSERT INTO audit_log (organization_id,branch_id,actor_user_id,action,target_type,target_id,detail)
         VALUES (${actor.organizationId},${connection.branch_id},${actor.id},'SOURCE_CATALOG_SYNC_SUCCEEDED','CONNECTION',${connectionId},
           ${tx.json({ operationId,kind,resourceCount:resources.length })})`;
-      return { operationId,resourceCount:resources.length,status:'WARNING' as const,intakeReady:false };
+      return { operationId,resourceCount:resources.length,status:resources.length ? 'CONNECTED' : 'WARNING',processingAvailable:true };
     });
   } catch (error) {
     const code=error instanceof SourceProviderError ? error.code : error instanceof HttpError ? error.code : 'SOURCE_CATALOG_SYNC_FAILED';

@@ -4,6 +4,7 @@ import type { Database } from '../db.js';
 import { HttpError,principalFromRequest,requireRole } from '../security.js';
 import { managedSourceConnection,recheckSourceActor } from '../sources/catalog-sync.js';
 import { sourceCampaign,sourceFormForBranch,sourceFormAvailable,sourceBindingIssues,sourceBindingConflict,type SourceSelectors } from '../sources/bindings.js';
+import { sourceBindingRows } from '../sources/readiness.js';
 
 const uuid={ type:'string',format:'uuid' } as const;
 const campaignParams={ type:'object',additionalProperties:false,required:['id'],properties:{ id:uuid } } as const;
@@ -48,26 +49,10 @@ export function registerSourceBindingRoutes(app:FastifyInstance,db:Database):voi
   });
   app.get<{ Params:{ id:string };Querystring:{ after?:string;limit?:number } }>(root+'/bindings',{ schema:{ params:campaignParams,querystring:paging } },async(request)=> {
     const actor=await principalFromRequest(request,db);const camp=await sourceCampaign(db,actor,request.params.id);const limit=request.query.limit ?? 30;
-    const rows=await db`SELECT b.id,b.connection_id,b.resource_id,b.campaign_id,b.external_campaign_id,b.external_adset_id,b.external_ad_id,
-      b.active,b.connection_version,b.version,b.created_at,b.updated_at,f.external_id AS form_external_id,f.name AS form_name,
-      p.external_id AS page_external_id,p.name AS page_name,c.name AS connection_name,c.status AS connection_status,c.version AS current_connection_version,
-      f.active AS form_active,f.connection_version AS form_connection_version,p.active AS page_active,p.connection_version AS page_connection_version,
-      c.branch_id IS NOT NULL OR EXISTS (SELECT 1 FROM source_resource_access a WHERE a.resource_id=f.id AND a.branch_id=${camp.branch_id} AND a.active) AS has_access,
-      m.version IS NOT NULL AND m.connection_version=c.version AND m.questions=f.questions
-        AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(m.target_snapshot) target
-          LEFT JOIN field_definition fd ON fd.id=(target->>'id')::uuid
-          LEFT JOIN campaign_field cf ON cf.field_id=fd.id AND cf.campaign_id=b.campaign_id
-          WHERE fd.id IS NULL OR cf.field_id IS NULL OR NOT fd.active OR NOT cf.active OR fd.version<>(target->>'version')::integer
-            OR cf.version<>(target->>'binding_version')::integer)
-        AND NOT EXISTS (SELECT 1 FROM campaign_field required JOIN field_definition fd ON fd.id=required.field_id
-          WHERE required.campaign_id=b.campaign_id AND required.active AND fd.active AND required.required_stage='LEAD_CREATION'
-            AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(m.entries) entry WHERE entry->>'kind'='LEAD_FIELD' AND entry->>'fieldId'=fd.id::text)) AS mapping_configured
-      FROM source_campaign_binding b JOIN source_resource f ON f.id=b.resource_id JOIN source_resource p ON p.id=f.parent_id
-      JOIN integration_connection c ON c.id=b.connection_id
-      LEFT JOIN LATERAL (SELECT version,connection_version,questions,entries,target_snapshot FROM source_mapping_revision
-        WHERE binding_id=b.id AND status='PUBLISHED' ORDER BY version DESC LIMIT 1) m ON true WHERE b.campaign_id=${camp.id}
-      AND (${request.query.after ?? null}::uuid IS NULL OR b.id>${request.query.after ?? null}::uuid) ORDER BY b.id LIMIT ${limit+1}`;
-    const items=rows.slice(0,limit).map((row)=>({ ...row,ready:false,issues:sourceBindingIssues({ ...row,source_kind:camp.source_kind,branch_active:camp.branch_active }) }));
+    const rows=await sourceBindingRows(db,camp.id,request.query.after ?? null,limit+1);
+    const items=rows.slice(0,limit).map((row)=> {
+      const issues=sourceBindingIssues({ ...row,source_kind:camp.source_kind,branch_active:camp.branch_active });return { ...row,ready:issues.length===0,issues };
+    });
     return { items,nextAfter:rows.length>limit ? rows[limit-1]!.id : null };
   });
   app.post<{ Params:{ id:string };Body:BindingInput }>(root+'/bindings',{ schema:{ params:campaignParams,body:{ type:'object',additionalProperties:false,

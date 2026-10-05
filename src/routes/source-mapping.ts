@@ -1,7 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import type { Database } from '../db.js';
 import { HttpError,principalFromRequest,type Principal } from '../security.js';
-import { sourceCampaign,sourceFormForBranch,sourceFormAvailable } from '../sources/bindings.js';
+import { sourceCampaign,sourceFormForBranch,sourceFormAvailable,sourceBindingIssues } from '../sources/bindings.js';
+import { sourceBindingRows } from '../sources/readiness.js';
 import { recheckSourceActor } from '../sources/catalog-sync.js';
 import { sourceTransforms,sourceCatalogHash,mappingTargetHash,mappingTargets,validateMappingEntries,previewSourceMapping,suggestMapping,
   type MappingEntry,type MappingTarget,type SourceValue } from '../sources/field-mapping.js';
@@ -63,9 +64,12 @@ export function registerSourceMappingRoutes(app:FastifyInstance,db:Database):voi
       if ((await requiredFields(db,scope.camp.id)).some((id)=>!(latest.entries as MappingEntry[]).some((e)=>e.kind==='LEAD_FIELD' && e.fieldId===id)))
         draftWarnings.push('SOURCE_MAPPING_REQUIRED_FIELD_UNMAPPED');
     }
+    const [runtime]=await sourceBindingRows(db,scope.camp.id,null,1,scope.binding.id);
+    const setupIssues=sourceBindingIssues(runtime!);
     return { latest:await visibleRevision(db,actor,scope.camp.id,latest),publishedVersion:published?.version ?? null,
       bindingVersion:scope.binding.version,connectionVersion:scope.form.version,resourceVersion:scope.resource.version,questions:scope.questions,
-      configured:issues.length===0,issues,draftWarnings,intakeReady:false };
+      configured:issues.length===0,issues,draftWarnings,setupReady:setupIssues.length===0,setupIssues,
+      intakeReady:setupIssues.length===0 && scope.camp.status==='ACTIVE' && !runtime!.messaging_enabled && !runtime!.ai_enabled };
   });
   app.get<{ Params:{ id:string;bindingId:string };Querystring:{ after?:string;limit?:number } }>(root+'/targets',{
     schema:{ params,querystring:{ type:'object',additionalProperties:false,properties:{ after:uuid,limit:{ type:'integer',minimum:1,maximum:100 } } } } },async(request)=> {
