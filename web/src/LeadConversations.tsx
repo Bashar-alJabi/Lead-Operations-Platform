@@ -29,6 +29,12 @@ type AvailableTemplate = { id: string; name: string; language: string; body: str
   components:{ type:'HEADER'|'BODY'|'FOOTER';format?:string;text?:string }[];buttons:TemplateButton[];urlParameterIndex:number|null;headerMediaKind:'image'|'video'|'document'|null };
 type AttentionReview = { id: string; previous_reason: string; review_note: string;
   reviewer_name: string; created_at: string };
+type PaymentLink={ id:string;methodName:string;amount:string;currency:string;customerUrl:string|null };
+const paymentLabels={
+  ar:{ title:'رابط الدفع المختار',note:'اختر المحادثة ثم أدرج الرابط صراحة. التجهيز لا يرسل رسالة ولا يمحو النص الحالي. خارج نافذة الرد استخدم قالبًا معتمدًا؛ سياسة الإرسال تبقى مطبقة.',insert:'إدراج رابط الدفع في النص',parameter:'استخدام رابط الدفع لهذا المتغير',url:'إدراج رابط الدفع في زر URL',clear:'إلغاء اختيار رابط الدفع',unavailable:'الرابط لم يعد متاحًا؛ حدّث طلبات الدفع.' },
+  en:{ title:'Selected payment link',note:'Choose a conversation and insert the link explicitly. Preparation sends no message and preserves the current text. Outside the reply window, use an approved template; sending policy still applies.',insert:'Insert payment link into text',parameter:'Use payment link for this parameter',url:'Insert payment link in URL button',clear:'Clear selected payment link',unavailable:'The link is no longer available; refresh payment requests.' },
+  fr:{ title:'Lien de paiement sélectionné',note:'Choisissez une conversation puis insérez le lien. La préparation n’envoie rien et conserve le texte existant. Hors de la fenêtre de réponse, utilisez un modèle approuvé ; la politique reste appliquée.',insert:'Insérer le lien dans le texte',parameter:'Utiliser le lien pour ce paramètre',url:'Insérer le lien dans le bouton URL',clear:'Effacer le lien sélectionné',unavailable:'Le lien n’est plus disponible ; actualisez les demandes.' },
+};
 const labels = {
   ar: { title: 'محادثات العميل', open: 'فتح محادثة WhatsApp', explain: 'فتح المحادثة يثبت رقم الإرسال ولا يرسل رسالة للعميل.',
     empty: 'لا توجد محادثات.', sender: 'الرقم المثبت', controller: 'المتحكم', state: 'الحالة', attention: 'تحتاج مراجعة', more: 'المزيد',
@@ -61,8 +67,8 @@ const labels = {
     mode: 'Message type', textMode: 'Freeform text in reply window', templateMode: 'Approved template', template: 'Template', noTemplates: 'No approved templates allowed for this campaign.', templateNote: 'Template approval and sending policy are checked again before contacting the provider.', takeover: 'Take over conversation', takeoverReason: 'Takeover reason' },
 } as const;
 
-export function LeadConversations({ leadId, lifecycle, role, actorId, locale, api }: { leadId: string; lifecycle: string;
-  role: 'SUPER_ADMIN'|'MANAGER'|'AGENT'; actorId: string; locale: Locale; api: Api }) {
+export function LeadConversations({ leadId, lifecycle, role, actorId, locale, api,paymentIntentId,onClearPayment }: { leadId: string; lifecycle: string;
+  role: 'SUPER_ADMIN'|'MANAGER'|'AGENT'; actorId: string; locale: Locale; api: Api;paymentIntentId:string|null;onClearPayment:()=>void }) {
   const t = labels[locale];
   const [items, setItems] = useState<Conversation[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -105,6 +111,41 @@ export function LeadConversations({ leadId, lifecycle, role, actorId, locale, ap
   const [reviewConfirmed, setReviewConfirmed] = useState(false);
   const [attentionReviews, setAttentionReviews] = useState<AttentionReview[]>([]);
   const [reviewBefore, setReviewBefore] = useState<string | null>(null);
+  const [paymentLink,setPaymentLink]=useState<PaymentLink|null>(null);
+  const paymentSelectionRef=useRef<string|null>(null);const paymentPanelRef=useRef<HTMLDivElement|null>(null);
+  useEffect(()=> {
+    paymentSelectionRef.current=paymentIntentId;setPaymentLink(null);
+    if(!paymentIntentId)return;
+    let active=true;
+    void api<PaymentLink>(`/api/leads/${leadId}/payment-link-requests/${paymentIntentId}`).then((link)=> {
+      if(!active)return;setPaymentLink(link);paymentPanelRef.current?.scrollIntoView({ block:'center' });
+    }).catch((failure)=>{ if(active)setError(String(failure)); });
+    return ()=>{ active=false; };
+  },[leadId,paymentIntentId]);
+  async function insertPaymentLink(target:'TEXT'|'URL'|number) {
+    const id=selectedRef.current;const intentId=paymentIntentId;if(!id || !intentId)return;
+    setBusy(true);setError('');
+    try {
+      // Re-read current scoped availability before inserting. This is preparation, never a provider send.
+      const link=await api<PaymentLink>(`/api/leads/${leadId}/payment-link-requests/${intentId}`);
+      if(selectedRef.current!==id || paymentSelectionRef.current!==intentId)return;
+      setPaymentLink(link);const url=link.customerUrl;if(!url)throw new Error(paymentLabels[locale].unavailable);
+      if(target==='TEXT') {
+        const body=draft.includes(url) ? draft : draft ? draft+'\n'+url : url;
+        if(body.length>20000)throw new Error('MESSAGE_BODY_TOO_LONG');setDraft(body);
+      }else if(target==='URL') {
+        const button=selectedTemplate?.buttons.find((b)=>b.type==='URL' && b.url.endsWith('{{1}}'));
+        if(!button || button.type!=='URL')throw new Error('PAYMENT_TEMPLATE_URL_INCOMPATIBLE');
+        const base=button.url.slice(0,-5);
+        if(!url.startsWith(base) || !url.slice(base.length))throw new Error('PAYMENT_TEMPLATE_URL_INCOMPATIBLE');
+        setUrlParameter(url.slice(base.length));
+      }else {
+        if(url.length>512)throw new Error('TEMPLATE_PARAMETER_TOO_LONG');
+        setTemplateParameters((values)=>values.map((value,index)=>index===target ? url : value));
+      }
+      setSendKey(crypto.randomUUID());setSubmitted(false);
+    }catch(failure) { setError(String(failure)); }finally { setBusy(false); }
+  }
   async function load(next?: string) {
     const page = await api<{ items: Conversation[]; nextCursor: string | null }>(
       `/api/leads/${leadId}/conversations${next ? '?cursor=' + encodeURIComponent(next) : ''}`);
@@ -251,6 +292,11 @@ export function LeadConversations({ leadId, lifecycle, role, actorId, locale, ap
   }
   return <section className="panel conversation-panel"><h3>{t.title}</h3><p>{t.explain}</p>
     {error && <p role="alert" className="error">{error}</p>}
+    {paymentIntentId && <div className="panel payment-message-selection" ref={paymentPanelRef}><h4>{paymentLabels[locale].title}</h4><p>{paymentLabels[locale].note}</p>
+      {paymentLink && <><p>{paymentLink.methodName} · <bdi>{paymentLink.amount} {paymentLink.currency}</bdi></p>
+        {paymentLink.customerUrl ? <p style={{ overflowWrap:'anywhere' }}><bdi>{paymentLink.customerUrl}</bdi></p> : <p role="status">{paymentLabels[locale].unavailable}</p>}</>}
+      <button className="secondary" disabled={busy} onClick={onClearPayment}>{paymentLabels[locale].clear}</button>
+    </div>}
     <button disabled={busy || lifecycle !== 'OPEN'} onClick={() => void open()}>{t.open}</button>
     {!items.length && <p>{t.empty}</p>}
     <div className="table-scroll"><table><thead><tr><th>{t.sender}</th><th>{t.controller}</th><th>{t.state}</th><th>{t.attention}</th><th></th></tr></thead>
@@ -342,6 +388,8 @@ export function LeadConversations({ leadId, lifecycle, role, actorId, locale, ap
               <textarea aria-label={locale === 'ar' ? 'تعليق اختياري' : locale === 'fr' ? 'Légende facultative' : 'Optional caption'} value={draft} maxLength={1024} disabled={busy} onChange={(event) => { setDraft(event.target.value);
                 if (submitted) { setSendKey(crypto.randomUUID()); setSubmitted(false); } }} /></label>
               : <p>{locale==='ar' ? 'هذا النوع لا يدعم تعليقاً. أرسل أي نص برسالة مستقلة.' : locale==='fr' ? 'Ce type ne prend pas de légende. Envoyez le texte dans un message séparé.' : 'This type has no caption. Send any text as a separate message.'}</p>}</>}
+        {sendMode==='TEXT' && paymentIntentId && <button type="button" className="secondary" disabled={busy || !paymentLink?.customerUrl}
+          onClick={()=>void insertPaymentLink('TEXT')}>{paymentLabels[locale].insert}</button>}
         {sendMode === 'TEMPLATE' && <p style={{ whiteSpace:'pre-wrap' }}>{templatePreview ?? t.noTemplates} {t.templateNote}</p>}
         {sendMode==='TEMPLATE' && selectedTemplate?.headerMediaKind && <>
           <p>{mediaNames[locale][selectedTemplate.headerMediaKind]} · {mediaRule?.mimes.join(' / ')} · {mediaRule ? (mediaRule.maxBytes/1024/1024).toFixed(2) : '—'} MiB</p>
@@ -359,6 +407,8 @@ export function LeadConversations({ leadId, lifecycle, role, actorId, locale, ap
           <input required maxLength={2000} value={urlParameter} disabled={busy} onChange={(event)=> {
             setUrlParameter(event.target.value);if (submitted) { setSendKey(crypto.randomUUID());setSubmitted(false); }
           }} /></label>}
+        {sendMode==='TEMPLATE' && selectedTemplate && selectedTemplate.urlParameterIndex!==null && paymentIntentId && <button type="button" className="secondary" disabled={busy || !paymentLink?.customerUrl}
+          onClick={()=>void insertPaymentLink('URL')}>{paymentLabels[locale].url}</button>}
         {sendMode==='TEMPLATE' && selectedTemplate?.headerParameterCount===1 && <label>
           {locale==='ar' ? 'قيمة متغير HEADER' : locale==='fr' ? 'Valeur du paramètre HEADER' : 'HEADER parameter value'}
           <input required maxLength={60} value={headerParameter} disabled={busy} onChange={(event)=> {
@@ -366,10 +416,11 @@ export function LeadConversations({ leadId, lifecycle, role, actorId, locale, ap
           }} /></label>}
         {sendMode === 'TEMPLATE' && templateParameters.map((value, index) =>
           <label key={`${templateId}-${index}`}>{locale === 'ar' ? 'قيمة المتغير' : locale === 'fr' ? 'Valeur du paramètre' : 'Parameter'} {index + 1}
-            <input required maxLength={512} value={value} disabled={busy} onChange={(event) => {
+            <input aria-label={(locale === 'ar' ? 'قيمة المتغير' : locale === 'fr' ? 'Valeur du paramètre' : 'Parameter')+' '+(index+1)} required maxLength={512} value={value} disabled={busy} onChange={(event) => {
               setTemplateParameters((current) => current.map((item, position) => position === index ? event.target.value : item));
               if (submitted) { setSendKey(crypto.randomUUID()); setSubmitted(false); }
-            }} /></label>)}
+            }} />{paymentIntentId && <button type="button" className="secondary" disabled={busy || !paymentLink?.customerUrl}
+              onClick={()=>void insertPaymentLink(index)}>{paymentLabels[locale].parameter} {index+1}</button>}</label>)}
         {sendMode === 'TEMPLATE' && templateAfter && <button type="button" className="secondary" disabled={busy}
           onClick={() => selectedId && void loadTemplates(selectedId, templateAfter).catch((failure) => setError(String(failure)))}>{t.more}</button>}
         <button disabled={busy || (sendMode === 'TEXT' ? !draft.trim() : sendMode === 'ATTACHMENT' ? !uploadedAttachment

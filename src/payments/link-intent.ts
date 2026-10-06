@@ -45,7 +45,7 @@ export function linkIntentDto(row:postgres.Row) {
     financialProcessingReady:true };
 }
 
-export async function linkIntentRows(tx:postgres.TransactionSql,leadId:string,limit:number,timestamp:string|null=null,id:string|null=null) {
+export async function linkIntentRows(tx:postgres.TransactionSql,leadId:string,limit:number,timestamp:string|null=null,id:string|null=null,onlyIntentId:string|null=null) {
   return tx`SELECT i.id,i.method_name,i.method_version,i.amount,i.currency,i.created_at,d.state AS dispatch_state,d.error_code AS dispatch_error,
     a.expires_at AS checkout_expires_at,a.ciphertext AS checkout_ciphertext,a.nonce AS checkout_nonce,a.auth_tag AS checkout_auth_tag,a.key_version AS checkout_key_version,
     a.expires_at>clock_timestamp() AND d.state='ACCEPTED' AND (p.state IS NULL OR p.state='PENDING')
@@ -53,6 +53,7 @@ export async function linkIntentRows(tx:postgres.TransactionSql,leadId:string,li
     p.state AS payment_state,p.payment_ref,p.confirmed_at,e.id AS enrollment_id,e.enrolled_at
     FROM payment_link_intent i JOIN payment_dispatch d ON d.intent_id=i.id LEFT JOIN payment_checkout_ack a ON a.intent_id=i.id
     LEFT JOIN payment_record p ON p.intent_id=i.id LEFT JOIN enrollment e ON e.payment_id=p.id
-    WHERE i.lead_id=${leadId} AND (${timestamp}::timestamptz IS NULL OR (i.created_at,i.id)<(${timestamp}::timestamptz,${id}::uuid))
+    WHERE i.lead_id=${leadId} AND (${onlyIntentId}::uuid IS NULL OR i.id=${onlyIntentId}::uuid)
+      AND (${timestamp}::timestamptz IS NULL OR (i.created_at,i.id)<(${timestamp}::timestamptz,${id}::uuid))
     ORDER BY i.created_at DESC,i.id DESC LIMIT ${limit}`;
 }

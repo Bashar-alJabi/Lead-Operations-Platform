@@ -73,18 +73,30 @@ test('Durable payment issuance and trusted confirmation preserve authorization, 
   const countEnrollment=async()=>(await db`SELECT count(*)::integer AS n FROM enrollment`)[0]!.n;
 
   await t.test('one merchant lease prevents parallel writes; an accepted URL is encrypted and does not imply payment',async()=> {
-    const id=await request();const second=await request();let arrived!:()=>void;let release!:()=>void;
+    const id=await request();const second=await request();
+    assert.equal((await api('GET',requests+'/'+id,undefined,'agent')).json().customerUrl,null);
+    let arrived!:()=>void;let release!:()=>void;
     const started=new Promise<void>((resolve)=>{ arrived=resolve; });const gate=new Promise<void>((resolve)=>{ release=resolve; });createHook=async()=>{ arrived();await gate; };
     const running=processOnePaymentDispatch(db,adapters);await Promise.race([started,running.then(()=>{ throw new Error('No provider claim'); })]);
     const others=await Promise.all(Array.from({ length:8 },()=>processOnePaymentDispatch(db,adapters)));assert.deepEqual(others,Array(8).fill(false));assert.equal(inputs.length,1);
     release();await running;createHook=null;assert.equal((await dispatchState(id)).state,'ACCEPTED');await processOnePaymentDispatch(db,adapters);assert.equal((await dispatchState(second)).state,'ACCEPTED');
     const ack=(await db`SELECT * FROM payment_checkout_ack WHERE intent_id=${id}`)[0]!;assert.equal(ack.ciphertext.toString().includes('checkout.stripe.com'),false);
     const dto=(await api('GET',requests,undefined,'agent')).json().items.find((row:{ id:string })=>row.id===id);assert.equal(dto.customerUrl,snapshots.get(id)!.url);assert.equal(dto.paymentState,null);assert.equal(dto.enrollmentId,null);
+    const detail=await api('GET',requests+'/'+id,undefined,'agent');assert.equal(detail.statusCode,200);assert.equal(detail.json().customerUrl,dto.customerUrl);
+    for(const forbidden of ['account_ref','ciphertext','nonce','config_snapshot',key,accountRef])assert.equal(detail.body.includes(forbidden),false);
+    assert.equal((await api('GET',requests+'/'+id,undefined,'second')).statusCode,404);
+    assert.equal((await api('GET',requests+'/'+id,undefined,'other')).statusCode,404);
+    assert.equal((await api('GET',requests+'/'+randomUUID(),undefined,'agent')).statusCode,404);
+    assert.equal((await api('GET',requests+'/invalid-uuid',undefined,'agent')).statusCode,400);
+    const anotherLead=(await db`INSERT INTO lead(organization_id,branch_id,campaign_id,assigned_agent_id,source_kind)
+      VALUES (${org},${branch},${campaign},${users.agent!.id},'MANUAL') RETURNING id`)[0]!.id;
+    assert.equal((await api('GET','/api/leads/'+anotherLead+'/payment-link-requests/'+id,undefined,'agent')).statusCode,404);
     assert.equal(await countEnrollment(),0);assert.equal((await db`SELECT count(*)::integer AS n FROM contact`)[0]!.n,0);
     assert.equal((await send(id,ack.session_id,undefined,undefined,false)).statusCode,403);assert.equal(await countEnrollment(),0);
     snapshots.get(id)!.status='COMPLETE';snapshots.get(id)!.url=null;
     await send(id,ack.session_id);await drain();assert.equal((await db`SELECT state FROM payment_record WHERE intent_id=${id}`)[0]!.state,'PENDING');assert.equal(await countEnrollment(),0);
     assert.equal((await api('GET',requests,undefined,'agent')).json().items.find((row:{ id:string })=>row.id===id).customerUrl,null);
+    assert.equal((await api('GET',requests+'/'+id,undefined,'agent')).json().customerUrl,null);
     paid(id);const eventId='evt_WorkflowPaid123';const deliveries=await Promise.all(Array.from({ length:8 },()=>send(id,ack.session_id,undefined,eventId)));
     assert.equal(deliveries.filter((r)=>!r.json().duplicate).length,1);
     await db`CREATE FUNCTION synthetic_confirmation_audit_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='PAYMENT_RECEIPT_VERIFIED' THEN RAISE EXCEPTION 'synthetic rollback' USING ERRCODE='40001'; END IF; RETURN NEW; END $$`;

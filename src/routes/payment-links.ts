@@ -28,6 +28,17 @@ function pageResult(rows:postgres.Row[],limit:number,mapper:(row:postgres.Row)=>
 }
 
 export function registerPaymentLinkRoutes(app:FastifyInstance,db:Database,adapters:Adapters=paymentCheckoutAdapters) {
+  app.get<{ Params:{ id:string;intentId:string } }>('/api/leads/:id/payment-link-requests/:intentId',{
+    schema:{ params:{ ...params,required:['id','intentId'],properties:{ ...params.properties,intentId:{ type:'string',format:'uuid' } } } },
+  },async(request)=> {
+    const actor=await principalFromRequest(request,db);return db.begin(async(tx)=> {
+      await visibleLead(tx,actor,request,request.params.id);
+      const row=(await linkIntentRows(tx,request.params.id,1,null,null,request.params.intentId))[0];
+      if(!row)throw new HttpError(404,'PAYMENT_REQUEST_NOT_FOUND');
+      if(!await currentPaymentActor(tx,actor,request))throw new HttpError(403,'PAYMENT_ACCESS_REVOKED');
+      return linkIntentDto(row);
+    });
+  });
   app.get<{ Params:{ id:string;intentId:string } }>('/api/leads/:id/payment-link-requests/:intentId/attempts',{
     schema:{ params:{ ...params,required:['id','intentId'],properties:{ ...params.properties,intentId:{ type:'string',format:'uuid' } } } },
   },async(request)=> {

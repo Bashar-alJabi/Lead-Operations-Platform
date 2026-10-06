@@ -1,5 +1,13 @@
 # دليل التشغيل والتطوير
 
+## مشاركة رابط الدفع من المحادثة
+
+من Lead details حدّث **طلبات روابط الدفع** ثم اختر **تجهيز رسالة برابط الدفع** لرابط صادر وصالح. يظهر اختيار الرابط في **محادثات العميل**؛ التجهيز لا ينشئ Message أو يرسلها. اختر Conversation المطلوبة أو افتحها من زرها الحالي، وتأكد من Human controller والإذن وحالة عدم التواصل. الإدراج يحتاج فعلًا صريحًا ويقرأ الرابط الحالي مرة أخرى؛ إذا أُكد الدفع أو انتهت/اكتملت Session قبل الإدراج يظهر عدم إتاحة الرابط ويبقى النص السابق.
+
+للنص الحر استخدم **إدراج رابط الدفع في النص**؛ يضاف URL إلى draft الموجودة. خارج نافذة الرد استخدم القالب المعتمد المسموح للحملة: **استخدام رابط الدفع لهذا المتغير** يضع URL في BODY parameter المحددة، أو **إدراج رابط الدفع في زر URL** إذا كان prefix القالب متوافقًا. عدم توافق destination يعطي `PAYMENT_TEMPLATE_URL_INCOMPATIBLE`؛ اختر قالبًا مناسبًا ولا تغيّر target تلقائيًا. تجاوز الحد الحالي للمتغير يرفض الإدراج؛ استخدم نصًا ضمن النافذة أو قالب زر متوافقًا بدل تقصير الرابط أو تغييره عشوائيًا.
+
+راجع الرسالة ثم **وضع الرسالة في قائمة الإرسال**. QUEUED ليست SENT؛ تابع **عرض الرسائل** وdelivery/attempt history وerror/recovery الحالية. DNC/التحكم/القالب/الصلاحيات/النافذة/صحة Sender تحرس Queue وWorker، وreplay بنفس المفتاح لا ينشئ رسالة ثانية. الإرسال والنسخ وفتح الرابط لا تؤكد الدفع؛ تأكيد المزود الموثوق وحده ينشئ Payment/Enrollment. لا Messaging credentials أوpayment secrets للـAgent، ولاprovider CLI أوتعديل DB مطلوب للمشاركة.
+
 ## استرداد التحقق من إيصال بمفتاح تاريخي ملغى —068–069
 
 إذا ظهرت `NEEDS_ATTENTION/PAYMENT_PROVIDER_AUTH_FAILED`، صحّح صلاحية القراءة لدى المزود، أو دوّر المفتاح من **إعداد الدفع** ثم افحص خيارات Connection الحالية. يجب أن يبقى provider/account/mode مطابقًا للحساب الذي أصدر الطلب. لا تنقل الإيصال إلى حساب مختلف ولا تنشئ Link بديلة لإخفاء نتيجة غير مؤكدة. بيانات الاتصال لا تظهر كاملة بعد الحفظ ولا تُعدل في DB أو server files.
@@ -20,7 +28,7 @@
 
 منWebhook history تابعQUEUED/RUNNING/RETRY/PROCESSED/IGNORED/NEEDS_ATTENTION وerrorcode ومحاولاتverification دونraw customer data. PROCESSED لايعنيPaid: راجعLead payment status. Receiptموقّعةتحتاجمطابقةserver dispatch وGETموثوقللحساب/الجلسة/mode/amount/currency؛unmatched setup testevent قدتظهرNEEDS_ATTENTION بدونPayment. عندفشلالفحصصححالسببثمأدخلreason وأعدالتحقق منUI؛ النافذة التلقائية خمس محاولات، والتمديد الصريح للقراءة فقط موضح في068–069 أعلاه. duplicate callback لا تجدد الميزانية ولا تنشئ Payment أخرى. Agent ممنوعةمنConnection recovery. Connection rotation/disable أوانتهاءجلسةrequester لايوقفhistorical confirmation بمفتاحintentالمحفوظ؛احتفظبالEndpoint القديمة حتىتسويةمدفوعاتها.
 
-UNKNOWN/INTERRUPTED تعنيقبولًاقديكونحدث؛لاتنشئkeyبديلةأوتعدّلDBلإزالةambiguity. Worker تحافظعلىparams/key/first-dispatch/retention وتتوقفقبلانتهاء24hStripewindowمعميزانيةI/Oكاملة. ReceiptموثوقةقبلACKيمكنهاإثباتالدفع؛recovery عندوجودها لايعيدPOST. Native guards تحفظattempt/receipt/confirmation/Enrollmenthistory. عندtrusted PAIDتُحفظConfirmedPayment وEnrollmentمنفصلةوActivities/Auditatomic،بدونإغلاقLeadتلقائي. استرداد read-only credential موضح في القسم068–069 أعلاه؛ multi-provider والمشاركة المخصصة منUI باقيتان ضمن baseline التالية، ولاLive verification.
+UNKNOWN/INTERRUPTED تعني قبولًا قد يكون حدث؛ لا تنشئ key بديلة أوتعدّلDB لإزالةambiguity. Worker تحافظ على params/key/first-dispatch/retention وتتوقف قبل انتهاء24h Stripe window مع ميزانيةI/O كاملة. Receipt موثوقة قبلACK يمكنها إثبات الدفع؛ recovery عند وجودها لا تعيدPOST. Native guards تحفظ attempt/receipt/confirmation/Enrollment history. عند trusted PAID تُحفظ Confirmed Payment وEnrollment منفصلة وActivities/Audit atomic، بدون إغلاقLead تلقائي. استرداد read-only credential موضح في القسم068–069، ومشاركة الرابط منUI موضحة في القسم الأول أعلاه؛ multi-provider ما زال ضمن baseline التالية، ولاLive verification.
 
 الأقسام063وHosted Checkout التاليةتوثيقالمراحل السابقةقبلتوصيلworker؛سلوكQUEUEDوالpipeline أعلاههيالحالية. لاتشغّلintegration/Browserمعًالأنهمايفرغانقاعدةtestالمعزولة.
 

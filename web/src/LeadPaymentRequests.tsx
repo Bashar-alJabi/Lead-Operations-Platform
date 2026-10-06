@@ -20,7 +20,7 @@ const labels={
     method:'Moyen de la demande',amount:'Montant de la demande',currency:'Devise de la demande',prepare:'Enregistrer la demande de lien',refresh:'Actualiser les demandes',more:'Autres demandes',moreMethods:'Autres moyens',choose:'Choisir un moyen',
     empty:'Aucune demande enregistrée.',saved:'Demande enregistrée une fois. Consultez son état ci-dessous.',unavailable:'Moyen indisponible',hint:'Utilisez des chiffres anglais et un point décimal, sans arrondi ni séparateur de milliers.',date:'Date de demande' },
 } as const;
-export function LeadPaymentRequests({ locale,leadId,api }: { locale:Locale;leadId:string;api:Api }) {
+export function LeadPaymentRequests({ locale,leadId,api,onPrepareMessage }: { locale:Locale;leadId:string;api:Api;onPrepareMessage:(intentId:string)=>void }) {
   const t=labels[locale];const [methods,setMethods]=useState<Method[]>([]);const [items,setItems]=useState<Intent[]>([]);
   const [methodCursor,setMethodCursor]=useState<string|null>(null);const [cursor,setCursor]=useState<string|null>(null);
   const [methodId,setMethodId]=useState('');const [amount,setAmount]=useState('');const [currency,setCurrency]=useState('');
@@ -62,7 +62,8 @@ export function LeadPaymentRequests({ locale,leadId,api }: { locale:Locale;leadI
       {item.errorCode && <p><bdi>{item.errorCode}</bdi></p>}
       {item.expiresAt && <p>{financeLabels[locale].expires}: {new Date(item.expiresAt).toLocaleString(locale)}</p>}
       {item.customerUrl && <p><a href={item.customerUrl} target="_blank" rel="noopener noreferrer">{financeLabels[locale].open}</a>{' '}
-        <button className="secondary" disabled={busy} onClick={()=>void action(async()=>{ await navigator.clipboard.writeText(item.customerUrl!);setCopied(true); })}>{financeLabels[locale].copy}</button></p>}
+        <button className="secondary" disabled={busy} onClick={()=>void action(async()=>{ await navigator.clipboard.writeText(item.customerUrl!);setCopied(true); })}>{financeLabels[locale].copy}</button>{' '}
+        <button className="secondary" disabled={busy} onClick={()=>onPrepareMessage(item.id)}>{locale==='ar' ? 'تجهيز رسالة برابط الدفع' : locale==='fr' ? 'Préparer un message de paiement' : 'Prepare payment message'}</button></p>}
       {item.paymentState && <p>{financeLabels[locale].payment}: {states[locale][item.paymentState as keyof typeof states.en] ?? item.paymentState}</p>}
       {item.paymentReference && <p>{financeLabels[locale].reference}: <bdi>{item.paymentReference}</bdi></p>}
       {item.enrollmentId && item.enrolledAt && <p>{financeLabels[locale].enrolled}: {new Date(item.enrolledAt).toLocaleString(locale)}</p>}

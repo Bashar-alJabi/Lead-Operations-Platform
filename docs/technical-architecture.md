@@ -1,5 +1,13 @@
 # المعمارية التقنية
 
+## Payment Link داخل Customer Messaging
+
+`GET /api/leads/:id/payment-link-requests/:intentId` تعيد DTO الحالية لرابط واحد، بcurrent Lead/session ACL ومع تطابق intent مع Lead المطلوبة. هي القراءة نفسها المستخدمة في التاريخ، مع indexed intent filter وDB-clock URL availability؛ لا قراءة لكل التاريخ من أجل العثور على UUID. لا credentials/account/config أوraw provider response في النتيجة. Closed/completed/expired/confirmed resource لا تقدم customer URL.
+
+`LeadCustomerOperations` تنسق اختيار intent داخل Lead workspace؛ تُركب بـLead key مستقلة، فلا تنتقل selection إلى Lead أخرى. **Prepare payment message** تعرض الاختيار فقط، دون إنشاء Conversation أوMessage أوProvider I/O. المستخدم يفتح أو يختار Conversation من المسار القائم ويحتاج current Human controller كي يعدّل composer. إدراج النص يعيد قراءة Link الحالية ويضيف URL إلى draft الموجودة؛ BODY variable تُختار صراحة، وdynamic URL button تتطلب static approved prefix مطابقة ولا تغيّر destination. عدم التوافق أوغيابURL أوتجاوز حدود النص/parameter يرفض الإدراج. لا اختيارTemplate أوsend تلقائي.
+
+الإرسال هو `POST /api/conversations/:id/messages` ثم `enqueueOutboundMessage` وCentral Messaging Policy وoutbound queue/worker/history القائمة. Consent/DNC/controller/template/window/sender/scope/health/idempotency وبقية القواعد تعاد هناك. مشاركة الرابط لا تتصل بـPayment provider لإرسال WhatsApp ولا تتجاوز سياسة Messaging. Availability عند الإدراج قراءة حالية وليست ضمانًا لمدة صلاحية رابط نسخه المستخدم؛ الرسالة Historical immutable وقد ينتهي الرابط بعد إرسالها. إرسال URL لا يؤكد Payment أوEnrollment. UI coordination لا تضيف Financial Entity أوMigration أوصلاحية Business جديدة؛ Customer Messages وActivity/Audit الموجودة هي التاريخ المعتمد، والقيم غير الموثوقة تعرض كنصوص React.
+
 ## Historical receipt credential repair — migrations068–069
 
 إلغاء مفتاح تاريخي لدى المزود لا يغيّر `payment_link_intent` أو معلمات Checkout أو idempotency أو write budget. الاسترداد يبدأ من Connection/Webhook UI، ويحتاج Super Admin أو Manager ضمن نطاق Connection الحالية، وجلسة صالحة وreason وexpected attempt count وcurrent Connection version. بيانات الاتصال البديلة يجب أن تكون مفحوصة، وأن تطابق provider/account/mode الأصلية؛ account mismatch أو stale options/version تمنع العملية. لا تُطلب charges_enabled لقراءة دفع تاريخي.
@@ -20,7 +28,7 @@ Claim تعيد Connection→Branch→Method→Endpoint→Lead→original User/Se
 
 Migration067 تحرس policy shape والأنواع والأعداد الآمنة في DB، ورفض missing/null members أوdeadline overflow، وتمنع انتقال unpaid terminal إلى حالة أقدم. الجلسة التي ثبت اكتمالها لا تعرض Customer URL حتى إن بقي الدفع pending.
 
-الواجهة الحالية ar/en/fr تعرض issuance/attempts/errors وcopy/open validated URL، Payment status/reference وEnrollment date، وreceipt state/history/retry من Connection setup حسب الصلاحيات. Historical credential repair ونافذة read-only recovery موضحتان في القسم068–069 أعلاه. مشاركة الرابط عبر Messaging ومزود إضافي وNotifications/Analytics من الاعتماديات المتبقية في Coverage؛ هذه core checkpoint لا تجعل Payments كلها أوالمنصة Complete. الأقسام أدناه توثق المراحل السابقة؛ سلوك QUEUED والـworker أعلاه هو الحالي.
+الواجهة الحالية ar/en/fr تعرض issuance/attempts/errors وcopy/open validated URL، Payment status/reference وEnrollment date، وreceipt state/history/retry من Connection setup حسب الصلاحيات. Historical credential repair ونافذة read-only recovery موضحتان في القسم068–069، ومشاركة الرابط عبر Central Messaging Policy موضحة في القسم الأول أعلاه. مزود إضافي وNotifications/Analytics من الاعتماديات المتبقية في Coverage؛ هذه checkpoint لا تجعل Payments كلها أوالمنصة Complete. الأقسام أدناه توثق المراحل السابقة؛ سلوك QUEUED والـworker أعلاه هو الحالي.
 
 ## Payment dispatch policy kernel: prerequisite للـdurable worker
 

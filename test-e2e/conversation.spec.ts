@@ -1071,6 +1071,7 @@ test('browser issues a safe Checkout link and shows trusted Payment and separate
     await expect(panel).toContainText('دفع مؤكد');await expect(panel).toContainText('اشتراك مؤكد');await expect(panel.locator('img')).toHaveCount(0);
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);await panel.locator('.payment-request-history').scrollIntoViewIfNeeded();await page.screenshot({ path:'.local/e2e/payment-confirmation-ar.png' });
     await control(adminPage,{ assigned:'second' });expect((await page.request.get(root)).status()).toBe(404);expect((await page.request.get(root+'/'+before.id+'/attempts')).status()).toBe(404);
+    expect((await page.request.get(root+'/'+before.id)).status()).toBe(404);
     expect(errors).toEqual([]);
   }finally { await control(adminPage,{ assigned:'agent' });await agent.close();await admin.close(); }
 });
@@ -1104,4 +1105,55 @@ test('browser authorizes receipt credential repair through scoped setup and reta
     await panel.getByText('بيانات بديلة معتمدة',{ exact:true }).scrollIntoViewIfNeeded();await rootPage.screenshot({ path:'.local/e2e/payment-repair-ar.png' });
     expect(await rootPage.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);expect(errors).toEqual([]);
   }finally { await control(rootPage,{ paymentReceiptAuthFailure:false });await admin.close();await agent.close(); }
+});
+
+test('browser prepares scoped payment messages without overwriting drafts, sends text and approved templates through policy and rejects stale links',async({ browser })=> {
+  const admin=await browser.newContext({ storageState:adminStorageState });const rootPage=await admin.newPage();
+  const agent=await browser.newContext({ storageState:agentStorageState });const page=await agent.newPage();const errors:string[]=[];page.on('pageerror',(e)=>errors.push(e.message));
+  const origin='http://127.0.0.1:4100';const lr='/api/leads/'+fixture.mediaLeadId;const requests=lr+'/payment-link-requests';
+  async function rootPost(path:string,data:object) { const r=await rootPage.request.post(path,{ data,headers:{ origin } });expect(r.ok(),await r.text()).toBe(true);return r.json(); }
+  async function setDnc(value:boolean) { const c=(await (await rootPage.request.get(lr+'/messaging-consent')).json());
+    const r=await rootPage.request.put(lr+'/messaging-consent',{ data:{ version:c.version,status:'GRANTED',doNotContact:value,source:'TEST',evidence:'Browser payment policy check' },headers:{ origin } });expect(r.ok(),await r.text()).toBe(true); }
+  try {
+    await control(rootPage,{ paymentChargesEnabled:true });
+    const lead=(await (await rootPage.request.get(lr)).json()).lead;
+    const connection=(await (await rootPage.request.get('/api/payments/connections')).json()).items.find((row:{ name:string })=>row.name==='Browser shared payment');
+    const method=await rootPost('/api/payments/methods',{ name:'Messaging payment <img src=x>',branchId:lead.branch_id,connectionId:connection.id,currencies:['USD'],active:true,
+      agents:{ mode:'ALL',ids:[] },campaigns:{ mode:'ALL',ids:[] },reason:'Approved messaging payment method' });
+    const saved=await page.request.post(requests,{ data:{ requestId:randomUUID(),methodId:method.id,methodVersion:method.version,amount:'35',currency:'USD' },headers:{ origin } });expect(saved.status()).toBe(201);
+    const id=(await saved.json()).id;await control(rootPage,{ paymentDispatch:true });
+    const dto=(await (await page.request.get(requests+'/'+id)).json());const url=dto.customerUrl;expect(url).toMatch(/^https:\/\/checkout\.stripe\.com\/c\/pay\//);
+    const mc=(await (await rootPage.request.get('/api/messaging/connections')).json()).items.find((row:{ name:string })=>row.name==='Browser Media Connection');
+    await rootPost('/api/messaging/connections/'+mc.id+'/templates',{ name:'browser_payment_url',language:'en_US',category:'UTILITY',body:'Payment details',
+      buttons:[{ type:'URL',text:'Pay securely',url:'https://checkout.stripe.com/c/pay/{{1}}' }],urlExample:'cs_test_ApprovalOnly123',idempotencyKey:randomUUID() });
+    await control(rootPage,{ approveTemplates:true });await rootPost('/api/messaging/connections/'+mc.id+'/templates/sync',{});
+    const available=(await (await rootPage.request.get('/api/messaging/campaigns/'+lead.campaign_id+'/templates')).json()).items.find((row:{ name:string })=>row.name==='browser_payment_url');
+    const bound=await rootPage.request.put('/api/messaging/campaigns/'+lead.campaign_id+'/templates/'+available.id,{ data:{ version:available.version,bound:true },headers:{ origin } });expect(bound.ok(),await bound.text()).toBe(true);
+    await page.goto('/');await page.getByRole('combobox',{ name:'Language' }).selectOption('en');await page.getByRole('row').filter({ hasText:'Browser Media Customer' }).getByRole('button',{ name:'Details',exact:true }).click();
+    const panel=page.locator('.conversation-panel');const payments=page.locator('.lead-payment-requests');await panel.getByRole('button',{ name:'View messages',exact:true }).click();
+    const original='Reviewed payment details <img src=x>';await panel.getByLabel('Message text',{ exact:true }).fill(original);const before=await control(rootPage);
+    await payments.getByRole('button',{ name:'Prepare payment message',exact:true }).click();await expect(panel.locator('.payment-message-selection')).toContainText(url);
+    await expect(panel.getByLabel('Message text',{ exact:true })).toHaveValue(original);expect((await control(rootPage)).messages).toHaveLength(before.messages.length);
+    await panel.getByRole('button',{ name:'Insert payment link into text',exact:true }).click();await expect(panel.getByLabel('Message text',{ exact:true })).toHaveValue(original+'\n'+url);
+    await setDnc(true);await panel.getByRole('button',{ name:'Queue message',exact:true }).click();await expect(panel.getByRole('alert')).toContainText('DO_NOT_CONTACT');expect((await control(rootPage)).messages).toHaveLength(before.messages.length);
+    await setDnc(false);const textQueued=page.waitForResponse((r)=>r.url().endsWith('/messages') && r.request().method()==='POST');
+    await panel.getByRole('button',{ name:'Queue message',exact:true }).click();expect((await textQueued).status()).toBe(202);await control(rootPage,{ process:true,mode:'accept' });
+    await panel.getByRole('button',{ name:'View messages',exact:true }).click();const text=panel.locator('.conversation-messages > li').filter({ hasText:original+'\n'+url });await expect(text).toContainText('SENT');await expect(text.locator('img')).toHaveCount(0);
+    await panel.getByLabel('Message type',{ exact:true }).selectOption('TEMPLATE');await panel.getByLabel('Template',{ exact:true }).selectOption({ label:'browser_composite_notice · en_US' });
+    await panel.getByRole('button',{ name:'Use payment link for this parameter 1',exact:true }).click();await expect(panel.getByLabel('Parameter 1',{ exact:true })).toHaveValue(url);
+    const queued=page.waitForResponse((r)=>r.url().endsWith('/messages') && r.request().method()==='POST');await panel.getByRole('button',{ name:'Queue message',exact:true }).click();const templateResponse=await queued;expect(templateResponse.status()).toBe(202);
+    const replay=await page.request.post(new URL(templateResponse.url()).pathname,{ data:templateResponse.request().postDataJSON(),headers:{ origin } });expect(replay.status()).toBe(200);
+    await control(rootPage,{ process:true });await panel.getByRole('button',{ name:'View messages',exact:true }).click();await expect(panel.locator('.conversation-messages > li').filter({ hasText:'Dear '+url+', your request is received.' })).toContainText('SENT');
+    await panel.getByLabel('Template',{ exact:true }).selectOption({ label:'browser_dynamic_url · en_US' });await panel.getByRole('button',{ name:'Insert payment link in URL button',exact:true }).click();await expect(panel.getByRole('alert')).toContainText('PAYMENT_TEMPLATE_URL_INCOMPATIBLE');
+    await panel.getByLabel('Template',{ exact:true }).selectOption({ label:'browser_payment_url · en_US' });await panel.getByRole('button',{ name:'Insert payment link in URL button',exact:true }).click();
+    const composer=panel.locator('form.workflow-form').first();await expect(composer.getByRole('link',{ name:/Pay securely/ })).toHaveAttribute('href',url);
+    const urlQueued=page.waitForResponse((r)=>r.url().endsWith('/messages') && r.request().method()==='POST');
+    await panel.getByRole('button',{ name:'Queue message',exact:true }).click();expect((await urlQueued).status()).toBe(202);await control(rootPage,{ process:true });await panel.getByRole('button',{ name:'View messages',exact:true }).click();
+    const buttonMessage=panel.locator('.conversation-messages > li').filter({ has:page.getByRole('link',{ name:/Pay securely/ }) });await expect(buttonMessage).toContainText('SENT');await expect(buttonMessage.getByRole('link',{ name:/Pay securely/ })).toHaveAttribute('href',url);
+    await page.getByRole('combobox',{ name:'Language' }).selectOption('fr');await expect(panel.locator('.payment-message-selection')).toContainText('Lien de paiement sélectionné');
+    await page.setViewportSize({ width:390,height:844 });await page.getByRole('combobox',{ name:'Language' }).selectOption('ar');await panel.locator('.payment-message-selection').scrollIntoViewIfNeeded();await page.screenshot({ path:'.local/e2e/payment-message-ar.png' });expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
+    await page.getByRole('combobox',{ name:'Language' }).selectOption('en');await panel.getByLabel('Message type',{ exact:true }).selectOption('TEXT');await panel.getByLabel('Message text',{ exact:true }).fill('Preserve this draft');
+    await control(rootPage,{ paymentPaid:id,paymentReceipts:true });await panel.getByRole('button',{ name:'Insert payment link into text',exact:true }).click();await expect(panel.getByRole('alert')).toContainText('The link is no longer available');await expect(panel.getByLabel('Message text',{ exact:true })).toHaveValue('Preserve this draft');
+    expect((await (await page.request.get(requests+'/'+id)).json()).customerUrl).toBe(null);expect(errors).toEqual([]);
+  }finally { await setDnc(false);await control(rootPage,{ paymentChargesEnabled:false });await admin.close();await agent.close(); }
 });
