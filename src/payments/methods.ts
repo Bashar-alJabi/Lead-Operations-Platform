@@ -1,4 +1,7 @@
 import { HttpError } from '../security.js';
+import type postgres from 'postgres';
+import { preparationIssues } from './link-intent.js';
+import { paymentCheckoutAdapters } from './checkout-provider.js';
 
 export const paymentCurrencies=Intl.supportedValuesOf('currency');
 const knownCurrencies=new Set(paymentCurrencies);
@@ -21,12 +24,8 @@ export function normalizePaymentMethod(input:PaymentMethodInput):PaymentMethodIn
   };
   return { ...input,name,reason,currencies:[...input.currencies].sort(),agents:normalize(input.agents),campaigns:normalize(input.campaigns) };
 }
-export function paymentMethodIssues(row:{ active:boolean;branch_active:boolean;connection_status:string;capabilities:Record<string,unknown> }):string[] {
-  const issues:string[]=[];
-  if (!row.active) issues.push('PAYMENT_METHOD_INACTIVE');
-  if (!row.branch_active) issues.push('BRANCH_DISABLED');
-  if (row.connection_status==='DISABLED') issues.push('CONNECTION_DISABLED');
-  else if (!['CONNECTED','WARNING'].includes(row.connection_status) || row.capabilities.authenticationVerified!==true) issues.push('PAYMENT_AUTHENTICATION_REQUIRED');
-  if (row.capabilities.paymentLinksReady!==true || row.capabilities.webhookReady!==true) issues.push('PAYMENT_FLOW_NOT_READY');
+export function paymentMethodIssues(row:postgres.Row):string[] {
+  const issues=preparationIssues(row);
+  if(!paymentCheckoutAdapters[row.provider])issues.push('PAYMENT_CHECKOUT_UNSUPPORTED');
   return issues;
 }

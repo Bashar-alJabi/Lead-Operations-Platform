@@ -5,6 +5,7 @@ import { HttpError,principalFromRequest,requireBranch,requireLead,requireRole,ty
 import { decodeCursor,encodeCursor } from '../pagination.js';
 import { currentPaymentActor } from '../payments/access.js';
 import { normalizePaymentMethod,paymentCurrencies,paymentMethodIssues,type PaymentMethodInput } from '../payments/methods.js';
+import { paymentMethodReadinessSql } from '../payments/readiness.js';
 
 const root='/api/payments/methods';
 const uuid={ type:'string',format:'uuid' } as const;
@@ -26,7 +27,7 @@ function dto(row:postgres.Row) {
 }
 async function managedMethod(sql:Database|postgres.TransactionSql,actor:Principal,id:string) {
   requireRole(actor,'SUPER_ADMIN','MANAGER');
-  const row=(await sql`SELECT m.*,c.name AS connection_name,c.provider,c.status AS connection_status,c.capabilities,b.active AS branch_active,
+  const row=(await sql`SELECT m.*,c.name AS connection_name,c.provider,c.status AS connection_status,c.capabilities,b.active AS branch_active,${paymentMethodReadinessSql(sql)},
     COALESCE((SELECT jsonb_agg(jsonb_build_object('id',u.id,'name',u.name,'active',u.active) ORDER BY u.name)
       FROM user_account u WHERE m.agent_ids ? u.id::text AND u.branch_id=m.branch_id AND u.organization_id=m.organization_id AND u.role='AGENT'),'[]'::jsonb) AS agent_selections,
     COALESCE((SELECT jsonb_agg(jsonb_build_object('id',ca.id,'name',ca.name,'status',ca.status) ORDER BY ca.name)
@@ -62,7 +63,7 @@ export function registerPaymentMethodRoutes(app:FastifyInstance,db:Database) {
   app.get<{ Querystring:Page }>(root,{ schema:{ querystring:pageSchema } },async(request)=> {
     const actor=await principalFromRequest(request,db);requireRole(actor,'SUPER_ADMIN','MANAGER');if(request.query.branchId)requireBranch(actor,request.query.branchId);
     const cursor=decodeCursor(request.query.cursor);const limit=request.query.limit ?? 30;
-    const rows=await db`SELECT m.*,c.name AS connection_name,c.provider,c.status AS connection_status,c.capabilities,b.active AS branch_active
+    const rows=await db`SELECT m.*,c.name AS connection_name,c.provider,c.status AS connection_status,c.capabilities,b.active AS branch_active,${paymentMethodReadinessSql(db)}
       FROM payment_method m JOIN integration_connection c ON c.id=m.connection_id JOIN branch b ON b.id=m.branch_id
       WHERE m.organization_id=${actor.organizationId} AND (${actor.role==='SUPER_ADMIN'} OR m.branch_id=${actor.branchId})
         AND (${request.query.branchId ?? null}::uuid IS NULL OR m.branch_id=${request.query.branchId ?? null})
@@ -122,7 +123,7 @@ export function registerPaymentMethodRoutes(app:FastifyInstance,db:Database) {
     schema:{ params,querystring:{ ...pageSchema,properties:{ limit:pageSchema.properties.limit,cursor:pageSchema.properties.cursor,currency:{ type:'string',enum:paymentCurrencies } } } },
   },async(request)=> {
     const actor=await principalFromRequest(request,db);await requireLead(db,actor,request.params.id);const cursor=decodeCursor(request.query.cursor);const limit=request.query.limit ?? 30;
-    const rows=await db`SELECT m.id,m.name,m.currencies,m.version,m.active,m.created_at,c.status AS connection_status,c.capabilities,b.active AS branch_active
+    const rows=await db`SELECT m.id,m.name,m.currencies,m.version,m.active,m.created_at,c.provider,c.status AS connection_status,c.capabilities,b.active AS branch_active,${paymentMethodReadinessSql(db)}
       FROM lead l JOIN payment_method m ON m.branch_id=l.branch_id AND m.organization_id=l.organization_id
       JOIN integration_connection c ON c.id=m.connection_id AND c.organization_id=m.organization_id AND c.kind='PAYMENT' AND (c.branch_id IS NULL OR c.branch_id=m.branch_id)
       JOIN branch b ON b.id=m.branch_id JOIN user_account u ON u.id=${actor.id} AND u.active AND u.role=${actor.role} AND u.organization_id=${actor.organizationId}

@@ -16,6 +16,7 @@
     "worker:events": "node dist/src/messaging-events-worker.js",
     "worker:media": "node dist/src/media-worker.js",
     "worker:sources": "node dist/src/source-retrieval-worker.js",
+    "worker:payments": "node dist/src/payment-worker.js",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "npm run build && node --test dist/test/*.test.js",

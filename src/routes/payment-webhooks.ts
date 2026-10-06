@@ -50,7 +50,7 @@ async function visible(tx:postgres.TransactionSql,c:postgres.Row,w:postgres.Row)
     version:w.version,created_at:w.created_at,last_signed_at:w.last_signed_at,secret_configured:!!w.ciphertext,current,
     endpointVerified:current && w.state==='CONFIGURED' && probe?.state==='VERIFIED',signedDeliveryVerified:!!w.last_signed_at,
     webhookReady:current && w.state==='CONFIGURED' && probe?.state==='VERIFIED' && !!w.last_signed_at,
-    financialProcessingReady:false,publicHttps:w.callback_url.startsWith('https:'),requiredEvents:[...stripePaymentEvents],
+    financialProcessingReady:current && w.state==='CONFIGURED' && probe?.state==='VERIFIED' && !!w.last_signed_at,publicHttps:w.callback_url.startsWith('https:'),requiredEvents:[...stripePaymentEvents],
     latestProbe:probe ? { id:probe.id,state:probe.state==='RUNNING' && probe.expired ? 'INTERRUPTED' : probe.state,
       error_code:probe.state==='RUNNING' && probe.expired ? 'PAYMENT_TEST_INTERRUPTED' : probe.error_code,snapshot:probe.snapshot,created_at:probe.created_at,finished_at:probe.finished_at } : null };
 }
@@ -153,10 +153,36 @@ export function registerPaymentWebhookRoutes(app:FastifyInstance,db:Database,ada
     const actor=await principalFromRequest(request,db);const limit=request.query.limit ?? 20;const cursor=decodeCursor(request.query.cursor);
     return db.begin(async(tx)=> { const c=await managed(tx,actor,request,request.params.id);
       // Setup telemetry has no raw event, customer, amount, provider metadata or financial status claim.
-      const rows=await tx`SELECT id,webhook_id,mode,external_event_id,event_type,provider_created_at,received_at FROM payment_webhook_event
-        WHERE connection_id=${c.id} AND (${cursor?.timestamp ?? null}::timestamptz IS NULL OR (received_at,id)<(${cursor?.timestamp ?? null}::timestamptz,${cursor?.id ?? null}::uuid))
-        ORDER BY received_at DESC,id DESC LIMIT ${limit+1}`;const items=rows.slice(0,limit).map((r)=>({ ...r,state:'RECEIVED_NOT_PROCESSED' }));const last=rows.slice(0,limit).at(-1);
-      return { items,nextCursor:rows.length>limit && last ? encodeCursor({ timestamp:last.received_at.toISOString(),id:last.id }) : null,financialProcessingReady:false }; });
+      const rows=await tx`SELECT e.id,e.webhook_id,e.mode,e.external_event_id,e.event_type,e.provider_created_at,e.received_at,j.state,j.attempts,j.error_code
+        FROM payment_webhook_event e JOIN payment_receipt_job j ON j.event_id=e.id
+        WHERE e.connection_id=${c.id} AND (${cursor?.timestamp ?? null}::timestamptz IS NULL OR (e.received_at,e.id)<(${cursor?.timestamp ?? null}::timestamptz,${cursor?.id ?? null}::uuid))
+        ORDER BY e.received_at DESC,e.id DESC LIMIT ${limit+1}`;const items=rows.slice(0,limit);const last=items.at(-1);
+      return { items,nextCursor:rows.length>limit && last ? encodeCursor({ timestamp:last.received_at.toISOString(),id:last.id }) : null }; });
+  });
+  app.get<{ Params:{ id:string;eventId:string } }>(root+'/webhook-events/:eventId/attempts',{
+    schema:{ params:{ ...params,required:['id','eventId'],properties:{ ...params.properties,eventId:{ type:'string',format:'uuid' } } } },
+  },async(request)=> {
+    const actor=await principalFromRequest(request,db);return db.begin(async(tx)=> {
+      const c=await managed(tx,actor,request,request.params.id);
+      if(!(await tx`SELECT id FROM payment_webhook_event WHERE id=${request.params.eventId} AND connection_id=${c.id}`).length)throw new HttpError(404,'PAYMENT_EVENT_NOT_FOUND');
+      return { items:await tx`SELECT number,state,error_code,started_at,finished_at FROM payment_receipt_attempt WHERE event_id=${request.params.eventId} ORDER BY number LIMIT 5` };
+    });
+  });
+  app.post<{ Params:{ id:string;eventId:string };Body:{ attempts:number;reason:string } }>(root+'/webhook-events/:eventId/retry',{
+    schema:{ params:{ ...params,required:['id','eventId'],properties:{ ...params.properties,eventId:{ type:'string',format:'uuid' } } },
+      body:{ type:'object',additionalProperties:false,required:['attempts','reason'],properties:{ attempts:{ type:'integer',minimum:0,maximum:4 },reason } } },
+    config:{ rateLimit:{ max:20,timeWindow:'15 minutes' } },
+  },async(request)=> {
+    const actor=await principalFromRequest(request,db);const why=checkReason(request.body.reason);return db.begin(async(tx)=> {
+      const c=await managed(tx,actor,request,request.params.id);
+      const j=(await tx`SELECT j.* FROM payment_receipt_job j JOIN payment_webhook_event e ON e.id=j.event_id
+        WHERE j.event_id=${request.params.eventId} AND e.connection_id=${c.id} FOR UPDATE OF j`)[0];
+      if(!j)throw new HttpError(404,'PAYMENT_EVENT_NOT_FOUND');
+      if(j.state!=='NEEDS_ATTENTION' || j.attempts!==request.body.attempts || j.attempts>=5)throw new HttpError(409,'PAYMENT_RECOVERY_NOT_ALLOWED');
+      if(!await currentPaymentActor(tx,actor,request))throw new HttpError(403,'PAYMENT_ACCESS_REVOKED');
+      await tx`UPDATE payment_receipt_job SET state='RETRY',error_code=NULL,run_after=clock_timestamp(),updated_at=clock_timestamp() WHERE event_id=${j.event_id}`;
+      await audit(tx,c,actor,'PAYMENT_RECEIPT_RETRY',j.event_id,{ reason:why,attempts:j.attempts,previousErrorCode:j.error_code });return { state:'RETRY' };
+    });
   });
   app.register(async(webhook)=> {
     webhook.addContentTypeParser('application/json',{ parseAs:'buffer' },(_request,body,done)=>done(null,body));

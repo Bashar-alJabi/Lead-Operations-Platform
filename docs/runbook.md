@@ -1,5 +1,19 @@
 # دليل التشغيل والتطوير
 
+## تشغيل وإدارة Worker المالية —064–067
+
+بعد migrations والبناء، شغّل `npm run worker:payments` كservice منفصلة مع deployment `DATABASE_URL` و`CREDENTIAL_ENCRYPTION_KEY` نفسها المستخدمة فيAPI. Development/test تعتمد Docker PostgreSQL وmocks فقط؛ لا تستخدم CLI بمفتاحprovider حقيقي لتهيئةProduct. زيادة replicas ممكنة وSKIP LOCKED/merchant lease تمنعparallel writes للحساب نفسه؛ راقب DB pool لكلreplica. Worker تعالج حتى10 receipt/dispatch pairs ثم تنتظر2s، وتغلق graceful معSIGTERM. خطأSQL/worker لايحذفJobs أوhistory؛ lease60s تعيد recovery معINTERRUPTED والمحاولةنفسها لايعاداستعمالها.
+
+منConnection UI جهّزAuthentication وAccount options وWebhook/current signed verification. Restricted Key تحتاجCheckout Sessions create/read وAccount read وpermissions التابعةللإنشاء inline لدىالمزود، إضافةBalance/Country Specs/Webhook Endpoints read للفحوص الموجودة؛ Provider رفضالصلاحية يظهرfailure ولايجعلالدفعConfirmed. UIتحفظcredentials مشفرة. Shared Connection يربطهاRoot بالMethod صراحة؛Agent تستخدمحسبLead/Method availability دونوصولللsetup/secret. Current Method readiness مشتقةمنcurrent options/Endpoint، ولاتعتمدعلىauth-probe cached financial flags.
+
+حفظطلبLead يُنشئ QUEUED وPAYMENT_LINK_REQUESTED مرةواحدة. حدّثطلباتالدفع لمتابعةRUNNING/RETRY/ACCEPTED/FAILED/BLOCKED/NEEDS_ATTENTION وسجلالمحاولات. ACCEPTED تضيفPAYMENT_LINK_CREATED ورابطsafe HTTPS مشفرمخزن؛ copy/open متاحللمخولعلىLead الحاليةفقط. رابطمنتهي أوPayment Confirmed/Expired/Failed لاتعرضURL. النسخليسإرسالًا؛ إذاشاركتعبرMessaging يجبالمسارالمركزي للقواعدالموجودة، لاprovider send جانبية. فتحرابطأوصفحةsuccess/cancel أوclaimلايؤكدPayment أوEnrollment.
+
+منWebhook history تابعQUEUED/RUNNING/RETRY/PROCESSED/IGNORED/NEEDS_ATTENTION وerrorcode ومحاولاتverification دونraw customer data. PROCESSED لايعنيPaid: راجعLead payment status. Receiptموقّعةتحتاجمطابقةserver dispatch وGETموثوقللحساب/الجلسة/mode/amount/currency؛unmatched setup testevent قدتظهرNEEDS_ATTENTION بدونPayment. عندفشلالفحصصححالسببثمأدخلreason وأعدالتحقق منUI؛budget5محاولاتلايتجددوduplicate callbackلاينشئPayment أخرى. Agent ممنوعةمنConnection recovery. Connection rotation/disable أوانتهاءجلسةrequester لايوقفhistorical confirmation بمفتاحintentالمحفوظ؛احتفظبالEndpoint القديمة حتىتسويةمدفوعاتها.
+
+UNKNOWN/INTERRUPTED تعنيقبولًاقديكونحدث؛لاتنشئkeyبديلةأوتعدّلDBلإزالةambiguity. Worker تحافظعلىparams/key/first-dispatch/retention وتتوقفقبلانتهاء24hStripewindowمعميزانيةI/Oكاملة. ReceiptموثوقةقبلACKيمكنهاإثباتالدفع؛recovery عندوجودها لايعيدPOST. Native guards تحفظattempt/receipt/confirmation/Enrollmenthistory. عندtrusted PAIDتُحفظConfirmedPayment وEnrollmentمنفصلةوActivities/Auditatomic،بدونإغلاقLeadتلقائي. Historical credential revokedrepair/multi-provider والمشاركةالمخصصة منUIمازالتخطواتbaselineتالية؛لاتدّعlive verification.
+
+الأقسام063وHosted Checkout التاليةتوثيقالمراحل السابقةقبلتوصيلworker؛سلوكQUEUEDوالpipeline أعلاههيالحالية. لاتشغّلintegration/Browserمعًالأنهمايفرغانقاعدةtestالمعزولة.
+
 ## حفظ طلب رابط دفع — مرحلة063
 
 من Lead details تظهر **طلبات روابط الدفع**. اختر Method جاهزة وأدخل amount بأرقام إنجليزية ونقطة عشرية وcurrency مسموحة؛ لا rounding أوscientific notation أوفواصل آلاف. readiness للحفظ تتطلب Method/Campaign/Agent availability الحالية، active Branch،authentication/options من Connection version الحالية وcharges enabled، وEndpoint configured/provider verified مع signed delivery. Super Admin يربط shared Connection بMethod صراحةً؛ Manager/Agent تستخدمها ضمن Lead scope دون رؤية الحساب أوcredentials. إذا تغيرت Method بعد عرضها، حدّث الخيارات بدل إعادة استخدام version قديمة.

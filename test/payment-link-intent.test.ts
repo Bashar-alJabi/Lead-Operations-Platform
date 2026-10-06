@@ -9,7 +9,7 @@ test('Link requests preserve exact canonical money and do not imply issuance or 
   assert.throws(()=>normalizedLinkRequest({ ...input,amount:'12.501' },{ scale:2,quantum:'1' }));
   const dto=linkIntentDto({ id:'opaque',method_name:'Name <img src=x>',method_version:2,amount:'12.50',currency:'USD',created_at:'date',
     ciphertext:'private',account_ref:'private',connection_id:'private',requester_session_id:'private' });
-  assert.equal(dto.state,'PREPARED');assert.equal(dto.customerUrl,null);assert.equal(dto.financialProcessingReady,false);assert.equal(JSON.stringify(dto).includes('private'),false);
+  assert.equal(dto.state,'QUEUED');assert.equal(dto.customerUrl,null);assert.equal(dto.paymentState,null);assert.equal(dto.enrollmentId,null);assert.equal(JSON.stringify(dto).includes('private'),false);
   assert.deepEqual(preparationIssues({ active:true,branch_active:true,connection_status:'WARNING',connection_version:2,
     capabilities:{ authenticationVerified:true,paymentOptionsVersion:2,paymentOptions:{ chargesEnabled:true } },webhook_ready:true }),[]);
   assert.ok(preparationIssues({ active:true,branch_active:true,connection_status:'WARNING',connection_version:2,

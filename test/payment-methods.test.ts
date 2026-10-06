@@ -15,9 +15,9 @@ test('Payment Method validation rejects unknown/duplicate currencies, malformed/
   assert.throws(()=>normalizePaymentMethod({ ...input,name:'a\nname' }),/NAME_INVALID/);assert.throws(()=>normalizePaymentMethod({ ...input,reason:'  ' }),/REASON_INVALID/);
 });
 test('Authentication-only health never makes Payment Methods operationally available; configured active and current branch/Connection gates are independent',()=> {
-  const row={ active:true,branch_active:true,connection_status:'WARNING',capabilities:{ authenticationVerified:true,paymentLinksReady:false,webhookReady:false } };
-  assert.deepEqual(paymentMethodIssues(row),['PAYMENT_FLOW_NOT_READY']);
-  assert.deepEqual(paymentMethodIssues({ ...row,active:false,branch_active:false,connection_status:'DISABLED' }),['PAYMENT_METHOD_INACTIVE','BRANCH_DISABLED','CONNECTION_DISABLED','PAYMENT_FLOW_NOT_READY']);
+  const row={ active:true,branch_active:true,connection_status:'WARNING',provider:'STRIPE',connection_version:2,webhook_ready:false,capabilities:{ authenticationVerified:true } };
+  assert.deepEqual(paymentMethodIssues(row),['PAYMENT_OPTIONS_REQUIRED','PAYMENT_WEBHOOK_VERIFICATION_REQUIRED']);
+  assert.deepEqual(paymentMethodIssues({ ...row,active:false,branch_active:false,connection_status:'DISABLED' }),['PAYMENT_METHOD_INACTIVE','BRANCH_DISABLED','CONNECTION_DISABLED','PAYMENT_OPTIONS_REQUIRED','PAYMENT_WEBHOOK_VERIFICATION_REQUIRED']);
   assert.ok(paymentMethodIssues({ ...row,connection_status:'AUTH_EXPIRED' }).includes('PAYMENT_AUTHENTICATION_REQUIRED'));
-  assert.deepEqual(paymentMethodIssues({ ...row,connection_status:'CONNECTED',capabilities:{ authenticationVerified:true,paymentLinksReady:true,webhookReady:true } }),[]);
+  assert.deepEqual(paymentMethodIssues({ ...row,connection_status:'CONNECTED',webhook_ready:true,capabilities:{ authenticationVerified:true,paymentOptionsVersion:2,paymentOptions:{ chargesEnabled:true } } }),[]);
 });

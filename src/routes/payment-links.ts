@@ -9,7 +9,7 @@ import { decodeCursor, encodeCursor } from '../pagination.js';
 import { currentPaymentActor } from '../payments/access.js';
 import { paymentCheckoutAdapters, type PaymentCheckoutAdapter } from '../payments/checkout-provider.js';
 import { normalizePaymentProviderOptions, validatePaymentCredentials, type PaymentConfig, type PaymentCredentials } from '../payments/providers.js';
-import { linkIntentDto, normalizedLinkRequest, paymentReturnTargets, preparationIssues, type PaymentLinkRequest } from '../payments/link-intent.js';
+import { linkIntentDto, linkIntentRows, normalizedLinkRequest, paymentReturnTargets, preparationIssues, type PaymentLinkRequest } from '../payments/link-intent.js';
 
 const params={ type:'object',additionalProperties:false,required:['id'],properties:{ id:{ type:'string',format:'uuid' } } } as const;
 const pageSchema={ type:'object',additionalProperties:false,properties:{ limit:{ type:'integer',minimum:1,maximum:100 },cursor:{ type:'string',maxLength:256 } } } as const;
@@ -28,6 +28,18 @@ function pageResult(rows:postgres.Row[],limit:number,mapper:(row:postgres.Row)=>
 }
 
 export function registerPaymentLinkRoutes(app:FastifyInstance,db:Database,adapters:Adapters=paymentCheckoutAdapters) {
+  app.get<{ Params:{ id:string;intentId:string } }>('/api/leads/:id/payment-link-requests/:intentId/attempts',{
+    schema:{ params:{ ...params,required:['id','intentId'],properties:{ ...params.properties,intentId:{ type:'string',format:'uuid' } } } },
+  },async(request)=> {
+    const actor=await principalFromRequest(request,db);return db.begin(async(tx)=> {
+      await visibleLead(tx,actor,request,request.params.id);
+      if(!(await tx`SELECT id FROM payment_link_intent WHERE id=${request.params.intentId} AND lead_id=${request.params.id}`).length)
+        throw new HttpError(404,'PAYMENT_REQUEST_NOT_FOUND');
+      // Dispatch policy bounds this history at five attempts; no unbounded customer content is returned.
+      const items=await tx`SELECT number,state,error_code,started_at,finished_at FROM payment_dispatch_attempt WHERE intent_id=${request.params.intentId} ORDER BY number LIMIT 100`;
+      return { items };
+    });
+  });
   app.get<{ Params:{ id:string };Querystring:Page }>('/api/leads/:id/payment-link-options',{ schema:{ params,querystring:pageSchema } },async(request)=> {
     const actor=await principalFromRequest(request,db);const limit=request.query.limit ?? 20;const cursor=decodeCursor(request.query.cursor);
     return db.begin(async(tx)=> {
@@ -54,9 +66,7 @@ export function registerPaymentLinkRoutes(app:FastifyInstance,db:Database,adapte
     const actor=await principalFromRequest(request,db);const limit=request.query.limit ?? 20;const cursor=decodeCursor(request.query.cursor);
     return db.begin(async(tx)=> {
       await visibleLead(tx,actor,request,request.params.id);
-      const rows=await tx`SELECT id,method_name,method_version,amount,currency,created_at FROM payment_link_intent WHERE lead_id=${request.params.id}
-        AND organization_id=${actor.organizationId} AND (${cursor?.timestamp ?? null}::timestamptz IS NULL
-          OR (created_at,id)<(${cursor?.timestamp ?? null}::timestamptz,${cursor?.id ?? null}::uuid)) ORDER BY created_at DESC,id DESC LIMIT ${limit+1}`;
+      const rows=await linkIntentRows(tx,request.params.id,limit+1,cursor?.timestamp ?? null,cursor?.id ?? null);
       if(!await currentPaymentActor(tx,actor,request))throw new HttpError(403,'PAYMENT_ACCESS_REVOKED');
       return pageResult(rows,limit,linkIntentDto);
     });
@@ -77,7 +87,9 @@ export function registerPaymentLinkRoutes(app:FastifyInstance,db:Database,adapte
         const normalized=normalizedLinkRequest(input,{ scale:previous.scale,quantum:previous.quantum });
         if(previous.requester_id!==actor.id || previous.method_id!==normalized.methodId || previous.method_version!==normalized.methodVersion
           || previous.amount!==normalized.money.amount || previous.currency!==normalized.money.currency)throw new HttpError(409,'PAYMENT_REQUEST_IDEMPOTENCY_CONFLICT');
-        return { ...linkIntentDto(previous),duplicate:true };
+        const row=(await tx`SELECT i.*,d.state AS dispatch_state,d.error_code AS dispatch_error FROM payment_link_intent i
+          JOIN payment_dispatch d ON d.intent_id=i.id WHERE i.id=${previous.id}`)[0]!;
+        return { ...linkIntentDto(row),duplicate:true };
       }
       // Connection -> Branch -> Method -> Endpoint -> Lead -> current User/Session. Provider I/O is never performed here.
       const c=(await tx`SELECT c.* FROM integration_connection c JOIN payment_method m ON m.connection_id=c.id

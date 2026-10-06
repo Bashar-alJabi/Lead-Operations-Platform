@@ -49,7 +49,7 @@ test('Branch Payment Methods preserve scoped versions/history, explicit shared u
   assert.equal((await api('POST',root,{ ...input,currencies:['XYZ'] })).statusCode,400);
   const created=await api('POST',root,input);assert.equal(created.statusCode,201);const id=created.json().id;
   const initial=(await api('GET',root+'/'+id)).json();assert.deepEqual(initial.currencies,['EUR','USD']);assert.equal(initial.available,false);
-  assert.ok(initial.issues.includes('PAYMENT_AUTHENTICATION_REQUIRED'));assert.ok(initial.issues.includes('PAYMENT_FLOW_NOT_READY'));
+  assert.ok(initial.issues.includes('PAYMENT_AUTHENTICATION_REQUIRED'));assert.ok(initial.issues.includes('PAYMENT_WEBHOOK_VERIFICATION_REQUIRED'));
   assert.equal(initial.agentSelections[0].name,'agent');assert.equal(initial.campaignSelections[0].name,'One');
   assert.equal((await api('GET',root+'/'+id,undefined,'other')).statusCode,404);assert.equal((await api('GET',root+'/'+id+'/history',undefined,'foreign')).statusCode,404);
   assert.equal((await api('GET',root,undefined,'agent')).statusCode,403);assert.equal((await api('GET',root+'/'+id+'/history',undefined,'agent')).statusCode,403);
@@ -67,7 +67,7 @@ test('Branch Payment Methods preserve scoped versions/history, explicit shared u
   assert.equal((await api('GET',root+'?branchId='+branchB)).statusCode,403);assert.equal((await api('GET',root,undefined,'foreign')).json().items.length,0);
   assert.equal((await api('POST','/api/payments/connections/'+account+'/test',{ version:1 })).statusCode,200);
   const eligible=(await api('GET','/api/leads/'+lead+'/payment-methods',undefined,'agent')).json();assert.ok(eligible.items.some((x:{ id:string })=>x.id===id));
-  assert.equal(eligible.items.find((x:{ id:string })=>x.id===id).available,false);assert.deepEqual(eligible.items.find((x:{ id:string })=>x.id===id).issues,['PAYMENT_FLOW_NOT_READY']);
+  assert.equal(eligible.items.find((x:{ id:string })=>x.id===id).available,false);assert.deepEqual(eligible.items.find((x:{ id:string })=>x.id===id).issues,['PAYMENT_OPTIONS_REQUIRED','PAYMENT_WEBHOOK_VERIFICATION_REQUIRED']);
   assert.equal(JSON.stringify(eligible).includes('connection_id'),false);assert.equal(JSON.stringify(eligible).includes(key),false);
   assert.equal((await api('GET','/api/leads/'+lead2+'/payment-methods',undefined,'agent')).json().items.length,0);
   assert.equal((await api('GET','/api/leads/'+lead+'/payment-methods?currency=JPY',undefined,'agent')).json().items.length,0);

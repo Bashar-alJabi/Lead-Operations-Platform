@@ -4,7 +4,7 @@ import { readFile, mkdir, writeFile, mkdtemp, rm } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { buildApp } from '../src/app.js';
 import { createDatabase } from '../src/db.js';
-import { sealSecret } from '../src/credentials.js';
+import { sealSecret,openOpaque } from '../src/credentials.js';
 import { passwordHash, safeTokenEqual, HttpError } from '../src/security.js';
 import { processOneMessagingJob } from '../src/messaging/send-worker.js';
 import { ProviderSendError } from '../src/messaging/providers.js';
@@ -22,6 +22,9 @@ import { SourceProviderError } from '../src/sources/meta-provider.js';
 import { processOneSourceRetrieval } from '../src/sources/retrieval-worker.js';
 import { processOneHistoricalPreview,processOneHistoricalImport } from '../src/sources/historical.js';
 import { PaymentProviderError } from '../src/payments/providers.js';
+import { processOnePaymentDispatch } from '../src/payments/dispatch-worker.js';
+import { processOnePaymentReceipt } from '../src/payments/confirmation-worker.js';
+import { stripeCurrencyPrecision,type CheckoutSnapshot,type PaymentCheckoutAdapter } from '../src/payments/checkout-provider.js';
 
 const connectionUrl = requireLocalE2ETarget(process.env.TEST_DATABASE_URL,process.env.E2E_RESET_TEST_DATABASE,process.env.NODE_ENV);
 
@@ -103,6 +106,15 @@ let sourceFailure=false;let sourceCatalogCalls=0;
 let sourceSubscribed=false;let sourceSubscriptionFailure=false;
 let sourceRetrievalFailure=false;let sourceRetrievalCalls=0;
 let paymentFailure=false;let paymentCalls=0;let paymentChargesEnabled=false;
+const paymentSessions=new Map<string,CheckoutSnapshot>();
+const checkoutAdapter:PaymentCheckoutAdapter={ currencyPrecision:stripeCurrencyPrecision,idempotencyRetentionMs:86400000,
+  async create(config,_credentials,intent) {
+    if(!paymentSessions.has(intent.id)) { const sessionId='cs_test_'+intent.id.replaceAll('-','');
+      paymentSessions.set(intent.id,{ sessionId,url:'https://checkout.stripe.com/c/pay/'+sessionId,expiresAt:new Date(Date.now()+3600000).toISOString(),
+        mode:config.mode,currency:intent.money.currency,minor:intent.money.minor,intentId:intent.id,status:'OPEN',paymentStatus:'UNPAID',paymentRef:null }); }
+    return structuredClone(paymentSessions.get(intent.id)!);
+  },async retrieve(_config,_credentials,intent,sessionId) { const result=paymentSessions.get(intent.id);if(!result || result.sessionId!==sessionId)throw new Error('Test Session mismatch');return structuredClone(result); },
+};
 const templates:ProviderTemplate[]=[{ externalId:'7000',name:'header_only_template',language:'en_US',category:'UTILITY',status:'APPROVED',
   components:[{ type:'HEADER',format:'TEXT',text:'Welcome {{1}}',example:{ header_text:['Approval sample only'] } },
     { type:'BODY',text:'Fixed body' }] },
@@ -156,7 +168,7 @@ app.get<{ Params:{ name:string } }>('/assets/:name',async (request,reply)=> {
   const type = request.params.name.endsWith('.js') ? 'text/javascript' : 'text/css';
   return reply.type(type).send(await readFile(resolve('dist-web/assets',request.params.name)));
 });
-app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:boolean; assigned?:'agent'|'second'; approveTemplates?:boolean;replyTo?:string;replyIndex?:number;processSample?:boolean;rejectSample?:boolean;sourceFailure?:boolean;sourceSubscriptionFailure?:boolean;sourceNotification?:string;retrieveSource?:boolean;sourceRetrievalFailure?:boolean;historicalPreview?:boolean;historicalImport?:boolean;historicalFailure?:boolean;sourceReferenceFixture?:boolean;sourceReferral?:'KNOWN'|'UNKNOWN'|'INVALID';paymentFailure?:boolean;paymentChargesEnabled?:boolean } }>(
+app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:boolean; assigned?:'agent'|'second'; approveTemplates?:boolean;replyTo?:string;replyIndex?:number;processSample?:boolean;rejectSample?:boolean;sourceFailure?:boolean;sourceSubscriptionFailure?:boolean;sourceNotification?:string;retrieveSource?:boolean;sourceRetrievalFailure?:boolean;historicalPreview?:boolean;historicalImport?:boolean;historicalFailure?:boolean;sourceReferenceFixture?:boolean;sourceReferral?:'KNOWN'|'UNKNOWN'|'INVALID';paymentFailure?:boolean;paymentChargesEnabled?:boolean;paymentDispatch?:boolean;paymentReceipts?:boolean;paymentPaid?:string } }>(
   '/__test__/control', { schema: { body:{ type:'object',additionalProperties:false,properties: {
     process:{ type:'boolean' },mode:{ type:'string',enum:['accept','reject','unknown'] },
     dnc:{ type:'boolean' },assigned:{ type:'string',enum:['agent','second'] },
@@ -168,7 +180,7 @@ app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:bool
     historicalPreview:{ type:'boolean' },historicalImport:{ type:'boolean' },historicalFailure:{ type:'boolean' },
     sourceReferenceFixture:{ type:'boolean' },sourceReferral:{ type:'string',enum:['KNOWN','UNKNOWN','INVALID'] },
     paymentFailure:{ type:'boolean' },
-    paymentChargesEnabled:{ type:'boolean' },
+    paymentChargesEnabled:{ type:'boolean' },paymentDispatch:{ type:'boolean' },paymentReceipts:{ type:'boolean' },paymentPaid:{ type:'string',format:'uuid' },
     replyTo:{ type:'string',format:'uuid' },replyIndex:{ type:'integer',minimum:0,maximum:2 },
   } } } },async (request)=> {
     const header = request.headers.authorization;
@@ -176,6 +188,19 @@ app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:bool
     if (request.body.mode) mode=request.body.mode;
     if(typeof request.body.paymentFailure==='boolean')paymentFailure=request.body.paymentFailure;
     if(typeof request.body.paymentChargesEnabled==='boolean')paymentChargesEnabled=request.body.paymentChargesEnabled;
+    if(request.body.paymentDispatch)await processOnePaymentDispatch(db,{ STRIPE:checkoutAdapter });
+    if(request.body.paymentPaid) {
+      const id=request.body.paymentPaid;const snapshot=paymentSessions.get(id);if(!snapshot)throw new HttpError(400,'TEST_PAYMENT_NOT_ISSUED');
+      snapshot.status='COMPLETE';snapshot.paymentStatus='PAID';snapshot.url=null;snapshot.paymentRef='pi_'+id.replaceAll('-','');
+      const w=(await db`SELECT w.* FROM payment_webhook w JOIN payment_link_intent i ON i.webhook_id=w.id WHERE i.id=${id}`)[0]!;
+      const signingSecret=openOpaque('payment-webhook:'+w.id,{ ciphertext:w.ciphertext,nonce:w.nonce,authTag:w.auth_tag,keyVersion:w.key_version });
+      const payload=JSON.stringify({ id:'evt_'+randomBytes(16).toString('hex'),object:'event',type:'checkout.session.completed',livemode:false,
+        created:Math.floor(Date.now()/1000),data:{ object:{ id:snapshot.sessionId,object:'checkout.session',metadata:{ platform_intent_id:id } } } });
+      const now=Math.floor(Date.now()/1000);const response=await app.inject({ method:'POST',url:new URL(w.callback_url).pathname,payload,headers:{ 'content-type':'application/json',
+        'stripe-signature':`t=${now},v1=${createHmac('sha256',signingSecret).update(now+'.').update(payload).digest('hex')}` } });
+      if(response.statusCode!==200)throw new HttpError(500,'TEST_PAYMENT_RECEIPT_FAILED');
+    }
+    if(request.body.paymentReceipts)for(let n=0;n<25 && await processOnePaymentReceipt(db,{ STRIPE:checkoutAdapter });n++) { /* bounded test drain */ }
     if (typeof request.body.sourceFailure==='boolean') sourceFailure=request.body.sourceFailure;
     if (typeof request.body.sourceSubscriptionFailure==='boolean') sourceSubscriptionFailure=request.body.sourceSubscriptionFailure;
     if (typeof request.body.sourceRetrievalFailure==='boolean') sourceRetrievalFailure=request.body.sourceRetrievalFailure;

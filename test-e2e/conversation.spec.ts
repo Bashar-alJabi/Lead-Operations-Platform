@@ -839,7 +839,7 @@ test('Payment setup encrypts and rotates test keys, verifies authentication only
     const connections=(await (await page.request.get('/api/payments/connections')).json()).items;const id=connections.find((item:{ name:string })=>item.name===name).id;
     expect(JSON.stringify(connections)).not.toContain(key);
     await panel.getByRole('button',{ name:'Test authentication',exact:true }).click();await expect(row).toContainText('PAYMENT_FLOW_NOT_READY');
-    await expect(panel).toContainText('VERIFIED');await expect(panel).toContainText('payment links, financial processing and Enrollment are not ready yet');
+    await expect(panel).toContainText('VERIFIED');await expect(panel).toContainText('Account options and webhook verification are required');
     await control(page,{ paymentFailure:true });await panel.getByRole('button',{ name:'Test authentication',exact:true }).click();
     await expect(panel.getByRole('alert')).toContainText('PAYMENT_PROVIDER_AUTH_FAILED');await expect(row).toContainText('AUTH_EXPIRED');await expect(panel).toContainText('FAILED');
     await panel.getByLabel('Payment connection change reason',{ exact:true }).fill('Browser verifies replacement before use');
@@ -887,7 +887,7 @@ test('Branch Payment Methods support explicit shared accounts, scoped Agent/Camp
     await methods.getByLabel('Campaign availability',{ exact:true }).selectOption('SELECTED');await methods.getByLabel('Allowed payment Campaigns',{ exact:true }).selectOption([lead.campaign_id]);
     await methods.getByLabel('Payment method change reason',{ exact:true }).fill('Explicit shared account assigned to branch method');
     await methods.getByRole('button',{ name:'Save payment method',exact:true }).click();const row=methods.getByRole('row').filter({ hasText:name });
-    await expect(row).toContainText('PAYMENT_FLOW_NOT_READY');await expect(row.locator('img')).toHaveCount(0);await expect(methods).toContainText('Version: 1');
+    await expect(row).toContainText('PAYMENT_WEBHOOK_VERIFICATION_REQUIRED');await expect(row.locator('img')).toHaveCount(0);await expect(methods).toContainText('Version: 1');
     const method=(await (await page.request.get('/api/payments/methods')).json()).items.find((item:{ name:string })=>item.name===name);
     const tab=await manager.newPage();tab.on('pageerror',(e)=>errors.push(e.message));await tab.goto('/');await tab.getByRole('combobox',{ name:'Language' }).selectOption('en');
     await tab.getByRole('button',{ name:'Payment setup',exact:true }).click();const managed=tab.locator('.payment-methods');
@@ -902,7 +902,7 @@ test('Branch Payment Methods support explicit shared accounts, scoped Agent/Camp
     await managed.getByLabel('Method currencies',{ exact:true }).fill('EUR');
     const customer=await agent.newPage();customer.on('pageerror',(e)=>errors.push(e.message));await customer.goto('/');await customer.getByRole('combobox',{ name:'Language' }).selectOption('en');
     await customer.getByRole('row').filter({ hasText:'Contact unavailable' }).getByRole('button',{ name:'Details',exact:true }).click();const available=customer.locator('.lead-payment-methods');
-    await expect(available).toContainText('Manager maintained shared method');await expect(available).toContainText('PAYMENT_FLOW_NOT_READY');
+    await expect(available).toContainText('Manager maintained shared method');await expect(available).toContainText('PAYMENT_WEBHOOK_VERIFICATION_REQUIRED');
     expect((await customer.request.get('/api/payments/methods')).status()).toBe(403);expect((await customer.request.get('/api/payments/methods/'+method.id+'/history')).status()).toBe(403);
     const safe=await (await customer.request.get(`/api/leads/${fixture.noContactLeadId}/payment-methods`)).json();expect(JSON.stringify(safe)).not.toContain('connection_id');
     await managed.getByLabel('Method enabled',{ exact:true }).uncheck();await managed.getByRole('button',{ name:'Save payment method',exact:true }).click();await expect(managed).toContainText('Version: 3');
@@ -981,8 +981,8 @@ test('Payment webhook UI prepares an immutable callback, verifies provider confi
     expect((await send('t='+timestamp+',v1='+'0'.repeat(64))).status()).toBe(403);expect((await send()).ok()).toBe(true);expect((await (await send()).json()).duplicate).toBe(true);
     await panel.getByRole('button',{ name:'Refresh payment webhooks',exact:true }).click();await expect(panel.getByText('Signed delivery verified',{ exact:true }).locator('..')).toContainText('Yes');
     await expect(panel.locator('.payment-webhook-events')).toContainText('evt_BrowserSynthetic123');await expect(panel.locator('.payment-webhook-events li')).toHaveCount(1);
-    await expect(panel).toContainText('RECEIVED_NOT_PROCESSED');expect(await panel.textContent()).not.toContain('private-browser');
-    const receipt=(await (await page.request.get(root+'/webhook-events')).json());expect(receipt.items).toHaveLength(1);expect(receipt.financialProcessingReady).toBe(false);
+    await expect(panel).toContainText('QUEUED');expect(await panel.textContent()).not.toContain('private-browser');
+    const receipt=(await (await page.request.get(root+'/webhook-events')).json());expect(receipt.items).toHaveLength(1);expect(receipt.items[0].attempts).toBe(0);
     const agent=await browser.newContext({ storageState:agentStorageState });try { expect((await agent.request.get(root+'/webhook-events')).status()).toBe(403); }finally{ await agent.close(); }
     await control(page,{ paymentFailure:true });await panel.getByRole('button',{ name:'Test payment endpoint',exact:true }).click();await expect(panel.getByRole('alert')).toContainText('PAYMENT_PROVIDER_AUTH_FAILED');
     await expect(panel.getByText('Provider endpoint verified',{ exact:true }).locator('..')).toContainText('No');await expect(panel).toContainText('FAILED');
@@ -1029,8 +1029,8 @@ test('browser saves an exact idempotent payment request with scoped setup and im
     await panel.getByLabel('Payment request amount',{ exact:true }).fill('12.5');
     const responsePromise=page.waitForResponse((r)=>r.request().method()==='POST' && r.url().endsWith('/payment-link-requests'));
     await panel.getByRole('button',{ name:'Save payment link request',exact:true }).click();const response=await responsePromise;expect(response.status()).toBe(201);
-    const saved=await response.json();expect(saved.customerUrl).toBe(null);expect(saved.financialProcessingReady).toBe(false);
-    await expect(panel.getByRole('status')).toContainText('No payment link has been issued');await expect(panel.locator('.payment-request-history')).toContainText('12.50 USD');
+    const saved=await response.json();expect(saved.customerUrl).toBe(null);expect(saved.state).toBe('QUEUED');expect(saved.paymentState).toBe(null);
+    await expect(panel.getByRole('status')).toContainText('Request saved once');await expect(panel.locator('.payment-request-history')).toContainText('12.50 USD');
     expect((await (await page.request.post(`/api/leads/${fixture.leadId}/payment-link-requests`,{ data:response.request().postDataJSON(),headers:{ origin } })).json()).duplicate).toBe(true);
     await panel.getByRole('button',{ name:'Refresh payment requests',exact:true }).click();await expect(panel.locator('.payment-request-history li')).toHaveCount(1);
     await expect(panel.locator('img')).toHaveCount(0);expect(await panel.textContent()).not.toContain(secret);expect((await page.request.get(root)).status()).toBe(403);
@@ -1040,7 +1040,37 @@ test('browser saves an exact idempotent payment request with scoped setup and im
     await page.getByRole('combobox',{ name:'Language' }).selectOption('fr');await expect(panel.getByRole('heading',{ name:'Demandes de liens de paiement',exact:true })).toBeVisible();await expect(panel).toHaveCount(1);
     await page.setViewportSize({ width:390,height:844 });await page.getByRole('combobox',{ name:'Language' }).selectOption('ar');
     await panel.getByRole('heading',{ name:'طلبات روابط الدفع',exact:true }).scrollIntoViewIfNeeded();await expect(panel).toHaveCount(1);
-    await expect(panel.locator('.payment-request-history')).toContainText('محفوظ — لم يصدر رابط بعد');expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
+    await expect(panel.locator('.payment-request-history')).toContainText('بانتظار الإصدار');expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
     await page.screenshot({ path:'.local/e2e/payment-request-ar.png' });expect(errors).toEqual([]);
   }finally { await control(adminPage,{ paymentChargesEnabled:false });await admin.close();await agent.close(); }
+});
+
+test('browser issues a safe Checkout link and shows trusted Payment and separate Enrollment; success return and reassignment enforce scope',async({ browser })=> {
+  expect(agentStorageState).toBeTruthy();expect(adminStorageState).toBeTruthy();
+  const agent=await browser.newContext({ storageState:agentStorageState,permissions:['clipboard-read','clipboard-write'] });const page=await agent.newPage();
+  const admin=await browser.newContext({ storageState:adminStorageState });const adminPage=await admin.newPage();const errors:string[]=[];page.on('pageerror',(e)=>errors.push(e.message));
+  try {
+    await page.goto('/');await page.getByRole('combobox',{ name:'Language' }).selectOption('en');
+    await page.getByRole('row').filter({ hasText:'Browser Customer' }).getByRole('button',{ name:'Details',exact:true }).click();
+    const panel=page.locator('.lead-payment-requests');await expect(panel.locator('.payment-request-history')).toContainText('Waiting for issuance');
+    const root=`/api/leads/${fixture.leadId}/payment-link-requests`;const before=(await (await page.request.get(root)).json()).items[0];expect(before.paymentState).toBe(null);
+    await control(adminPage,{ paymentDispatch:true });await panel.getByRole('button',{ name:'Refresh payment requests',exact:true }).click();
+    await expect(panel.locator('.payment-request-history')).toContainText('Link issued');const link=panel.getByRole('link',{ name:'Open payment link',exact:true });
+    await expect(link).toHaveAttribute('href',/^https:\/\/checkout\.stripe\.com\/c\/pay\/cs_test_/);
+    await panel.getByRole('button',{ name:'Copy payment link',exact:true }).click();await expect(panel.getByRole('status')).toContainText('Link copied.');
+    expect(await page.evaluate(()=>navigator.clipboard.readText())).toBe(await link.getAttribute('href'));
+    await panel.getByRole('button',{ name:'Issuance attempts',exact:true }).click();await expect(panel).toContainText('ACKNOWLEDGED');
+    await page.goto('/?paymentReturn=success');await page.getByRole('row').filter({ hasText:'Browser Customer' }).getByRole('button',{ name:'Details',exact:true }).click();
+    expect((await (await page.request.get(root)).json()).items[0].enrollmentId).toBe(null);await expect(panel).not.toContainText('Payment confirmed');
+    await control(adminPage,{ paymentPaid:before.id,paymentReceipts:true });await panel.getByRole('button',{ name:'Refresh payment requests',exact:true }).click();
+    await expect(panel).toContainText('Payment confirmed');await expect(panel).toContainText('Enrollment confirmed');await expect(panel.getByRole('link',{ name:'Open payment link',exact:true })).toHaveCount(0);
+    const confirmed=(await (await page.request.get(root)).json()).items[0];expect(confirmed.enrollmentId).toBeTruthy();expect(confirmed.paymentReference).toMatch(/^pi_/);
+    await page.getByRole('combobox',{ name:'Language' }).selectOption('fr');await expect(panel).toContainText('Inscription confirmée');
+    await page.setViewportSize({ width:390,height:844 });await page.getByRole('combobox',{ name:'Language' }).selectOption('ar');
+    await panel.getByRole('heading',{ name:'طلبات روابط الدفع',exact:true }).scrollIntoViewIfNeeded();await expect(panel).toHaveCount(1);
+    await expect(panel).toContainText('دفع مؤكد');await expect(panel).toContainText('اشتراك مؤكد');await expect(panel.locator('img')).toHaveCount(0);
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);await panel.locator('.payment-request-history').scrollIntoViewIfNeeded();await page.screenshot({ path:'.local/e2e/payment-confirmation-ar.png' });
+    await control(adminPage,{ assigned:'second' });expect((await page.request.get(root)).status()).toBe(404);expect((await page.request.get(root+'/'+before.id+'/attempts')).status()).toBe(404);
+    expect(errors).toEqual([]);
+  }finally { await control(adminPage,{ assigned:'agent' });await agent.close();await admin.close(); }
 });

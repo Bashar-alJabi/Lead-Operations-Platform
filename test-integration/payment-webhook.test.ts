@@ -65,7 +65,7 @@ test('Payment webhooks enforce current setup scope, immutable encrypted identiti
   assert.equal((await send('{bad}')).statusCode,400);assert.equal((await send('x'.repeat(65537))).statusCode,413);
   assert.equal((await db`SELECT count(*)::integer AS n FROM payment_webhook_event`)[0]!.n,0);
   const incoming=await Promise.all(Array.from({ length:8 },()=>send(event())));assert.deepEqual(incoming.map((r)=>r.statusCode),Array(8).fill(200));assert.equal(incoming.filter((r)=>!r.json().duplicate).length,1);
-  detail=(await api('GET',webhook)).json();assert.equal(detail.webhookReady,true);assert.equal(detail.financialProcessingReady,false);
+  detail=(await api('GET',webhook)).json();assert.equal(detail.webhookReady,true);assert.equal(detail.financialProcessingReady,true);
   const original=(await db`SELECT * FROM payment_webhook_event`)[0]!;assert.equal(original.ciphertext.toString().includes('private-customer'),false);
   const decoded=openOpaque('payment-event:'+original.id,{ ciphertext:original.ciphertext,nonce:original.nonce,authTag:original.auth_tag,keyVersion:original.key_version });assert.equal(JSON.parse(decoded).data.object.payment_status,'unpaid');
   const replay={ ...event(),pending_webhooks:99 };assert.equal((await send(JSON.stringify(replay,null,2))).json().duplicate,true);
@@ -77,7 +77,7 @@ test('Payment webhooks enforce current setup scope, immutable encrypted identiti
   assert.equal((await db`SELECT count(*)::integer AS n FROM payment_webhook_event`)[0]!.n,1);assert.equal((await db`SELECT count(*)::integer AS n FROM payment_webhook_delivery`)[0]!.n,2);
   for(const action of [db`UPDATE payment_webhook_event SET event_type='checkout.session.expired' WHERE id=${original.id}`,db`DELETE FROM payment_webhook_delivery WHERE event_id=${original.id}`,
     db`UPDATE payment_webhook SET ciphertext=${Buffer.from('changed')} WHERE id=${w.id}`,db`UPDATE payment_webhook SET last_signed_at=clock_timestamp()+interval '1 hour' WHERE id=${w.id}`])await assert.rejects(action);
-  const list=(await api('GET',root+'/webhook-events?limit=1')).json();assert.equal(list.items[0].state,'RECEIVED_NOT_PROCESSED');assert.equal(JSON.stringify(list).includes('private-customer'),false);
+  const list=(await api('GET',root+'/webhook-events?limit=1')).json();assert.equal(list.items[0].state,'QUEUED');assert.equal(JSON.stringify(list).includes('private-customer'),false);
   assert.equal(JSON.stringify(list).includes('amount_total'),false);assert.equal((await api('GET',root+'/webhook-events',undefined,'agent')).statusCode,403);
   assert.equal((await api('GET',webhook,undefined,'other')).statusCode,404);assert.equal((await api('GET',webhook,undefined,'foreign')).statusCode,404);
   const page=(await api('GET',root+'/webhooks?limit=1')).json();assert.ok(page.nextCursor);assert.equal((await api('GET',root+'/webhooks?limit=1&cursor='+encodeURIComponent(page.nextCursor))).json().items.length,1);

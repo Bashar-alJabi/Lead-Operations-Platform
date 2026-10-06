@@ -69,7 +69,7 @@ test('Immutable Lead payment requests enforce current authorization, exact money
   const firstBody=body();const before=providerCalls;const concurrent=await Promise.all(Array.from({ length:8 },()=>api('POST',requests,firstBody,'agent')));
   assert.equal(concurrent.filter((r)=>r.statusCode===201).length,1);assert.equal(concurrent.filter((r)=>r.statusCode===200).length,7);
   const id=concurrent[0]!.json().id;assert.ok(concurrent.every((r)=>r.json().id===id));assert.equal(providerCalls,before);
-  assert.equal(concurrent[0]!.json().amount,'12.50');assert.equal(concurrent[0]!.json().customerUrl,null);assert.equal(concurrent[0]!.json().financialProcessingReady,false);
+  assert.equal(concurrent[0]!.json().amount,'12.50');assert.equal(concurrent[0]!.json().customerUrl,null);assert.equal(concurrent[0]!.json().paymentState,null);assert.equal(concurrent[0]!.json().enrollmentId,null);
   assert.equal((await api('POST',requests,{ ...firstBody,amount:'13.00' },'agent')).json().error,'PAYMENT_REQUEST_IDEMPOTENCY_CONFLICT');
   assert.equal((await api('POST',requests,firstBody)).json().error,'PAYMENT_REQUEST_IDEMPOTENCY_CONFLICT');
   assert.equal((await api('POST',requests,{ ...firstBody,amount:'12.50' },'agent')).statusCode,200);
@@ -81,7 +81,7 @@ test('Immutable Lead payment requests enforce current authorization, exact money
   assert.equal((await db`SELECT count(*)::integer AS n FROM audit_log WHERE action='PAYMENT_LINK_REQUESTED'`)[0]!.n,1);
   assert.equal((await db`SELECT contact_id FROM lead WHERE id=${lead}`)[0]!.contact_id,null);assert.equal((await db`SELECT count(*)::integer AS n FROM contact`)[0]!.n,0);
   for(const mutation of [db`UPDATE payment_link_intent SET amount='13.00',minor='1300' WHERE id=${id}`,db`UPDATE payment_link_intent SET ciphertext=${Buffer.from('changed')} WHERE id=${id}`,db`DELETE FROM payment_link_intent WHERE id=${id}`])await assert.rejects(mutation);
-  const history=(await api('GET',requests,undefined,'agent')).json();assert.equal(history.items[0].state,'PREPARED');assert.equal(history.items[0].id,id);
+  const history=(await api('GET',requests,undefined,'agent')).json();assert.equal(history.items[0].state,'QUEUED');assert.equal(history.items[0].id,id);
   for(const hidden of ['connection_id','account_ref','nonce','ciphertext','requester_session_id',key,secret])assert.equal(JSON.stringify(history).includes(hidden),false);
   // Audit failure rolls back the request and Activity together; replay with the same logical key is safe.
   await db`CREATE FUNCTION synthetic_payment_request_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='PAYMENT_LINK_REQUESTED' THEN RAISE EXCEPTION 'synthetic rollback' USING ERRCODE='40001'; END IF; RETURN NEW; END $$`;
