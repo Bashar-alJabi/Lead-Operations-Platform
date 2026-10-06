@@ -6,12 +6,13 @@ import { paymentCheckoutAdapters,PaymentCheckoutError,type CheckoutSnapshot } fr
 import { checkoutInput,historicalPaymentCredentials,type CheckoutAdapters } from './dispatch-worker.js';
 import { paymentConfirmationTransition,type PaymentState } from './confirmation-policy.js';
 import { paymentReceiptIntent } from './receipt-context.js';
-const types=new Set(['checkout.session.completed','checkout.session.async_payment_succeeded','checkout.session.async_payment_failed','checkout.session.expired']);
+import { paymentReceiptAdapters } from './receipt-adapters.js';
+import type { PaymentReceiptAdapters } from './receipt-provider.js';
 async function completeJob(tx:postgres.TransactionSql,id:string,state:string,code:string|null,delay=0) {
   await tx`UPDATE payment_receipt_job SET state=${state},error_code=${code},lease_token=NULL,lease_until=NULL,
     run_after=clock_timestamp()+${delay}*interval '1 millisecond',updated_at=clock_timestamp() WHERE event_id=${id}`;
 }
-export async function processOnePaymentReceipt(db:Database,adapters:CheckoutAdapters=paymentCheckoutAdapters):Promise<boolean> {
+export async function processOnePaymentReceipt(db:Database,adapters:CheckoutAdapters=paymentCheckoutAdapters,receipts:PaymentReceiptAdapters=paymentReceiptAdapters):Promise<boolean> {
   const claim=await db.begin(async(tx)=> {
     const j=(await tx`SELECT * FROM payment_receipt_job WHERE (state IN ('QUEUED','RETRY') AND run_after<=clock_timestamp())
       OR (state='RUNNING' AND lease_until<=clock_timestamp()) ORDER BY run_after,event_id LIMIT 1 FOR UPDATE SKIP LOCKED`)[0];
@@ -21,9 +22,8 @@ export async function processOnePaymentReceipt(db:Database,adapters:CheckoutAdap
       await completeJob(tx,j.event_id,j.attempts<j.attempt_limit ? 'RETRY' : 'NEEDS_ATTENTION','PAYMENT_WORKER_INTERRUPTED',2000);return { recovered:true as const };
     }
     const e=(await tx`SELECT * FROM payment_webhook_event WHERE id=${j.event_id}`)[0]!;
-    if(!types.has(e.event_type) || e.object_type!=='checkout.session') { await completeJob(tx,e.id,'IGNORED','PAYMENT_EVENT_UNSUPPORTED');return { recovered:true as const }; }
-    const context=await paymentReceiptIntent(tx,e);
-    if(!context.intent) { await completeJob(tx,e.id,'NEEDS_ATTENTION',context.issue);return { recovered:true as const }; }
+    const context=await paymentReceiptIntent(tx,e,receipts);
+    if(!context.intent) { await completeJob(tx,e.id,context.ignored ? 'IGNORED' : 'NEEDS_ATTENTION',context.issue);return { recovered:true as const }; }
     const i=context.intent;const adapter=adapters[i.provider];
     if(!adapter || j.attempts>=j.attempt_limit) { await completeJob(tx,e.id,'NEEDS_ATTENTION','PAYMENT_RECEIPT_ATTEMPTS_EXHAUSTED');return { recovered:true as const }; }
     const token=randomUUID();
@@ -31,7 +31,7 @@ export async function processOnePaymentReceipt(db:Database,adapters:CheckoutAdap
       AND provider=${i.provider} AND account_ref=${i.account_ref} AND mode=${i.mode} ORDER BY attempt_before DESC LIMIT 1`)[0];
     await tx`UPDATE payment_receipt_job SET state='RUNNING',attempts=attempts+1,lease_token=${token},lease_until=clock_timestamp()+interval '60 seconds',error_code=NULL,updated_at=clock_timestamp() WHERE event_id=${e.id}`;
     await tx`INSERT INTO payment_receipt_attempt(id,event_id,number,credential_repair_id) VALUES (${token},${e.id},${j.attempts+1},${repair?.id ?? null})`;
-    return { recovered:false as const,e,i,token,number:j.attempts+1,adapter,repair,limit:j.attempt_limit };
+    return { recovered:false as const,e,i,token,number:j.attempts+1,adapter,repair,limit:j.attempt_limit,receipt:context.receipt! };
   });
   if(!claim)return false;if(claim.recovered)return true;
   let snapshot:CheckoutSnapshot|null=null;let error:PaymentCheckoutError|null=null;
@@ -62,7 +62,7 @@ export async function processOnePaymentReceipt(db:Database,adapters:CheckoutAdap
     await tx`INSERT INTO payment_confirmation(event_id,intent_id,attempt_id,session_id,provider,account_ref,mode,minor,currency,session_status,payment_status,payment_ref)
       VALUES (${claim.e.id},${claim.i.id},${claim.token},${snapshot.sessionId},${claim.i.provider},${claim.i.account_ref},${claim.i.mode},${snapshot.minor},${snapshot.currency},${snapshot.status},${snapshot.paymentStatus},${snapshot.paymentRef})`;
     const old=(await tx`SELECT * FROM payment_record WHERE intent_id=${claim.i.id} FOR UPDATE`)[0];
-    const { observed:state,apply:change }=paymentConfirmationTransition(snapshot,claim.e.event_type,(old?.state ?? null) as PaymentState|null);
+    const { observed:state,apply:change }=paymentConfirmationTransition(snapshot,claim.receipt.kind,(old?.state ?? null) as PaymentState|null);
     // Current provider proof can confirm an earlier failure, but an older/unpaid callback cannot erase confirmed money.
     if(change) {
       const row=old ? (await tx`UPDATE payment_record SET state=${state},payment_ref=${state==='CONFIRMED' ? snapshot.paymentRef : null},confirmation_event_id=${claim.e.id},
@@ -80,6 +80,7 @@ export async function processOnePaymentReceipt(db:Database,adapters:CheckoutAdap
     await tx`UPDATE payment_receipt_attempt SET state='VERIFIED',finished_at=clock_timestamp() WHERE id=${claim.token}`;
     await completeJob(tx,claim.e.id,'PROCESSED',null);
     await tx`INSERT INTO audit_log(organization_id,branch_id,actor_user_id,action,target_type,target_id,detail)
-      VALUES (${claim.i.organization_id},${claim.i.branch_id},NULL,'PAYMENT_RECEIPT_VERIFIED','PAYMENT_LINK',${claim.i.id},${tx.json({ eventId:claim.e.id,state,changed:change })})`;
+      VALUES (${claim.i.organization_id},${claim.i.branch_id},NULL,'PAYMENT_RECEIPT_VERIFIED','PAYMENT_LINK',${claim.i.id},${tx.json({ eventId:claim.e.id,state,changed:change,
+        receiptProfile:claim.receipt.profileId,receiptSchemaVersion:claim.receipt.schemaVersion })})`;
   });return true;
 }

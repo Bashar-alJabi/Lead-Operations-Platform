@@ -110,6 +110,8 @@ test('Durable payment issuance and trusted confirmation preserve authorization, 
       await tx`UPDATE payment_receipt_job SET lease_until=clock_timestamp()-interval '1 second' WHERE event_id=${receiptId}`;await tx`ALTER TABLE payment_receipt_job ENABLE TRIGGER payment_receipt_job_guard`; });
     await processOnePaymentReceipt(db,adapters);await delay(2100);await Promise.all(Array.from({ length:6 },()=>processOnePaymentReceipt(db,adapters)));
     assert.equal((await db`SELECT state FROM payment_record WHERE intent_id=${id}`)[0]!.state,'CONFIRMED');assert.equal(await countEnrollment(),1);
+    const proofAudit=(await db`SELECT detail FROM audit_log WHERE action='PAYMENT_RECEIPT_VERIFIED' AND detail->>'eventId'=${receiptId}`)[0]!.detail;
+    assert.equal(proofAudit.receiptProfile,'stripe-v1-checkout');assert.equal(proofAudit.receiptSchemaVersion,1);
     const confirmed=(await api('GET',requests,undefined,'agent')).json().items.find((row:{ id:string })=>row.id===id);assert.equal(confirmed.customerUrl,null);assert.ok(confirmed.enrollmentId);assert.ok(confirmed.confirmedAt);
     snapshots.get(id)!.status='EXPIRED';snapshots.get(id)!.paymentStatus='UNPAID';snapshots.get(id)!.paymentRef=null;
     await send(id,ack.session_id,'checkout.session.expired');await drain();assert.equal((await db`SELECT state FROM payment_record WHERE intent_id=${id}`)[0]!.state,'CONFIRMED');assert.equal(await countEnrollment(),1);
@@ -142,6 +144,9 @@ test('Durable payment issuance and trusted confirmation preserve authorization, 
     'stripe-signature':`t=${probeTime},v1=${createHmac('sha256',secret).update(probeTime+'.').update(probePayload).digest('hex')}` } });
   await db`UPDATE lead SET assigned_agent_id=${users.agent!.id},version=version+1 WHERE id=${lead}`;
   await t.test('metadata, exact money mismatch and unavailable providers never fabricate confirmed Payment',async()=> {
+    const unsupportedId='evt_WorkflowUnsupported123';const beforeUnsupported=reads;
+    await send(null,'cs_test_UnsupportedSynthetic123','payment_intent.succeeded',unsupportedId);await drain();assert.equal(reads,beforeUnsupported);
+    assert.equal((await db`SELECT j.state FROM payment_receipt_job j JOIN payment_webhook_event e ON e.id=j.event_id WHERE e.external_event_id=${unsupportedId}`)[0]!.state,'IGNORED');
     const before=reads;await send(randomUUID(),'cs_test_UnmatchedSynthetic123');await drain();assert.equal(reads,before);assert.equal(await countEnrollment(),2);
     const id=await request();await processOnePaymentDispatch(db,adapters);paid(id);snapshots.get(id)!.minor='9999';
     await send(id,snapshots.get(id)!.sessionId);await drain();assert.equal(await countEnrollment(),2);

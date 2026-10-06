@@ -1,5 +1,11 @@
 # دليل التشغيل والتطوير
 
+## أخطاء normalization للإيصالات
+
+`PAYMENT_RECEIPT_PROFILE_UNSUPPORTED` تعني غياب adapter runtime لهذا Provider؛ لا تعالجها بنقل الإيصال أوتغيير الحساب أوإضافة بيانات يدويًا. `PAYMENT_RECEIPT_CONTENT_INVALID` تعني تعذر قراءة الأصل المشفر أو عدم تطابق decoder/identity/schema؛ تحقق من deployment encryption key والنسخة والتاريخ عبر فريق التشغيل، مع حفظ الأصل واتباع backup/restore المعتمدة عند فساد البيانات. هذه مشكلة بنية/تكامل، وليست سببًا لاعتبار الدفع فاشلًا أوConfirmed. Credential repair للقراءة لا تصلح فساد الأصل نفسه.
+
+الأحداث الموثوقة غير المدعومة تعرضIGNORED دونfinancial retrieval. الأحداث المدعومة تحتاج server-created dispatch وaccount/mode/resource/intent/exact-money proof كما سابقًا. Audit التحقق تحفظreceiptProfile/receiptSchemaVersion لتتبع النسخة المستخدمة دونraw claims/secret. لا Provider إضافية متاحة بسبب وجودContract أوunit fake وحدها؛ القائمة الحاليةStripe v1 فقط، وLive verification باقية.
+
 ## مشاركة رابط الدفع من المحادثة
 
 من Lead details حدّث **طلبات روابط الدفع** ثم اختر **تجهيز رسالة برابط الدفع** لرابط صادر وصالح. يظهر اختيار الرابط في **محادثات العميل**؛ التجهيز لا ينشئ Message أو يرسلها. اختر Conversation المطلوبة أو افتحها من زرها الحالي، وتأكد من Human controller والإذن وحالة عدم التواصل. الإدراج يحتاج فعلًا صريحًا ويقرأ الرابط الحالي مرة أخرى؛ إذا أُكد الدفع أو انتهت/اكتملت Session قبل الإدراج يظهر عدم إتاحة الرابط ويبقى النص السابق.

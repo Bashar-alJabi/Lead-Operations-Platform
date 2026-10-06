@@ -536,7 +536,14 @@ test('Messaging setup encrypts credentials, scopes connections, and discovers se
   await db`INSERT INTO conversation_message (conversation_id, connection_id, sender_id, direction,
     author_type, body, delivery_state, received_at) VALUES (${conversationId}, ${orgConnection.json().id},
       ${sharedSender}, 'INBOUND', 'CUSTOMER', 'Customer message', 'RECEIVED', now())`;
-  const queued = await send('POST', messagePath, { body: 'Hello', idempotencyKey: firstKey }, managerA);
+  const RealDate=globalThis.Date;
+  // A different application-host clock must not move a DB-stamped inbound outside its reply window.
+  globalThis.Date=new Proxy(RealDate,{ construct(target,args,newTarget) {
+    return args.length===0 ? new target(RealDate.now()-25*60*60*1000) : Reflect.construct(target,args,newTarget);
+  } });
+  let queued:Awaited<ReturnType<typeof send>>;
+  try { queued=await send('POST', messagePath, { body: 'Hello', idempotencyKey: firstKey }, managerA); }
+  finally { globalThis.Date=RealDate; }
   assert.equal(queued.statusCode, 202, queued.body);
   assert.equal(queued.json().deliveryState, 'QUEUED');
   const replayed = await send('POST', messagePath, { body: 'Hello', idempotencyKey: firstKey }, managerA);

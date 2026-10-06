@@ -1,5 +1,15 @@
 # المعمارية التقنية
 
+## Payment receipt runtime contract — prerequisite لمزوّد إضافي
+
+`PaymentReceiptAdapter` تفك تنسيق Provider إلى `PaymentReceiptEnvelope` schemaVersion1، مع profileId وexact stored event/resource identity وmode وresourceKind وkind وoptional opaque intentHint. `checkedPaymentReceipt` تعيد فحص الهوية مقابل signed immutable receipt، و64KiB bounds وprofile/schema/kind/UUID، وتسقط حقول claims/amount/customer/credentials غير المعلنة. Decoder لا تمنح authenticity أوPaid authority؛ التوقيع والاستلام الموثوق يسبقان هذا المسار، وmoney proof تبقى من retrieval مستقلة.
+
+Stripe v1 decoder معزولة في `stripe-receipt.ts`، والregistry في `receipt-adapters.ts`. mapping الأربع تقبل RESOURCE_UPDATED أوPAYMENT_FAILED؛ unknown event تصبحUNSUPPORTED بدونhint، ولا تتحول أسماء success إلىPaid. Map صريحة تمنع prototype names من التحول إلىmapping غير مقصودة. Worker وlookup وcredential repair تستخدم العقد نفسه بدل قراءة Stripe metadata أومقارنة event names فيRuntime Core. Confirmation policy تستخدم normalized kind وtrusted snapshot فقط؛ Audit proof تسجل profileId/schemaVersion دونraw payload. المحتوى المشفر الأصلي وEvent ID والترتيب والتكرار والnative guards باقية، ولا إعادة كتابة تاريخيّة أوschema migration لهذه prerequisite.
+
+الregistry الإنتاجية الحالية Stripe فقط. تنسيق ثانٍ اصطناعي فيunit يختبر contract independence؛ ليسProvider profile فعليًا أوSetup أوLive Verification. Receiver setup/credential schemas وSQL constraints/native mapping الحالية تخصStripe v1، وتُوسع بمigrations إضافية عند تنفيذ المزود الفعلي نفسه؛ لا تخفيف generic غير مثبت لصلاحيات Account/callback أوidentity/idempotency/proof. غيابruntime profile أوinvalid envelope يفشلclosed إلىNeeds Attention، وUNSUPPORTED الموثوقة تُتجاهل دونfinancial I/O. هذا القسم يوثقRuntime prerequisite، ولا يدعي إكمالmulti-provider baseline.
+
+أثناء regression كُشف مزج PostgreSQL `received_at` وNode clock فيCurrent Messaging Policy. `checkCurrentOutbound` تقرأ DB `clock_timestamp()` مع latest inbound فيstatement واحدة، وتستخدمها للreply window وtimezone/frequency evaluation. لا تغيير للحدود أوsender/controller/consent/template rules؛ الهدف اتساقinstants بينreplicas وتجنبfalse future/expired receipt بسببapplication clock skew. آخرreceipts وتواريخالمحاولاتتبقىمنDB، ولاتعديلfixture historical message للتحايلعلىالنافذة. Integration تشوّهNode Date الافتراضية25h وتثبتqueue لreceipt حديثةبعدDB-clock guard.
+
 ## Payment Link داخل Customer Messaging
 
 `GET /api/leads/:id/payment-link-requests/:intentId` تعيد DTO الحالية لرابط واحد، بcurrent Lead/session ACL ومع تطابق intent مع Lead المطلوبة. هي القراءة نفسها المستخدمة في التاريخ، مع indexed intent filter وDB-clock URL availability؛ لا قراءة لكل التاريخ من أجل العثور على UUID. لا credentials/account/config أوraw provider response في النتيجة. Closed/completed/expired/confirmed resource لا تقدم customer URL.

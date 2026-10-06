@@ -1,5 +1,17 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: Payment receipt runtime contract وDB clock
+
+بدأت بعد حفظ ورفع مشاركة الروابط في `8c71bdd`. أُضيفت versioned receipt envelope وchecked adapter registry؛ Stripe decoder تفصل أسماء الأحداث وraw metadata عن runtime lookup وconfirmation policy وcredential recovery. المقارنة مع هوية الإيصال المخزنة إلزامية، ويُسقط أي metadata أوmoney claims غير مصرح بها. فك الإيصال لا يمنحه صلاحية تأكيد المال: تبقى independent retrieval وإثبات provider/account/mode/Session/intent/exact money والمحاولة السابقة والـnative guards إلزامية. unsupported events تصبح IGNORED دون financial I/O أوEnrollment، والأخطاء محدودة دون أسرار، وAudit تحفظ profile/schema المستخدمة.
+
+التحقق النهائي المثبت: **99/99 unit،40/40 full PostgreSQL integration،19/19 Edge Browser** (38.8s)،Backend/Web typecheck/build exit0، وmigrations001–069 على development/test دون Schema جديدة أوتعديل migration مطبقة. أربع unit جديدة تفحص Stripe legacy receipts، وصيغة اصطناعية ثانية للعقد فقط، وidentity/schema/mode/scope/UTF-8/size وsecret omission. Integration تثبت unsupported no-retrieval/no-Enrollment وAudit version، مع regression كاملة للمال/الإصلاح/الصلاحيات/history/idempotency/out-of-order. الصيغة الاصطناعية ليست Provider مالية مفعلة.
+
+أول integration أعادت39/40: Messaging setup رفضت رسالة بعد inbound حديثة بـTEMPLATE_REQUIRED. فحص الكود كشف مقارنة وقت PostgreSQL بساعة Node؛ Central Messaging Policy أصبحت تستخدم clock_timestamp مع آخر inbound في query نفسها للنوافذ والتوقيت والتكرار. اختبار انحراف constructor ساعة التطبيق25h يثبت القبول الصحيح؛ لا تغيير لقواعد templates/consent/controller أوlimits. أُعيدت40 integration و19 Browser بنجاح بعد الإصلاح. لا ادعاء بقياس انحراف ساعة الجهاز فعليًا. Vite544.12KB/gzip158.35KB warning محفوظة ضمنperformance/code splitting backlog.
+
+هذه checkpoint تقنية Implemented وUnit/Mock/PostgreSQL/Local Browser Verified فقط. signed receiver وSetup وcredentials وnative SQL failure mapping ما زالت Stripe-specific؛ registry الحالية Stripe فقط. Payments/Enrollment والمنصة جزئية، ولاComplete أوLive Provider claim أوProduction credential أوmain merge/deploy.
+
+**الخطوة التالية الدقيقة:** profile دفع فعلية إضافية بعد مراجعة API الرسمية: Connection secure setup وauthentication/options وCallback authenticity/replay،Hosted Checkout create/read وmoney/session/account/mode proof وreceipt adapter، ثم migrations إضافية للprovider whitelist/native guards/failure semantics دون تعديل001–069،وUI/negative/concurrency/failure tests. لا تفعيل للمزود قبل اكتمال المسار كله. بعدها AI حسب dependency order؛ Notifications/Analytics/acceptance تتبع وحداتها. لا تحسينات Stripe اختيارية قبل المتطلبات الرئيسية.
+
 ## آخر حالة مستقرة: مشاركة Payment Link عبر Central Messaging Policy
 
 بدأت بعد حفظ ورفع recovery checkpoint `493082f`. لا تغيير للSchema أوmigrations001–069. أضيفت scoped single-intent detail API مع current Lead/session ACL وexact Lead/intent match وDB-clock URL availability، دون كشف credentials/account/config أوتحميل التاريخ كله. `LeadCustomerOperations` تنسق selection ضمن Lead key مستقلة. Prepare تعرض اختيارًا فقط، دون Message/Conversation creation أوProvider I/O؛ الإدراج صريح ويقرأ Link مرة أخرى، ويحفظ النص الموجود. BODY parameter تُختار صراحة، وdynamic URL button تتطلب approved static prefix مطابقة. رفض عدم التوافق أوالرابط غير المتاح أوحدود الحجم لا يستبدل draft أويرسلها.

@@ -59,10 +59,12 @@ export async function checkCurrentOutbound(tx: postgres.TransactionSql, locked: 
   }
   const connection = (await tx`SELECT provider FROM integration_connection
     WHERE id = ${conversation.connection_id}`)[0]!;
-  const latestInbound = (await tx`SELECT received_at FROM conversation_message
+  // The receipt, frequency and cooldown instants are stored by PostgreSQL. Use the same clock on every replica.
+  const timing = (await tx`SELECT clock_timestamp() AS now, (SELECT received_at FROM conversation_message
     WHERE conversation_id = ${conversation.id} AND direction = 'INBOUND'
-    ORDER BY received_at DESC NULLS LAST, id DESC LIMIT 1`)[0]?.received_at as Date | null | undefined;
-  const now = new Date();
+    ORDER BY received_at DESC NULLS LAST, id DESC LIMIT 1) AS latest_inbound`)[0]!;
+  const latestInbound = timing.latest_inbound as Date | null;
+  const now = timing.now as Date;
   const inboundAge = latestInbound ? now.getTime() - latestInbound.getTime() : null;
   const withinMetaServiceWindow = inboundAge !== null && inboundAge >= 0 && inboundAge < 24 * 60 * 60 * 1000;
   const policy = scope.messaging_policy || {};
