@@ -1,7 +1,7 @@
 import { test, expect, type Page,type BrowserContext } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { createHmac } from 'node:crypto';
+import { createHmac,randomUUID } from 'node:crypto';
 type Fixture = { password:string;testToken:string;leadId:string;conversationId:string;untrusted:string;mediaLeadId:string;mediaConversationId:string;sourceCampaignId:string;noContactLeadId:string };
 let fixture:Fixture;
 let agentStorageState:Awaited<ReturnType<BrowserContext['storageState']>>|undefined;
@@ -935,6 +935,8 @@ test('Payment provider options show safe country capabilities, fence credential 
     await control(page,{ paymentFailure:false });await setup.getByRole('button',{ name:'Inspect payment options',exact:true }).click();await expect(options).toContainText('EUR, USD');
     await setup.getByLabel('Payment API key',{ exact:true }).fill('rk_test_'+'browserOptionsReplacement'.repeat(3));
     await setup.getByRole('button',{ name:'Save payment connection',exact:true }).click();await expect(row).toContainText('NOT_CONFIGURED');await expect(options).toHaveCount(0);
+    // The final inspected account becomes the public setup prerequisite for the request journey below.
+    await control(page,{ paymentChargesEnabled:true });
     await setup.getByRole('button',{ name:'Inspect payment options',exact:true }).click();await expect(options).toContainText('EUR, USD');
     detail=await (await page.request.get('/api/payments/connections/'+connection.id)).json();expect(detail.version).toBe(2);expect(detail.capabilities.paymentOptionsVersion).toBe(2);
     const methods=page.locator('.payment-methods');await methods.getByRole('row').filter({ hasText:'Manager maintained shared method' }).getByRole('button',{ name:'Edit payment method',exact:true }).click();
@@ -945,7 +947,7 @@ test('Payment provider options show safe country capabilities, fence credential 
     await page.setViewportSize({ width:390,height:844 });await page.getByRole('combobox',{ name:'Language' }).selectOption('ar');
     await options.getByRole('heading',{ name:'خيارات الدفع لدى المزود',exact:true }).scrollIntoViewIfNeeded();
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);await page.screenshot({ path:'.local/e2e/payment-provider-options-ar.png' });expect(errors).toEqual([]);
-  } finally { await control(page,{ paymentFailure:false });await context.close(); }
+  } finally { await control(page,{ paymentFailure:false,paymentChargesEnabled:false });await context.close(); }
 });
 
 test('Payment webhook UI prepares an immutable callback, verifies provider configuration and signed delivery separately and retains scoped safe failure/event history',async({ browser })=> {
@@ -993,4 +995,52 @@ test('Payment webhook UI prepares an immutable callback, verifies provider confi
     await panel.getByRole('button',{ name:'Disable payment webhook',exact:true }).click();await expect(panel.locator('.payment-webhook-detail')).toContainText('DISABLED');
     expect((await send()).status()).toBe(409);await expect(panel.locator('.payment-webhook-events')).toContainText('evt_BrowserSynthetic123');
   }finally{ await control(page,{ paymentFailure:false });await context.close(); }
+});
+
+test('browser saves an exact idempotent payment request with scoped setup and immutable history without claiming a customer link',async({ browser })=> {
+  expect(adminStorageState).toBeTruthy();expect(agentStorageState).toBeTruthy();
+  const admin=await browser.newContext({ storageState:adminStorageState });const adminPage=await admin.newPage();
+  const agent=await browser.newContext({ storageState:agentStorageState });const page=await agent.newPage();const errors:string[]=[];page.on('pageerror',(e)=>errors.push(e.message));
+  try {
+    await adminPage.goto('/');await control(adminPage,{ paymentChargesEnabled:true,paymentFailure:false,assigned:'agent' });
+    const origin='http://127.0.0.1:4100';const api=async(path:string,body:object)=> {
+      const response=await adminPage.request.post(path,{ data:body,headers:{ origin } });expect(response.ok(),await response.text()).toBe(true);return response.json();
+    };
+    const lead=(await (await adminPage.request.get('/api/leads/'+fixture.leadId)).json()).lead;
+    const connection=(await (await adminPage.request.get('/api/payments/connections')).json()).items.find((item:{ name:string })=>item.name==='Browser shared payment');
+    expect(connection).toBeTruthy();expect(connection.capabilities.paymentOptions.chargesEnabled).toBe(true);
+    const root='/api/payments/connections/'+connection.id;
+    const webhook=await api(root+'/webhooks',{ connectionVersion:connection.version,reason:'Browser registers request destination' });
+    const secret='whsec_'+'BrowserRequestSyntheticOnly'.repeat(3);
+    await api(root+'/webhooks/'+webhook.id+'/configure',{ version:1,endpointId:'we_BrowserRequestSynthetic123',signingSecret:secret,reason:'Registered exact endpoint' });
+    await api(root+'/webhooks/'+webhook.id+'/test',{ version:2,connectionVersion:connection.version });
+    const payload=JSON.stringify({ id:'evt_BrowserRequestSynthetic123',object:'event',type:'checkout.session.expired',livemode:false,created:1234567890,
+      data:{ object:{ id:'cs_test_BrowserRequestSynthetic123',object:'checkout.session' } } });
+    const timestamp=Math.floor(Date.now()/1000);const signature=`t=${timestamp},v1=${createHmac('sha256',secret).update(timestamp+'.').update(payload).digest('hex')}`;
+    expect((await adminPage.request.post(new URL(webhook.callback_url).pathname,{ data:payload,headers:{ origin,'content-type':'application/json','stripe-signature':signature } })).ok()).toBe(true);
+    const method=await api('/api/payments/methods',{ name:'Browser request <img src=x>',branchId:lead.branch_id,connectionId:connection.id,currencies:['USD'],active:true,
+      agents:{ mode:'ALL',ids:[] },campaigns:{ mode:'SELECTED',ids:[lead.campaign_id] },reason:'Browser selects allowed Campaign' });
+    await page.goto('/');await page.getByRole('combobox',{ name:'Language' }).selectOption('en');
+    await page.getByRole('row').filter({ hasText:'Browser Customer' }).getByRole('button',{ name:'Details',exact:true }).click();
+    const panel=page.locator('.lead-payment-requests');await expect(panel.getByRole('heading',{ name:'Payment link requests',exact:true })).toBeVisible();
+    await panel.getByLabel('Payment request method',{ exact:true }).selectOption(method.id);
+    await panel.getByLabel('Payment request amount',{ exact:true }).fill('12.501');await panel.getByRole('button',{ name:'Save payment link request',exact:true }).click();
+    await expect(panel.getByRole('alert')).toContainText('PAYMENT_AMOUNT_PRECISION_INVALID');
+    await panel.getByLabel('Payment request amount',{ exact:true }).fill('12.5');
+    const responsePromise=page.waitForResponse((r)=>r.request().method()==='POST' && r.url().endsWith('/payment-link-requests'));
+    await panel.getByRole('button',{ name:'Save payment link request',exact:true }).click();const response=await responsePromise;expect(response.status()).toBe(201);
+    const saved=await response.json();expect(saved.customerUrl).toBe(null);expect(saved.financialProcessingReady).toBe(false);
+    await expect(panel.getByRole('status')).toContainText('No payment link has been issued');await expect(panel.locator('.payment-request-history')).toContainText('12.50 USD');
+    expect((await (await page.request.post(`/api/leads/${fixture.leadId}/payment-link-requests`,{ data:response.request().postDataJSON(),headers:{ origin } })).json()).duplicate).toBe(true);
+    await panel.getByRole('button',{ name:'Refresh payment requests',exact:true }).click();await expect(panel.locator('.payment-request-history li')).toHaveCount(1);
+    await expect(panel.locator('img')).toHaveCount(0);expect(await panel.textContent()).not.toContain(secret);expect((await page.request.get(root)).status()).toBe(403);
+    expect((await page.request.post(`/api/leads/${fixture.leadId}/payment-link-requests`,{ data:{ ...response.request().postDataJSON(),requestId:randomUUID(),amount:'1e3' },headers:{ origin } })).status()).toBe(400);
+    await page.reload();await page.getByRole('row').filter({ hasText:'Browser Customer' }).getByRole('button',{ name:'Details',exact:true }).click();
+    await expect(page.locator('.payment-request-history')).toContainText('12.50 USD');
+    await page.getByRole('combobox',{ name:'Language' }).selectOption('fr');await expect(panel.getByRole('heading',{ name:'Demandes de liens de paiement',exact:true })).toBeVisible();await expect(panel).toHaveCount(1);
+    await page.setViewportSize({ width:390,height:844 });await page.getByRole('combobox',{ name:'Language' }).selectOption('ar');
+    await panel.getByRole('heading',{ name:'طلبات روابط الدفع',exact:true }).scrollIntoViewIfNeeded();await expect(panel).toHaveCount(1);
+    await expect(panel.locator('.payment-request-history')).toContainText('محفوظ — لم يصدر رابط بعد');expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
+    await page.screenshot({ path:'.local/e2e/payment-request-ar.png' });expect(errors).toEqual([]);
+  }finally { await control(adminPage,{ paymentChargesEnabled:false });await admin.close();await agent.close(); }
 });

@@ -1,5 +1,13 @@
 # دليل التشغيل والتطوير
 
+## حفظ طلب رابط دفع — مرحلة063
+
+من Lead details تظهر **طلبات روابط الدفع**. اختر Method جاهزة وأدخل amount بأرقام إنجليزية ونقطة عشرية وcurrency مسموحة؛ لا rounding أوscientific notation أوفواصل آلاف. readiness للحفظ تتطلب Method/Campaign/Agent availability الحالية، active Branch،authentication/options من Connection version الحالية وcharges enabled، وEndpoint configured/provider verified مع signed delivery. Super Admin يربط shared Connection بMethod صراحةً؛ Manager/Agent تستخدمها ضمن Lead scope دون رؤية الحساب أوcredentials. إذا تغيرت Method بعد عرضها، حدّث الخيارات بدل إعادة استخدام version قديمة.
+
+**حفظ طلب** يسجل `PAYMENT_LINK_REQUESTED` مرة واحدة مع مبلغ canonical وMethod name؛ ليس `PAYMENT_LINK_CREATED`. يظهر تاريخ `PREPARED` وغياب Customer URL. لا ترسل الطلب كأنه Link ولا تعتبره Paid/Enrolled، ولا تعدل صفوف DB لإصدار رابط. لا worker مالية مفعلة في هذه checkpoint؛ durable dispatch وtrusted confirmation/Enrollment التالية يجب أن تستقر قبل الإرسال المالي. Provider rotation/disable تحفظ intent الأصلية وencrypted credential/account/mode snapshot، وLead reassignment تغير الوصول للتاريخ حسب current Lead access. technical return targets تأتي من APP_ORIGIN؛ success/cancel page لا تؤكد الدفع.
+
+الفحص الحالي يستخدم Docker PostgreSQL وخيارات/signatures اصطناعية وProvider mocks؛ لا external account أوLive Stripe أوproduction credentials. قواعد التطوير والاختبار منفصلتان، ولا تُشغّل integration وBrowser suites معًا لأنهما تفَرغان قاعدة الاختبار المعزولة.
+
 ## Hosted Checkout profile الحالية
 
 money validation وStripe create/retrieve adapter متاحة تقنيًا ومختبرة بمزود HTTP وهمي، لكنها غير موصولة بعد بـLead Link API/worker/UI أوPayment confirmation. لا تستخدمها من CLI بcredential حقيقية لتفعيل سلوك مالي؛ التشغيل المعتمد يأتي من application service والواجهة في المرحلة التالية. لا زر إنشاء صوري أوجاهزية true بسبب وجود adapter وحدها.

@@ -102,7 +102,7 @@ let mode: 'accept'|'reject'|'unknown' = 'reject'; let providerCalls = 0;let medi
 let sourceFailure=false;let sourceCatalogCalls=0;
 let sourceSubscribed=false;let sourceSubscriptionFailure=false;
 let sourceRetrievalFailure=false;let sourceRetrievalCalls=0;
-let paymentFailure=false;let paymentCalls=0;
+let paymentFailure=false;let paymentCalls=0;let paymentChargesEnabled=false;
 const templates:ProviderTemplate[]=[{ externalId:'7000',name:'header_only_template',language:'en_US',category:'UTILITY',status:'APPROVED',
   components:[{ type:'HEADER',format:'TEXT',text:'Welcome {{1}}',example:{ header_text:['Approval sample only'] } },
     { type:'BODY',text:'Fixed body' }] },
@@ -113,7 +113,7 @@ const storage=localMediaStorage(mediaRoot);
 const app = await buildApp(db, { logger:false,globalRateLimitMax:10000,mediaStorage:storage,
   paymentConnectionAdapters:{ STRIPE:{ verify:async(config)=>{ paymentCalls++;if(paymentFailure)throw new PaymentProviderError('PAYMENT_PROVIDER_AUTH_FAILED');return { mode:config.mode }; },
     inspect:async(config)=>{ paymentCalls++;if(paymentFailure)throw new PaymentProviderError('PAYMENT_PROVIDER_UNAVAILABLE');return { mode:config.mode,options:{ accountRef:'acct_BrowserSynthetic123',country:'US',defaultCurrency:'USD',
-      currencies:['USD','EUR'],paymentMethods:['card','ach'],chargesEnabled:false,cardPayments:'PENDING' } }; },
+      currencies:['USD','EUR'],paymentMethods:['card','ach'],chargesEnabled:paymentChargesEnabled,cardPayments:paymentChargesEnabled ? 'ACTIVE' : 'PENDING' } }; },
     inspectWebhook:async(config,_credentials,id)=>{ paymentCalls++;if(paymentFailure)throw new PaymentProviderError('PAYMENT_PROVIDER_AUTH_FAILED');
       const w=(await db`SELECT callback_url FROM payment_webhook WHERE external_endpoint_id=${id} ORDER BY created_at DESC LIMIT 1`)[0];
       if(!w)throw new PaymentProviderError('PAYMENT_PROVIDER_RESPONSE_INVALID');
@@ -156,7 +156,7 @@ app.get<{ Params:{ name:string } }>('/assets/:name',async (request,reply)=> {
   const type = request.params.name.endsWith('.js') ? 'text/javascript' : 'text/css';
   return reply.type(type).send(await readFile(resolve('dist-web/assets',request.params.name)));
 });
-app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:boolean; assigned?:'agent'|'second'; approveTemplates?:boolean;replyTo?:string;replyIndex?:number;processSample?:boolean;rejectSample?:boolean;sourceFailure?:boolean;sourceSubscriptionFailure?:boolean;sourceNotification?:string;retrieveSource?:boolean;sourceRetrievalFailure?:boolean;historicalPreview?:boolean;historicalImport?:boolean;historicalFailure?:boolean;sourceReferenceFixture?:boolean;sourceReferral?:'KNOWN'|'UNKNOWN'|'INVALID';paymentFailure?:boolean } }>(
+app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:boolean; assigned?:'agent'|'second'; approveTemplates?:boolean;replyTo?:string;replyIndex?:number;processSample?:boolean;rejectSample?:boolean;sourceFailure?:boolean;sourceSubscriptionFailure?:boolean;sourceNotification?:string;retrieveSource?:boolean;sourceRetrievalFailure?:boolean;historicalPreview?:boolean;historicalImport?:boolean;historicalFailure?:boolean;sourceReferenceFixture?:boolean;sourceReferral?:'KNOWN'|'UNKNOWN'|'INVALID';paymentFailure?:boolean;paymentChargesEnabled?:boolean } }>(
   '/__test__/control', { schema: { body:{ type:'object',additionalProperties:false,properties: {
     process:{ type:'boolean' },mode:{ type:'string',enum:['accept','reject','unknown'] },
     dnc:{ type:'boolean' },assigned:{ type:'string',enum:['agent','second'] },
@@ -168,12 +168,14 @@ app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:bool
     historicalPreview:{ type:'boolean' },historicalImport:{ type:'boolean' },historicalFailure:{ type:'boolean' },
     sourceReferenceFixture:{ type:'boolean' },sourceReferral:{ type:'string',enum:['KNOWN','UNKNOWN','INVALID'] },
     paymentFailure:{ type:'boolean' },
+    paymentChargesEnabled:{ type:'boolean' },
     replyTo:{ type:'string',format:'uuid' },replyIndex:{ type:'integer',minimum:0,maximum:2 },
   } } } },async (request)=> {
     const header = request.headers.authorization;
     if (typeof header !== 'string' || !safeTokenEqual(header,'Bearer '+testToken)) throw new HttpError(403,'TEST_CONTROL_DENIED');
     if (request.body.mode) mode=request.body.mode;
     if(typeof request.body.paymentFailure==='boolean')paymentFailure=request.body.paymentFailure;
+    if(typeof request.body.paymentChargesEnabled==='boolean')paymentChargesEnabled=request.body.paymentChargesEnabled;
     if (typeof request.body.sourceFailure==='boolean') sourceFailure=request.body.sourceFailure;
     if (typeof request.body.sourceSubscriptionFailure==='boolean') sourceSubscriptionFailure=request.body.sourceSubscriptionFailure;
     if (typeof request.body.sourceRetrievalFailure==='boolean') sourceRetrievalFailure=request.body.sourceRetrievalFailure;

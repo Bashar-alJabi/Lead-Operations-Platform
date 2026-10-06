@@ -12,6 +12,7 @@ import { LeadConversations } from './LeadConversations.js';
 import { MetaSourceSetup } from './MetaSourceSetup.js';
 import { PaymentSetup } from './PaymentSetup.js';
 import { LeadPaymentMethods } from './PaymentMethods.js';
+import { LeadPaymentRequests } from './LeadPaymentRequests.js';
 
 type Role = 'SUPER_ADMIN' | 'MANAGER' | 'AGENT';
 type User = { id: string; organizationId: string; branchId: string | null; role: Role; name: string; email: string };
@@ -334,8 +335,9 @@ function App() {
       <LeadWorkflow lead={detail.lead} role={user.role} locale={locale} api={api}
         onChanged={async () => { const current = await api<typeof detail>(`/api/leads/${selectedLead}`); setDetail(current); }} />
       <LeadFields leadId={selectedLead} locale={locale} api={api} />
-      <LeadPaymentMethods key={selectedLead} leadId={selectedLead} locale={locale} api={api} />
-      <LeadConversations key={selectedLead} leadId={selectedLead} lifecycle={detail.lead.lifecycle}
+      <LeadPaymentMethods key={`${selectedLead}:payment-methods`} leadId={selectedLead} locale={locale} api={api} />
+      <LeadPaymentRequests key={`${selectedLead}:payment-requests`} leadId={selectedLead} locale={locale} api={api} />
+      <LeadConversations key={`${selectedLead}:conversations`} leadId={selectedLead} lifecycle={detail.lead.lifecycle}
         role={user.role} actorId={user.id} locale={locale} api={api} />
     </section> : <>
       {page === 'leads' && <LeadSearch locale={locale} branches={branches} campaigns={campaigns} users={users} currentUser={user}

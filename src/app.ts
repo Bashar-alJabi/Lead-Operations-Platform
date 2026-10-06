@@ -44,6 +44,7 @@ import { registerPaymentConnectionRoutes } from './routes/payment-connections.js
 import { registerPaymentMethodRoutes } from './routes/payment-methods.js';
 import { registerPaymentWebhookRoutes } from './routes/payment-webhooks.js';
 import type { PaymentAdapterRegistry } from './payments/providers.js';
+import { registerPaymentLinkRoutes } from './routes/payment-links.js';
 
 export async function buildApp(db: Database, options: { logger?: boolean; emailAdapter?: IdentityEmailAdapter;
   messagingAdapter?: MessagingProviderAdapter; messagingTemplateAdapter?: MessagingTemplateAdapter;
@@ -127,5 +128,6 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   registerPaymentConnectionRoutes(app,db,options.paymentConnectionAdapters);
   registerPaymentMethodRoutes(app,db);
   registerPaymentWebhookRoutes(app,db,options.paymentConnectionAdapters);
+  registerPaymentLinkRoutes(app,db);
   return app;
 }
