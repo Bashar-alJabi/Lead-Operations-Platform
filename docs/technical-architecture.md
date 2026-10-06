@@ -1,5 +1,11 @@
 # المعمارية التقنية
 
+## Payment dispatch policy kernel: prerequisite للـdurable worker
+
+`dispatch-policy.ts` تتلقى instants من PostgreSQL وfirst-dispatch/retention/policy محفوظة وattempt evidence contiguous، دون Date.now أوI/O أوcredentials. Retry admission تحجز full I/O budget قبل deadline الصارمة؛ حدالاحتفاظ لا يُعاد من وقت آخر retry أوrefresh للConnection. RUNNING تمنع dispatch متزامنة حتى يغلق DB lease recovery المحاولة كـINTERRUPTED. bounded attempts وexponential backoff/cap وjitter صريحة، وRetry-After لا تُقصَر إلى نافذة أصغر؛ إذا لم يبق وقت يكفي للتأخير والإرسال تتوقف retries.
+
+UNKNOWN أوINTERRUPTED أوunfinished I/O تبقى ambiguous بعد later rejection/exhaustion/deadline. known unaccepted failures يمكن أن تنتهي FAILED؛ uncertain تصبح NEEDS_ATTENTION وتتطلب reconciliation، دون new key أومسح evidence/reset count. ACK history معتبرة توقف retries وتبقى ACCEPTED رغم later failure/time/policy corruption؛ accepted Link لا تعني Paid/Enrollment. invalid/gapped/reordered/foreign evidence أوunsafe time/config تفشل closed للمراجعة. هذه قواعد pure فقط؛ worker المقبلة تحفظها وتنفذ DB leases/first-dispatch/attempts/fencing وcurrent authorization وtrusted receipts/Payment/Enrollment. لا application activation أوreal dispatch من kernel نفسها.
+
 ## Durable Payment Link request: حد الحفظ قبل أي financial dispatch
 
 Migration063 تضيف `payment_link_intent` immutable مستقلة عن نتيجة المزود والعامل المقبل. الـUUID ينشئها السيرفر، وrequest UUID التي ترسلها الواجهة تستخدم dedup ضمن Lead فقط. advisory transaction lock قبل Resource locks يجعل replay المتزامنة تنتج intent/Activity/Audit واحدة؛ تغيير method/version أوcanonical amount/currency بنفس المفتاح conflict409. replay تعيد سجلًا موجودًا فقط بعد current Lead/session authorization؛ لا تعيد تنفيذ قواعد creation بعد تغير الإعداد ولا تستخدمها لإرسال جديد. Monetary equivalence مثل12.5 و12.50 تُقارن بعد exact normalization وفق profile التاريخية.
