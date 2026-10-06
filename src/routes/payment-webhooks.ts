@@ -3,11 +3,13 @@ import type postgres from 'postgres';
 import type { FastifyInstance,FastifyRequest } from 'fastify';
 import type { Database } from '../db.js';
 import { openOpaque,openSecret,sealOpaque } from '../credentials.js';
-import { HttpError,principalFromRequest,requireRole,type Principal } from '../security.js';
+import { HttpError,principalFromRequest,requireRole,sha256,type Principal } from '../security.js';
+import { sessionCookie } from '../config.js';
 import { currentPaymentActor } from '../payments/access.js';
 import { paymentConnectionAdapters,PaymentProviderError,stripePaymentEvents,validatePaymentCredentials,type PaymentAdapterRegistry,type PaymentCredentials,type PaymentWebhookInspection } from '../payments/providers.js';
 import { checkedWebhookInspection,parseStripePaymentReceipt,validateStripeWebhookSecret,verifyStripePaymentSignature } from '../payments/webhook.js';
 import { decodeCursor,encodeCursor } from '../pagination.js';
+import { paymentReceiptIntent } from '../payments/receipt-context.js';
 
 const root='/api/payments/connections/:id';
 const params={ type:'object',additionalProperties:false,required:['id'],properties:{ id:{ type:'string',format:'uuid' } } } as const;
@@ -153,24 +155,28 @@ export function registerPaymentWebhookRoutes(app:FastifyInstance,db:Database,ada
     const actor=await principalFromRequest(request,db);const limit=request.query.limit ?? 20;const cursor=decodeCursor(request.query.cursor);
     return db.begin(async(tx)=> { const c=await managed(tx,actor,request,request.params.id);
       // Setup telemetry has no raw event, customer, amount, provider metadata or financial status claim.
-      const rows=await tx`SELECT e.id,e.webhook_id,e.mode,e.external_event_id,e.event_type,e.provider_created_at,e.received_at,j.state,j.attempts,j.error_code
+      const rows=await tx`SELECT e.id,e.webhook_id,e.mode,e.external_event_id,e.event_type,e.provider_created_at,e.received_at,j.state,j.attempts,j.attempt_limit,j.error_code
         FROM payment_webhook_event e JOIN payment_receipt_job j ON j.event_id=e.id
         WHERE e.connection_id=${c.id} AND (${cursor?.timestamp ?? null}::timestamptz IS NULL OR (e.received_at,e.id)<(${cursor?.timestamp ?? null}::timestamptz,${cursor?.id ?? null}::uuid))
         ORDER BY e.received_at DESC,e.id DESC LIMIT ${limit+1}`;const items=rows.slice(0,limit);const last=items.at(-1);
       return { items,nextCursor:rows.length>limit && last ? encodeCursor({ timestamp:last.received_at.toISOString(),id:last.id }) : null }; });
   });
-  app.get<{ Params:{ id:string;eventId:string } }>(root+'/webhook-events/:eventId/attempts',{
-    schema:{ params:{ ...params,required:['id','eventId'],properties:{ ...params.properties,eventId:{ type:'string',format:'uuid' } } } },
+  app.get<{ Params:{ id:string;eventId:string };Querystring:{ before?:number;limit?:number } }>(root+'/webhook-events/:eventId/attempts',{
+    schema:{ params:{ ...params,required:['id','eventId'],properties:{ ...params.properties,eventId:{ type:'string',format:'uuid' } } },
+      querystring:{ type:'object',additionalProperties:false,properties:{ before:{ type:'integer',minimum:1,maximum:2147483647 },limit:{ type:'integer',minimum:1,maximum:100 } } } },
   },async(request)=> {
     const actor=await principalFromRequest(request,db);return db.begin(async(tx)=> {
       const c=await managed(tx,actor,request,request.params.id);
       if(!(await tx`SELECT id FROM payment_webhook_event WHERE id=${request.params.eventId} AND connection_id=${c.id}`).length)throw new HttpError(404,'PAYMENT_EVENT_NOT_FOUND');
-      return { items:await tx`SELECT number,state,error_code,started_at,finished_at FROM payment_receipt_attempt WHERE event_id=${request.params.eventId} ORDER BY number LIMIT 5` };
+      const limit=request.query.limit ?? 20;const rows=await tx`SELECT number,state,error_code,started_at,finished_at,credential_repair_id IS NOT NULL AS repaired_credentials
+        FROM payment_receipt_attempt WHERE event_id=${request.params.eventId} AND (${request.query.before ?? null}::integer IS NULL OR number<${request.query.before ?? null}) ORDER BY number DESC LIMIT ${limit+1}`;
+      const items=rows.slice(0,limit);return { items,nextNumber:rows.length>limit ? items.at(-1)!.number : null };
     });
   });
-  app.post<{ Params:{ id:string;eventId:string };Body:{ attempts:number;reason:string } }>(root+'/webhook-events/:eventId/retry',{
+  app.post<{ Params:{ id:string;eventId:string };Body:{ attempts:number;reason:string;useCurrentCredentials?:boolean;connectionVersion?:number } }>(root+'/webhook-events/:eventId/retry',{
     schema:{ params:{ ...params,required:['id','eventId'],properties:{ ...params.properties,eventId:{ type:'string',format:'uuid' } } },
-      body:{ type:'object',additionalProperties:false,required:['attempts','reason'],properties:{ attempts:{ type:'integer',minimum:0,maximum:4 },reason } } },
+      body:{ type:'object',additionalProperties:false,required:['attempts','reason'],properties:{ attempts:{ type:'integer',minimum:0,maximum:2147483640 },reason,
+        useCurrentCredentials:{ type:'boolean' },connectionVersion:version } } },
     config:{ rateLimit:{ max:20,timeWindow:'15 minutes' } },
   },async(request)=> {
     const actor=await principalFromRequest(request,db);const why=checkReason(request.body.reason);return db.begin(async(tx)=> {
@@ -178,10 +184,31 @@ export function registerPaymentWebhookRoutes(app:FastifyInstance,db:Database,ada
       const j=(await tx`SELECT j.* FROM payment_receipt_job j JOIN payment_webhook_event e ON e.id=j.event_id
         WHERE j.event_id=${request.params.eventId} AND e.connection_id=${c.id} FOR UPDATE OF j`)[0];
       if(!j)throw new HttpError(404,'PAYMENT_EVENT_NOT_FOUND');
-      if(j.state!=='NEEDS_ATTENTION' || j.attempts!==request.body.attempts || j.attempts>=5)throw new HttpError(409,'PAYMENT_RECOVERY_NOT_ALLOWED');
+      if(j.state!=='NEEDS_ATTENTION' || j.attempts!==request.body.attempts || (j.attempts>=j.attempt_limit && !request.body.useCurrentCredentials))throw new HttpError(409,'PAYMENT_RECOVERY_NOT_ALLOWED');
       if(!await currentPaymentActor(tx,actor,request))throw new HttpError(403,'PAYMENT_ACCESS_REVOKED');
-      await tx`UPDATE payment_receipt_job SET state='RETRY',error_code=NULL,run_after=clock_timestamp(),updated_at=clock_timestamp() WHERE event_id=${j.event_id}`;
-      await audit(tx,c,actor,'PAYMENT_RECEIPT_RETRY',j.event_id,{ reason:why,attempts:j.attempts,previousErrorCode:j.error_code });return { state:'RETRY' };
+      let repairId:string|null=null;
+      if(request.body.useCurrentCredentials) {
+        if(c.version!==request.body.connectionVersion)throw new HttpError(409,'CONNECTION_VERSION_CONFLICT');
+        const e=(await tx`SELECT * FROM payment_webhook_event WHERE id=${j.event_id}`)[0]!;const context=await paymentReceiptIntent(tx,e);
+        if(!context.intent)throw new HttpError(409,context.issue!);const i=context.intent;
+        if(!['CONNECTED','WARNING'].includes(c.status) || c.capabilities.authenticationVerified!==true
+          || c.capabilities.paymentOptionsVersion!==c.version)throw new HttpError(409,'PAYMENT_OPTIONS_REQUIRED');
+        if(c.provider!==i.provider || c.config.mode!==i.mode || c.capabilities.paymentOptions?.accountRef!==i.account_ref)
+          throw new HttpError(409,'PAYMENT_RECOVERY_ACCOUNT_MISMATCH');
+        const sealed=(await tx`SELECT * FROM connection_secret WHERE connection_id=${c.id} FOR SHARE`)[0];if(!sealed)throw new HttpError(409,'PAYMENT_CREDENTIAL_MISSING');
+        const credentials=JSON.parse(openSecret(c.id,{ ciphertext:sealed.ciphertext,nonce:sealed.nonce,authTag:sealed.auth_tag,keyVersion:sealed.key_version })) as PaymentCredentials;
+        validatePaymentCredentials(i.config_snapshot,credentials);repairId=randomUUID();const snapshot=sealOpaque('payment-receipt-repair:'+repairId,JSON.stringify(credentials));
+        const session=(await tx`SELECT id FROM user_session WHERE user_id=${actor.id} AND token_hash=${sha256(request.cookies[sessionCookie]!)}
+          AND revoked_at IS NULL AND expires_at>clock_timestamp() FOR SHARE`)[0];
+        if(!session || !await currentPaymentActor(tx,actor,request))throw new HttpError(403,'PAYMENT_ACCESS_REVOKED');
+        await tx`INSERT INTO payment_receipt_credential(id,event_id,intent_id,connection_id,connection_version,provider,account_ref,mode,attempt_before,
+          actor_user_id,actor_session_id,actor_role,actor_branch_id,reason,ciphertext,nonce,auth_tag,key_version)
+          VALUES (${repairId},${e.id},${i.id},${c.id},${c.version},${i.provider},${i.account_ref},${i.mode},${j.attempts},${actor.id},${session.id},${actor.role},${actor.branchId},${why},
+            ${snapshot.ciphertext},${snapshot.nonce},${snapshot.authTag},${snapshot.keyVersion})`;
+      }
+      const extended=j.attempts>=j.attempt_limit;
+      await tx`UPDATE payment_receipt_job SET state='RETRY',attempt_limit=${extended ? j.attempt_limit+5 : j.attempt_limit},error_code=NULL,run_after=clock_timestamp(),updated_at=clock_timestamp() WHERE event_id=${j.event_id}`;
+      await audit(tx,c,actor,'PAYMENT_RECEIPT_RETRY',j.event_id,{ reason:why,attempts:j.attempts,previousErrorCode:j.error_code,credentialRepair:repairId!==null,extendedVerificationWindow:extended });return { state:'RETRY' };
     });
   });
   app.register(async(webhook)=> {

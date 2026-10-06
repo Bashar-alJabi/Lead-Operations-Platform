@@ -5,6 +5,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { buildApp } from '../src/app.js';
 import { createDatabase } from '../src/db.js';
 import { sha256 } from '../src/security.js';
+import { openOpaque } from '../src/credentials.js';
 import { processOnePaymentDispatch } from '../src/payments/dispatch-worker.js';
 import { processOnePaymentReceipt } from '../src/payments/confirmation-worker.js';
 import { stripeCurrencyPrecision,PaymentCheckoutError,type CheckoutIntent,type CheckoutSnapshot,type PaymentCheckoutAdapter } from '../src/payments/checkout-provider.js';
@@ -54,7 +55,7 @@ test('Durable payment issuance and trusted confirmation preserve authorization, 
   const request=async(actor='agent')=> { const response=await api('POST',requests,{ requestId:randomUUID(),methodId:method,methodVersion:1,amount:'12.5',currency:'USD' },actor);
     assert.equal(response.statusCode,201,response.body);return response.json().id as string; };
   const snapshots=new Map<string,CheckoutSnapshot>();const inputs:CheckoutIntent[]=[];let reads=0;let createHook:((i:CheckoutIntent)=>Promise<void>)|null=null;
-  let createError:PaymentCheckoutError|null=null;let retrievalError:PaymentCheckoutError|null=null;let retention=86400000;
+  let createError:PaymentCheckoutError|null=null;let retrievalError:PaymentCheckoutError|null=null;let retention=86400000;let expectedRetrievalKey=key;
   const adapter:PaymentCheckoutAdapter={ currencyPrecision:stripeCurrencyPrecision,get idempotencyRetentionMs(){ return retention; },
     async create(config,credentials,i) {
       assert.equal(credentials.apiKey,key);assert.equal(config.mode,'TEST');inputs.push(structuredClone(i));
@@ -62,7 +63,7 @@ test('Durable payment issuance and trusted confirmation preserve authorization, 
       if(!snapshots.has(i.id)) { const sessionId='cs_test_'+i.id.replaceAll('-','');snapshots.set(i.id,{ sessionId,url:'https://checkout.stripe.com/c/pay/'+sessionId,
         expiresAt:new Date(Date.now()+3600000).toISOString(),mode:'TEST',currency:i.money.currency,minor:i.money.minor,intentId:i.id,status:'OPEN',paymentStatus:'UNPAID',paymentRef:null }); }
       const result=structuredClone(snapshots.get(i.id)!);if(createHook)await createHook(i);return result;
-    },async retrieve(_config,credentials,i,id) { reads++;assert.equal(credentials.apiKey,key);if(retrievalError)throw retrievalError;
+    },async retrieve(_config,credentials,i,id) { reads++;if(credentials.apiKey!==expectedRetrievalKey)throw new PaymentCheckoutError('PAYMENT_PROVIDER_AUTH_FAILED','REJECTED');if(retrievalError)throw retrievalError;
       const result=structuredClone(snapshots.get(i.id)!);assert.equal(result.sessionId,id);return result; },
   };
   const adapters={ STRIPE:adapter };
@@ -183,5 +184,44 @@ test('Durable payment issuance and trusted confirmation preserve authorization, 
     assert.deepEqual(attempts.map((a:{ state:string })=>a.state),['INTERRUPTED','ACKNOWLEDGED']);
     const repeated=inputs.filter((i)=>i.id===id);assert.equal(repeated.length,2);assert.deepEqual(repeated[0],repeated[1]);
     for(const hidden of [key,secret,accountRef,'ciphertext','requester_session_id'])assert.equal((await api('GET',requests,undefined,'agent')).body.includes(hidden),false);
+  });
+  await t.test('explicit credential repair requires the same verified account/mode and current management scope without replacing originals or resetting budgets',async()=> {
+    const id=inputs.at(-1)!.id;paid(id);const replacement='rk_test_'+'ApprovedRepairSynthetic'.repeat(3);expectedRetrievalKey=replacement;
+    const eventId='evt_WorkflowCredentialRepair123';await send(id,snapshots.get(id)!.sessionId,undefined,eventId);await drain();
+    const event=(await db`SELECT e.id,j.attempts,j.state FROM payment_webhook_event e JOIN payment_receipt_job j ON j.event_id=e.id WHERE e.external_event_id=${eventId}`)[0]!;
+    assert.equal(event.state,'NEEDS_ATTENTION');assert.equal(event.attempts,1);const rr=cr+'/webhook-events/'+event.id;
+    for(let attempts=1;attempts<5;attempts++) {
+      assert.equal((await api('POST',rr+'/retry',{ attempts,reason:'Verify whether historical permission recovered' })).statusCode,200);await drain();
+    }
+    assert.equal((await db`SELECT attempts FROM payment_receipt_job WHERE event_id=${event.id}`)[0]!.attempts,5);
+    assert.equal((await api('POST',rr+'/retry',{ attempts:5,reason:'No approval for another verification window' })).statusCode,409);
+    await assert.rejects(db`UPDATE payment_receipt_job SET attempt_limit=10 WHERE event_id=${event.id}`);
+    const body={ attempts:5,reason:'Replace revoked read credential and approve five more verification attempts',useCurrentCredentials:true,connectionVersion:4 };
+    assert.equal((await api('POST',rr+'/retry',body,'agent')).statusCode,403);assert.equal((await api('POST',rr+'/retry',body,'other')).statusCode,404);
+    assert.equal((await api('POST',rr+'/retry',body)).statusCode,409);
+    assert.equal((await api('PUT',cr,{ name:'Verified historical repair',provider:'STRIPE',config:{ mode:'TEST' },credentials:{ apiKey:replacement },version:3 })).statusCode,200);
+    assert.equal((await api('POST',rr+'/retry',body)).statusCode,409); // No current authentication/options proof.
+    options.accountRef='acct_WrongRepairMerchant123';assert.equal((await api('POST',cr+'/test',{ version:4,inspectOptions:true })).statusCode,200);
+    assert.equal((await api('POST',rr+'/retry',body)).json().error,'PAYMENT_RECOVERY_ACCOUNT_MISMATCH');options.accountRef=accountRef;
+    assert.equal((await api('POST',cr+'/test',{ version:4,inspectOptions:true })).statusCode,200);
+    assert.equal((await api('POST',rr+'/retry',{ ...body,connectionVersion:3 })).json().error,'CONNECTION_VERSION_CONFLICT');
+    await db`CREATE FUNCTION synthetic_repair_audit_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='PAYMENT_RECEIPT_RETRY' AND NEW.detail->>'credentialRepair'='true' THEN RAISE EXCEPTION 'synthetic rollback' USING ERRCODE='40001'; END IF; RETURN NEW; END $$`;
+    await db`CREATE TRIGGER synthetic_repair_audit_failure BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION synthetic_repair_audit_failure()`;
+    try { assert.equal((await api('POST',rr+'/retry',body)).statusCode,500);assert.equal((await db`SELECT count(*)::integer AS n FROM payment_receipt_credential`)[0]!.n,0); }
+    finally { await db`DROP TRIGGER synthetic_repair_audit_failure ON audit_log`;await db`DROP FUNCTION synthetic_repair_audit_failure()`; }
+    const responses=await Promise.all(Array.from({ length:6 },()=>api('POST',rr+'/retry',body)));assert.deepEqual(responses.map((r)=>r.statusCode).sort(),[200,409,409,409,409,409]);
+    const sealed=(await db`SELECT * FROM payment_receipt_credential WHERE event_id=${event.id}`)[0]!;assert.equal(sealed.ciphertext.toString().includes(replacement),false);
+    assert.equal(JSON.parse(openOpaque('payment-receipt-repair:'+sealed.id,{ ciphertext:sealed.ciphertext,nonce:sealed.nonce,authTag:sealed.auth_tag,keyVersion:sealed.key_version })).apiKey,replacement);
+    const original=(await db`SELECT * FROM payment_link_intent WHERE id=${id}`)[0]!;
+    assert.equal(JSON.parse(openOpaque('payment-link:'+id,{ ciphertext:original.ciphertext,nonce:original.nonce,authTag:original.auth_tag,keyVersion:original.key_version })).apiKey,key);
+    const writes=inputs.length;const enrolled=await countEnrollment();await drain();assert.equal(await countEnrollment(),enrolled+1);assert.equal(inputs.length,writes);
+    const attempts=(await api('GET',rr+'/attempts')).json().items;assert.deepEqual(attempts.map((a:{ repaired_credentials:boolean })=>a.repaired_credentials),[true,false,false,false,false,false]);
+    assert.equal((await db`SELECT attempts,attempt_limit FROM payment_receipt_job WHERE event_id=${event.id}`)[0]!.attempt_limit,10);
+    const historyPage=(await api('GET',rr+'/attempts?limit=2')).json();assert.equal(historyPage.nextNumber,5);
+    assert.deepEqual((await api('GET',rr+'/attempts?limit=2&before=5')).json().items.map((a:{ number:number })=>a.number),[4,3]);
+    assert.equal((await api('POST',rr+'/retry',{ ...body,attempts:6 })).statusCode,409);
+    for(const mutation of [db`DELETE FROM payment_receipt_credential WHERE id=${sealed.id}`,db`UPDATE payment_receipt_credential SET account_ref='changed' WHERE id=${sealed.id}`,
+      db`UPDATE payment_receipt_attempt SET credential_repair_id=NULL WHERE event_id=${event.id} AND number=6`])await assert.rejects(mutation);
+    for(const hidden of [replacement,key,'ciphertext',accountRef])assert.equal((await api('GET',cr+'/webhook-events')).body.includes(hidden),false);
   });
 });

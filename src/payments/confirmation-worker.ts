@@ -5,7 +5,7 @@ import { openOpaque } from '../credentials.js';
 import { paymentCheckoutAdapters,PaymentCheckoutError,type CheckoutSnapshot } from './checkout-provider.js';
 import { checkoutInput,historicalPaymentCredentials,type CheckoutAdapters } from './dispatch-worker.js';
 import { paymentConfirmationTransition,type PaymentState } from './confirmation-policy.js';
-const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+import { paymentReceiptIntent } from './receipt-context.js';
 const types=new Set(['checkout.session.completed','checkout.session.async_payment_succeeded','checkout.session.async_payment_failed','checkout.session.expired']);
 async function completeJob(tx:postgres.TransactionSql,id:string,state:string,code:string|null,delay=0) {
   await tx`UPDATE payment_receipt_job SET state=${state},error_code=${code},lease_token=NULL,lease_until=NULL,
@@ -18,30 +18,28 @@ export async function processOnePaymentReceipt(db:Database,adapters:CheckoutAdap
     if(!j)return null;
     if(j.state==='RUNNING') {
       await tx`UPDATE payment_receipt_attempt SET state='INTERRUPTED',finished_at=clock_timestamp(),error_code='PAYMENT_WORKER_INTERRUPTED' WHERE id=${j.lease_token} AND state='RUNNING'`;
-      await completeJob(tx,j.event_id,j.attempts<5 ? 'RETRY' : 'NEEDS_ATTENTION','PAYMENT_WORKER_INTERRUPTED',2000);return { recovered:true as const };
+      await completeJob(tx,j.event_id,j.attempts<j.attempt_limit ? 'RETRY' : 'NEEDS_ATTENTION','PAYMENT_WORKER_INTERRUPTED',2000);return { recovered:true as const };
     }
     const e=(await tx`SELECT * FROM payment_webhook_event WHERE id=${j.event_id}`)[0]!;
     if(!types.has(e.event_type) || e.object_type!=='checkout.session') { await completeJob(tx,e.id,'IGNORED','PAYMENT_EVENT_UNSUPPORTED');return { recovered:true as const }; }
-    let hint:string|null=null;
-    try { const raw=JSON.parse(openOpaque('payment-event:'+e.id,{ ciphertext:e.ciphertext,nonce:e.nonce,authTag:e.auth_tag,keyVersion:e.key_version }));
-      const candidate=raw?.data?.object?.metadata?.platform_intent_id;if(typeof candidate==='string' && uuid.test(candidate))hint=candidate;
-    }catch { await completeJob(tx,e.id,'NEEDS_ATTENTION','PAYMENT_RECEIPT_CONTENT_INVALID');return { recovered:true as const }; }
-    // Metadata is only a lookup hint. A prior server dispatch and independent account/session retrieval are mandatory.
-    const rows=await tx`SELECT i.* FROM payment_link_intent i LEFT JOIN payment_checkout_ack a ON a.intent_id=i.id
-      WHERE i.connection_id=${e.connection_id} AND i.mode=${e.mode} AND (a.session_id=${e.object_id} OR i.id=${hint}::uuid)
-      AND EXISTS(SELECT 1 FROM payment_dispatch_attempt d WHERE d.intent_id=i.id) LIMIT 2`;
-    if(rows.length!==1) { await completeJob(tx,e.id,'NEEDS_ATTENTION',rows.length ? 'PAYMENT_RECEIPT_AMBIGUOUS' : 'PAYMENT_RECEIPT_UNMATCHED');return { recovered:true as const }; }
-    const i=rows[0]!;const adapter=adapters[i.provider];
-    if(!adapter || j.attempts>=5) { await completeJob(tx,e.id,'NEEDS_ATTENTION','PAYMENT_RECEIPT_ATTEMPTS_EXHAUSTED');return { recovered:true as const }; }
+    const context=await paymentReceiptIntent(tx,e);
+    if(!context.intent) { await completeJob(tx,e.id,'NEEDS_ATTENTION',context.issue);return { recovered:true as const }; }
+    const i=context.intent;const adapter=adapters[i.provider];
+    if(!adapter || j.attempts>=j.attempt_limit) { await completeJob(tx,e.id,'NEEDS_ATTENTION','PAYMENT_RECEIPT_ATTEMPTS_EXHAUSTED');return { recovered:true as const }; }
     const token=randomUUID();
+    const repair=(await tx`SELECT * FROM payment_receipt_credential WHERE event_id=${e.id} AND intent_id=${i.id}
+      AND provider=${i.provider} AND account_ref=${i.account_ref} AND mode=${i.mode} ORDER BY attempt_before DESC LIMIT 1`)[0];
     await tx`UPDATE payment_receipt_job SET state='RUNNING',attempts=attempts+1,lease_token=${token},lease_until=clock_timestamp()+interval '60 seconds',error_code=NULL,updated_at=clock_timestamp() WHERE event_id=${e.id}`;
-    await tx`INSERT INTO payment_receipt_attempt(id,event_id,number) VALUES (${token},${e.id},${j.attempts+1})`;
-    return { recovered:false as const,e,i,token,number:j.attempts+1,adapter };
+    await tx`INSERT INTO payment_receipt_attempt(id,event_id,number,credential_repair_id) VALUES (${token},${e.id},${j.attempts+1},${repair?.id ?? null})`;
+    return { recovered:false as const,e,i,token,number:j.attempts+1,adapter,repair,limit:j.attempt_limit };
   });
   if(!claim)return false;if(claim.recovered)return true;
   let snapshot:CheckoutSnapshot|null=null;let error:PaymentCheckoutError|null=null;
   // Historical confirmation is independent of requester expiry, reassignment, disabled Branch or rotated credentials.
-  try { snapshot=await claim.adapter.retrieve(claim.i.config_snapshot,historicalPaymentCredentials(claim.i),checkoutInput(claim.i),claim.e.object_id);
+  try {
+    const credentials=claim.repair ? JSON.parse(openOpaque('payment-receipt-repair:'+claim.repair.id,{ ciphertext:claim.repair.ciphertext,nonce:claim.repair.nonce,
+      authTag:claim.repair.auth_tag,keyVersion:claim.repair.key_version })) : historicalPaymentCredentials(claim.i);
+    snapshot=await claim.adapter.retrieve(claim.i.config_snapshot,credentials,checkoutInput(claim.i),claim.e.object_id);
     if(snapshot.sessionId!==claim.e.object_id || snapshot.intentId!==claim.i.id || snapshot.mode!==claim.i.mode || snapshot.minor!==claim.i.minor
       || snapshot.currency!==claim.i.currency || (snapshot.paymentStatus==='PAID' && (snapshot.status!=='COMPLETE' || !snapshot.paymentRef)))
       throw new PaymentCheckoutError('PAYMENT_SESSION_MISMATCH','REJECTED');
@@ -50,9 +48,9 @@ export async function processOnePaymentReceipt(db:Database,adapters:CheckoutAdap
     const j=(await tx`SELECT * FROM payment_receipt_job WHERE event_id=${claim.e.id} FOR UPDATE`)[0]!;
     if(j.state!=='RUNNING' || j.lease_token!==claim.token)return;
     if(!snapshot) {
-      const retry=error!.certainty!=='REJECTED' && claim.number<5;
+      const retry=error!.certainty!=='REJECTED' && claim.number<claim.limit;
       await tx`UPDATE payment_receipt_attempt SET state=${retry ? 'RETRYABLE' : 'REJECTED'},error_code=${error!.code},finished_at=clock_timestamp() WHERE id=${claim.token}`;
-      await completeJob(tx,claim.e.id,retry ? 'RETRY' : 'NEEDS_ATTENTION',error!.code,Math.max(2000*2**(claim.number-1),(error!.retryAfterSeconds ?? 0)*1000));return;
+      await completeJob(tx,claim.e.id,retry ? 'RETRY' : 'NEEDS_ATTENTION',error!.code,Math.max(Math.min(60000,2000*2**Math.min(claim.number-1,30)),(error!.retryAfterSeconds ?? 0)*1000));return;
     }
     // Serialize all receipts for an intent before any Payment/Enrollment transition.
     await tx`SELECT pg_advisory_xact_lock(hashtextextended(${'payment-confirmation:'+claim.i.id},0))`;

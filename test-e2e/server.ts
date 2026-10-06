@@ -24,7 +24,7 @@ import { processOneHistoricalPreview,processOneHistoricalImport } from '../src/s
 import { PaymentProviderError } from '../src/payments/providers.js';
 import { processOnePaymentDispatch } from '../src/payments/dispatch-worker.js';
 import { processOnePaymentReceipt } from '../src/payments/confirmation-worker.js';
-import { stripeCurrencyPrecision,type CheckoutSnapshot,type PaymentCheckoutAdapter } from '../src/payments/checkout-provider.js';
+import { stripeCurrencyPrecision,PaymentCheckoutError,type CheckoutSnapshot,type PaymentCheckoutAdapter } from '../src/payments/checkout-provider.js';
 
 const connectionUrl = requireLocalE2ETarget(process.env.TEST_DATABASE_URL,process.env.E2E_RESET_TEST_DATABASE,process.env.NODE_ENV);
 
@@ -107,13 +107,15 @@ let sourceSubscribed=false;let sourceSubscriptionFailure=false;
 let sourceRetrievalFailure=false;let sourceRetrievalCalls=0;
 let paymentFailure=false;let paymentCalls=0;let paymentChargesEnabled=false;
 const paymentSessions=new Map<string,CheckoutSnapshot>();
+let paymentReceiptAuthFailure=false;
 const checkoutAdapter:PaymentCheckoutAdapter={ currencyPrecision:stripeCurrencyPrecision,idempotencyRetentionMs:86400000,
   async create(config,_credentials,intent) {
     if(!paymentSessions.has(intent.id)) { const sessionId='cs_test_'+intent.id.replaceAll('-','');
       paymentSessions.set(intent.id,{ sessionId,url:'https://checkout.stripe.com/c/pay/'+sessionId,expiresAt:new Date(Date.now()+3600000).toISOString(),
         mode:config.mode,currency:intent.money.currency,minor:intent.money.minor,intentId:intent.id,status:'OPEN',paymentStatus:'UNPAID',paymentRef:null }); }
     return structuredClone(paymentSessions.get(intent.id)!);
-  },async retrieve(_config,_credentials,intent,sessionId) { const result=paymentSessions.get(intent.id);if(!result || result.sessionId!==sessionId)throw new Error('Test Session mismatch');return structuredClone(result); },
+  },async retrieve(_config,_credentials,intent,sessionId) { if(paymentReceiptAuthFailure)throw new PaymentCheckoutError('PAYMENT_PROVIDER_AUTH_FAILED','REJECTED');
+    const result=paymentSessions.get(intent.id);if(!result || result.sessionId!==sessionId)throw new Error('Test Session mismatch');return structuredClone(result); },
 };
 const templates:ProviderTemplate[]=[{ externalId:'7000',name:'header_only_template',language:'en_US',category:'UTILITY',status:'APPROVED',
   components:[{ type:'HEADER',format:'TEXT',text:'Welcome {{1}}',example:{ header_text:['Approval sample only'] } },
@@ -168,7 +170,7 @@ app.get<{ Params:{ name:string } }>('/assets/:name',async (request,reply)=> {
   const type = request.params.name.endsWith('.js') ? 'text/javascript' : 'text/css';
   return reply.type(type).send(await readFile(resolve('dist-web/assets',request.params.name)));
 });
-app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:boolean; assigned?:'agent'|'second'; approveTemplates?:boolean;replyTo?:string;replyIndex?:number;processSample?:boolean;rejectSample?:boolean;sourceFailure?:boolean;sourceSubscriptionFailure?:boolean;sourceNotification?:string;retrieveSource?:boolean;sourceRetrievalFailure?:boolean;historicalPreview?:boolean;historicalImport?:boolean;historicalFailure?:boolean;sourceReferenceFixture?:boolean;sourceReferral?:'KNOWN'|'UNKNOWN'|'INVALID';paymentFailure?:boolean;paymentChargesEnabled?:boolean;paymentDispatch?:boolean;paymentReceipts?:boolean;paymentPaid?:string } }>(
+app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:boolean; assigned?:'agent'|'second'; approveTemplates?:boolean;replyTo?:string;replyIndex?:number;processSample?:boolean;rejectSample?:boolean;sourceFailure?:boolean;sourceSubscriptionFailure?:boolean;sourceNotification?:string;retrieveSource?:boolean;sourceRetrievalFailure?:boolean;historicalPreview?:boolean;historicalImport?:boolean;historicalFailure?:boolean;sourceReferenceFixture?:boolean;sourceReferral?:'KNOWN'|'UNKNOWN'|'INVALID';paymentFailure?:boolean;paymentChargesEnabled?:boolean;paymentDispatch?:boolean;paymentReceipts?:boolean;paymentPaid?:string;paymentReceiptAuthFailure?:boolean } }>(
   '/__test__/control', { schema: { body:{ type:'object',additionalProperties:false,properties: {
     process:{ type:'boolean' },mode:{ type:'string',enum:['accept','reject','unknown'] },
     dnc:{ type:'boolean' },assigned:{ type:'string',enum:['agent','second'] },
@@ -180,7 +182,7 @@ app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:bool
     historicalPreview:{ type:'boolean' },historicalImport:{ type:'boolean' },historicalFailure:{ type:'boolean' },
     sourceReferenceFixture:{ type:'boolean' },sourceReferral:{ type:'string',enum:['KNOWN','UNKNOWN','INVALID'] },
     paymentFailure:{ type:'boolean' },
-    paymentChargesEnabled:{ type:'boolean' },paymentDispatch:{ type:'boolean' },paymentReceipts:{ type:'boolean' },paymentPaid:{ type:'string',format:'uuid' },
+    paymentChargesEnabled:{ type:'boolean' },paymentDispatch:{ type:'boolean' },paymentReceipts:{ type:'boolean' },paymentPaid:{ type:'string',format:'uuid' },paymentReceiptAuthFailure:{ type:'boolean' },
     replyTo:{ type:'string',format:'uuid' },replyIndex:{ type:'integer',minimum:0,maximum:2 },
   } } } },async (request)=> {
     const header = request.headers.authorization;
@@ -188,6 +190,7 @@ app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:bool
     if (request.body.mode) mode=request.body.mode;
     if(typeof request.body.paymentFailure==='boolean')paymentFailure=request.body.paymentFailure;
     if(typeof request.body.paymentChargesEnabled==='boolean')paymentChargesEnabled=request.body.paymentChargesEnabled;
+    if(typeof request.body.paymentReceiptAuthFailure==='boolean')paymentReceiptAuthFailure=request.body.paymentReceiptAuthFailure;
     if(request.body.paymentDispatch)await processOnePaymentDispatch(db,{ STRIPE:checkoutAdapter });
     if(request.body.paymentPaid) {
       const id=request.body.paymentPaid;const snapshot=paymentSessions.get(id);if(!snapshot)throw new HttpError(400,'TEST_PAYMENT_NOT_ISSUED');

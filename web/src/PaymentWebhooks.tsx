@@ -4,8 +4,10 @@ type Locale='ar'|'en'|'fr';
 type Row={ id:string;version:number;state:string;connection_version:number;mode:string;external_endpoint_id:string|null;callback_url:string;created_at:string;last_signed_at:string|null };
 type Probe={ id:string;state:string;error_code:string|null;created_at:string;finished_at:string|null;connection_version:number;snapshot:{ enabledEvents:string[] }|null };
 type Detail=Row&{ current:boolean;endpointVerified:boolean;signedDeliveryVerified:boolean;webhookReady:boolean;financialProcessingReady:boolean;publicHttps:boolean;requiredEvents:string[];latestProbe:Probe|null };
-type Event={ id:string;external_event_id:string;event_type:string;mode:string;provider_created_at:string;received_at:string;state:string;attempts:number;error_code:string|null };
-const recoveryLabels={ ar:{ retry:'إعادة التحقق من الإيصال',history:'محاولات تأكيد الإيصال' },en:{ retry:'Retry receipt verification',history:'Receipt verification attempts' },fr:{ retry:'Vérifier à nouveau l’événement',history:'Tentatives de vérification' } };
+type Event={ id:string;external_event_id:string;event_type:string;mode:string;provider_created_at:string;received_at:string;state:string;attempts:number;attempt_limit:number;error_code:string|null };
+const recoveryLabels={ ar:{ retry:'إعادة التحقق من الإيصال',history:'محاولات تأكيد الإيصال',repair:'استخدام بيانات الاتصال الحالية المفحوصة لهذا الإيصال',note:'لإلغاء المفتاح التاريخي: دوّر المفتاح وافحص خيارات الاتصال أولًا. يلزم الحساب والمزود والبيئة نفسها. الاسترداد للقراءة فقط ولا ينشئ دفعًا جديدًا. إذا استُنفدت نافذة التحقق، هذا الاختيار يجيز خمس محاولات إضافية مع الاحتفاظ بجميع المحاولات السابقة والطلب الأصلي.',repaired:'بيانات بديلة معتمدة' },
+  en:{ retry:'Retry receipt verification',history:'Receipt verification attempts',repair:'Use verified current connection credentials for this receipt',note:'For a revoked historical key, rotate it and inspect options first. Provider, account and mode must match. Recovery is read-only and creates no new payment. If the verification window is exhausted, this selection approves five more attempts while preserving every earlier attempt and original input.',repaired:'Approved replacement credentials' },
+  fr:{ retry:'Vérifier à nouveau l’événement',history:'Tentatives de vérification',repair:'Utiliser les identifiants actuels vérifiés pour cet événement',note:'Remplacez la clé révoquée puis vérifiez les options. Fournisseur, compte et mode doivent correspondre. Récupération en lecture seule, sans nouveau paiement. Si la fenêtre est épuisée, ce choix autorise cinq tentatives supplémentaires en conservant toutes les tentatives et données originales.',repaired:'Identifiants de remplacement approuvés' } };
 const labels={
   en:{ title:'Payment webhooks',guide:'Prepare a callback here. This profile uses a v1 Account webhook (we_), not a v2 destination (ed_) or Connect/thin events. In Stripe Developers Dashboard → Webhooks → Create an event destination, register the exact callback URL and the events below in the matching sandbox/live mode. If needed, choose Developers Dashboard in Stripe Developers preferences. Copy the endpoint ID (we_) and signing secret (whsec_) here. The restricted key needs Webhook Endpoints read access.',
     proof:'The endpoint test checks provider configuration. Send a test event from Workbench, then refresh to verify signed delivery separately. A receipt alone does not confirm payment: the worker verifies its server-created request, account, session and exact money. PROCESSED means verified; check the Lead for payment and enrollment status.',
@@ -30,7 +32,19 @@ export function PaymentWebhooks({ connectionId,connectionVersion,disabled,locale
   const [busy,setBusy]=useState(false);const [error,setError]=useState('');const [notice,setNotice]=useState('');
   const [history,setHistory]=useState<Probe[]>([]);const [historyCursor,setHistoryCursor]=useState<string|null>(null);
   const [events,setEvents]=useState<Event[]>([]);const [eventCursor,setEventCursor]=useState<string|null>(null);
-  const [receiptAttempts,setReceiptAttempts]=useState<{ number:number;state:string;error_code:string|null }[]>([]);
+  const [receiptAttempts,setReceiptAttempts]=useState<{ number:number;state:string;error_code:string|null;repaired_credentials:boolean }[]>([]);
+  const [useCurrentCredentials,setUseCurrentCredentials]=useState(false);
+  const [receiptHistory,setReceiptHistory]=useState<{ eventId:string;nextNumber:number|null }|null>(null);
+  const receiptSelectionRef=useRef<string|null>(null);
+  async function loadReceiptAttempts(eventId:string,before?:number) {
+    receiptSelectionRef.current=eventId;
+    const page=await api<{ items:typeof receiptAttempts;nextNumber:number|null }>(root+'/webhook-events/'+eventId+'/attempts'+(before ? '?before='+before : ''));
+    if(receiptSelectionRef.current!==eventId)return;
+    setReceiptAttempts((prior)=>before ? [...prior,...page.items] : page.items);setReceiptHistory({ eventId,nextNumber:page.nextNumber });
+  }
+  async function inspectReceipt(eventId:string,before?:number) {
+    setBusy(true);setError('');try { await loadReceiptAttempts(eventId,before); }catch(error) { setError(String(error)); }finally { setBusy(false); }
+  }
   async function load(next?:string) { const page=await api<{ items:Row[];nextCursor:string|null }>(root+'/webhooks'+(next ? '?cursor='+encodeURIComponent(next) : ''));
     setItems((prior)=>next ? [...prior,...page.items] : page.items);setCursor(page.nextCursor); }
   async function eventPage(next?:string) { const page=await api<{ items:Event[];nextCursor:string|null }>(root+'/webhook-events'+(next ? '?cursor='+encodeURIComponent(next) : ''));
@@ -39,7 +53,7 @@ export function PaymentWebhooks({ connectionId,connectionVersion,disabled,locale
     const page=await api<{ items:Probe[];nextCursor:string|null }>(root+'/webhooks/'+id+'/history'+(next ? '?cursor='+encodeURIComponent(next) : ''));
     if(selectedRef.current!==id)return;setSelected(detail);setHistory((prior)=>next ? [...prior,...page.items] : page.items);setHistoryCursor(page.nextCursor); }
   async function refresh() { await load();await eventPage();const id=selectedRef.current;if(id)await inspect(id); }
-  useEffect(()=>{ setSecret('');void refresh().catch((e)=>setError(String(e))); },[connectionVersion,disabled]);
+  useEffect(()=>{ setSecret('');setUseCurrentCredentials(false);void refresh().catch((e)=>setError(String(e))); },[connectionVersion,disabled]);
   async function action(kind:'prepare'|'configure'|'test'|'disable') {
     setBusy(true);setError('');setNotice('');const current=selectedRef.current;
     try { if(kind==='prepare') { const created=await api<Detail>(root+'/webhooks',{ method:'POST',body:JSON.stringify({ connectionVersion,reason }) });
@@ -76,14 +90,20 @@ export function PaymentWebhooks({ connectionId,connectionVersion,disabled,locale
         {p.snapshot && <p><bdi>{p.snapshot.enabledEvents.join(', ')}</bdi></p>}</li>)}</ul>
       {historyCursor && <button className="secondary" disabled={busy} onClick={()=>void inspect(selected.id,historyCursor).catch((e)=>setError(String(e)))}>{t.moreHistory}</button>}
     </section>}
-    <h5>{t.received}</h5><p>{t.noPaid}</p>{events.length===0 && <p>{t.emptyEvents}</p>}<ul className="payment-webhook-events">{events.map((e)=><li key={e.id}><bdi>{e.external_event_id}</bdi> · <bdi>{e.event_type}</bdi> · <bdi>{e.mode}</bdi> · <bdi>{e.state}</bdi>
+    <h5>{t.received}</h5><p>{t.noPaid}</p><p>{recoveryLabels[locale].note}</p>
+    <label><input type="checkbox" checked={useCurrentCredentials} disabled={busy || disabled} onChange={(e)=>setUseCurrentCredentials(e.target.checked)} />{recoveryLabels[locale].repair}</label>
+    {events.length===0 && <p>{t.emptyEvents}</p>}<ul className="payment-webhook-events">{events.map((e)=><li key={e.id}><bdi>{e.external_event_id}</bdi> · <bdi>{e.event_type}</bdi> · <bdi>{e.mode}</bdi> · <bdi>{e.state}</bdi>
       <p>{t.created}: <time>{new Date(e.provider_created_at).toLocaleString(locale)}</time> · {t.receivedAt}: <time>{new Date(e.received_at).toLocaleString(locale)}</time></p><p><bdi>{e.error_code}</bdi></p>
-      <button className="secondary" disabled={busy} onClick={()=>{ void api<{ items:typeof receiptAttempts }>(root+'/webhook-events/'+e.id+'/attempts').then((page)=>setReceiptAttempts(page.items)).catch((error)=>setError(String(error))); }}>{recoveryLabels[locale].history}</button>
-      {e.state==='NEEDS_ATTENTION' && e.attempts<5 && <button disabled={busy || reason.trim().length<3} onClick={()=> {
-        setBusy(true);setError('');void api(root+'/webhook-events/'+e.id+'/retry',{ method:'POST',body:JSON.stringify({ attempts:e.attempts,reason }) })
+      <button className="secondary" disabled={busy} onClick={()=>void inspectReceipt(e.id)}>{recoveryLabels[locale].history}</button>
+      {e.state==='NEEDS_ATTENTION' && <button disabled={busy || reason.trim().length<3 || (e.attempts>=e.attempt_limit && !useCurrentCredentials)} onClick={()=> {
+        setBusy(true);setError('');void api(root+'/webhook-events/'+e.id+'/retry',{ method:'POST',body:JSON.stringify({ attempts:e.attempts,reason,
+          ...(useCurrentCredentials ? { useCurrentCredentials:true,connectionVersion } : {}) }) })
           .then(()=>eventPage()).catch((error)=>setError(String(error))).finally(()=>setBusy(false));
-      }}>{recoveryLabels[locale].retry}</button>}</li>)}</ul>
-    {!!receiptAttempts.length && <ol>{receiptAttempts.map((a)=><li key={a.number}><bdi>{a.number}: {a.state} {a.error_code}</bdi></li>)}</ol>}
+      }}>{recoveryLabels[locale].retry}</button>}
+      {receiptHistory?.eventId===e.id && <section className="receipt-verification-history"><h6>{recoveryLabels[locale].history}</h6>
+        <ol>{receiptAttempts.map((a)=><li key={a.number}><bdi>{a.number}: {a.state} {a.error_code}</bdi>{a.repaired_credentials && <> · <span>{recoveryLabels[locale].repaired}</span></>}</li>)}</ol>
+        {receiptHistory.nextNumber && <button className="secondary" disabled={busy} onClick={()=>void inspectReceipt(e.id,receiptHistory.nextNumber!)}>{t.moreHistory}</button>}
+      </section>}</li>)}</ul>
     {eventCursor && <button className="secondary" disabled={busy} onClick={()=>void eventPage(eventCursor).catch((e)=>setError(String(e)))}>{t.moreEvents}</button>}
   </section>;
 }

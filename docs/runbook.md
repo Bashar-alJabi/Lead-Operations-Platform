@@ -1,5 +1,15 @@
 # دليل التشغيل والتطوير
 
+## استرداد التحقق من إيصال بمفتاح تاريخي ملغى —068–069
+
+إذا ظهرت `NEEDS_ATTENTION/PAYMENT_PROVIDER_AUTH_FAILED`، صحّح صلاحية القراءة لدى المزود، أو دوّر المفتاح من **إعداد الدفع** ثم افحص خيارات Connection الحالية. يجب أن يبقى provider/account/mode مطابقًا للحساب الذي أصدر الطلب. لا تنقل الإيصال إلى حساب مختلف ولا تنشئ Link بديلة لإخفاء نتيجة غير مؤكدة. بيانات الاتصال لا تظهر كاملة بعد الحفظ ولا تُعدل في DB أو server files.
+
+من **Webhooks الدفع** أدخل سببًا، واختر **استخدام بيانات الاتصال الحالية المفحوصة لهذا الإيصال** ثم **إعادة التحقق من الإيصال**. Super Admin أو Manager المخولة للاتصال فقط تستطيع الموافقة؛ Agent أو Manager فرع آخر ممنوعة. Backend تعيد فحص الجلسة والنطاق ونسخة الاتصال وخيارات الحساب وعدّاد المحاولات. فشل version/account/options يستلزم تحديث الصفحة وتصحيح الربط، ولا يُتجاوز بمحو التاريخ.
+
+الاسترداد يحفظ credential snapshot مشفرة مستقلة للقراءة فقط. الطلب الأصلي وبيانات إنشاء الدفع وحدود POST وidempotency لا تتغير. إذا استُنفدت خمس قراءات، هذا الاختيار يجيز خمس قراءات إضافية؛ لا تصفير للعداد أو التاريخ ولا تمديد تلقائي. بدون هذا الإقرار لا تُفتح نافذة مستنفدة. بعد worker، حدّث الأحداث وافتح **محاولات تأكيد الإيصال**؛ تظهر البيانات البديلة المعتمدة وعلامات النجاح والفشل، مع pagination. `PROCESSED` تعني التحقق من الإيصال؛ راجع Lead لمعرفة Payment وEnrollment، ولا تعتبر مجرد retry أو signed callback تأكيدًا للدفع.
+
+اختبارات هذه المرحلة تستخدم مفاتيح اصطناعية وprovider mocks مع PostgreSQL وBrowser محليتين فقط. لا Live Provider Verified أو production credential؛ لا إجراء CLI/DB recovery تشغيلي مطلوب.
+
 ## تشغيل وإدارة Worker المالية —064–067
 
 بعد migrations والبناء، شغّل `npm run worker:payments` كservice منفصلة مع deployment `DATABASE_URL` و`CREDENTIAL_ENCRYPTION_KEY` نفسها المستخدمة فيAPI. Development/test تعتمد Docker PostgreSQL وmocks فقط؛ لا تستخدم CLI بمفتاحprovider حقيقي لتهيئةProduct. زيادة replicas ممكنة وSKIP LOCKED/merchant lease تمنعparallel writes للحساب نفسه؛ راقب DB pool لكلreplica. Worker تعالج حتى10 receipt/dispatch pairs ثم تنتظر2s، وتغلق graceful معSIGTERM. خطأSQL/worker لايحذفJobs أوhistory؛ lease60s تعيد recovery معINTERRUPTED والمحاولةنفسها لايعاداستعمالها.
@@ -8,9 +18,9 @@
 
 حفظطلبLead يُنشئ QUEUED وPAYMENT_LINK_REQUESTED مرةواحدة. حدّثطلباتالدفع لمتابعةRUNNING/RETRY/ACCEPTED/FAILED/BLOCKED/NEEDS_ATTENTION وسجلالمحاولات. ACCEPTED تضيفPAYMENT_LINK_CREATED ورابطsafe HTTPS مشفرمخزن؛ copy/open متاحللمخولعلىLead الحاليةفقط. رابطمنتهي أوPayment Confirmed/Expired/Failed لاتعرضURL. النسخليسإرسالًا؛ إذاشاركتعبرMessaging يجبالمسارالمركزي للقواعدالموجودة، لاprovider send جانبية. فتحرابطأوصفحةsuccess/cancel أوclaimلايؤكدPayment أوEnrollment.
 
-منWebhook history تابعQUEUED/RUNNING/RETRY/PROCESSED/IGNORED/NEEDS_ATTENTION وerrorcode ومحاولاتverification دونraw customer data. PROCESSED لايعنيPaid: راجعLead payment status. Receiptموقّعةتحتاجمطابقةserver dispatch وGETموثوقللحساب/الجلسة/mode/amount/currency؛unmatched setup testevent قدتظهرNEEDS_ATTENTION بدونPayment. عندفشلالفحصصححالسببثمأدخلreason وأعدالتحقق منUI؛budget5محاولاتلايتجددوduplicate callbackلاينشئPayment أخرى. Agent ممنوعةمنConnection recovery. Connection rotation/disable أوانتهاءجلسةrequester لايوقفhistorical confirmation بمفتاحintentالمحفوظ؛احتفظبالEndpoint القديمة حتىتسويةمدفوعاتها.
+منWebhook history تابعQUEUED/RUNNING/RETRY/PROCESSED/IGNORED/NEEDS_ATTENTION وerrorcode ومحاولاتverification دونraw customer data. PROCESSED لايعنيPaid: راجعLead payment status. Receiptموقّعةتحتاجمطابقةserver dispatch وGETموثوقللحساب/الجلسة/mode/amount/currency؛unmatched setup testevent قدتظهرNEEDS_ATTENTION بدونPayment. عندفشلالفحصصححالسببثمأدخلreason وأعدالتحقق منUI؛ النافذة التلقائية خمس محاولات، والتمديد الصريح للقراءة فقط موضح في068–069 أعلاه. duplicate callback لا تجدد الميزانية ولا تنشئ Payment أخرى. Agent ممنوعةمنConnection recovery. Connection rotation/disable أوانتهاءجلسةrequester لايوقفhistorical confirmation بمفتاحintentالمحفوظ؛احتفظبالEndpoint القديمة حتىتسويةمدفوعاتها.
 
-UNKNOWN/INTERRUPTED تعنيقبولًاقديكونحدث؛لاتنشئkeyبديلةأوتعدّلDBلإزالةambiguity. Worker تحافظعلىparams/key/first-dispatch/retention وتتوقفقبلانتهاء24hStripewindowمعميزانيةI/Oكاملة. ReceiptموثوقةقبلACKيمكنهاإثباتالدفع؛recovery عندوجودها لايعيدPOST. Native guards تحفظattempt/receipt/confirmation/Enrollmenthistory. عندtrusted PAIDتُحفظConfirmedPayment وEnrollmentمنفصلةوActivities/Auditatomic،بدونإغلاقLeadتلقائي. Historical credential revokedrepair/multi-provider والمشاركةالمخصصة منUIمازالتخطواتbaselineتالية؛لاتدّعlive verification.
+UNKNOWN/INTERRUPTED تعنيقبولًاقديكونحدث؛لاتنشئkeyبديلةأوتعدّلDBلإزالةambiguity. Worker تحافظعلىparams/key/first-dispatch/retention وتتوقفقبلانتهاء24hStripewindowمعميزانيةI/Oكاملة. ReceiptموثوقةقبلACKيمكنهاإثباتالدفع؛recovery عندوجودها لايعيدPOST. Native guards تحفظattempt/receipt/confirmation/Enrollmenthistory. عندtrusted PAIDتُحفظConfirmedPayment وEnrollmentمنفصلةوActivities/Auditatomic،بدونإغلاقLeadتلقائي. استرداد read-only credential موضح في القسم068–069 أعلاه؛ multi-provider والمشاركة المخصصة منUI باقيتان ضمن baseline التالية، ولاLive verification.
 
 الأقسام063وHosted Checkout التاليةتوثيقالمراحل السابقةقبلتوصيلworker؛سلوكQUEUEDوالpipeline أعلاههيالحالية. لاتشغّلintegration/Browserمعًالأنهمايفرغانقاعدةtestالمعزولة.
 

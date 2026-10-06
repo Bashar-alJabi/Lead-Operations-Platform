@@ -1074,3 +1074,34 @@ test('browser issues a safe Checkout link and shows trusted Payment and separate
     expect(errors).toEqual([]);
   }finally { await control(adminPage,{ assigned:'agent' });await agent.close();await admin.close(); }
 });
+
+test('browser authorizes receipt credential repair through scoped setup and retains verification history without a new payment write',async({ browser })=> {
+  const admin=await browser.newContext({ storageState:adminStorageState });const rootPage=await admin.newPage();
+  const agent=await browser.newContext({ storageState:agentStorageState });const page=await agent.newPage();const errors:string[]=[];rootPage.on('pageerror',(e)=>errors.push(e.message));
+  try {
+    const origin='http://127.0.0.1:4100';const connection=(await (await rootPage.request.get('/api/payments/connections')).json()).items.find((row:{ name:string })=>row.name==='Browser shared payment');
+    const options=(await (await page.request.get(`/api/leads/${fixture.leadId}/payment-link-options`)).json()).items.find((row:{ name:string })=>row.name==='Browser request <img src=x>');
+    const saved=await page.request.post(`/api/leads/${fixture.leadId}/payment-link-requests`,{ data:{ requestId:randomUUID(),methodId:options.id,methodVersion:options.version,amount:'25',currency:'USD' },headers:{ origin } });
+    expect(saved.status()).toBe(201);const id=(await saved.json()).id;
+    await control(rootPage,{ paymentDispatch:true });await control(rootPage,{ paymentPaid:id,paymentReceiptAuthFailure:true,paymentReceipts:true });
+    const cr='/api/payments/connections/'+connection.id;const receipts=(await (await rootPage.request.get(cr+'/webhook-events')).json()).items;
+    const receipt=receipts.find((row:{ error_code:string;attempts:number })=>row.error_code==='PAYMENT_PROVIDER_AUTH_FAILED' && row.attempts===1);expect(receipt).toBeTruthy();
+    expect((await page.request.post(cr+'/webhook-events/'+receipt.id+'/retry',{ data:{ attempts:1,reason:'Unauthorized repair attempt',useCurrentCredentials:true,connectionVersion:connection.version },headers:{ origin } })).status()).toBe(403);
+    await rootPage.goto('/');await rootPage.getByRole('combobox',{ name:'Language' }).selectOption('en');await rootPage.getByRole('button',{ name:'Payment setup',exact:true }).click();
+    await rootPage.locator('.payment-setup').getByRole('row').filter({ hasText:'Browser shared payment' }).getByRole('button',{ name:'Edit payment connection',exact:true }).click();
+    const panel=rootPage.locator('.payment-webhooks');const event=panel.locator('.payment-webhook-events > li').filter({ hasText:receipt.external_event_id });
+    await expect(event).toContainText('NEEDS_ATTENTION');await expect(event.getByRole('button',{ name:'Retry receipt verification',exact:true })).toBeDisabled();
+    await panel.getByLabel('Webhook change reason',{ exact:true }).fill('Provider read permission repaired; use the verified current account');
+    await panel.getByRole('checkbox',{ name:'Use verified current connection credentials for this receipt',exact:true }).check();
+    await control(rootPage,{ paymentReceiptAuthFailure:false });
+    await event.getByRole('button',{ name:'Retry receipt verification',exact:true }).click();await expect(event).toContainText('RETRY');
+    await control(rootPage,{ paymentReceipts:true });await panel.getByRole('button',{ name:'Refresh payment webhooks',exact:true }).click();await expect(event).toContainText('PROCESSED');
+    await event.getByRole('button',{ name:'Receipt verification attempts',exact:true }).click();await expect(event.locator('.receipt-verification-history')).toContainText('Approved replacement credentials');
+    await page.goto('/');await page.getByRole('combobox',{ name:'Language' }).selectOption('en');await page.getByRole('row').filter({ hasText:'Browser Customer' }).getByRole('button',{ name:'Details',exact:true }).click();
+    const result=(await (await page.request.get(`/api/leads/${fixture.leadId}/payment-link-requests`)).json()).items.find((row:{ id:string })=>row.id===id);expect(result.paymentState).toBe('CONFIRMED');expect(result.enrollmentId).toBeTruthy();
+    await rootPage.getByRole('combobox',{ name:'Language' }).selectOption('fr');await expect(panel).toContainText('Identifiants de remplacement approuvés');
+    await rootPage.setViewportSize({ width:390,height:844 });await rootPage.getByRole('combobox',{ name:'Language' }).selectOption('ar');
+    await panel.getByText('بيانات بديلة معتمدة',{ exact:true }).scrollIntoViewIfNeeded();await rootPage.screenshot({ path:'.local/e2e/payment-repair-ar.png' });
+    expect(await rootPage.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);expect(errors).toEqual([]);
+  }finally { await control(rootPage,{ paymentReceiptAuthFailure:false });await admin.close();await agent.close(); }
+});
