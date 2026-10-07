@@ -1,7 +1,9 @@
 import type { PaymentConfig } from './providers.js';
-export type PaymentReceiptKind='RESOURCE_UPDATED'|'PAYMENT_FAILED'|'UNSUPPORTED';
+export type PaymentReceiptKind='RESOURCE_UPDATED'|'PAYMENT_FAILED'|'APPROVAL_REQUIRED'|'UNSUPPORTED';
 export type PaymentReceiptEnvelope={ schemaVersion:1;profileId:string;externalId:string;eventType:string;mode:PaymentConfig['mode'];
-  resourceId:string;resourceType:string;kind:PaymentReceiptKind;resourceKind:'HOSTED_CHECKOUT'|'UNSUPPORTED';intentHint:string|null };
+  resourceId:string;resourceType:string;kind:PaymentReceiptKind;resourceKind:'HOSTED_CHECKOUT'|'UNSUPPORTED';intentHint:string|null;
+  // Omitted means legacy resource lookup. Null means no safe hosted-resource lookup is available.
+  lookupResourceId?:string|null };
 // Decoding grants no authenticity or financial authority. Only a stored verified receipt enters the caller.
 export interface PaymentReceiptAdapter { decode(raw:Buffer,mode:PaymentConfig['mode']):PaymentReceiptEnvelope }
 export type PaymentReceiptAdapters=Readonly<Record<string,PaymentReceiptAdapter>>;
@@ -15,11 +17,15 @@ export function checkedPaymentReceipt(adapter:PaymentReceiptAdapter|undefined,ra
     if(!r || r.schemaVersion!==1 || typeof r.profileId!=='string' || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(r.profileId)
       || r.externalId!==expected.externalId || r.eventType!==expected.eventType || r.mode!==expected.mode
       || r.resourceId!==expected.resourceId || r.resourceType!==expected.resourceType
-      || !['RESOURCE_UPDATED','PAYMENT_FAILED','UNSUPPORTED'].includes(r.kind)
+      || !['RESOURCE_UPDATED','PAYMENT_FAILED','APPROVAL_REQUIRED','UNSUPPORTED'].includes(r.kind)
       || (r.kind==='UNSUPPORTED' ? r.resourceKind!=='UNSUPPORTED' || r.intentHint!==null : r.resourceKind!=='HOSTED_CHECKOUT')
-      || (r.intentHint!==null && (typeof r.intentHint!=='string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(r.intentHint))))throw new Error('invalid');
+      || (r.intentHint!==null && (typeof r.intentHint!=='string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(r.intentHint)))
+      || (Object.hasOwn(r,'lookupResourceId') && r.lookupResourceId!==null && (typeof r.lookupResourceId!=='string' || !/^[A-Za-z0-9_:-]{1,128}$/.test(r.lookupResourceId)))
+      || (r.kind==='UNSUPPORTED' && r.lookupResourceId!==undefined && r.lookupResourceId!==null)
+      || (r.lookupResourceId===null && r.intentHint!==null))throw new Error('invalid');
     // Drop undeclared adapter metadata/claims rather than returning provider data to application services.
     return { schemaVersion:1,profileId:r.profileId,externalId:r.externalId,eventType:r.eventType,mode:r.mode,resourceId:r.resourceId,
-      resourceType:r.resourceType,kind:r.kind,resourceKind:r.resourceKind,intentHint:r.intentHint };
+      resourceType:r.resourceType,kind:r.kind,resourceKind:r.resourceKind,intentHint:r.intentHint,
+      ...(Object.hasOwn(r,'lookupResourceId') ? { lookupResourceId:r.lookupResourceId } : {}) };
   }catch { throw new PaymentReceiptError('PAYMENT_RECEIPT_CONTENT_INVALID'); }
 }

@@ -9,6 +9,9 @@ import { openOpaque,sealOpaque } from '../src/credentials.js';
 import { paypalPaymentEvents } from '../src/payments/webhook-profile.js';
 import { processOnePaymentReceipt } from '../src/payments/confirmation-worker.js';
 import { testPayPalCertificate,testPayPalHeaders,testPayPalEvent,testPayPalCertUrl } from '../test/paypal-test-support.js';
+import { paypalReceiptAdapter } from '../src/payments/paypal-receipt.js';
+import { checkedPaymentReceipt } from '../src/payments/receipt-provider.js';
+import { paymentReceiptIntent } from '../src/payments/receipt-context.js';
 const url=process.env.TEST_DATABASE_URL;if(!url || new URL(url).pathname!=='/lead_operations_test')throw new Error('Isolated TEST_DATABASE_URL required');
 test('PayPal actual OAuth webhook inspection and RSA receiver preserve scope, current probes, encrypted immutable receipts and duplicate-safe history without financial claims',async(t)=> {
   process.env.APP_ORIGIN='http://127.0.0.1:5173';process.env.CREDENTIAL_ENCRYPTION_KEY=randomBytes(32).toString('hex');
@@ -70,7 +73,7 @@ test('PayPal actual OAuth webhook inspection and RSA receiver preserve scope, cu
   behavior='FAIL';assert.equal((await probe()).json().error,'PAYMENT_PROVIDER_AUTH_FAILED');pending.shift()!();assert.equal((await late).json().state,'SUPERSEDED');
   behavior='OK';assert.equal((await probe()).statusCode,200);
   const clock=async()=>(await db`SELECT extract(epoch FROM clock_timestamp())::double precision AS seconds`)[0]!.seconds as number;
-  const signed=async(w:typeof a,event:ReturnType<typeof testPayPalEvent>,suffix='')=> {
+  const signed=async(w:typeof a,event:{ id:string;event_type:string;resource_type:string;create_time:string;resource:object },suffix='')=> {
     const raw=Buffer.from(JSON.stringify(event,null,2));const headers=testPayPalHeaders(raw,w.endpointId,new Date((await clock())*1000).toISOString(),testPayPalCertUrl.replace('CERT-SYNTHETIC-ONLY','CERT-INTEGRATION'+suffix));
     return { raw,headers,send:()=>app.inject({ method:'POST',url:w.callback,payload:raw,headers }) };
   };
@@ -84,6 +87,10 @@ test('PayPal actual OAuth webhook inspection and RSA receiver preserve scope, cu
   const detail=(await api('GET',a.path)).json();assert.equal(detail.signedDeliveryVerified,true);assert.equal(detail.webhookReady,true);assert.equal(detail.financialProcessingReady,false);
   assert.equal((await api('GET',root)).json().capabilities.paymentLinksReady,undefined);
   const stored=(await db`SELECT * FROM payment_webhook_event`)[0]!;assert.equal(openOpaque('payment-event:'+stored.id,{ ciphertext:stored.ciphertext,nonce:stored.nonce,authTag:stored.auth_tag,keyVersion:stored.key_version }),first.raw.toString());
+  const normalized=checkedPaymentReceipt(paypalReceiptAdapter,first.raw,{ externalId:stored.external_event_id,eventType:stored.event_type,mode:stored.mode,
+    resourceId:stored.object_id,resourceType:stored.object_type });assert.equal(normalized.resourceId,'SYNTHETICCAPTURE123');assert.equal(normalized.lookupResourceId,'SYNTHETICORDER123');
+  const context=await db.begin((tx)=>paymentReceiptIntent(tx,stored,{ PAYPAL:paypalReceiptAdapter }));assert.equal(context.intent,null);assert.equal(context.issue,'PAYMENT_RECEIPT_UNMATCHED');
+  assert.equal(context.receipt?.resourceId,stored.object_id);assert.equal(context.receipt?.lookupResourceId,'SYNTHETICORDER123');
   const conflict=await signed(a,{ ...event,resource:{ ...event.resource,amount:{ value:'99.00',currency_code:'USD' } } });assert.equal((await conflict.send()).statusCode,409);
   const second=await signed(a,testPayPalEvent('WH-INTEGRATION-NEXT123'));assert.equal((await second.send()).statusCode,200);
   const events=(await api('GET',root+'/webhook-events?limit=1')).json();assert.equal(events.items.length,1);assert.ok(events.nextCursor);
@@ -102,6 +109,18 @@ test('PayPal actual OAuth webhook inspection and RSA receiver preserve scope, cu
   assert.equal((await api('POST',a.path+'/test',{ version:2,connectionVersion:2 })).statusCode,409);
   assert.equal((await api('POST',root+'/disable',{ version:2,reason:'Historical receipts remain valid' })).statusCode,200);
   assert.equal((await (await signed(a,testPayPalEvent('WH-INTEGRATION-HISTORICAL123'))).send()).statusCode,200);
+  const approved={ ...testPayPalEvent('WH-INTEGRATION-APPROVED123'),event_type:'CHECKOUT.ORDER.APPROVED',resource_type:'checkout-order',
+    resource:{ id:'SYNTHETICORDER123',status:'COMPLETED',purchase_units:[{ reference_id:'72066d41-c5d6-423a-87ea-d56a10a6a67a',custom_id:'72066d41-c5d6-423a-87ea-d56a10a6a67a' }] } };
+  const approvalSend=await signed(a,approved);assert.equal((await approvalSend.send()).statusCode,200);
+  const approvalStored=(await db`SELECT * FROM payment_webhook_event WHERE external_event_id=${approved.id}`)[0]!;
+  const approvalContext=await db.begin((tx)=>paymentReceiptIntent(tx,approvalStored,{ PAYPAL:paypalReceiptAdapter }));
+  assert.equal(approvalContext.receipt?.kind,'APPROVAL_REQUIRED');assert.equal(approvalContext.issue,'PAYMENT_CAPTURE_FLOW_NOT_READY');assert.equal(approvalContext.intent,null);
+  const { supplementary_data:ignoredOrder,...missingResource }=event.resource;
+  const missingOrder={ ...event,id:'WH-INTEGRATION-MISSINGORDER123',resource:{ ...missingResource,custom_id:'72066d41-c5d6-423a-87ea-d56a10a6a67a' } };
+  assert.equal((await (await signed(a,missingOrder)).send()).statusCode,200);
+  const missingStored=(await db`SELECT * FROM payment_webhook_event WHERE external_event_id=${missingOrder.id}`)[0]!;
+  const missingContext=await db.begin((tx)=>paymentReceiptIntent(tx,missingStored,{ PAYPAL:paypalReceiptAdapter }));
+  assert.equal(missingContext.issue,'PAYMENT_RECEIPT_UNMATCHED');assert.equal(missingContext.receipt?.lookupResourceId,null);assert.equal(missingContext.receipt?.intentHint,null);
   while(await processOnePaymentReceipt(db)) {};
   assert.ok((await db`SELECT state,error_code,attempts FROM payment_receipt_job`).every((j)=>j.state==='NEEDS_ATTENTION' && j.error_code==='PAYMENT_RECEIPT_PROFILE_UNSUPPORTED' && j.attempts===0));
   assert.equal((await db`SELECT count(*)::integer AS n FROM payment_record`)[0]!.n,0);assert.equal((await db`SELECT count(*)::integer AS n FROM enrollment`)[0]!.n,0);

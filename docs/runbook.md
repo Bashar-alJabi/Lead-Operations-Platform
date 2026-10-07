@@ -1,5 +1,11 @@
 # دليل التشغيل والتطوير
 
+## هوية PayPal receipt وorder أثناء التحقق
+
+Capture ID فيالإيصال التاريخي ليستOrder ID المستخدمةلـhosted checkout. الأصل المشفر وresource ID لا يتغيران؛related order تستخدمlookup فقط. غيابها لا يعالج باختيارLead أوorder عشوائية أوcustom_id وحدها،ويبقىNeeds Attention عندتفعيلالتدفق. CHECKOUT.ORDER.APPROVED ليستإيصالcapture؛تحتاجdurable capture مستقلة ثمtrusted independent read قبلPayment/Enrollment.
+
+Standalone decoder المختبرةلمتُسجل فيfinancial runtime بعد؛الحالةالفعليةللjobs الحاليةPAYMENT_RECEIPT_PROFILE_UNSUPPORTED كماسابقًا،ولاworker تتصلبOrders/capture لمجردnormalization. عندتفعيلDurable capture/native proof لاحقًا،PAYMENT_CAPTURE_FLOW_NOT_READY تعنيغيابمسارcapture الآمنولايمكنتجاوزهابتأكيديدوي أوsuccess-page claim. لاCLI/DB action تشغيلي لهذهالمرحلة؛Live Verification Pending External Credential/Approval،ولاPayPal financial end-to-end claim.
+
 ## إعداد المستفيد المتوقع في PayPal
 
 من Payment setup → PayPal أدخل **PayPal Merchant ID المتوقع** للحساب Business المقصود؛ فيTEST استخدمSandbox Business المرتبطةبالتطبيق. [تعليماتPayPal](https://www.paypal.com/us/cshelp/article/how-do-i-find-my-secure-merchant-id-on-my-paypal-account-help538) تعرضAccount Settings → Business information. المعرف13 محرفًا ضمنpattern الرسمية؛ ليسClient ID أوApp ID أوemail. يمكنتركهفارغًا عندإعدادAuthentication فقط،ولايتحولذلكإلىجاهزيةإصدارروابط.

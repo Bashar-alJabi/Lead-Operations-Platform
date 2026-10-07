@@ -1,5 +1,15 @@
 # المعمارية التقنية
 
+## فصل receipt resource عن hosted order lookup
+
+امتداد schema1 إلى `lookupResourceId?:string|null` يحافظ على شكل legacy envelopes: غياب الحقل يستخدم original resource ID، وnull تعني غياب lookup آمنة. checked contract لا تسمح بتغييرexternal event/resource identity المحفوظة، أوinvalid/oversized lookup، أوintent hint معnull lookup، أوlookup فيUNSUPPORTED؛تسقطأيmetadata غيرمعلنة. هذا امتداد اختياري للخدمة، وليس تغييرًا للأصل المشفر أوDB object_id/semantic hash. Stripe decoder/financial constraints الأصلية محفوظة.
+
+`paypalReceiptAdapter` مستقلة وغيرمسجلةماليًا. capture تحافظ علىcapture ID/resource type وتستخرجrelated order ID منفصلة وcustom_id مؤهلةلـUUID hint فقط؛غيابorder يُسقطhint أيضًا ولايخمن منcapture ID. approved order تعيدAPPROVAL_REQUIRED لاRESOURCE_UPDATED/PAID،وتستخدمsingle purchase unit ذاتreference/custom ID متطابقتين كhint إنوُجدتا. الأموال والمستفيد/status claims/PII/tool instructions لا تنتقل إلىenvelope. [Capture representation](https://developer.paypal.com/api/payments/v2/captures-get) و[Orders representation](https://developer.paypal.com/api/orders/v2/orders-get).
+
+`paymentReceiptIntent` تستعملlookup منفصلة ضمنConnection/mode/prior server dispatch وتحتفظoriginal resource identity. غيابlookup يصبحUNMATCHED؛approval تتوقفبـPAYMENT_CAPTURE_FLOW_NOT_READY حتىربطdurable capture. `paymentConfirmationTransition` ترفضAPPROVAL_REQUIRED حتىمعsnapshot مزيفةتزعمPAID،فلاApproval تعملconfirmation. lookup لا تمنحauthenticity/authorization/financial authority؛native proof وindependent order+capture/money/payee verification باقيةقبلactivation.
+
+Unit وactual signed-receipt PostgreSQL تثبتnormalization بعدRSA/encrypted rehydrate للأصل،captured vsorder identity/approval/missing references/no money وعدمactivation. Browser regression تبقىلsetup/receiver والمنتج الموجود،وليستPayPal financial end-to-end. runtime registry تظلStripe،وdefault worker تحفظPayPal Needs Attention/Profile Unsupported دونPayment/Enrollment. لاmigration جديدةأوLive Provider claim لهذهالمرحلة.
+
 ## PayPal expected beneficiary configuration
 
 `PaymentConfig.expectedMerchantId` اختيار إدارة للمستفيد المتوقع، وليس provider/account verification. يبقى اختياريًا لإعداد Authentication/Webhook فقط؛ financial activation التالية ستحتاجه فيimmutable original intent ومقارنةpayee فيالقراءةالموثوقة. لاcountry/default currency/charges/capture capability مختلقة منOAuth. Stripe ترفضالحقل، وPayPal API/adapter/UI وDB تقيدمعرفالحساببـ`[2-9A-HJ-NP-Z]{13}` وفق[Account ID](https://developer.paypal.com/sdk/orders/v2/definitions/account_id/). Orders adapter ترفضاختلافconfigured expectation عنintent قبلOAuth/financial I/O،وتبقىقراءةProvider مسؤولةعنإثباتالهويةوالمال.
