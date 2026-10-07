@@ -1,5 +1,17 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: PayPal expected beneficiary configuration — 2026-10-07
+
+بدأت بعد حفظ ورفع `6d0d91b` وكانت working tree نظيفة. أُضيف Merchant ID المتوقع من UI العربية/الإنجليزية/الفرنسية، مع validation مرتبطة بـProvider وpattern الرسمية `[2-9A-HJ-NP-Z]{13}`. القيمة إعداد للمستفيد وليستOAuth/account capability proof؛ لاfinancial readiness أوPayment/Enrollment. form edit version مستقلة عنoperational refresh حتىلاdraft قديمةتتجاوزconflict. اختيارConnection/provider يفرغdraft والcredentials لا تعادعرضها.
+
+Migration073 مطبقة علىdevelopment/test: native field/provider format،وversion+1/NOT_CONFIGURED/empty capabilities عندتبدلmode/payee،وimmutable configuration history معcurrent actor/Connection/version/mode/expected identity/Branch scope وunique version/index. API تسجلhistory وAudit فيtransaction نفسها؛current session/role تعادقبلwrite،وhistorical GET paginated/masked. Clear/rotation/disable/reconnect لا تحذفhistory؛migrationلا تفبركbackfill للإعداداتالقديمة.
+
+التحقق النهائي: **115/115 unit،43/43 full PostgreSQL integration،22/22 Edge Browser E2E** (42.9s)،Backend/Web typecheck/build وmigrations001–073 علىdevelopment/test. Unit expanded config/format/OAuth-no-payee-proof وواحدةجديدةconfig-intent mismatch دونI/O. Integration actual OAuth adapter معHTTP mock وPostgreSQL تختبرsetup/current scopes/8-way edit concurrency/retained secret/latest config/null clear/history pagination/native insert-edit-delete denial/Audit rollback معcredential rotation/session expiration بعدlock/disabled branch/disable/reconnect/no money. أُصلحتfixture expiration/cleanup وmoney assertions؛Browser API test احتاجتOrigin فرفضتهاProductionCSRF كمايجبحتىتصحيحheaders،دونتخفيفحمايةالمنتج.
+
+Browser21 الحالية تثبتpublic setup/save/clear/history،authentication ليستpayee proof،external edit→refresh→stale form409/draft retained→explicit reopen/save،secret clearing/Agent denial/French/Arabic390px/no XSS أوoverflow. Browser22 Webhook وStripe/Meta/Messaging regression ناجحة. صورة `.local/e2e/paypal-beneficiary-ar.png` فُحصت بصريًا. Vite556.53KB/gzip161.78KB warning ضمنcode splitting/performance backlog.
+
+هذهsetup prerequisite **Implemented وMock/PostgreSQL/Local Browser Verified** فقط؛ PayPal financial flow غيرمفعّلة وLive Verification Pending External Credential/Approval. ليستProvider Complete. **الحالة الجارية عندcheckpoint:** لا مجموعة أخرىبدأت. **الخطوة التالية الدقيقة:** فصلgeneric hosted resource expiry/lookup عنStripe constraints: nullable provider expiry دونتاريخمصطنع،provider-aware immutable intent/account/receipt identities،capture-resource→order lookup دونتغييرoriginal resource ID؛ ثمdurable order/capture policies/jobs/attempts/recovery وindependent Payment/Enrollment native proof وscoped issuance/recovery UI وIntegration/Browser end-to-end. merchant selection ليستtrusted paid proof؛لاfake country/charges capabilities. بعدهاAlma ثمBank Transfer المستقلة؛لاMollie أوoptional Stripe polish.
+
 ## آخر حالة مستقرة: PayPal Orders/capture protocol prerequisite — 2026-10-07
 
 Checkpoint `2cb6b36` محفوظة ومرفوعة، وكانت working tree نظيفة بعدها. نُفذت adapter مستقلة لـOrders create/read وcapture كفعل صريح، مع exact currency/money وexpected merchant وsafe approval URL وoriginal intent correlation وfinite errors/stable separate request keys، وقراءة order ثم capture مستقلة. هذه مرحلة عقد Provider فقط وليست financial activation؛ لا entry جديدة في Checkout/receipt runtime قبل durable capture وnative proof/UI. لا fake expiry أوmerchant capability أوPaid بسبب APPROVED/return/capture response وحدها.

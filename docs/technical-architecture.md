@@ -1,5 +1,13 @@
 # المعمارية التقنية
 
+## PayPal expected beneficiary configuration
+
+`PaymentConfig.expectedMerchantId` اختيار إدارة للمستفيد المتوقع، وليس provider/account verification. يبقى اختياريًا لإعداد Authentication/Webhook فقط؛ financial activation التالية ستحتاجه فيimmutable original intent ومقارنةpayee فيالقراءةالموثوقة. لاcountry/default currency/charges/capture capability مختلقة منOAuth. Stripe ترفضالحقل، وPayPal API/adapter/UI وDB تقيدمعرفالحساببـ`[2-9A-HJ-NP-Z]{13}` وفق[Account ID](https://developer.paypal.com/sdk/orders/v2/definitions/account_id/). Orders adapter ترفضاختلافconfigured expectation عنintent قبلOAuth/financial I/O،وتبقىقراءةProvider مسؤولةعنإثباتالهويةوالمال.
+
+Migration073 تحميformat/provider binding وتفرضversion+1 وNOT_CONFIGURED/empty capabilities عندتبدلmode/beneficiary؛ لاcached verification تبقىبعدتغييره. `payment_beneficiary_configuration` تسجلنسخة/mode/expected identity nullable وactor/context وDB clock بعدكلPayPal create/edit عبرAPI. current session/role/Branch تعادقبلwrite،والnative insert تطابقcurrent Connection/version/config/actor/organization/Branch؛ update/delete ممنوعة. Unique connection/version وrow lock تمنعdouble configuration records. History paginated بـconnection/time/id وcurrent managed Connection ACL،ولاcredentials/token/raw payload فيها. Audit `PAYMENT_BENEFICIARY_CONFIGURED` فيtransaction نفسها،وفشلهايردcredentials/config/version/history جميعًا.
+
+واجهةar/en/fr تفصلform edit version عنrefreshed operational version؛refresh لا تمنحdraft قديمةإذنoverwrite إصدارجديد. يعالجالمستخدمconflict بفتحالنسخةالحاليةثمsave صريحة. field/guide/history لا تسمّيهVERIFIED؛ clear تصبحexpectation غيرمحددةدونحذفالسجل. اختيارConnection/provider يفرغdraft الخاصةبالمستفيد،والpair secrets لا تعادعرضها. Native history ليستbackfill مختلقةللإعداداتالقديمةبلاrecord. لاfinancial registry activation فيهذهالمرحلة.
+
 ## PayPal Orders/capture protocol prerequisite
 
 `paypalOrdersAdapter` عقد مستقل غير مسجل في financial runtime بعد. create تستعمل OAuth ثم fixed Orders v2 origin حسب TEST/LIVE، وpurchase unit واحدة بمستفيد متوقع وreference_id/custom_id مساويتين لـintent UUID، معexact decimal/BigInt و`payment_source.paypal.experience_context`. safe approval URL مقيدة بـPayPal/البيئة وorder token نفسها، ولا تُعرض buyer PII أوraw response. Provider لا تعيد expiry في هذا العقد، لذلك `expiresAt=null` صريحة؛ لا تاريخ مصطنع ولا تغيير لقيمة Stripe المطلوبة قبل migration مالية مناسبة. [Orders create](https://developer.paypal.com/api/orders/v2/orders-create).

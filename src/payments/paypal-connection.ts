@@ -4,7 +4,8 @@ import type { PaymentConfig,PaymentCredentials,PayPalPaymentCredentials,PaymentC
 import { PaymentProviderError } from './provider-errors.js';
 
 export function validatePayPalCredentials(config:PaymentConfig,credentials:PaymentCredentials):asserts credentials is PayPalPaymentCredentials {
-  if(!config || !['TEST','LIVE'].includes(config.mode) || Object.keys(config).join(',')!=='mode')throw new HttpError(400,'PAYMENT_CONFIG_INVALID');
+  if(!config || !['TEST','LIVE'].includes(config.mode) || Object.keys(config).some((key)=>!['mode','expectedMerchantId'].includes(key))
+    || (Object.hasOwn(config,'expectedMerchantId') && (typeof config.expectedMerchantId!=='string' || !/^[2-9A-HJ-NP-Z]{13}$/.test(config.expectedMerchantId))))throw new HttpError(400,'PAYMENT_CONFIG_INVALID');
   if(!credentials || Object.keys(credentials).sort().join(',')!=='clientId,clientSecret'
     || !('clientId' in credentials) || typeof credentials.clientId!=='string' || !/^[A-Za-z0-9_-]{16,1024}$/.test(credentials.clientId)
     || typeof credentials.clientSecret!=='string' || !/^[A-Za-z0-9_-]{16,4096}$/.test(credentials.clientSecret))

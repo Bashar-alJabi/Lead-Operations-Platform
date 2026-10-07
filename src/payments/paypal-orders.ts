@@ -20,7 +20,7 @@ const resourceId=/^[A-Z0-9]{1,36}$/;
 const captureStatuses=['COMPLETED','PENDING','DECLINED','FAILED','REFUNDED','PARTIALLY_REFUNDED'];
 function input(intent:CheckoutIntent):void {
   if(!intent || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(intent.id)
-    || !/^[A-Z0-9]{13}$/.test(intent.accountRef) || typeof intent.name!=='string' || !intent.name.trim() || intent.name.length>100 || /[\x00-\x1f\x7f]/.test(intent.name))throw new HttpError(400,'PAYMENT_INTENT_INVALID');
+    || !/^[2-9A-HJ-NP-Z]{13}$/.test(intent.accountRef) || typeof intent.name!=='string' || !intent.name.trim() || intent.name.length>100 || /[\x00-\x1f\x7f]/.test(intent.name))throw new HttpError(400,'PAYMENT_INTENT_INVALID');
   const normalized=paymentMoney(intent.money.amount,intent.money.currency,paypalCurrencyPrecision(intent.money.currency));
   if(normalized.minor!==intent.money.minor || normalized.scale!==intent.money.scale || normalized.quantum!==intent.money.quantum)throw new HttpError(400,'PAYMENT_INTENT_INVALID');
   for(const value of [intent.successUrl,intent.cancelUrl]) {
@@ -36,6 +36,9 @@ async function token(config:PaymentConfig,credentials:PaymentCredentials):Promis
     const code=error.code==='PAYMENT_PROVIDER_AUTH_FAILED' ? 'PAYMENT_PROVIDER_AUTH_FAILED' : error.code==='PAYMENT_PROVIDER_RATE_LIMITED' ? 'PAYMENT_PROVIDER_RATE_LIMITED'
       : error.code==='PAYMENT_PROVIDER_RESPONSE_INVALID' ? 'PAYMENT_PROVIDER_RESPONSE_INVALID' : 'PAYMENT_PROVIDER_UNAVAILABLE';
     throw new PaymentCheckoutError(code,code==='PAYMENT_PROVIDER_AUTH_FAILED' ? 'REJECTED' : 'RETRYABLE'); }throw error; }
+}
+function beneficiary(config:PaymentConfig,intent:CheckoutIntent):void {
+  if(config.expectedMerchantId!==undefined && config.expectedMerchantId!==intent.accountRef)throw new HttpError(400,'PAYMENT_ACCOUNT_MISMATCH');
 }
 async function request(config:PaymentConfig,accessToken:string,path:string,body?:object,key?:string):Promise<unknown> {
   const write=body!==undefined;let response:Response;
@@ -96,21 +99,21 @@ async function read(config:PaymentConfig,accessToken:string,intent:CheckoutInten
 }
 export const paypalOrdersAdapter={ currencyPrecision:paypalCurrencyPrecision,idempotencyRetentionMs:6*3600000,
   async create(config:PaymentConfig,credentials:PaymentCredentials,intent:CheckoutIntent):Promise<PayPalOrderSnapshot> {
-    input(intent);const accessToken=await token(config,credentials);
+    input(intent);beneficiary(config,intent);const accessToken=await token(config,credentials);
     const body={ intent:'CAPTURE',purchase_units:[{ reference_id:intent.id,custom_id:intent.id,description:intent.name,payee:{ merchant_id:intent.accountRef },
       amount:{ currency_code:intent.money.currency,value:intent.money.amount } }],payment_source:{ paypal:{ experience_context:{
       return_url:intent.successUrl,cancel_url:intent.cancelUrl,user_action:'PAY_NOW',shipping_preference:'NO_SHIPPING' } } } };
     return order(await request(config,accessToken,'/v2/checkout/orders',body,'lop-order:'+intent.id),config,intent,undefined,true);
   },async retrieve(config:PaymentConfig,credentials:PaymentCredentials,intent:CheckoutIntent,id:string):Promise<PayPalOrderSnapshot> {
-    input(intent);if(!resourceId.test(id))throw new HttpError(400,'PAYMENT_SESSION_ID_INVALID');return read(config,await token(config,credentials),intent,id);
+    input(intent);beneficiary(config,intent);if(!resourceId.test(id))throw new HttpError(400,'PAYMENT_SESSION_ID_INVALID');return read(config,await token(config,credentials),intent,id);
   },async capture(config:PaymentConfig,credentials:PaymentCredentials,intent:CheckoutIntent,id:string):Promise<{ order:PayPalOrderSnapshot;writePerformed:boolean }> {
-    input(intent);if(!resourceId.test(id))throw new HttpError(400,'PAYMENT_SESSION_ID_INVALID');const accessToken=await token(config,credentials);
+    input(intent);beneficiary(config,intent);if(!resourceId.test(id))throw new HttpError(400,'PAYMENT_SESSION_ID_INVALID');const accessToken=await token(config,credentials);
     const before=await read(config,accessToken,intent,id);
     if(before.status==='COMPLETED')return { order:before,writePerformed:false };
     if(before.status!=='APPROVED')throw new PaymentCheckoutError('PAYMENT_APPROVAL_REQUIRED','REJECTED');
     return { order:order(await request(config,accessToken,'/v2/checkout/orders/'+id+'/capture',{},'lop-capture:'+intent.id),config,intent,id,true),writePerformed:true };
   },async retrievePayment(config:PaymentConfig,credentials:PaymentCredentials,intent:CheckoutIntent,id:string,captureId:string):Promise<PayPalPaymentEvidence> {
-    input(intent);if(!resourceId.test(id) || !resourceId.test(captureId))throw new HttpError(400,'PAYMENT_SESSION_ID_INVALID');const accessToken=await token(config,credentials);
+    input(intent);beneficiary(config,intent);if(!resourceId.test(id) || !resourceId.test(captureId))throw new HttpError(400,'PAYMENT_SESSION_ID_INVALID');const accessToken=await token(config,credentials);
     const current=await read(config,accessToken,intent,id);
     if(current.status!=='COMPLETED' || current.capture?.id!==captureId)throw new PaymentCheckoutError('PAYMENT_CAPTURE_MISMATCH','REJECTED');
     const data=await request(config,accessToken,'/v2/payments/captures/'+captureId) as Record<string,any>|null;

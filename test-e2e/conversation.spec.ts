@@ -1203,6 +1203,44 @@ test('browser configures scoped PayPal client credentials, rotates and recovers 
   }finally { await control(page,{ paymentFailure:false });await context.close(); }
 });
 
+test('browser configures expected PayPal beneficiary with immutable history, stale edit denial, cleared credentials and truthful identity status',async({ browser })=> {
+  const context=await browser.newContext({ storageState:managerStorageState,extraHTTPHeaders:{ 'x-e2e-rate-scope':randomUUID() } });const page=await context.newPage();const errors:string[]=[];
+  const headers={ origin:'http://127.0.0.1:4100' };
+  page.on('pageerror',(error)=>errors.push(error.message));
+  try {
+    await control(page,{ paymentFailure:false });await page.goto('/');await page.getByRole('combobox',{ name:'Language' }).selectOption('en');
+    await page.getByRole('button',{ name:'Payment setup',exact:true }).click();const setup=page.locator('.payment-setup');await setup.getByLabel('Payment provider',{ exact:true }).selectOption('PAYPAL');
+    const a='ABCD234EFGH56';const b='JKLM234NPQR56';const c='RSTU234VWXY56';const name='PayPal beneficiary browser <img literal>';
+    await setup.getByLabel('Payment connection name',{ exact:true }).fill(name);await setup.getByLabel('Expected PayPal Merchant ID',{ exact:true }).fill(a);
+    await setup.getByLabel('PayPal Client ID',{ exact:true }).fill('BrowserBeneficiaryClient_123456');await setup.getByLabel('PayPal Client Secret',{ exact:true }).fill('BrowserBeneficiarySecret_123456');
+    await setup.getByRole('button',{ name:'Save payment connection',exact:true }).click();const row=setup.getByRole('row').filter({ hasText:name });await expect(row).toContainText('NOT_CONFIGURED');
+    const items=(await (await page.request.get('/api/payments/connections')).json()).items;const id=items.find((i:{ name:string })=>i.name===name).id;const path='/api/payments/connections/'+id;
+    const history=setup.locator('.payment-beneficiary-history');await expect(history).toContainText(a);await expect(history).toContainText('not provider verified');await expect(history.locator('li')).toHaveCount(1);
+    await expect(setup.getByLabel('PayPal Client Secret',{ exact:true })).toHaveValue('');await expect(setup.getByLabel('PayPal Client ID',{ exact:true })).toHaveValue('');
+    expect((await page.request.put(path,{ headers,data:{ name,provider:'PAYPAL',config:{ mode:'TEST',expectedMerchantId:'ABCD234EFGH51' },version:1 } })).status()).toBe(400);
+    await setup.getByRole('button',{ name:'Test authentication',exact:true }).click();await expect(row).toContainText('WARNING');
+    const authenticated=await (await page.request.get(path)).json();expect(authenticated.capabilities.authenticationVerified).toBe(true);expect(authenticated.capabilities.paymentLinksReady).toBe(false);expect(authenticated.capabilities.paymentOptions).toBeUndefined();
+    await setup.getByLabel('Expected PayPal Merchant ID',{ exact:true }).fill(b);
+    expect((await page.request.put(path,{ headers,data:{ name,provider:'PAYPAL',config:{ mode:'TEST',expectedMerchantId:c },version:1 } })).status()).toBe(200);
+    await setup.getByRole('button',{ name:'Refresh payment connections',exact:true }).click();await expect(row).toContainText('NOT_CONFIGURED');
+    const conflict=page.waitForResponse((r)=>r.url().endsWith('/'+id) && r.request().method()==='PUT');await setup.getByRole('button',{ name:'Save payment connection',exact:true }).click();expect((await conflict).status()).toBe(409);
+    await expect(setup.getByRole('alert').first()).toContainText('CONNECTION_VERSION_CONFLICT');await expect(setup.getByLabel('Expected PayPal Merchant ID',{ exact:true })).toHaveValue(b);
+    expect((await (await page.request.get(path)).json()).config.expectedMerchantId).toBe(c);
+    await row.getByRole('button',{ name:'Edit payment connection',exact:true }).click();await expect(setup.getByLabel('Expected PayPal Merchant ID',{ exact:true })).toHaveValue(c);
+    await setup.getByLabel('Expected PayPal Merchant ID',{ exact:true }).fill(b);await setup.getByRole('button',{ name:'Save payment connection',exact:true }).click();await expect(history.locator('li')).toHaveCount(3);
+    await expect(history).toContainText(a);await expect(history).toContainText(b);await expect(history).toContainText(c);await expect(row.locator('img')).toHaveCount(0);
+    await setup.getByLabel('Expected PayPal Merchant ID',{ exact:true }).fill('');await setup.getByRole('button',{ name:'Save payment connection',exact:true }).click();await expect(history.locator('li')).toHaveCount(4);await expect(history).toContainText('No beneficiary configured');
+    const detail=await (await page.request.get(path)).json();expect(detail.config.expectedMerchantId).toBeUndefined();expect(detail.capabilities).toEqual({});
+    expect(JSON.stringify(await (await page.request.get(path+'/beneficiary-history')).json())).not.toContain('BrowserBeneficiarySecret');
+    const agent=await browser.newContext({ storageState:agentStorageState });try {
+      expect((await agent.request.get(path+'/beneficiary-history')).status()).toBe(403);const denied=await agent.request.put(path,{ headers,data:{ name,provider:'PAYPAL',config:{ mode:'TEST',expectedMerchantId:a },version:4 } });expect(denied.status()).toBe(403);expect((await denied.json()).error).toBe('FORBIDDEN');
+    }finally { await agent.close(); }
+    await page.getByRole('combobox',{ name:'Language' }).selectOption('fr');await expect(history).toContainText('non vérifié par le fournisseur');
+    await page.setViewportSize({ width:390,height:844 });await page.getByRole('combobox',{ name:'Language' }).selectOption('ar');await history.scrollIntoViewIfNeeded();
+    await expect(history).toContainText('إعداد فقط');await page.screenshot({ path:'.local/e2e/paypal-beneficiary-ar.png' });expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);expect(errors).toEqual([]);
+  }finally { await control(page,{ paymentFailure:false });await context.close(); }
+});
+
 test('browser configures PayPal Webhook ID, verifies RSA receipt and duplicate/failure history without treating callback claims as paid',async({ browser })=> {
   const context=await browser.newContext({ storageState:managerStorageState,extraHTTPHeaders:{ 'x-e2e-rate-scope':randomUUID() } });const page=await context.newPage();const errors:string[]=[];
   page.on('pageerror',(error)=>errors.push(error.message));

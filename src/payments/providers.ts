@@ -4,7 +4,7 @@ import { paypalConnectionAdapter,validatePayPalCredentials } from './paypal-conn
 import { PaymentProviderError } from './provider-errors.js';
 export { PaymentProviderError } from './provider-errors.js';
 
-export type PaymentConfig={ mode:'TEST'|'LIVE' };
+export type PaymentConfig={ mode:'TEST'|'LIVE';expectedMerchantId?:string };
 export type StripePaymentCredentials={ apiKey:string };
 export type PayPalPaymentCredentials={ clientId:string;clientSecret:string };
 export type PaymentCredentials=StripePaymentCredentials|PayPalPaymentCredentials;

@@ -11,7 +11,8 @@ import { paymentConnectionAdapters,PaymentProviderError,validatePaymentCredentia
 
 const root='/api/payments/connections';
 const params={ type:'object',additionalProperties:false,required:['id'],properties:{ id:{ type:'string',format:'uuid' } } } as const;
-const configSchema={ type:'object',additionalProperties:false,required:['mode'],properties:{ mode:{ type:'string',enum:['TEST','LIVE'] } } } as const;
+const configSchema={ type:'object',additionalProperties:false,required:['mode'],properties:{ mode:{ type:'string',enum:['TEST','LIVE'] },
+  expectedMerchantId:{ type:'string',pattern:'^[2-9A-HJ-NP-Z]{13}$',minLength:13,maxLength:13 } } } as const;
 const credentialsSchema={ type:'object',additionalProperties:false,properties:{ apiKey:{ type:'string',minLength:20,maxLength:4096 },
   clientId:{ type:'string',minLength:16,maxLength:1024 },clientSecret:{ type:'string',minLength:16,maxLength:4096 } },
   oneOf:[{ required:['apiKey'],not:{ anyOf:[{ required:['clientId'] },{ required:['clientSecret'] }] } },{ required:['clientId','clientSecret'],not:{ required:['apiKey'] } }] } as const;
@@ -38,6 +39,13 @@ async function savedCredentials(tx:Database|postgres.TransactionSql,id:string):P
   const secret=(await tx`SELECT * FROM connection_secret WHERE connection_id=${id}`)[0];
   if (!secret) throw new HttpError(409,'PAYMENT_CREDENTIAL_MISSING');
   return JSON.parse(openSecret(id,{ ciphertext:secret.ciphertext,nonce:secret.nonce,authTag:secret.auth_tag,keyVersion:secret.key_version })) as PaymentCredentials;
+}
+async function beneficiaryHistory(tx:postgres.TransactionSql,actor:Principal,row:postgres.Row,config:PaymentConfig,connectionVersion:number) {
+  if(row.provider!=='PAYPAL')return;
+  const item=(await tx`INSERT INTO payment_beneficiary_configuration(connection_id,connection_version,mode,expected_merchant_id,actor_user_id,actor_role,actor_branch_id)
+    VALUES (${row.id},${connectionVersion},${config.mode},${config.expectedMerchantId ?? null},${actor.id},${actor.role},${actor.branchId}) RETURNING id`)[0]!;
+  await audit(tx,actor,row,'PAYMENT_BENEFICIARY_CONFIGURED',{ configurationId:item.id,version:connectionVersion,mode:config.mode,
+    expectedMerchantId:config.expectedMerchantId ?? null,identityStatus:'CONFIGURED_EXPECTATION' });
 }
 export function registerPaymentConnectionRoutes(app:FastifyInstance,db:Database,adapters:PaymentAdapterRegistry=paymentConnectionAdapters) {
   app.get<{ Params:{ id:string } }>(root+'/:id',{ schema:{ params } },async(request)=> {
@@ -72,6 +80,7 @@ export function registerPaymentConnectionRoutes(app:FastifyInstance,db:Database,
       await tx`INSERT INTO connection_secret(connection_id,ciphertext,nonce,auth_tag,key_version)
         VALUES (${id},${sealed.ciphertext},${sealed.nonce},${sealed.authTag},${sealed.keyVersion})`;
       await audit(tx,actor,{ id,branch_id:branchId },'PAYMENT_CONNECTION_CREATED');
+      await beneficiaryHistory(tx,actor,{ id,branch_id:branchId,provider:request.body.provider },request.body.config,1);
     });reply.code(201);return { id,status:'NOT_CONFIGURED',version:1 };
   });
   app.put<{ Params:{ id:string };Body:Input }>(root+'/:id',{ schema:{ params,body:{ ...body,required:['name','provider','config','version'] } } },async(request)=> {
@@ -89,7 +98,8 @@ export function registerPaymentConnectionRoutes(app:FastifyInstance,db:Database,
         await tx`UPDATE connection_secret SET ciphertext=${sealed.ciphertext},nonce=${sealed.nonce},auth_tag=${sealed.authTag},key_version=${sealed.keyVersion},updated_at=now() WHERE connection_id=${row.id}`; }
       const result=(await tx`UPDATE integration_connection SET name=${request.body.name.trim()},config=${tx.json(request.body.config)},version=version+1,
         status='NOT_CONFIGURED',capabilities='{}'::jsonb,last_error_code=NULL,updated_at=now() WHERE id=${row.id} RETURNING version,status`)[0]!;
-      await audit(tx,actor,row,'PAYMENT_CONNECTION_UPDATED');return result;
+      await audit(tx,actor,row,'PAYMENT_CONNECTION_UPDATED');
+      await beneficiaryHistory(tx,actor,row,request.body.config,result.version);return result;
     });
   });
   for (const action of ['disable','reconnect'] as const) app.post<{ Params:{ id:string };Body:{ version:number;reason:string } }>(root+'/:id/'+action,
@@ -103,6 +113,18 @@ export function registerPaymentConnectionRoutes(app:FastifyInstance,db:Database,
         capabilities='{}'::jsonb,last_error_code=NULL,updated_at=now() WHERE id=${row.id} RETURNING version,status`)[0]!;
       await audit(tx,actor,row,action==='disable' ? 'PAYMENT_CONNECTION_DISABLED' : 'PAYMENT_CONNECTION_RECONNECTED',{ reason:request.body.reason.trim() });return result;
     });
+  });
+  app.get<{ Params:{ id:string };Querystring:{ limit?:number;cursor?:string } }>(root+'/:id/beneficiary-history',{ schema:{ params,querystring:{ type:'object',additionalProperties:false,
+    properties:{ limit:{ type:'integer',minimum:1,maximum:100 },cursor:{ type:'string',maxLength:256 } } } } },async(request)=> {
+    const actor=await principalFromRequest(request,db);const row=await connection(db,actor,request.params.id);
+    if(row.provider!=='PAYPAL')throw new HttpError(404,'PAYMENT_BENEFICIARY_PROFILE_UNSUPPORTED');
+    const cursor=decodeCursor(request.query.cursor);const limit=request.query.limit ?? 20;
+    const rows=await db`SELECT h.id,h.connection_version,h.mode,h.expected_merchant_id,h.actor_user_id,h.actor_role,h.created_at
+      FROM payment_beneficiary_configuration h WHERE h.connection_id=${row.id}
+        AND (${cursor?.timestamp ?? null}::timestamptz IS NULL OR (h.created_at,h.id)<(${cursor?.timestamp ?? null}::timestamptz,${cursor?.id ?? null}::uuid))
+      ORDER BY h.created_at DESC,h.id DESC LIMIT ${limit+1}`;
+    const items=rows.slice(0,limit);const last=items.at(-1);return { items,nextCursor:rows.length>limit && last ? encodeCursor({ timestamp:last.created_at.toISOString(),id:last.id }) : null,
+      identityStatus:'CONFIGURED_EXPECTATION' };
   });
   app.get<{ Params:{ id:string };Querystring:{ limit?:number;cursor?:string } }>(root+'/:id/history',{ schema:{ params,querystring:{ type:'object',additionalProperties:false,
     properties:{ limit:{ type:'integer',minimum:1,maximum:100 },cursor:{ type:'string',maxLength:256 } } } } },async(request)=> {

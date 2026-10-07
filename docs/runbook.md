@@ -1,5 +1,13 @@
 # دليل التشغيل والتطوير
 
+## إعداد المستفيد المتوقع في PayPal
+
+من Payment setup → PayPal أدخل **PayPal Merchant ID المتوقع** للحساب Business المقصود؛ فيTEST استخدمSandbox Business المرتبطةبالتطبيق. [تعليماتPayPal](https://www.paypal.com/us/cshelp/article/how-do-i-find-my-secure-merchant-id-on-my-paypal-account-help538) تعرضAccount Settings → Business information. المعرف13 محرفًا ضمنpattern الرسمية؛ ليسClient ID أوApp ID أوemail. يمكنتركهفارغًا عندإعدادAuthentication فقط،ولايتحولذلكإلىجاهزيةإصدارروابط.
+
+احفظثمراجع **تاريخ إعداد مستفيد PayPal**؛records تعرضالقيمةأوعدموجودها ونسخةالإعداد/البيئة/دورالفاعل،دونالأسرار. Manager يديرفرعهفقط،Super Admin يتعاملصراحةمعOrganization shared،Agent ممنوعة. تغييرالقيمةأوالبيئةيسقطالفحوصالحالية،والسرالمحفوظيُحتفظبهإنلمتدوّره. clear لا تحذفالتاريخ. هذهexpectation ذاتAudit،وليستهويةمفحوصةأوإثباتPaid/capture/currency capability.
+
+`CONNECTION_VERSION_CONFLICT` عندحفظdraft قديمةتحتاجإعادةفتحالاتصالومراجعةالإعدادالحاليثمsave مقصودة؛Refresh وحدها لا تتجاوزversion الأصليةللform. DISABLED تمنعedit/fحصًا جديدًاوتسمحقراءةالتاريخ؛Reconnect يحتفظبالمستفيدويحتاجفحصًا جديدًا. لاتغيرDB أوتستعملCLI لتجاوزconflict أوتفعيلfinancialProcessingReady؛ PayPal الماليباقٍقيدالتنفيذ وحالةLive Verification Pending External Credential/Approval.
+
 ## حالة PayPal Orders/capture قبل تفعيل المسار المالي
 
 عقد Orders create/read وcapture وindependent capture proof موجود ومختبر بـHTTP mocks. لم يُفعّل إصدار روابط PayPal أوcapture worker أوPayment/Enrollment لهذهProvider بعد؛ لا تحاول تشغيله يدويًا بـCLI أوتعديلDB. setup الحالية تظلAuthentication وsigned Webhook receipt فقط، وfinancialProcessingReady=false. APPROVED تعني موافقة العميل وليستدفعًا، وPENDING ليستPaid؛success/cancel لا تؤكدالمال.

@@ -4,7 +4,7 @@ import { paypalOrdersAdapter,paypalCurrencyPrecision } from '../src/payments/pay
 import { paymentMoney } from '../src/payments/money.js';
 import { PaymentCheckoutError,type CheckoutIntent,paymentCheckoutAdapters } from '../src/payments/checkout-provider.js';
 const id='92066d41-c5d6-423a-87ea-d56a10a6a67a';const orderId='SYNTHETICORDER123';const captureId='SYNTHETICCAPTURE123';
-const intent:CheckoutIntent={ id,accountRef:'MERCHANTTEST1',name:'Expected campaign payment',money:paymentMoney('25','USD',paypalCurrencyPrecision('USD')),
+const intent:CheckoutIntent={ id,accountRef:'ABCD234EFGH56',name:'Expected campaign payment',money:paymentMoney('25','USD',paypalCurrencyPrecision('USD')),
   successUrl:'https://platform.test/payments/return',cancelUrl:'https://platform.test/payments/cancel' };
 const credentials={ clientId:'SyntheticOrdersClient_123456',clientSecret:'SyntheticOrdersSecret_123456' };const config={ mode:'TEST' as const };
 const oauth=()=>Response.json({ access_token:'SyntheticOrdersToken123456',token_type:'Bearer',app_id:'APP-Synthetic123',expires_in:3600 });
@@ -19,6 +19,15 @@ test('PayPal money profile differs from Stripe and preserves exact provider deci
   for(const currency of ['KWD','ISK','AFN','XYZ'])assert.throws(()=>paypalCurrencyPrecision(currency));
   assert.equal(paymentMoney('90071992547409.91','USD',paypalCurrencyPrecision('USD')).minor,'9007199254740991');
   assert.equal(paymentCheckoutAdapters.PAYPAL,undefined);assert.equal(paypalOrdersAdapter.idempotencyRetentionMs,21600000);
+});
+test('PayPal configured merchant expectation matches intent before any provider I/O and never replaces independently retrieved evidence',async(t)=> {
+  let calls=0;t.mock.method(globalThis,'fetch',async(target:string)=>{ calls++;return target.endsWith('/v1/oauth2/token') ? oauth() : Response.json(order()); });
+  const wrong={ ...config,expectedMerchantId:'JKLM234NPQR56' };
+  for(const action of [()=>paypalOrdersAdapter.create(wrong,credentials,intent),()=>paypalOrdersAdapter.retrieve(wrong,credentials,intent,orderId),
+    ()=>paypalOrdersAdapter.capture(wrong,credentials,intent,orderId),()=>paypalOrdersAdapter.retrievePayment(wrong,credentials,intent,orderId,captureId)])
+    await assert.rejects(action,/PAYMENT_ACCOUNT_MISMATCH/);
+  assert.equal(calls,0);await assert.rejects(paypalOrdersAdapter.create(config,credentials,{ ...intent,accountRef:'MERCHANTTEST1' }),/PAYMENT_INTENT_INVALID/);assert.equal(calls,0);
+  const selected=await paypalOrdersAdapter.create({ ...config,expectedMerchantId:intent.accountRef },credentials,intent);assert.equal(selected.merchantId,intent.accountRef);assert.equal(calls,2);
 });
 test('PayPal creates only exact intent and expected payee with stable order keys, safe approval URL and no fabricated expiry or automatic capture',async(t)=> {
   const writes:{ key:string;body:string }[]=[];let current=order();
