@@ -1161,3 +1161,43 @@ test('browser prepares scoped payment messages without overwriting drafts, sends
     expect((await (await page.request.get(requests+'/'+id)).json()).customerUrl).toBe(null);expect(errors).toEqual([]);
   }finally { await setDnc(false);await control(rootPage,{ paymentChargesEnabled:false });await admin.close();await agent.close(); }
 });
+
+test('browser configures scoped PayPal client credentials, rotates and recovers authentication without claiming payee or payment readiness',async({ browser })=> {
+  const context=await browser.newContext({ storageState:managerStorageState,extraHTTPHeaders:{ 'x-e2e-rate-scope':randomUUID() } });const page=await context.newPage();const errors:string[]=[];
+  page.on('pageerror',(error)=>errors.push(error.message));
+  try {
+    await control(page,{ paymentFailure:false });await page.goto('/');await page.getByRole('combobox',{ name:'Language' }).selectOption('en');
+    await page.getByRole('button',{ name:'Payment setup',exact:true }).click();const panel=page.locator('.payment-setup');
+    await panel.getByLabel('Payment provider',{ exact:true }).selectOption('PAYPAL');
+    const name='PayPal browser <img literal>';const clientId='BrowserPayPalClientSynthetic_123456';const secret='BrowserPayPalSecretSynthetic_123456';
+    await panel.getByLabel('Payment connection name',{ exact:true }).fill(name);
+    await panel.getByLabel('PayPal Client ID',{ exact:true }).fill(clientId);await panel.getByLabel('PayPal Client Secret',{ exact:true }).fill(secret);
+    await panel.getByRole('button',{ name:'Save payment connection',exact:true }).click();const row=panel.getByRole('row').filter({ hasText:name });
+    await expect(row).toContainText('PAYPAL');await expect(row).toContainText('NOT_CONFIGURED');await expect(row.locator('img')).toHaveCount(0);
+    await expect(panel.getByLabel('PayPal Client ID',{ exact:true })).toHaveValue('');await expect(panel.getByLabel('PayPal Client Secret',{ exact:true })).toHaveValue('');
+    await expect(panel.getByLabel('Payment provider',{ exact:true })).toBeDisabled();await expect(panel.getByRole('button',{ name:'Inspect payment options',exact:true })).toHaveCount(0);
+    await expect(panel.locator('.payment-webhooks')).toHaveCount(0);await expect(panel).toContainText('not payee identity or completed capture');
+    const items=(await (await page.request.get('/api/payments/connections')).json()).items;const id=items.find((i:{ name:string })=>i.name===name).id;
+    expect(JSON.stringify(items)).not.toContain(secret);expect(JSON.stringify(items)).not.toContain(clientId);
+    const authResponse=page.waitForResponse((response)=>response.url().endsWith('/'+id+'/test') && response.request().method()==='POST');
+    await panel.getByRole('button',{ name:'Test authentication',exact:true }).click();expect((await authResponse).status()).toBe(200);await expect(row).toContainText('WARNING');await expect(panel).toContainText('VERIFIED');
+    const detail=await (await page.request.get(`/api/payments/connections/${id}`)).json();expect(detail.capabilities.authenticationVerified).toBe(true);
+    expect(detail.capabilities.paymentLinksReady).toBe(false);expect(detail.capabilities.webhookReady).toBe(false);expect(detail.capabilities.paymentOptions).toBeUndefined();
+    await control(page,{ paymentFailure:true });await panel.getByRole('button',{ name:'Test authentication',exact:true }).click();await expect(row).toContainText('AUTH_EXPIRED');
+    await expect(panel.getByRole('alert')).toContainText('PAYMENT_PROVIDER_AUTH_FAILED');
+    await panel.getByLabel('Payment connection change reason',{ exact:true }).fill('Verify PayPal replacement before use');
+    await panel.getByRole('button',{ name:'Disable payment connection',exact:true }).click();await expect(row).toContainText('DISABLED');
+    await expect(panel.getByRole('button',{ name:'Test authentication',exact:true })).toBeDisabled();
+    await panel.getByRole('button',{ name:'Reconnect payment connection',exact:true }).click();await expect(row).toContainText('NOT_CONFIGURED');
+    await panel.getByLabel('PayPal Client ID',{ exact:true }).fill('BrowserPayPalRotatedClient_123456');await panel.getByLabel('PayPal Client Secret',{ exact:true }).fill('BrowserPayPalRotatedSecret_123456');
+    await panel.getByRole('button',{ name:'Save payment connection',exact:true }).click();await expect(panel.getByLabel('PayPal Client Secret',{ exact:true })).toHaveValue('');
+    await control(page,{ paymentFailure:false });await panel.getByRole('button',{ name:'Test authentication',exact:true }).click();await expect(row).toContainText('WARNING');
+    const agent=await browser.newContext({ storageState:agentStorageState });try {
+      expect((await agent.request.get(`/api/payments/connections/${id}`)).status()).toBe(403);expect((await agent.request.get(`/api/payments/connections/${id}/history`)).status()).toBe(403);
+    }finally { await agent.close(); }
+    await page.getByRole('combobox',{ name:'Language' }).selectOption('fr');await expect(panel).toContainText('Le test OAuth');
+    await page.setViewportSize({ width:390,height:844 });await page.getByRole('combobox',{ name:'Language' }).selectOption('ar');
+    await panel.getByRole('heading',{ name:'تاريخ اختبارات الدفع',exact:true }).scrollIntoViewIfNeeded();await page.screenshot({ path:'.local/e2e/paypal-auth-ar.png' });
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);expect(errors).toEqual([]);
+  }finally { await control(page,{ paymentFailure:false });await context.close(); }
+});

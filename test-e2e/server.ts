@@ -125,7 +125,11 @@ const templates:ProviderTemplate[]=[{ externalId:'7000',name:'header_only_templa
 await mkdir(resolve('.local/e2e'),{ recursive:true });const mediaRoot=await mkdtemp(resolve('.local/e2e/media-'));
 const storage=localMediaStorage(mediaRoot);
 const app = await buildApp(db, { logger:false,globalRateLimitMax:10000,mediaStorage:storage,
-  paymentConnectionAdapters:{ STRIPE:{ verify:async(config)=>{ paymentCalls++;if(paymentFailure)throw new PaymentProviderError('PAYMENT_PROVIDER_AUTH_FAILED');return { mode:config.mode }; },
+  // Isolate loopback browser scenarios while retaining each route's actual limits.
+  // Only this guarded test entrypoint reads this header; the production server uses request.ip.
+  rateLimitKeyGenerator:(request)=>request.ip+':'+String(request.headers['x-e2e-rate-scope'] ?? 'shared').slice(0,100),
+  paymentConnectionAdapters:{ PAYPAL:{ verify:async(config)=>{ paymentCalls++;if(paymentFailure)throw new PaymentProviderError('PAYMENT_PROVIDER_AUTH_FAILED');return { mode:config.mode }; } },
+    STRIPE:{ verify:async(config)=>{ paymentCalls++;if(paymentFailure)throw new PaymentProviderError('PAYMENT_PROVIDER_AUTH_FAILED');return { mode:config.mode }; },
     inspect:async(config)=>{ paymentCalls++;if(paymentFailure)throw new PaymentProviderError('PAYMENT_PROVIDER_UNAVAILABLE');return { mode:config.mode,options:{ accountRef:'acct_BrowserSynthetic123',country:'US',defaultCurrency:'USD',
       currencies:['USD','EUR'],paymentMethods:['card','ach'],chargesEnabled:paymentChargesEnabled,cardPayments:paymentChargesEnabled ? 'ACTIVE' : 'PENDING' } }; },
     inspectWebhook:async(config,_credentials,id)=>{ paymentCalls++;if(paymentFailure)throw new PaymentProviderError('PAYMENT_PROVIDER_AUTH_FAILED');

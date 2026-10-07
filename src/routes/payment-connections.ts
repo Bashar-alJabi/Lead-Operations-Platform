@@ -12,11 +12,13 @@ import { paymentConnectionAdapters,PaymentProviderError,validatePaymentCredentia
 const root='/api/payments/connections';
 const params={ type:'object',additionalProperties:false,required:['id'],properties:{ id:{ type:'string',format:'uuid' } } } as const;
 const configSchema={ type:'object',additionalProperties:false,required:['mode'],properties:{ mode:{ type:'string',enum:['TEST','LIVE'] } } } as const;
-const credentialsSchema={ type:'object',additionalProperties:false,required:['apiKey'],properties:{ apiKey:{ type:'string',minLength:20,maxLength:4096 } } } as const;
+const credentialsSchema={ type:'object',additionalProperties:false,properties:{ apiKey:{ type:'string',minLength:20,maxLength:4096 },
+  clientId:{ type:'string',minLength:16,maxLength:1024 },clientSecret:{ type:'string',minLength:16,maxLength:4096 } },
+  oneOf:[{ required:['apiKey'],not:{ anyOf:[{ required:['clientId'] },{ required:['clientSecret'] }] } },{ required:['clientId','clientSecret'],not:{ required:['apiKey'] } }] } as const;
 const version={ type:'integer',minimum:1 } as const;
 type Input={ name:string;provider:string;branchId?:string|null;config:PaymentConfig;credentials?:PaymentCredentials;version?:number };
 const body={ type:'object',additionalProperties:false,required:['name','provider','config','credentials'],properties:{
-  name:{ type:'string',minLength:1,maxLength:100,pattern:'^[^\\x00-\\x1f\\x7f]+$' },provider:{ type:'string',enum:['STRIPE'] },
+  name:{ type:'string',minLength:1,maxLength:100,pattern:'^[^\\x00-\\x1f\\x7f]+$' },provider:{ type:'string',enum:['STRIPE','PAYPAL'] },
   branchId:{ anyOf:[{ type:'string',format:'uuid' },{ type:'null' }] },config:configSchema,credentials:credentialsSchema,version } } as const;
 async function connection(tx:Database|postgres.TransactionSql,actor:Principal,id:string,lock=false) {
   requireRole(actor,'SUPER_ADMIN','MANAGER');

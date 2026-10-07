@@ -1,4 +1,4 @@
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { type FastifyInstance,type FastifyRequest } from 'fastify';
 import cookie from '@fastify/cookie';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
@@ -54,14 +54,16 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   paymentConnectionAdapters?:PaymentAdapterRegistry;
   mediaStorage?: MediaStorage;
   mediaScanner?: MediaScanner;
-  globalRateLimitMax?: number } = {}): Promise<FastifyInstance> {
+  globalRateLimitMax?: number;
+  rateLimitKeyGenerator?:(request:FastifyRequest)=>string } = {}): Promise<FastifyInstance> {
   const app = Fastify({ logger: options.logger === false ? false : { redact: ['req.headers.cookie', 'req.headers.authorization', 'req.body.password', 'req.body.token'],
     serializers:{ req:(request)=>({ method:request.method,url:safeRequestUrl(request.url),remoteAddress:request.ip }) } }, bodyLimit: 1024 * 1024,
     ajv: { customOptions: { removeAdditional: false } },
   });
   await app.register(cookie);
   await app.register(helmet);
-  await app.register(rateLimit, { max: options.globalRateLimitMax ?? 120, timeWindow: '1 minute' });
+  await app.register(rateLimit, { max: options.globalRateLimitMax ?? 120, timeWindow: '1 minute',
+    ...(options.rateLimitKeyGenerator ? { keyGenerator:options.rateLimitKeyGenerator } : {}) });
 
   app.addHook('onRequest', async (request) => {
     if (['GET', 'HEAD', 'OPTIONS'].includes(request.method)) return;

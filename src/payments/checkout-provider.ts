@@ -1,6 +1,6 @@
 import { boundedResponse } from '../media/meta-provider.js';
 import { HttpError } from '../security.js';
-import { validatePaymentCredentials,type PaymentConfig,type PaymentCredentials } from './providers.js';
+import { validatePaymentCredentials,type PaymentConfig,type PaymentCredentials,type StripePaymentCredentials } from './providers.js';
 import { paymentMoney,type CurrencyPrecision,type PaymentMoney } from './money.js';
 
 export type CheckoutIntent={ id:string;accountRef:string;money:PaymentMoney;name:string;successUrl:string;cancelUrl:string };
@@ -36,7 +36,7 @@ function checkedIntent(intent:CheckoutIntent):void {
   }
   if(new URL(intent.successUrl).origin!==new URL(intent.cancelUrl).origin)throw new HttpError(400,'PAYMENT_RETURN_URL_INVALID');
 }
-async function request(path:string,credentials:PaymentCredentials,body?:URLSearchParams,key?:string):Promise<unknown> {
+async function request(path:string,credentials:StripePaymentCredentials,body?:URLSearchParams,key?:string):Promise<unknown> {
   const write=body!==undefined;let response:Response;
   try { response=await fetch('https://api.stripe.com'+path,{ method:write ? 'POST' : 'GET',redirect:'error',signal:AbortSignal.timeout(8000),
     headers:{ authorization:'Bearer '+credentials.apiKey,...(write ? { 'content-type':'application/x-www-form-urlencoded','idempotency-key':key! } : {}) },...(write ? { body:body.toString() } : {}) }); }
@@ -85,6 +85,7 @@ function snapshot(value:unknown,config:PaymentConfig,intent:CheckoutIntent,write
 }
 export const stripeCheckoutAdapter:PaymentCheckoutAdapter={ currencyPrecision:stripeCurrencyPrecision,idempotencyRetentionMs:24*60*60*1000,
   async create(config,credentials,intent) {
+    validatePaymentCredentials(config,credentials);
     await checkAccount(config,credentials,intent,true);
     const form=new URLSearchParams({ mode:'payment',success_url:intent.successUrl,cancel_url:intent.cancelUrl,client_reference_id:intent.id,
       'metadata[platform_intent_id]':intent.id,'payment_intent_data[metadata][platform_intent_id]':intent.id,
@@ -92,6 +93,7 @@ export const stripeCheckoutAdapter:PaymentCheckoutAdapter={ currencyPrecision:st
       'line_items[0][price_data][unit_amount]':intent.money.minor,'line_items[0][price_data][product_data][name]':intent.name });
     return snapshot(await request('/v1/checkout/sessions',credentials,form,'lop-payment:'+intent.id),config,intent,true);
   },async retrieve(config,credentials,intent,sessionId) {
+    validatePaymentCredentials(config,credentials);
     if(!/^cs_(test|live)_[A-Za-z0-9]{6,180}$/.test(sessionId))throw new HttpError(400,'PAYMENT_SESSION_ID_INVALID');
     await checkAccount(config,credentials,intent);const result=snapshot(await request('/v1/checkout/sessions/'+sessionId,credentials),config,intent);
     if(result.sessionId!==sessionId)throw new PaymentCheckoutError('PAYMENT_SESSION_MISMATCH','REJECTED');return result;

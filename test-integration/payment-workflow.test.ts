@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { validatePaymentCredentials } from '../src/payments/providers.js';
 import { randomUUID,randomBytes,createHmac } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { buildApp } from '../src/app.js';
@@ -58,12 +59,13 @@ test('Durable payment issuance and trusted confirmation preserve authorization, 
   let createError:PaymentCheckoutError|null=null;let retrievalError:PaymentCheckoutError|null=null;let retention=86400000;let expectedRetrievalKey=key;
   const adapter:PaymentCheckoutAdapter={ currencyPrecision:stripeCurrencyPrecision,get idempotencyRetentionMs(){ return retention; },
     async create(config,credentials,i) {
+      validatePaymentCredentials(config,credentials);
       assert.equal(credentials.apiKey,key);assert.equal(config.mode,'TEST');inputs.push(structuredClone(i));
       if(createError)throw createError;
       if(!snapshots.has(i.id)) { const sessionId='cs_test_'+i.id.replaceAll('-','');snapshots.set(i.id,{ sessionId,url:'https://checkout.stripe.com/c/pay/'+sessionId,
         expiresAt:new Date(Date.now()+3600000).toISOString(),mode:'TEST',currency:i.money.currency,minor:i.money.minor,intentId:i.id,status:'OPEN',paymentStatus:'UNPAID',paymentRef:null }); }
       const result=structuredClone(snapshots.get(i.id)!);if(createHook)await createHook(i);return result;
-    },async retrieve(_config,credentials,i,id) { reads++;if(credentials.apiKey!==expectedRetrievalKey)throw new PaymentCheckoutError('PAYMENT_PROVIDER_AUTH_FAILED','REJECTED');if(retrievalError)throw retrievalError;
+    },async retrieve(_config,credentials,i,id) { validatePaymentCredentials(_config,credentials);reads++;if(credentials.apiKey!==expectedRetrievalKey)throw new PaymentCheckoutError('PAYMENT_PROVIDER_AUTH_FAILED','REJECTED');if(retrievalError)throw retrievalError;
       const result=structuredClone(snapshots.get(i.id)!);assert.equal(result.sessionId,id);return result; },
   };
   const adapters={ STRIPE:adapter };

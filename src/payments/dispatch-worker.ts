@@ -13,7 +13,7 @@ export function checkoutInput(i:postgres.Row):CheckoutIntent {
 }
 export function historicalPaymentCredentials(i:postgres.Row):PaymentCredentials {
   const credentials=JSON.parse(openOpaque('payment-link:'+i.id,{ ciphertext:i.ciphertext,nonce:i.nonce,authTag:i.auth_tag,keyVersion:i.key_version })) as PaymentCredentials;
-  validatePaymentCredentials(i.config_snapshot as PaymentConfig,credentials);return credentials;
+  validatePaymentCredentials(i.config_snapshot as PaymentConfig,credentials,i.provider);return credentials;
 }
 export async function paymentDbClock(tx:postgres.TransactionSql) {
   return Number((await tx`SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint AS ms`)[0]!.ms);

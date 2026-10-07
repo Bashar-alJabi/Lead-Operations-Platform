@@ -1,8 +1,13 @@
 import { HttpError } from '../security.js';
 import { boundedResponse } from '../media/meta-provider.js';
+import { paypalConnectionAdapter,validatePayPalCredentials } from './paypal-connection.js';
+import { PaymentProviderError } from './provider-errors.js';
+export { PaymentProviderError } from './provider-errors.js';
 
 export type PaymentConfig={ mode:'TEST'|'LIVE' };
-export type PaymentCredentials={ apiKey:string };
+export type StripePaymentCredentials={ apiKey:string };
+export type PayPalPaymentCredentials={ clientId:string;clientSecret:string };
+export type PaymentCredentials=StripePaymentCredentials|PayPalPaymentCredentials;
 export type PaymentProviderOptions={ accountRef:string;country:string;defaultCurrency:string;currencies:string[];paymentMethods:string[];
   chargesEnabled:boolean;cardPayments:'ACTIVE'|'INACTIVE'|'PENDING'|'UNKNOWN' };
 export type PaymentWebhookInspection={ mode:'TEST'|'LIVE';endpointId:string;url:string;enabled:boolean;enabledEvents:string[] };
@@ -12,20 +17,18 @@ export type PaymentConnectionAdapter={
   inspect?(config:PaymentConfig,credentials:PaymentCredentials):Promise<{ mode:'TEST'|'LIVE';options:PaymentProviderOptions }>;
   inspectWebhook?(config:PaymentConfig,credentials:PaymentCredentials,endpointId:string):Promise<PaymentWebhookInspection>;
 };
-export class PaymentProviderError extends Error {
-  constructor(public code:'PAYMENT_PROVIDER_AUTH_FAILED'|'PAYMENT_PROVIDER_RATE_LIMITED'|'PAYMENT_PROVIDER_UNAVAILABLE'
-    |'PAYMENT_PROVIDER_RESPONSE_INVALID'|'PAYMENT_MODE_MISMATCH'|'PAYMENT_PROVIDER_OPTIONS_UNSUPPORTED'|'PAYMENT_WEBHOOK_UNSUPPORTED'
-    |'PAYMENT_WEBHOOK_ENDPOINT_MISMATCH'|'PAYMENT_WEBHOOK_EVENTS_MISSING'|'PAYMENT_WEBHOOK_ENDPOINT_DISABLED') { super(code); }
-}
+export function validatePaymentCredentials(config:PaymentConfig,credentials:PaymentCredentials):asserts credentials is StripePaymentCredentials;
+export function validatePaymentCredentials(config:PaymentConfig,credentials:PaymentCredentials,provider:string):void;
 export function validatePaymentCredentials(config:PaymentConfig,credentials:PaymentCredentials,provider='STRIPE'):void {
+  if(provider==='PAYPAL') { validatePayPalCredentials(config,credentials);return; }
   if(provider!=='STRIPE')throw new HttpError(400,'PAYMENT_PROVIDER_UNSUPPORTED');
   if(!config || Object.keys(config).join(',')!=='mode')throw new HttpError(400,'PAYMENT_CONFIG_INVALID');
   const mode=config.mode==='TEST' ? 'test' : config.mode==='LIVE' ? 'live' : null;
-  if (!mode || !credentials || typeof credentials.apiKey!=='string' || credentials.apiKey.length>4096
+  if (!mode || !credentials || !('apiKey' in credentials) || Object.keys(credentials).join(',')!=='apiKey' || typeof credentials.apiKey!=='string' || credentials.apiKey.length>4096
     || !new RegExp(`^(rk|sk)_${mode}_[A-Za-z0-9]{16,}$`).test(credentials.apiKey))
     throw new HttpError(400,'PAYMENT_CREDENTIAL_MODE_INVALID');
 }
-async function stripeRead(path:string,credentials:PaymentCredentials):Promise<unknown> {
+async function stripeRead(path:string,credentials:StripePaymentCredentials):Promise<unknown> {
   let response:Response;
   try { response=await fetch('https://api.stripe.com'+path,{ method:'GET',redirect:'error',
     headers:{ authorization:'Bearer '+credentials.apiKey },signal:AbortSignal.timeout(8000) }); }
@@ -58,6 +61,7 @@ export const stripeConnectionAdapter:PaymentConnectionAdapter={ async verify(con
   if (mode!==config.mode) throw new PaymentProviderError('PAYMENT_MODE_MISMATCH');
   return { mode };
 },async inspect(config,credentials) {
+  validatePaymentCredentials(config,credentials);
   const verified=await stripeConnectionAdapter.verify(config,credentials);
   const account=await stripeRead('/v1/account',credentials) as Record<string,unknown>|null;
   if(!account || Array.isArray(account) || account.object!=='account' || typeof account.id!=='string' || !/^acct_[A-Za-z0-9]{6,100}$/.test(account.id)
@@ -86,4 +90,4 @@ export const stripeConnectionAdapter:PaymentConnectionAdapter={ async verify(con
 } };
 
 export type PaymentAdapterRegistry=Readonly<Record<string,PaymentConnectionAdapter>>;
-export const paymentConnectionAdapters:PaymentAdapterRegistry={ STRIPE:stripeConnectionAdapter };
+export const paymentConnectionAdapters:PaymentAdapterRegistry={ STRIPE:stripeConnectionAdapter,PAYPAL:paypalConnectionAdapter };

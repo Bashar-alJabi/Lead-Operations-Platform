@@ -131,7 +131,7 @@ export function registerPaymentLinkRoutes(app:FastifyInstance,db:Database,adapte
       const currentSecret=(await tx`SELECT * FROM connection_secret WHERE connection_id=${c.id} FOR SHARE`)[0];
       if(!currentSecret)throw new HttpError(409,'PAYMENT_CREDENTIALS_REQUIRED');
       const credentials=JSON.parse(openSecret(c.id,{ ciphertext:currentSecret.ciphertext,nonce:currentSecret.nonce,authTag:currentSecret.auth_tag,keyVersion:currentSecret.key_version })) as PaymentCredentials;
-      validatePaymentCredentials(config,credentials);
+      validatePaymentCredentials(config,credentials,c.provider);
       const id=randomUUID();const sealed=sealOpaque('payment-link:'+id,JSON.stringify(credentials));const returns=paymentReturnTargets();
       const session=(await tx`SELECT id FROM user_session WHERE user_id=${actor.id} AND token_hash=${sha256(request.cookies[sessionCookie]!)}
         AND revoked_at IS NULL AND expires_at>clock_timestamp() FOR SHARE`)[0];

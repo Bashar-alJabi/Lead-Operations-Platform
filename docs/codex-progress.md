@@ -1,5 +1,17 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: PayPal Connection Authentication — 2026-10-07
+
+بدأت بعد recovery checkpoint `42e67e7`. أُضيفت PayPal Connection من UI العربية/الإنجليزية/الفرنسية، مع Client ID/Client Secret مشفّرتين، تدوير الزوج أوالاحتفاظ به دون عرضه، TEST/LIVE endpoints ثابتة وOAuth client credentials بمهلة وحدود response وأخطاء محدودة. Adapter الفعلية تختبر Authentication فقط ولا تكشف access token أوscope في DTO/history/Audit. لا PayPal options أوmerchant proof أوCheckout/capture/callback أوEnrollment جديدة؛ paymentLinksReady/webhookReady تبقيان false. Stripe financial baseline محفوظة. فُصلت PaymentProviderError إلى module مستقلة لإزالة runtime import cycle كشفته الوحدة عند استيراد PayPal أولًا.
+
+التحقق المثبت: **103/103 unit، 41/41 full PostgreSQL integration، 20/20 Edge Browser E2E** (40.0s)، Backend/Web typecheck/build وmigrations `001`–`070` على development/test. لا migration جديدة لهذه المرحلة. ثلاث unit تختبر adapter الفعلية وعقد HTTP/TEST-LIVE/validation/no hidden retry/auth/network/rate/malformed/oversize/UTF-8/token omission. Integration تستعمل adapter الإنتاج مع mocked OAuth HTTP فقط وPostgreSQL حقيقية: scope/foreign Branch/Agent denial، AAD/encryption/atomic pair rotation/version conflicts، latest failure/late success/config change/session revocation/disable/reconnect، immutable identity/history/pagination وغياب الأسرار، وعدم إنشاء Payment/Enrollment أوتفعيل خيارات مالية.
+
+Browser20 يثبت create/secret clearing/provider immutability/OAuth-only warning، failure → AUTH_EXPIRED، disable/reconnect/rotate/retest، Agent denial وFrench/Arabic 390px/XSS escaping. صورة `.local/e2e/paypal-auth-ar.png` فُحصت بصريًا. فشلت أول Browser عند 429 بسبب اشتراك السيناريوهات في loopback واحد؛ أُضيفت injectable rate key يستخدمها test entrypoint وحده لعزل السيناريو الجديد دون تغيير route max/window. Integration بتهيئة الإنتاج تثبت قبول عشر محاولات ثم رفض الحادية عشرة دون OAuth I/O حتى عند تدوير test headers. full regression أُعيدت بعد الإصلاح ونجحت؛ Production لا تقرأ هذه headers. Vite bundle warning تبقى ضمن performance/code splitting backlog.
+
+هذه checkpoint Authentication prerequisite فقط: **Implemented وMock/PostgreSQL/Local Browser Verified؛ Live Verification Pending External Credential/Approval**. PayPal Provider وPayments module ليستا Complete. لم يُستخدم حساب خارجي أوcredential حقيقية، ولاmain merge أوdeployment.
+
+**قيد التنفيذ التالي والخطوة الدقيقة:** إكمال PayPal المالي يبدأ بعقد Webhook setup/authenticity وmerchant/order/capture evidence. يلزم إدخال expected beneficiary من UI والتحقق من payee في استجابة Provider موثوقة، callback authentication/replay/idempotency، ثم durable order/capture بفعل مستقل وstable request keys وindependent exact-money confirmation/native guards/separate Enrollment/history/UI/recovery. لا تُعامل OAuth أوAPPROVED أوsuccess return كدليل مال. بعد PayPal end-to-end مع Integration/Browser تأتي Alma ثم Bank Transfer المستقلة وفق `payment-provider-requirements.md`.
+
 ## آخر حالة مستقرة: Payment Providers recovery وأولوية المستخدم —2026-10-07
 
 راجعت git status/diff وprogress/coverage وآخرcommit50820cf. النصوص الأصلية تطلبدعمعدةProviders/Connections وprovider-independent architecture،ولا تحددعددAdapters end-to-end أومزوّدًا ثانيًابعينه. اختياريMollie لم يكنRequirement. وفقالمستخدمالقائمةالملزمةStripe → PayPal → Alma → Bank Transfer كطريقةمستقلةمعtrusted verification/reconciliation؛ التوثيقوحسمالنطاق فيpayment-provider-requirements.md. لاInstallment schedules/ledger داخلCore ولاsuccess-page/customer-claim confirmation.

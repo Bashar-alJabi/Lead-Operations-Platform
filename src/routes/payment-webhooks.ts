@@ -117,7 +117,7 @@ export function registerPaymentWebhookRoutes(app:FastifyInstance,db:Database,ada
       if(!await currentPaymentActor(tx,actor,request))throw new HttpError(403,'PAYMENT_ACCESS_REVOKED');
       const sealed=(await tx`SELECT * FROM connection_secret WHERE connection_id=${c.id}`)[0];if(!sealed)throw new HttpError(409,'PAYMENT_CREDENTIAL_MISSING');
       const credentials=JSON.parse(openSecret(c.id,{ ciphertext:sealed.ciphertext,nonce:sealed.nonce,authTag:sealed.auth_tag,keyVersion:sealed.key_version })) as PaymentCredentials;
-      validatePaymentCredentials(c.config,credentials);
+      validatePaymentCredentials(c.config,credentials,c.provider);
       const probe=(await tx`INSERT INTO payment_webhook_probe(webhook_id,connection_version,actor_user_id,actor_role,actor_branch_id)
         VALUES (${w.id},${c.version},${actor.id},${actor.role},${actor.branchId}) RETURNING id`)[0]!;
       await audit(tx,c,actor,'PAYMENT_WEBHOOK_TEST_STARTED',w.id,{ probeId:probe.id });return { c,w,credentials,probeId:probe.id }; });
@@ -197,7 +197,7 @@ export function registerPaymentWebhookRoutes(app:FastifyInstance,db:Database,ada
           throw new HttpError(409,'PAYMENT_RECOVERY_ACCOUNT_MISMATCH');
         const sealed=(await tx`SELECT * FROM connection_secret WHERE connection_id=${c.id} FOR SHARE`)[0];if(!sealed)throw new HttpError(409,'PAYMENT_CREDENTIAL_MISSING');
         const credentials=JSON.parse(openSecret(c.id,{ ciphertext:sealed.ciphertext,nonce:sealed.nonce,authTag:sealed.auth_tag,keyVersion:sealed.key_version })) as PaymentCredentials;
-        validatePaymentCredentials(i.config_snapshot,credentials);repairId=randomUUID();const snapshot=sealOpaque('payment-receipt-repair:'+repairId,JSON.stringify(credentials));
+        validatePaymentCredentials(i.config_snapshot,credentials,i.provider);repairId=randomUUID();const snapshot=sealOpaque('payment-receipt-repair:'+repairId,JSON.stringify(credentials));
         const session=(await tx`SELECT id FROM user_session WHERE user_id=${actor.id} AND token_hash=${sha256(request.cookies[sessionCookie]!)}
           AND revoked_at IS NULL AND expires_at>clock_timestamp() FOR SHARE`)[0];
         if(!session || !await currentPaymentActor(tx,actor,request))throw new HttpError(403,'PAYMENT_ACCESS_REVOKED');

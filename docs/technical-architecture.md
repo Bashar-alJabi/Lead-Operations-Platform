@@ -1,5 +1,15 @@
 # المعمارية التقنية
 
+## PayPal Authentication prerequisite
+
+`PAYPAL` أضيفت إلى Connection registry فقط؛ Checkout وreceipt registry المالية تبقيانStripe حتى اكتمالPayPal financial flow. `PaymentCredentials` union بينStripe apiKey وPayPal clientId/clientSecret،معstrict provider-bound validation دونmixed shapes. API schema تقبلpair كاملة أوretained credential snapshot عندالتعديل؛ لاprovider/Branch migration،وقواعد070 الحاليةتحميhistorical identity. current role/session/Branch/config/latest probe/DB expiry fences وAudit/history وAES-GCM القائمةتستخدم نفسها للمزوّدين. لاSchema مالية جديدةلهذهمرحلةAuthentication.
+
+وفق [PayPal Authentication](https://developer.paypal.com/api/rest/authentication/)،تبادلclient credentials يستخدمfixed HTTPS api-m.sandbox.paypal.com لـTEST وapi-m.paypal.com لـLIVE على/v1/oauth2/token فقط،معBasic Base64 وform grant_type=client_credentials. لاdynamic hosts أوredirects أوhidden retry أوcustomer/order/capture request. timeout8s وresponse64KiB وstrict UTF-8/token type/app identity/positive safe TTL؛ errors محدودة دونbody/secrets. OAuth token يبقىفيالذاكرةفقطولايرجعDTO/history/capabilities أوAI. token scope أوauthentication success ليستmerchant/payee verification ولاfinancial permission أوPaid proof. نتائجالفحصتبقىWARNING/paymentLinksReady=false/webhookReady=false دونoptions مختلقة.
+
+UI ar/en/fr توفرprovider selection لإنشاءConnection فقط وClient ID/Client Secret حقولًا منفصلةوتدويرهماpair كاملةوالتعطيل/reconnect/test/history،معclear بعدsave/selection وXSS-safe rendering. لاStripe Webhook instructions/options علىPayPal. كشفUnit dependency cycle حُسمبفصلPaymentProviderError إلىprovider-errors.ts وإعادةexport منالموقعالقديم؛ لاclass identity مختلفةأوالتفافعلىالفشل. هذهالمجموعةprerequisite فقط،وليسPayPal end-to-end أوLive Verified.
+
+التاليةتستخدم [Orders create](https://developer.paypal.com/api/orders/v2/orders-create) و[capture](https://developer.paypal.com/api/orders/v2/orders-capture) و[Webhook authenticity](https://developer.paypal.com/api/rest/webhooks/rest/) بعقودProvider واضحة: approved order وحدها ليستPaid،والcapture durable/idempotent action معindependent order/capture proof. merchant/payee/exact money/mode/intent وraw signature/replay/native failure mapping تكتملقبلتفعيلfinancial readiness. Alma وBank Transfer تأتيانبعدPayPal وفقpayment-provider-requirements.md.
+
 ## Payment Providers المطلوبة وحماية Connection identity —2026-10-07
 
 القائمة الملزمة وفق المستخدم هيStripe وPayPal وAlma وBank Transfer مستقلة معtrusted reconciliation؛ راجع`payment-provider-requirements.md`. النصوص الأصلية تطلب دعم تعددProviders/Connections ولا تفرضMollie أوعددAdapters end-to-end بعينه. runtime receipt contracts وmerchant/session/exact money/native guards تبقى عامة؛ لا استخدامMollie-specific profileId/token/config فيCore. المسودةحُفظتignored بSHA-256،ولم تُطبقmigration القديمةأوتُفعّلMollieConnection.

@@ -1,5 +1,13 @@
 # دليل التشغيل والتطوير
 
+## إعداد PayPal Authentication
+
+منIntegrations/Payments اختراتصالًا جديدًا وProvider=PayPal ثمTEST أوLIVE المقصودة. أنشئREST App لحسابBusiness منPayPal Developer Dashboard → Apps & Credentials فيالبيئةنفسها،وأدخلClient ID وClient Secret معًا. للتطويراستخدمSandbox مخصصة؛ الاختباراتفيالمشروعsynthetic HTTP mocks/local PostgreSQL/Edge ولا تتصلبحسابPayPal حقيقي. [تعليماتPayPal الرسمية](https://developer.paypal.com/api/rest/authentication/).
+
+احفظالاتصالثمTest authentication. VERIFIED وWARNING تثبتانقبولالتطبيقcredentials فقط؛ ليستحسابالمستفيدأوcheckout/capture/Callback/Payment confirmation. لاStripe options/Endpoint form لهذهالمرحلة،ولاPayPal financial readiness. token/oauth scope لا تصلإلىالشاشةأوAudit. للrotation افتحالاتصالوادخلpair كاملة؛ اتركالحقلينفارغينللاحتفاظبالمحفوظة،ولاmix معStripe key. لايعادعرضالمحفوظة؛ تغيرconfig/credentials يسقطverification وتحتاجإعادةtest. Disable يمنعفحصًا جديدًا ويحفظالتاريخ؛Reconnect يعيدNOT_CONFIGURED وتتطلبtest مقصودة. Manager يديرفرعهفقط،Super Admin جميعالنطاقات،Agent لايقرأsetup/credentials/history.
+
+AUTH_EXPIRED/PAYMENT_PROVIDER_AUTH_FAILED تحتاجمراجعةApp/environment/pair وصلاحياتهافيالمزوّد؛ RATE_LIMITED/UNAVAILABLE تحتاجإعادةفحصمقصودةبعدزوالالسبب. SUPERSEDED تعنيوصولنتيجةقديمةبعدedit/rotation/disable أوprobe أحدث؛ BLOCKED تتضمنسحبالجلسة/الصلاحيةأوتعطيلالفرع. التاريخيبقىمخفيالأسراروpaginated،ولاlatest success تستبدلnewer failure. لاCustomer claim أوsuccess page تؤكدPayment أوEnrollment. الحالةLive Verification Pending External Credential/Approval؛ PayPal ليستend-to-end مكتملةبعد.
+
 ## أخطاء normalization للإيصالات
 
 `PAYMENT_RECEIPT_PROFILE_UNSUPPORTED` تعني غياب adapter runtime لهذا Provider؛ لا تعالجها بنقل الإيصال أوتغيير الحساب أوإضافة بيانات يدويًا. `PAYMENT_RECEIPT_CONTENT_INVALID` تعني تعذر قراءة الأصل المشفر أو عدم تطابق decoder/identity/schema؛ تحقق من deployment encryption key والنسخة والتاريخ عبر فريق التشغيل، مع حفظ الأصل واتباع backup/restore المعتمدة عند فساد البيانات. هذه مشكلة بنية/تكامل، وليست سببًا لاعتبار الدفع فاشلًا أوConfirmed. Credential repair للقراءة لا تصلح فساد الأصل نفسه.

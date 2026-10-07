@@ -8,6 +8,14 @@ type Connection={ id:string;name:string;provider:string;branch_id:string|null;co
   capabilities:{ authenticationVerified?:boolean;paymentOptions?:ProviderOptions;paymentOptionsVersion?:number;paymentOptionsAt?:string } };
 type ProviderOptions={ accountRef:string;country:string;defaultCurrency:string;currencies:string[];paymentMethods:string[];chargesEnabled:boolean;cardPayments:string };
 type Probe={ id:string;connection_version:number;state:string;error_code:string|null;created_at:string;finished_at:string|null;purpose:string;options_snapshot:ProviderOptions|null };
+const paypalLabels={
+  ar:{ guide:'أنشئ REST App لحساب Business في PayPal Developer Dashboard → Apps & Credentials. اختر Sandbox للتطوير أوLive المقصودة، ثم انسخ Client ID وClient Secret للبيئة نفسها. استخدم حساب Sandbox مخصصًا للاختبارات.',
+    clientId:'PayPal Client ID',clientSecret:'PayPal Client Secret',note:'اختبار OAuth يثبت Authentication للتطبيق فقط، ولا يثبت حساب المستفيد أوإتمام capture. يلزم إعداد حساب المستفيد وWebhook والتحقق المالي قبل إصدار الروابط؛ صفحة النجاح أوادعاء العميل لا يؤكدان الدفع.' },
+  en:{ guide:'Create a REST App for a PayPal Business account in Developer Dashboard → Apps & Credentials. Select Sandbox for development or the intended Live environment, then copy the matching Client ID and Client Secret. Use a dedicated sandbox account for testing.',
+    clientId:'PayPal Client ID',clientSecret:'PayPal Client Secret',note:'The OAuth test verifies app authentication only, not payee identity or completed capture. Payee and webhook verification are required before issuing links; a success page or customer claim never confirms payment.' },
+  fr:{ guide:'Créez une REST App pour un compte PayPal Business dans Developer Dashboard → Apps & Credentials. Choisissez Sandbox pour le développement ouLive prévue, puis copiez Client ID et Client Secret correspondants. Utilisez un compte sandbox dédié aux tests.',
+    clientId:'PayPal Client ID',clientSecret:'PayPal Client Secret',note:'Le test OAuth vérifie seulement l’authentification de l’application, pas le bénéficiaire ni le capture confirmé. Bénéficiaire et webhook doivent être vérifiés avant émission ; page de succès oudéclaration client ne confirment pas le paiement.' },
+};
 const labels={
   ar:{ title:'اتصالات الدفع',guide:'أنشئ حسابًا أو Sandbox لدى Stripe. من API keys أنشئ Restricted Key بصلاحية قراءة Balance لاختبار الاتصال، واختر TEST أو LIVE المطابقة. استخدم مفاتيح اختبار مخصصة أثناء التطوير.',
     note:'هذا الفحص يثبت Authentication فقط. يلزم فحص خيارات الحساب وWebhook قبل إصدار الروابط. تحتاج Checkout Sessions لصلاحيات create/read وAccount read. يؤكد Worker الدفع بعد التحقق من إيصال وجلسة المزود؛ Customer claim أوsuccess page لا تؤكد الدفع.',
@@ -37,6 +45,7 @@ export function PaymentSetup({ locale,role,branches,api }: { locale:Locale;role:
   const t=labels[locale];const ot=optionLabels[locale];const [items,setItems]=useState<Connection[]>([]);const [cursor,setCursor]=useState<string|null>(null);
   const [selected,setSelected]=useState<Connection|null>(null);const selectedRef=useRef<string|null>(null);
   const [name,setName]=useState('');const [branchId,setBranchId]=useState('');const [mode,setMode]=useState<'TEST'|'LIVE'>('TEST');
+  const [provider,setProvider]=useState<'STRIPE'|'PAYPAL'>('STRIPE');const [clientId,setClientId]=useState('');const [clientSecret,setClientSecret]=useState('');const pt=paypalLabels[locale];
   const [key,setKey]=useState('');const [reason,setReason]=useState('');const [busy,setBusy]=useState(false);const [error,setError]=useState('');
   const [notice,setNotice]=useState('');const [probes,setProbes]=useState<Probe[]>([]);const [probeCursor,setProbeCursor]=useState<string|null>(null);
   async function load(next?:string) { const page=await api<{ items:Connection[];nextCursor:string|null }>('/api/payments/connections'+(next ? '?cursor='+encodeURIComponent(next) : ''));
@@ -47,39 +56,44 @@ export function PaymentSetup({ locale,role,branches,api }: { locale:Locale;role:
   async function history(id:string,next?:string) { const page=await api<{ items:Probe[];nextCursor:string|null }>(`/api/payments/connections/${id}/history`+(next ? '?cursor='+encodeURIComponent(next) : ''));
     if(selectedRef.current!==id)return;setProbes((prior)=>next ? [...prior,...page.items] : page.items);setProbeCursor(page.nextCursor); }
   function choose(item:Connection|null) { selectedRef.current=item?.id ?? null;setSelected(item);setName(item?.name ?? '');setBranchId(item?.branch_id ?? '');setMode(item?.config.mode ?? 'TEST');
+    setProvider(item?.provider==='PAYPAL' ? 'PAYPAL' : 'STRIPE');setClientId('');setClientSecret('');
     setKey('');setReason('');setNotice('');setError('');setProbes([]);setProbeCursor(null);if(item)void history(item.id).catch((e)=>setError(String(e))); }
   async function save() { setBusy(true);setError('');setNotice('');try {
-    const input={ name,provider:'STRIPE',config:{ mode },...(role==='SUPER_ADMIN' ? { branchId:branchId || null } : {}),
-      ...(key ? { credentials:{ apiKey:key } } : {}),...(selected ? { version:selected.version } : {}) };
+    const input={ name,provider,config:{ mode },...(role==='SUPER_ADMIN' ? { branchId:branchId || null } : {}),
+      ...(provider==='STRIPE' ? key ? { credentials:{ apiKey:key } } : {} : clientId || clientSecret ? { credentials:{ clientId,clientSecret } } : {}),...(selected ? { version:selected.version } : {}) };
     const result=await api<{ id?:string;version:number;status:string }>('/api/payments/connections'+(selected ? '/'+selected.id : ''),{ method:selected ? 'PUT' : 'POST',body:JSON.stringify(input) });
     setKey('');const id=selected?.id ?? result.id!;selectedRef.current=id;await load();await history(id);setNotice(result.status);
-  } catch(e) { setError(String(e)); } finally { setBusy(false); } }
+  } catch(e) { setError(String(e)); } finally { setClientId('');setClientSecret('');setBusy(false); } }
   async function action(kind:'test'|'options'|'disable'|'reconnect') { if(!selected)return;setBusy(true);setError('');setNotice('');const id=selected.id;
     try { const result=await api<{ state?:string;status?:string;errorCode?:string|null }>(`/api/payments/connections/${id}/${kind==='options' ? 'test' : kind}`,{
       method:'POST',body:JSON.stringify({ version:selected.version,...(kind==='options' ? { inspectOptions:true } : kind==='test' ? {} : { reason }) }) });setNotice(result.state ?? result.status ?? ''); }
     catch(e) { setError(String(e)); } finally { await load().catch((e)=>setError(String(e)));await history(id).catch((e)=>setError(String(e)));setBusy(false); } }
-  return <section className="payment-setup"><h2>{t.title}</h2><p>{t.guide} <a href="https://docs.stripe.com/keys" target="_blank" rel="noopener noreferrer">Stripe API keys</a></p><p role="status">{t.note}</p>
+  return <section className="payment-setup"><h2>{t.title}</h2><p>{provider==='STRIPE' ? t.guide : pt.guide}{' '}
+    <a href={provider==='STRIPE' ? 'https://docs.stripe.com/keys' : 'https://developer.paypal.com/api/rest/authentication/'} target="_blank" rel="noopener noreferrer">{provider==='STRIPE' ? 'Stripe API keys' : 'PayPal REST credentials'}</a></p><p role="status">{provider==='STRIPE' ? t.note : pt.note}</p>
     {error && <p role="alert" className="error">{error}</p>}{notice && <p role="status">{t.result}: <bdi>{notice}</bdi></p>}
     <div className="actions"><button disabled={busy} className="secondary" onClick={()=>choose(null)}>{t.add}</button>
       <button disabled={busy} className="secondary" onClick={()=>void load().catch((e)=>setError(String(e)))}>{t.refresh}</button></div>
     <section className="panel"><h3>{selected ? t.edit : t.add}</h3><form className="campaign-form" onSubmit={(event)=>{ event.preventDefault();void save(); }}>
       <label>{t.name}<input aria-label={t.name} required maxLength={100} value={name} disabled={busy || selected?.status==='DISABLED'} onChange={(e)=>setName(e.target.value)} /></label>
-      <label>{t.provider}<select aria-label={t.provider} disabled><option>Stripe</option></select></label>
+      <label>{t.provider}<select aria-label={t.provider} value={provider} disabled={busy || Boolean(selected)} onChange={(e)=>{ setProvider(e.target.value as typeof provider);setKey('');setClientId('');setClientSecret(''); }}>
+        <option value="STRIPE">Stripe</option><option value="PAYPAL">PayPal</option></select></label>
       {role==='SUPER_ADMIN' && <label>{t.scope}<select aria-label={t.scope} value={branchId} disabled={busy || Boolean(selected)} onChange={(e)=>setBranchId(e.target.value)}>
         <option value="">{t.org}</option>{branches.map((b)=><option key={b.id} value={b.id}>{b.name}</option>)}</select></label>}
       <label>{t.mode}<select aria-label={t.mode} value={mode} disabled={busy || selected?.status==='DISABLED'} onChange={(e)=>setMode(e.target.value as 'TEST'|'LIVE')}><option>TEST</option><option>LIVE</option></select></label>
-      <label>{t.key}<input aria-label={t.key} type="password" autoComplete="off" required={!selected} value={key} maxLength={4096} disabled={busy || selected?.status==='DISABLED'} onChange={(e)=>setKey(e.target.value)} /></label>
+      {provider==='STRIPE' ? <label>{t.key}<input aria-label={t.key} type="password" autoComplete="off" required={!selected} value={key} maxLength={4096} disabled={busy || selected?.status==='DISABLED'} onChange={(e)=>setKey(e.target.value)} /></label>
+        : <><label>{pt.clientId}<input aria-label={pt.clientId} autoComplete="off" required={!selected || !!clientSecret} value={clientId} maxLength={1024} disabled={busy || selected?.status==='DISABLED'} onChange={(e)=>setClientId(e.target.value)} /></label>
+          <label>{pt.clientSecret}<input aria-label={pt.clientSecret} type="password" autoComplete="new-password" required={!selected || !!clientId} value={clientSecret} maxLength={4096} disabled={busy || selected?.status==='DISABLED'} onChange={(e)=>setClientSecret(e.target.value)} /></label></>}
       <button disabled={busy || selected?.status==='DISABLED'}>{t.save}</button>
     </form>{selected?.secret_configured && <p>{t.secret}</p>}</section>
-    {!items.length && <p>{t.empty}</p>}{items.length>0 && <section className="panel table-scroll"><table><thead><tr><th>{t.name}</th><th>{t.scope}</th><th>{t.mode}</th><th>{t.status}</th><th>{t.edit}</th></tr></thead>
-      <tbody>{items.map((item)=><tr key={item.id}><td>{item.name}</td><td>{branches.find((b)=>b.id===item.branch_id)?.name ?? t.org}</td><td><bdi>{item.config.mode}</bdi></td>
+    {!items.length && <p>{t.empty}</p>}{items.length>0 && <section className="panel table-scroll"><table><thead><tr><th>{t.name}</th><th>{t.provider}</th><th>{t.scope}</th><th>{t.mode}</th><th>{t.status}</th><th>{t.edit}</th></tr></thead>
+      <tbody>{items.map((item)=><tr key={item.id}><td>{item.name}</td><td><bdi>{item.provider}</bdi></td><td>{branches.find((b)=>b.id===item.branch_id)?.name ?? t.org}</td><td><bdi>{item.config.mode}</bdi></td>
         <td><bdi>{item.status}</bdi>{item.last_error_code && <small><bdi>{item.last_error_code}</bdi></small>}</td><td><button disabled={busy} className="link" onClick={()=>choose(item)}>{t.edit}</button></td></tr>)}</tbody></table></section>}
     {cursor && <button disabled={busy} className="secondary" onClick={()=>void load(cursor).catch((e)=>setError(String(e)))}>{t.more}</button>}
     {selected && <section className="panel"><h3>{selected.name}</h3><dl className="inbound-target-summary"><div><dt>{t.version}</dt><dd>{selected.version}</dd></div><div><dt>{t.status}</dt><dd><bdi>{selected.status}</bdi></dd></div>
       <div><dt>{t.success}</dt><dd>{selected.last_success_at ? new Date(selected.last_success_at).toLocaleString(locale) : '—'}</dd></div>
       <div><dt>{t.failure}</dt><dd>{selected.last_failure_at ? new Date(selected.last_failure_at).toLocaleString(locale) : '—'}</dd></div></dl>
       <p>{t.pending} <bdi>{selected.last_error_code}</bdi></p><button disabled={busy || selected.status==='DISABLED'} onClick={()=>void action('test')}>{t.test}</button>
-      <p>{ot.guide}</p><button disabled={busy || selected.status==='DISABLED'} onClick={()=>void action('options')}>{ot.inspect}</button>
+      {selected.provider==='STRIPE' && <><p>{ot.guide}</p><button disabled={busy || selected.status==='DISABLED'} onClick={()=>void action('options')}>{ot.inspect}</button></>}
       {selected.capabilities.paymentOptions && selected.capabilities.paymentOptionsVersion===selected.version && <section className="payment-provider-options"><h4>{ot.title}</h4>
         <dl className="inbound-target-summary"><div><dt>{ot.country}</dt><dd><bdi>{selected.capabilities.paymentOptions.country}</bdi></dd></div>
           <div><dt>{ot.defaultCurrency}</dt><dd><bdi>{selected.capabilities.paymentOptions.defaultCurrency}</bdi></dd></div>
@@ -93,7 +107,7 @@ export function PaymentSetup({ locale,role,branches,api }: { locale:Locale;role:
       <h4>{t.history}</h4><ul>{probes.map((probe)=><li key={probe.id}><time>{new Date(probe.created_at).toLocaleString(locale)}</time> · <bdi>{probe.purpose}</bdi> · <bdi>{probe.state}</bdi> · {t.version} {probe.connection_version}{probe.error_code && <> · <bdi>{probe.error_code}</bdi></>}
         {probe.options_snapshot && <p>{ot.country}: <bdi>{probe.options_snapshot.country}</bdi> · {ot.currencies}: <bdi>{probe.options_snapshot.currencies.join(', ')}</bdi></p>}</li>)}</ul>
       {probeCursor && <button disabled={busy} className="secondary" onClick={()=>void history(selected.id,probeCursor).catch((e)=>setError(String(e)))}>{t.moreHistory}</button>}
-      <PaymentWebhooks key={selected.id} connectionId={selected.id} connectionVersion={selected.version} disabled={selected.status==='DISABLED'} locale={locale} api={api} />
+      {selected.provider==='STRIPE' && <PaymentWebhooks key={selected.id} connectionId={selected.id} connectionVersion={selected.version} disabled={selected.status==='DISABLED'} locale={locale} api={api} />}
     </section>}
     <PaymentMethods locale={locale} role={role} branches={branches} api={api} />
   </section>;
