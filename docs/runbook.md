@@ -1,5 +1,11 @@
 # دليل التشغيل والتطوير
 
+## حالة PayPal Orders/capture قبل تفعيل المسار المالي
+
+عقد Orders create/read وcapture وindependent capture proof موجود ومختبر بـHTTP mocks. لم يُفعّل إصدار روابط PayPal أوcapture worker أوPayment/Enrollment لهذهProvider بعد؛ لا تحاول تشغيله يدويًا بـCLI أوتعديلDB. setup الحالية تظلAuthentication وsigned Webhook receipt فقط، وfinancialProcessingReady=false. APPROVED تعني موافقة العميل وليستدفعًا، وPENDING ليستPaid؛success/cancel لا تؤكدالمال.
+
+المرحلة التالية تضيفexpected merchant منواجهةالإدارة ثمdurable order/capture وnative proof/UI. لاexpiry مصطنعة أوcurrency/account readiness مختلقة. عندتفعيلها ستكونorder/capture keys مستقلتين وثابتتين، وUNKNOWN يحتاجrecovery ضمنretention الموثقة، دونkey بديلة أوhidden retry. لا حسابخارجيأوSandbox credentials حقيقيةاستُعملت فيالتحقق؛ Live Verification Pending External Credential/Approval. راجعprogress/coverage للحالةالمثبتة والاختبارات، ولا تعتبروجودadapter standalone إكمالProvider.
+
 ## إعداد PayPal Webhooks
 
 افتح Connection PayPal منPayment setup، ثمأدخلreason وجهّزcallback. داخلPayPal Developer Dashboard → Apps & Credentials افتحREST App نفسها فيبيئةSandbox أوLive المقصودة،ثمWebhooks → Add Webhook. انسخpublic HTTPS callback والأحداثالأربعةالمعروضة؛احفظWebhook ID فيالمنصة. لاSigning Secret ولاcertificate يرفعهاالمستخدم. callback المحليةHTTP لا تستقبلProvider عامة؛ النشر يحتاجHTTPS443. [دليلPayPal](https://developer.paypal.com/api/rest/webhooks/rest/).

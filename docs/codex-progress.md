@@ -1,5 +1,15 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: PayPal Orders/capture protocol prerequisite — 2026-10-07
+
+Checkpoint `2cb6b36` محفوظة ومرفوعة، وكانت working tree نظيفة بعدها. نُفذت adapter مستقلة لـOrders create/read وcapture كفعل صريح، مع exact currency/money وexpected merchant وsafe approval URL وoriginal intent correlation وfinite errors/stable separate request keys، وقراءة order ثم capture مستقلة. هذه مرحلة عقد Provider فقط وليست financial activation؛ لا entry جديدة في Checkout/receipt runtime قبل durable capture وnative proof/UI. لا fake expiry أوmerchant capability أوPaid بسبب APPROVED/return/capture response وحدها.
+
+التحقق النهائي: **114/114 unit،42/42 full PostgreSQL integration،21/21 Edge Browser E2E** (41.9s)، Backend/Web typecheck/build، وmigrations001–072 علىdevelopment/test. Docker PostgreSQL وClamAV سليمتان. الاختبارات الستة الجديدة تستعمل adapter الفعلية معHTTP mocks: اختلافprecision عنStripe،stable payload/order keys وsafe URL/null expiry،explicit capture معapproval/current identity/separate stable key وskip write عندCOMPLETED،independent order+capture/payee/exact money وPENDING غيرPaid،bad identity/money/URL/path/oversize وinvalid input دونI/O،وأخطاءOAuth/transport/5xx/429/idempotency دونhidden retry أوsecret leak.
+
+هذه المرحلة **Unit/HTTP Mock Verified** فقط للعقد الجديد؛ PostgreSQL/Browser هنا regression للمسارات الموجودة، وليستاPayPal financial end-to-end. لاProvider Complete أوLive Verification؛ Live Verification Pending External Credential/Approval. financial runtime يبقىغيرمفعّل لـPayPal،ولاnew migration/UI في هذه المرحلة. Vite warning551.75KB/gzip160.53KB ضمنperformance/code splitting backlog؛ ليستفشلbuild.
+
+**الحالة الجارية عندcheckpoint:** لا مجموعة أخرى بدأت. **الخطوة التالية الدقيقة:** expected merchant configuration منUI معserver/native validation وAudit/history/current authorization،دونfake account-country/currency capability؛ ثم nullable provider expiry/native financial intent proof وdurable order/capture jobs معseparate immutable policy/keys/I/O budget يشملOAuth+GET+POST،capture-resource→order lookup وindependent Payment/Enrollment proof،scope/recovery/UI وIntegration/Browser end-to-end. بعدهاAlma وBank Transfer وفقpayment-provider-requirements.md. docs/technical-architecture.md وrunbook.md تشرححدودالعقد وعدمactivation.
+
 ## آخر حالة مستقرة: PayPal Webhook setup وsigned receipt — 2026-10-07
 
 بدأت بعد حفظ ورفع `5e05571`، وكانت working tree نظيفة. أُضيفت PayPal Webhook setup من UI العربية/الإنجليزية/الفرنسية: immutable Webhook ID دون Signing Secret مصطنعة، actual OAuth/GET inspection للApp وexact callback/events، ومقارنة endpoint verification وsigned delivery بصورة منفصلة. Provider events المطلوبة هي Orders v2 approval وCapture COMPLETED/PENDING/DECLINED. generic Simulator بـWEBHOOK_ID لا تثبت App scope وتُرفض؛ الواجهة تشرح actual sandbox events وpublic HTTPS443 ومتطلبات المزود.

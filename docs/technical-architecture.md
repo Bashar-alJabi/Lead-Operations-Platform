@@ -1,5 +1,17 @@
 # المعمارية التقنية
 
+## PayPal Orders/capture protocol prerequisite
+
+`paypalOrdersAdapter` عقد مستقل غير مسجل في financial runtime بعد. create تستعمل OAuth ثم fixed Orders v2 origin حسب TEST/LIVE، وpurchase unit واحدة بمستفيد متوقع وreference_id/custom_id مساويتين لـintent UUID، معexact decimal/BigInt و`payment_source.paypal.experience_context`. safe approval URL مقيدة بـPayPal/البيئة وorder token نفسها، ولا تُعرض buyer PII أوraw response. Provider لا تعيد expiry في هذا العقد، لذلك `expiresAt=null` صريحة؛ لا تاريخ مصطنع ولا تغيير لقيمة Stripe المطلوبة قبل migration مالية مناسبة. [Orders create](https://developer.paypal.com/api/orders/v2/orders-create).
+
+Order creation وcapture عمليتان منفصلتان: `lop-order:intentId` و`lop-capture:intentId` ثابتتان ومختلفتان. retention التقنية ست ساعات حسب API، دون افتراض extension الخاصة بحساب المزود. capture تقرأ order أولًا وتراجع approval/identity/money؛ COMPLETED تتجنب write جديدة، وAPPROVED تسمح POST صريحة بمفتاحها المستقل. لا hidden retries ولا paid claim منreturn أوcapture response. Network/5xx/malformed response بعدwrite تبقىUNKNOWN، وفشلOAuth قبلها ليسunknown financial write. [Create header contract](https://developer.paypal.com/sdk/orders/v2/orders-create/)، [Capture header contract](https://developer.paypal.com/sdk/orders/v2/orders-capture/).
+
+`retrievePayment` تقرأorder وcapture بصورة مستقلة، وتقارنcapture ID وrelated order وexpected payee وfinal capture وexact gross money/currency. capture COMPLETED فقط تعيدevidence مؤهلة؛ PENDING/DECLINED/FAILED/refund states لا تُسمّىPaid. لا تستخدم payload العميل أوwebhook money claim لإثبات المال. التطبيق المالي التالي يحتاجimmutable DB proof/idempotency/monotonic Payment/separate Enrollment قبلactivation. [Capture read](https://developer.paypal.com/api/payments/v2/captures-get).
+
+Money profile تعكس تمثيلPayPal: HUF/JPY/TWD بلاdecimals، وبقيةالعملات المدعومة بدقتين؛ ليست إثباتًا لقبولحساب أوتفعيلمزايا أوبلد. API timeout8s وresponse262KiB وfatal UTF-8 وredirect:error وfinite errors، بلاerror-body/secrets فيDTO. Future capture worker تحتاجI/O admission تشملOAuth+GET+POST (حتى24s)، فلا تُسقطعليها20s الحالية لStripe دونتعديلوثيقةpolicy. [PayPal currency codes](https://developer.paypal.com/api/codes/currency).
+
+المرحلة Unit/HTTP Mock Verified فقط معfull existing PostgreSQL/Browser regression؛ ليستPayPal checkout Integration/Browser end-to-end أوProvider Complete. التالي expected merchant configuration/UI، nullable expiry/native financial migrations، durable capture jobs/attempts/recovery، capture-resource→order lookup وindependent financial proof، ثم end-to-end tests. Live Verification Pending External Credential/Approval.
+
 ## PayPal Webhook signing profile
 
 Payment Webhook setup تستخدم profile تختار callback path وEndpoint ID format وrequired events ووجود Signing Secret بحسب Provider. Stripe v1/HMAC لا تتغير؛ PayPal تخزّن Webhook ID العامة دون سر توقيع أوcertificate يرفعها المستخدم. `inspectWebhook` الفعلية تتبادل OAuth ثم تقرأ `/v1/notifications/webhooks/{id}` على origin المحددة لـTEST/LIVE، وتثبت URL والأحداث فقط. Current role/session/Branch/config/latest/timeout/history/Audit fences القائمة تبقى. [PayPal Show webhook details](https://developer.paypal.com/api/webhooks/v1/webhooks-get).

@@ -8,7 +8,8 @@ export type CheckoutSnapshot={ sessionId:string;url:string|null;expiresAt:string
   intentId:string;status:'OPEN'|'COMPLETE'|'EXPIRED';paymentStatus:'PAID'|'UNPAID';paymentRef:string|null };
 export class PaymentCheckoutError extends Error {
   constructor(public code:'PAYMENT_PROVIDER_AUTH_FAILED'|'PAYMENT_PROVIDER_RATE_LIMITED'|'PAYMENT_PROVIDER_UNAVAILABLE'|'PAYMENT_PROVIDER_RESPONSE_INVALID'
-    |'PAYMENT_PROVIDER_REJECTED'|'PAYMENT_IDEMPOTENCY_CONFLICT'|'PAYMENT_ACCOUNT_MISMATCH'|'PAYMENT_ACCOUNT_NOT_READY'|'PAYMENT_SESSION_MISMATCH',
+    |'PAYMENT_PROVIDER_REJECTED'|'PAYMENT_IDEMPOTENCY_CONFLICT'|'PAYMENT_ACCOUNT_MISMATCH'|'PAYMENT_ACCOUNT_NOT_READY'|'PAYMENT_SESSION_MISMATCH'
+    |'PAYMENT_APPROVAL_REQUIRED'|'PAYMENT_CAPTURE_MISMATCH',
     public certainty:'REJECTED'|'RETRYABLE'|'UNKNOWN',public retryAfterSeconds:number|null=null) { super(code); }
 }
 export type PaymentCheckoutAdapter={ currencyPrecision(currency:string):CurrencyPrecision;idempotencyRetentionMs:number;
