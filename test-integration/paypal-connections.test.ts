@@ -58,7 +58,7 @@ test('PayPal actual OAuth adapter uses encrypted scoped setup, immutable identit
   assert.equal((await row()).capabilities.paymentOptions,undefined);
   const beforeOptions=calls;const options=await api('POST',path+'/test',{ version:1,inspectOptions:true });assert.equal(options.statusCode,502);
   assert.equal(options.json().error,'PAYMENT_PROVIDER_OPTIONS_UNSUPPORTED');assert.equal(calls,beforeOptions);
-  const hook=await api('POST',path+'/webhooks',{ connectionVersion:1,reason:'OAuth is not callback proof' });assert.equal(hook.statusCode,409);assert.equal(hook.json().error,'PAYMENT_WEBHOOK_UNSUPPORTED');
+  const hook=await api('POST',path+'/webhooks',{ connectionVersion:1,reason:'OAuth is not callback proof' });assert.equal(hook.statusCode,201);assert.equal(hook.json().endpointVerified,false);assert.equal(hook.json().financialProcessingReady,false);
   assert.equal((await db`SELECT count(*)::integer AS n FROM payment_link_intent`)[0]!.n,0);assert.equal((await db`SELECT count(*)::integer AS n FROM enrollment`)[0]!.n,0);
   behavior='AUTH';const denied=await api('POST',path+'/test',{ version:1 });assert.equal(denied.statusCode,502);assert.equal(denied.json().error,'PAYMENT_PROVIDER_AUTH_FAILED');
   assert.equal((await row()).status,'AUTH_EXPIRED');assert.equal(denied.body.includes(pair.clientSecret),false);assert.equal((await api('GET','/api/leads')).statusCode,200);

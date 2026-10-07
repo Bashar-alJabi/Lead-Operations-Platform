@@ -25,8 +25,25 @@ const labels={
     local:'Cette URL HTTP locale ne reçoit pas les livraisons publiques Stripe. Le déploiement nécessite l’origine HTTPS publique de l’application ; les tests locaux utilisent des événements signés synthétiques.',
     prepare:'Préparer le callback de paiement',reason:'Motif du changement webhook',endpoint:'Identifiant endpoint Stripe',secret:'Secret de signature de paiement',save:'Enregistrer les identifiants webhook',test:'Tester le endpoint de paiement',disable:'Désactiver le webhook de paiement',refresh:'Actualiser les webhooks de paiement',more:'Autres webhooks de paiement',select:'Examiner le webhook de paiement',copy:'Copier l’URL callback de paiement',copied:'URL callback copiée',url:'URL callback de paiement',version:'Version du webhook',current:'Configuration actuelle',endpointStatus:'Endpoint fournisseur vérifié',signed:'Livraison signée vérifiée',yes:'Oui',no:'Non',state:'État',events:'Événements snapshot requis',history:'Historique des tests webhook',moreHistory:'Suite de l’historique webhook',received:'Événements de paiement reçus',moreEvents:'Autres événements reçus',empty:'Aucun webhook de paiement.',emptyEvents:'Aucun événement signé reçu.',created:'Date fournisseur',receivedAt:'Date de réception',noPaid:'Réception conservée, pas une confirmation de paiement.',secretNote:'Secret chiffré et jamais réaffiché. L’historique ne contient ni clé API ni données client.' },
 };
-export function PaymentWebhooks({ connectionId,connectionVersion,disabled,locale,api }:{ connectionId:string;connectionVersion:number;disabled:boolean;locale:Locale;api:Api }) {
-  const t=labels[locale];const root='/api/payments/connections/'+connectionId;const selectedRef=useRef<string|null>(null);
+const paypalLabels={
+  ar:{ guide:'جهّز callback هنا. في PayPal Developer Dashboard → Apps & Credentials افتح REST App نفسها وفي بيئة Sandbox أوLive المطابقة، ثم Webhooks → Add Webhook. سجّل العنوان نفسه والأحداث أدناه، وانسخ Webhook ID إلى المنصة. لا يوجد Signing Secret مطلوب: تُفحص شهادة وتوقيع PayPal على bytes الأصلية. يحتاج التطبيق صلاحية قراءة Webhooks.',
+    proof:'اختبار Endpoint يقرأ إعداد التطبيق لدى PayPal. للتحقق من الاستلام أرسل حدث Sandbox فعليًا من التطبيق نفسه ثم حدّث. Simulator العامة تستخدم WEBHOOK_ID ولا تثبت هوية التطبيق، ولا تقبلها هذه Endpoint. الإيصال وحده أوorder APPROVED لا يؤكد Payment أوEnrollment.',
+    rotation:'Webhook ID وهوية callback ثابتتان. للتغيير جهّز Endpoint جديدة وافحصها، واحتفظ بالقديمة إلى تسوية المدفوعات المعلقة. تعطيل هذه Endpoint يوقف استقبالها؛ عطّلها أيضًا في PayPal بعد التسوية.',
+    local:'عنوان HTTP المحلي لا يستقبل أحداث PayPal العامة؛ يلزم public HTTPS على443 للنشر. الاختبارات المحلية تستخدم توقيعات وشهادة اصطناعية.',endpoint:'PayPal Webhook ID',
+    secretNote:'لا تخزّن هذه Endpoint سر توقيع. شهادة التحقق تأتي من عنوان PayPal ثابت النطاق. لا تظهر Client Secret أوaccess token أوبيانات العميل في التاريخ.' },
+  en:{ guide:'Prepare the callback here. In PayPal Developer Dashboard → Apps & Credentials open the same REST App in the matching Sandbox or Live environment, then Webhooks → Add Webhook. Register the exact URL and events below and copy the Webhook ID here. No signing secret is required: PayPal certificate and signature are checked against original bytes. The app needs Webhooks read access.',
+    proof:'The endpoint test reads the app configuration at PayPal. Generate an actual sandbox event from the same app, then refresh to verify delivery. The generic simulator uses WEBHOOK_ID and proves no app identity; this endpoint rejects it. A receipt or an APPROVED order alone does not confirm Payment or Enrollment.',
+    rotation:'Webhook ID and callback identity are immutable. For rotation prepare and verify a new endpoint and retain the old one until pending payments are reconciled. Disabling this endpoint stops its receipts; disable it at PayPal after reconciliation.',
+    local:'Local HTTP cannot receive public PayPal deliveries; deployment needs public HTTPS on port443. Local tests use synthetic signatures and a certificate.',endpoint:'PayPal Webhook ID',
+    secretNote:'This endpoint stores no signing secret. The verification certificate comes from a fixed PayPal origin. History contains no Client Secret, access token or customer data.' },
+  fr:{ guide:'Préparez le callback ici. Dans PayPal Developer Dashboard → Apps & Credentials, ouvrez la même REST App dans le mode Sandbox ouLive correspondant, puis Webhooks → Add Webhook. Enregistrez l’URL exacte et les événements ci-dessous, puis copiez Webhook ID. Aucun secret de signature : certificat PayPal et signature sont vérifiés sur les octets originaux. L’application nécessite la lecture Webhooks.',
+    proof:'Le test lit la configuration de l’application chez PayPal. Générez un événement sandbox réel de la même application puis actualisez. Le simulateur générique utilise WEBHOOK_ID sans prouver l’application ; cet endpoint le refuse. Un événement ouune commande APPROVED ne confirme pas Payment ouEnrollment.',
+    rotation:'Webhook ID et callback sont immuables. Créez et vérifiez un nouveau endpoint pour la rotation, et conservez l’ancien jusqu’au rapprochement. Désactivez-le aussi chez PayPal après rapprochement.',
+    local:'HTTP local ne reçoit pas les événements publics PayPal ; le déploiement nécessite HTTPS public sur443. Tests locaux avec certificat et signatures synthétiques.',endpoint:'PayPal Webhook ID',
+    secretNote:'Aucun secret de signature conservé. Le certificat provient d’une origine PayPal fixe. Historique sans Client Secret, access token ni données client.' },
+};
+export function PaymentWebhooks({ connectionId,connectionVersion,disabled,locale,api,provider='STRIPE' }:{ connectionId:string;connectionVersion:number;disabled:boolean;locale:Locale;api:Api;provider?:'STRIPE'|'PAYPAL' }) {
+  const t={ ...labels[locale],...(provider==='PAYPAL' ? paypalLabels[locale] : {}) };const root='/api/payments/connections/'+connectionId;const selectedRef=useRef<string|null>(null);
   const [items,setItems]=useState<Row[]>([]);const [cursor,setCursor]=useState<string|null>(null);const [selected,setSelected]=useState<Detail|null>(null);
   const [reason,setReason]=useState('');const [endpointId,setEndpointId]=useState('');const [secret,setSecret]=useState('');
   const [busy,setBusy]=useState(false);const [error,setError]=useState('');const [notice,setNotice]=useState('');
@@ -58,14 +75,14 @@ export function PaymentWebhooks({ connectionId,connectionVersion,disabled,locale
     setBusy(true);setError('');setNotice('');const current=selectedRef.current;
     try { if(kind==='prepare') { const created=await api<Detail>(root+'/webhooks',{ method:'POST',body:JSON.stringify({ connectionVersion,reason }) });
         selectedRef.current=created.id;setSelected(created);setHistory([]);setHistoryCursor(null);setSecret('');setEndpointId(''); }
-      else if(selected && current===selected.id) { const payload=kind==='configure' ? { version:selected.version,endpointId,signingSecret:secret,reason }
+      else if(selected && current===selected.id) { const payload=kind==='configure' ? { version:selected.version,endpointId,...(provider==='STRIPE' ? { signingSecret:secret } : {}),reason }
           : kind==='test' ? { version:selected.version,connectionVersion } : { version:selected.version,reason };
         await api(root+'/webhooks/'+current+'/'+kind,{ method:'POST',body:JSON.stringify(payload) }); }
       setSecret('');await refresh();
     }catch(e){ setSecret('');setError(String(e));await refresh().catch(()=>{}); }finally{ setBusy(false); }
   }
   const yes=(v:boolean)=>v ? t.yes : t.no;
-  return <section className="payment-webhooks panel"><h4>{t.title}</h4><p>{t.guide} <a href="https://docs.stripe.com/development/dashboard/webhooks" target="_blank" rel="noreferrer">Stripe Account Webhooks</a></p><p>{t.proof}</p><p>{t.rotation}</p>
+  return <section className="payment-webhooks panel"><h4>{t.title}</h4><p>{t.guide} <a href={provider==='STRIPE' ? 'https://docs.stripe.com/development/dashboard/webhooks' : 'https://developer.paypal.com/api/rest/webhooks/rest/'} target="_blank" rel="noreferrer">{provider==='STRIPE' ? 'Stripe Account Webhooks' : 'PayPal Webhooks'}</a></p><p>{t.proof}</p><p>{t.rotation}</p>
     {error && <p role="alert">{error}</p>}{notice && <p role="status">{notice}</p>}
     <label>{t.reason}<input aria-label={t.reason} value={reason} maxLength={500} onChange={(e)=>setReason(e.target.value)} /></label>
     <button disabled={busy || disabled || reason.trim().length<3} onClick={()=>void action('prepare')}>{t.prepare}</button>
@@ -82,20 +99,20 @@ export function PaymentWebhooks({ connectionId,connectionVersion,disabled,locale
       <p>{t.secretNote}</p>
       {selected.state==='DRAFT' && <form onSubmit={(e)=>{ e.preventDefault();void action('configure'); }}>
         <label>{t.endpoint}<input aria-label={t.endpoint} autoComplete="off" value={endpointId} maxLength={103} onChange={(e)=>setEndpointId(e.target.value)} /></label>
-        <label>{t.secret}<input aria-label={t.secret} type="password" autoComplete="new-password" value={secret} maxLength={206} onChange={(e)=>setSecret(e.target.value)} /></label>
-        <button disabled={busy || disabled || !selected.current || reason.trim().length<3 || !endpointId || !secret}>{t.save}</button></form>}
+        {provider==='STRIPE' && <label>{t.secret}<input aria-label={t.secret} type="password" autoComplete="new-password" value={secret} maxLength={206} onChange={(e)=>setSecret(e.target.value)} /></label>}
+        <button disabled={busy || disabled || !selected.current || reason.trim().length<3 || !endpointId || (provider==='STRIPE' && !secret)}>{t.save}</button></form>}
       <button disabled={busy || disabled || !selected.current || selected.state!=='CONFIGURED'} onClick={()=>void action('test')}>{t.test}</button>
       <button className="secondary" disabled={busy || selected.state==='DISABLED' || reason.trim().length<3} onClick={()=>void action('disable')}>{t.disable}</button>
       <h5>{t.history}</h5><ul>{history.map((p)=><li key={p.id}><time>{new Date(p.created_at).toLocaleString(locale)}</time> · <bdi>{p.state}</bdi> · <bdi>{p.error_code}</bdi>
         {p.snapshot && <p><bdi>{p.snapshot.enabledEvents.join(', ')}</bdi></p>}</li>)}</ul>
       {historyCursor && <button className="secondary" disabled={busy} onClick={()=>void inspect(selected.id,historyCursor).catch((e)=>setError(String(e)))}>{t.moreHistory}</button>}
     </section>}
-    <h5>{t.received}</h5><p>{t.noPaid}</p><p>{recoveryLabels[locale].note}</p>
-    <label><input type="checkbox" checked={useCurrentCredentials} disabled={busy || disabled} onChange={(e)=>setUseCurrentCredentials(e.target.checked)} />{recoveryLabels[locale].repair}</label>
+    <h5>{t.received}</h5><p>{t.noPaid}</p>{provider==='STRIPE' && <><p>{recoveryLabels[locale].note}</p>
+    <label><input type="checkbox" checked={useCurrentCredentials} disabled={busy || disabled} onChange={(e)=>setUseCurrentCredentials(e.target.checked)} />{recoveryLabels[locale].repair}</label></>}
     {events.length===0 && <p>{t.emptyEvents}</p>}<ul className="payment-webhook-events">{events.map((e)=><li key={e.id}><bdi>{e.external_event_id}</bdi> · <bdi>{e.event_type}</bdi> · <bdi>{e.mode}</bdi> · <bdi>{e.state}</bdi>
       <p>{t.created}: <time>{new Date(e.provider_created_at).toLocaleString(locale)}</time> · {t.receivedAt}: <time>{new Date(e.received_at).toLocaleString(locale)}</time></p><p><bdi>{e.error_code}</bdi></p>
       <button className="secondary" disabled={busy} onClick={()=>void inspectReceipt(e.id)}>{recoveryLabels[locale].history}</button>
-      {e.state==='NEEDS_ATTENTION' && <button disabled={busy || reason.trim().length<3 || (e.attempts>=e.attempt_limit && !useCurrentCredentials)} onClick={()=> {
+      {provider==='STRIPE' && e.state==='NEEDS_ATTENTION' && <button disabled={busy || reason.trim().length<3 || (e.attempts>=e.attempt_limit && !useCurrentCredentials)} onClick={()=> {
         setBusy(true);setError('');void api(root+'/webhook-events/'+e.id+'/retry',{ method:'POST',body:JSON.stringify({ attempts:e.attempts,reason,
           ...(useCurrentCredentials ? { useCurrentCredentials:true,connectionVersion } : {}) }) })
           .then(()=>eventPage()).catch((error)=>setError(String(error))).finally(()=>setBusy(false));

@@ -25,8 +25,13 @@ import { PaymentProviderError } from '../src/payments/providers.js';
 import { processOnePaymentDispatch } from '../src/payments/dispatch-worker.js';
 import { processOnePaymentReceipt } from '../src/payments/confirmation-worker.js';
 import { stripeCurrencyPrecision,PaymentCheckoutError,type CheckoutSnapshot,type PaymentCheckoutAdapter } from '../src/payments/checkout-provider.js';
+import { paypalPaymentEvents } from '../src/payments/webhook-profile.js';
+import { testPayPalCertificate,testPayPalCertUrl } from '../test/paypal-test-support.js';
 
 const connectionUrl = requireLocalE2ETarget(process.env.TEST_DATABASE_URL,process.env.E2E_RESET_TEST_DATABASE,process.env.NODE_ENV);
+// The browser exercises the production RSA verifier; only its fixed certificate HTTP response is mocked.
+globalThis.fetch=async(target)=> { if(String(target)===testPayPalCertUrl)return new Response(testPayPalCertificate);
+  throw new Error('UNEXPECTED_EXTERNAL_HTTP_IN_LOCAL_E2E'); };
 
 process.env.APP_ORIGIN = 'http://127.0.0.1:4100';
 process.env.CREDENTIAL_ENCRYPTION_KEY = randomBytes(32).toString('hex');
@@ -128,7 +133,11 @@ const app = await buildApp(db, { logger:false,globalRateLimitMax:10000,mediaStor
   // Isolate loopback browser scenarios while retaining each route's actual limits.
   // Only this guarded test entrypoint reads this header; the production server uses request.ip.
   rateLimitKeyGenerator:(request)=>request.ip+':'+String(request.headers['x-e2e-rate-scope'] ?? 'shared').slice(0,100),
-  paymentConnectionAdapters:{ PAYPAL:{ verify:async(config)=>{ paymentCalls++;if(paymentFailure)throw new PaymentProviderError('PAYMENT_PROVIDER_AUTH_FAILED');return { mode:config.mode }; } },
+  paymentConnectionAdapters:{ PAYPAL:{ verify:async(config)=>{ paymentCalls++;if(paymentFailure)throw new PaymentProviderError('PAYMENT_PROVIDER_AUTH_FAILED');return { mode:config.mode }; },
+    inspectWebhook:async(config,_credentials,id)=> { paymentCalls++;if(paymentFailure)throw new PaymentProviderError('PAYMENT_PROVIDER_AUTH_FAILED');
+      const w=(await db`SELECT callback_url FROM payment_webhook WHERE external_endpoint_id=${id} ORDER BY created_at DESC LIMIT 1`)[0];
+      if(!w)throw new PaymentProviderError('PAYMENT_PROVIDER_RESPONSE_INVALID');
+      return { mode:config.mode,endpointId:id,url:w.callback_url,enabled:true,enabledEvents:[...paypalPaymentEvents] }; } },
     STRIPE:{ verify:async(config)=>{ paymentCalls++;if(paymentFailure)throw new PaymentProviderError('PAYMENT_PROVIDER_AUTH_FAILED');return { mode:config.mode }; },
     inspect:async(config)=>{ paymentCalls++;if(paymentFailure)throw new PaymentProviderError('PAYMENT_PROVIDER_UNAVAILABLE');return { mode:config.mode,options:{ accountRef:'acct_BrowserSynthetic123',country:'US',defaultCurrency:'USD',
       currencies:['USD','EUR'],paymentMethods:['card','ach'],chargesEnabled:paymentChargesEnabled,cardPayments:paymentChargesEnabled ? 'ACTIVE' : 'PENDING' } }; },

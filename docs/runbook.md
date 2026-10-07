@@ -1,5 +1,13 @@
 # دليل التشغيل والتطوير
 
+## إعداد PayPal Webhooks
+
+افتح Connection PayPal منPayment setup، ثمأدخلreason وجهّزcallback. داخلPayPal Developer Dashboard → Apps & Credentials افتحREST App نفسها فيبيئةSandbox أوLive المقصودة،ثمWebhooks → Add Webhook. انسخpublic HTTPS callback والأحداثالأربعةالمعروضة؛احفظWebhook ID فيالمنصة. لاSigning Secret ولاcertificate يرفعهاالمستخدم. callback المحليةHTTP لا تستقبلProvider عامة؛ النشر يحتاجHTTPS443. [دليلPayPal](https://developer.paypal.com/api/rest/webhooks/rest/).
+
+Test payment endpoint يقرأإعدادApp ويقارنURL والevents؛ ليستsigned-delivery proof. أرسلactual sandbox event منApp نفسها ثمRefresh للتحقق منوصولموقع. generic Simulator تستخدمWEBHOOK_ID وتُرفضلهذهApp-bound endpoint؛ لا تعتبرهاfinancial proof. current configuration/endpoint verified/signed delivery verified مستقلة،ولاWebhook Ready وحدهاfinancialProcessingReady. فيهذهالمرحلةالماليةPayPal غيرمفعلة؛ الإيصالاتمحفوظةوتظهرNeeds Attention/PAYMENT_RECEIPT_PROFILE_UNSUPPORTED دونPayment/Enrollment. لا تعالجهابإدخالمبلغأوالتأكيداليدوي؛ يلزمfinancial adapter/order/capture verification قبلإصدارالروابط.
+
+PAYMENT_WEBHOOK_SIGNATURE_INVALID ترفضأصلًا غيرموقعأومتغيرًا أوWebhook ID/بيئة/certificate URL/time/certificate غيرصالحة؛ لاraw error/secret فيlogs. PAYMENT_CERTIFICATE_UNAVAILABLE/BUSY تعيد503 حتىيعيدالمزوّدالمحاولة،ولاتحفظunsigned receipt. لاRetry خلفيخفيذلك. تتطلبrotation Callback جديدة؛ احتفظبالقديمةإلىتسويةpendingmoney. Connection rotation/disable لا يحذفالإيصالاتولايفرضcurrent requester علىhistorical money؛ disable Endpoint نفسهايوقفاستقبالها. UI/history/events paginated وManager فرعهفقط/Agentdenied. حالتناMock/PostgreSQL/Local Browser Verified بعدالاختباراتالمثبتةفيprogress،وLive Verification Pending External Credential/Approval.
+
 ## إعداد PayPal Authentication
 
 منIntegrations/Payments اختراتصالًا جديدًا وProvider=PayPal ثمTEST أوLIVE المقصودة. أنشئREST App لحسابBusiness منPayPal Developer Dashboard → Apps & Credentials فيالبيئةنفسها،وأدخلClient ID وClient Secret معًا. للتطويراستخدمSandbox مخصصة؛ الاختباراتفيالمشروعsynthetic HTTP mocks/local PostgreSQL/Edge ولا تتصلبحسابPayPal حقيقي. [تعليماتPayPal الرسمية](https://developer.paypal.com/api/rest/authentication/).

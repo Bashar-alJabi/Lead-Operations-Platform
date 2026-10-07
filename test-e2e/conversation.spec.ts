@@ -2,6 +2,7 @@ import { test, expect, type Page,type BrowserContext } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { createHmac,randomUUID } from 'node:crypto';
+import { testPayPalHeaders,testPayPalEvent } from '../test/paypal-test-support.js';
 type Fixture = { password:string;testToken:string;leadId:string;conversationId:string;untrusted:string;mediaLeadId:string;mediaConversationId:string;sourceCampaignId:string;noContactLeadId:string };
 let fixture:Fixture;
 let agentStorageState:Awaited<ReturnType<BrowserContext['storageState']>>|undefined;
@@ -1176,7 +1177,7 @@ test('browser configures scoped PayPal client credentials, rotates and recovers 
     await expect(row).toContainText('PAYPAL');await expect(row).toContainText('NOT_CONFIGURED');await expect(row.locator('img')).toHaveCount(0);
     await expect(panel.getByLabel('PayPal Client ID',{ exact:true })).toHaveValue('');await expect(panel.getByLabel('PayPal Client Secret',{ exact:true })).toHaveValue('');
     await expect(panel.getByLabel('Payment provider',{ exact:true })).toBeDisabled();await expect(panel.getByRole('button',{ name:'Inspect payment options',exact:true })).toHaveCount(0);
-    await expect(panel.locator('.payment-webhooks')).toHaveCount(0);await expect(panel).toContainText('not payee identity or completed capture');
+    await expect(panel.locator('.payment-webhooks')).toHaveCount(1);await expect(panel).toContainText('not payee identity or completed capture');
     const items=(await (await page.request.get('/api/payments/connections')).json()).items;const id=items.find((i:{ name:string })=>i.name===name).id;
     expect(JSON.stringify(items)).not.toContain(secret);expect(JSON.stringify(items)).not.toContain(clientId);
     const authResponse=page.waitForResponse((response)=>response.url().endsWith('/'+id+'/test') && response.request().method()==='POST');
@@ -1184,7 +1185,7 @@ test('browser configures scoped PayPal client credentials, rotates and recovers 
     const detail=await (await page.request.get(`/api/payments/connections/${id}`)).json();expect(detail.capabilities.authenticationVerified).toBe(true);
     expect(detail.capabilities.paymentLinksReady).toBe(false);expect(detail.capabilities.webhookReady).toBe(false);expect(detail.capabilities.paymentOptions).toBeUndefined();
     await control(page,{ paymentFailure:true });await panel.getByRole('button',{ name:'Test authentication',exact:true }).click();await expect(row).toContainText('AUTH_EXPIRED');
-    await expect(panel.getByRole('alert')).toContainText('PAYMENT_PROVIDER_AUTH_FAILED');
+    await expect(panel.getByRole('alert').first()).toContainText('PAYMENT_PROVIDER_AUTH_FAILED');
     await panel.getByLabel('Payment connection change reason',{ exact:true }).fill('Verify PayPal replacement before use');
     await panel.getByRole('button',{ name:'Disable payment connection',exact:true }).click();await expect(row).toContainText('DISABLED');
     await expect(panel.getByRole('button',{ name:'Test authentication',exact:true })).toBeDisabled();
@@ -1199,5 +1200,48 @@ test('browser configures scoped PayPal client credentials, rotates and recovers 
     await page.setViewportSize({ width:390,height:844 });await page.getByRole('combobox',{ name:'Language' }).selectOption('ar');
     await panel.getByRole('heading',{ name:'تاريخ اختبارات الدفع',exact:true }).scrollIntoViewIfNeeded();await page.screenshot({ path:'.local/e2e/paypal-auth-ar.png' });
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);expect(errors).toEqual([]);
+  }finally { await control(page,{ paymentFailure:false });await context.close(); }
+});
+
+test('browser configures PayPal Webhook ID, verifies RSA receipt and duplicate/failure history without treating callback claims as paid',async({ browser })=> {
+  const context=await browser.newContext({ storageState:managerStorageState,extraHTTPHeaders:{ 'x-e2e-rate-scope':randomUUID() } });const page=await context.newPage();const errors:string[]=[];
+  page.on('pageerror',(error)=>errors.push(error.message));
+  try {
+    await control(page,{ paymentFailure:false });await page.goto('/');await page.getByRole('combobox',{ name:'Language' }).selectOption('en');await page.getByRole('button',{ name:'Payment setup',exact:true }).click();
+    const setup=page.locator('.payment-setup');await setup.getByLabel('Payment provider',{ exact:true }).selectOption('PAYPAL');
+    const name='PayPal signed callback <img literal>';await setup.getByLabel('Payment connection name',{ exact:true }).fill(name);
+    await setup.getByLabel('PayPal Client ID',{ exact:true }).fill('BrowserWebhookClient_123456');await setup.getByLabel('PayPal Client Secret',{ exact:true }).fill('BrowserWebhookSecret_123456');
+    await setup.getByRole('button',{ name:'Save payment connection',exact:true }).click();await expect(setup.getByRole('row').filter({ hasText:name })).toContainText('PAYPAL');
+    const connection=(await (await page.request.get('/api/payments/connections')).json()).items.find((item:{ name:string })=>item.name===name);const root='/api/payments/connections/'+connection.id;
+    const panel=page.locator('.payment-webhooks');await expect(panel).toContainText('No signing secret is required');
+    await panel.getByLabel('Webhook change reason',{ exact:true }).fill('Register exact app callback from PayPal');await panel.getByRole('button',{ name:'Prepare payment callback',exact:true }).click();
+    const url=await panel.getByLabel('Payment callback URL',{ exact:true }).inputValue();expect(url).toContain('/api/webhooks/payments/paypal/');
+    await expect(panel).toContainText('CHECKOUT.ORDER.APPROVED');await expect(panel).toContainText('PAYMENT.CAPTURE.DECLINED');await expect(panel.getByLabel('Payment signing secret',{ exact:true })).toHaveCount(0);
+    const id=new URL(url).pathname.split('/').at(-1)!;const path=root+'/webhooks/'+id;
+    const wrong=await page.request.post(path+'/configure',{ data:{ version:1,endpointId:'we_WrongProvider123',reason:'Foreign Stripe endpoint denied' },headers:{ origin:new URL(url).origin } });expect(wrong.status()).toBe(400);
+    const endpoint='BROWSERWEBHOOK123';await panel.getByLabel('PayPal Webhook ID',{ exact:true }).fill(endpoint);await panel.getByRole('button',{ name:'Save webhook credentials',exact:true }).click();
+    await expect(panel.getByLabel('PayPal Webhook ID',{ exact:true })).toHaveCount(0);await panel.getByRole('button',{ name:'Test payment endpoint',exact:true }).click();
+    await expect(panel.getByText('Provider endpoint verified',{ exact:true }).locator('..')).toContainText('Yes');await expect(panel.getByText('Signed delivery verified',{ exact:true }).locator('..')).toContainText('No');
+    const payload=Buffer.from(JSON.stringify(testPayPalEvent('WH-BROWSER-CAPTURE123'),null,2));const headers={ ...testPayPalHeaders(payload,endpoint),origin:new URL(url).origin };
+    const send=()=>page.request.post(new URL(url).pathname,{ data:payload,headers });
+    expect((await page.request.post(new URL(url).pathname,{ data:payload,headers:{ 'content-type':'application/json',origin:new URL(url).origin } })).status()).toBe(403);
+    expect((await page.request.post(new URL(url).pathname,{ data:Buffer.from(payload.toString()+' '),headers })).status()).toBe(403);
+    expect((await send()).status()).toBe(200);expect((await (await send()).json()).duplicate).toBe(true);
+    await panel.getByRole('button',{ name:'Refresh payment webhooks',exact:true }).click();await expect(panel.getByText('Signed delivery verified',{ exact:true }).locator('..')).toContainText('Yes');
+    await expect(panel.locator('.payment-webhook-events > li')).toHaveCount(1);await expect(panel.locator('.payment-webhook-events')).toContainText('QUEUED');
+    const dto=await (await page.request.get(path)).json();expect(dto.webhookReady).toBe(true);expect(dto.financialProcessingReady).toBe(false);expect(dto.secret_configured).toBe(false);
+    const safe=await panel.textContent();expect(safe).not.toContain('private-buyer');expect(safe).not.toContain('25.00');expect(safe).not.toContain('BrowserWebhookSecret');
+    await control(page,{ paymentReceipts:true });await panel.getByRole('button',{ name:'Refresh payment webhooks',exact:true }).click();
+    await expect(panel.locator('.payment-webhook-events')).toContainText('NEEDS_ATTENTION');await expect(panel.locator('.payment-webhook-events')).toContainText('PAYMENT_RECEIPT_PROFILE_UNSUPPORTED');
+    await expect(panel.getByRole('checkbox',{ name:'Use verified current connection credentials for this receipt',exact:true })).toHaveCount(0);
+    const agent=await browser.newContext({ storageState:agentStorageState });try { expect((await agent.request.get(path)).status()).toBe(403);expect((await agent.request.get(root+'/webhook-events')).status()).toBe(403); }finally{ await agent.close(); }
+    await control(page,{ paymentFailure:true });await panel.getByRole('button',{ name:'Test payment endpoint',exact:true }).click();await expect(panel.getByRole('alert')).toContainText('PAYMENT_PROVIDER_AUTH_FAILED');
+    await expect(panel.getByText('Provider endpoint verified',{ exact:true }).locator('..')).toContainText('No');
+    await control(page,{ paymentFailure:false });await panel.getByRole('button',{ name:'Test payment endpoint',exact:true }).click();await expect(panel.getByText('Provider endpoint verified',{ exact:true }).locator('..')).toContainText('Yes');
+    await page.getByRole('combobox',{ name:'Language' }).selectOption('fr');await expect(panel).toContainText('Aucun secret de signature');
+    await page.setViewportSize({ width:390,height:844 });await page.getByRole('combobox',{ name:'Language' }).selectOption('ar');
+    await panel.locator('.payment-webhook-detail').scrollIntoViewIfNeeded();await page.screenshot({ path:'.local/e2e/paypal-webhook-ar.png' });expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);expect(errors).toEqual([]);
+    await page.getByRole('combobox',{ name:'Language' }).selectOption('en');await panel.getByRole('button',{ name:'Disable payment webhook',exact:true }).click();await expect(panel.locator('.payment-webhook-detail')).toContainText('DISABLED');expect((await send()).status()).toBe(409);
+    await expect(panel.locator('.payment-webhook-events')).toContainText('WH-BROWSER-CAPTURE123');
   }finally { await control(page,{ paymentFailure:false });await context.close(); }
 });

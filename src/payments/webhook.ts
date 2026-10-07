@@ -1,6 +1,7 @@
 import { createHash,createHmac,timingSafeEqual } from 'node:crypto';
 import { HttpError } from '../security.js';
 import { PaymentProviderError,stripePaymentEvents,type PaymentWebhookInspection } from './providers.js';
+import { paymentWebhookProfile } from './webhook-profile.js';
 
 export function validateStripeWebhookSecret(secret:string):void {
   if(typeof secret!=='string' || !/^whsec_[A-Za-z0-9]{16,200}$/.test(secret))throw new HttpError(400,'PAYMENT_WEBHOOK_SECRET_INVALID');
@@ -15,14 +16,15 @@ export function verifyStripePaymentSignature(raw:Buffer,header:unknown,secret:st
   const expected=createHmac('sha256',secret).update(times[0]!.slice(2)+'.').update(raw).digest();
   if(!signatures.some((candidate)=>timingSafeEqual(expected,candidate)))throw new HttpError(403,'PAYMENT_WEBHOOK_SIGNATURE_INVALID');
 }
-export function checkedWebhookInspection(value:PaymentWebhookInspection,expected:{ mode:string;endpointId:string;callbackUrl:string }):PaymentWebhookInspection {
+export function checkedWebhookInspection(value:PaymentWebhookInspection,expected:{ mode:string;endpointId:string;callbackUrl:string },provider='STRIPE'):PaymentWebhookInspection {
+  const profile=paymentWebhookProfile(provider);
   if(!value || typeof value!=='object' || value.mode!==expected.mode)throw new PaymentProviderError('PAYMENT_MODE_MISMATCH');
   if(value.endpointId!==expected.endpointId || value.url!==expected.callbackUrl)throw new PaymentProviderError('PAYMENT_WEBHOOK_ENDPOINT_MISMATCH');
   if(value.enabled!==true)throw new PaymentProviderError('PAYMENT_WEBHOOK_ENDPOINT_DISABLED');
   if(!Array.isArray(value.enabledEvents) || value.enabledEvents.length<1 || value.enabledEvents.length>256
-    || value.enabledEvents.some((e)=>typeof e!=='string' || !/^(\*|[a-z][a-z0-9_.]{1,127})$/.test(e)))throw new PaymentProviderError('PAYMENT_PROVIDER_RESPONSE_INVALID');
+    || value.enabledEvents.some((e)=>typeof e!=='string' || !profile.eventPattern.test(e)))throw new PaymentProviderError('PAYMENT_PROVIDER_RESPONSE_INVALID');
   const events=[...new Set(value.enabledEvents)].sort();
-  if(!events.includes('*') && stripePaymentEvents.some((e)=>!events.includes(e)))throw new PaymentProviderError('PAYMENT_WEBHOOK_EVENTS_MISSING');
+  if(!events.includes('*') && profile.events.some((e)=>!events.includes(e)))throw new PaymentProviderError('PAYMENT_WEBHOOK_EVENTS_MISSING');
   return { mode:value.mode,endpointId:value.endpointId,url:value.url,enabled:true,enabledEvents:events };
 }
 export type PaymentReceipt={ externalId:string;type:string;objectId:string;objectType:string;created:number;mode:'TEST'|'LIVE';semanticHash:Buffer;raw:string };
@@ -31,6 +33,9 @@ function canonical(value:unknown,depth=0):unknown {
   if(Array.isArray(value))return value.map((v)=>canonical(v,depth+1));
   if(value && typeof value==='object')return Object.fromEntries(Object.entries(value).sort(([a],[b])=>a<b ? -1 : a>b ? 1 : 0).map(([k,v])=>[k,canonical(v,depth+1)]));
   return value;
+}
+export function paymentReceiptSemanticHash(value:unknown):Buffer {
+  return createHash('sha256').update(JSON.stringify(canonical(value))).digest();
 }
 export function parseStripePaymentReceipt(raw:Buffer,mode:string):PaymentReceipt {
   let text:string;let event:Record<string,unknown>;
@@ -47,6 +52,6 @@ export function parseStripePaymentReceipt(raw:Buffer,mode:string):PaymentReceipt
     || typeof object.object!=='string' || !/^[a-z][a-z0-9_.]{1,63}$/.test(object.object))throw new HttpError(400,'PAYMENT_WEBHOOK_PAYLOAD_INVALID');
   if(stripePaymentEvents.includes(event.type as typeof stripePaymentEvents[number]) && (object.object!=='checkout.session' || !/^cs_(test_|live_)?[A-Za-z0-9]{6,120}$/.test(object.id)))
     throw new HttpError(400,'PAYMENT_WEBHOOK_PAYLOAD_INVALID');
-  const semanticHash=createHash('sha256').update(JSON.stringify(canonical({ id:event.id,type:event.type,created:event.created,livemode:event.livemode,data:event.data }))).digest();
+  const semanticHash=paymentReceiptSemanticHash({ id:event.id,type:event.type,created:event.created,livemode:event.livemode,data:event.data });
   return { externalId:event.id,type:event.type,objectId:object.id,objectType:object.object,created:event.created as number,mode:actualMode,semanticHash,raw:text! };
 }

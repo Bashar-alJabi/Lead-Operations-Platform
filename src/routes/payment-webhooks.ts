@@ -6,10 +6,14 @@ import { openOpaque,openSecret,sealOpaque } from '../credentials.js';
 import { HttpError,principalFromRequest,requireRole,sha256,type Principal } from '../security.js';
 import { sessionCookie } from '../config.js';
 import { currentPaymentActor } from '../payments/access.js';
-import { paymentConnectionAdapters,PaymentProviderError,stripePaymentEvents,validatePaymentCredentials,type PaymentAdapterRegistry,type PaymentCredentials,type PaymentWebhookInspection } from '../payments/providers.js';
-import { checkedWebhookInspection,parseStripePaymentReceipt,validateStripeWebhookSecret,verifyStripePaymentSignature } from '../payments/webhook.js';
+import { paymentConnectionAdapters,PaymentProviderError,validatePaymentCredentials,type PaymentAdapterRegistry,type PaymentCredentials,type PaymentWebhookInspection } from '../payments/providers.js';
+import { checkedWebhookInspection,parseStripePaymentReceipt,validateStripeWebhookSecret,verifyStripePaymentSignature,type PaymentReceipt } from '../payments/webhook.js';
 import { decodeCursor,encodeCursor } from '../pagination.js';
 import { paymentReceiptIntent } from '../payments/receipt-context.js';
+import { paymentWebhookProfile } from '../payments/webhook-profile.js';
+import { paymentCheckoutAdapters } from '../payments/checkout-provider.js';
+import { paymentReceiptAdapters } from '../payments/receipt-adapters.js';
+import { parsePayPalPaymentReceipt,verifyPayPalPaymentSignature } from '../payments/paypal-webhook.js';
 
 const root='/api/payments/connections/:id';
 const params={ type:'object',additionalProperties:false,required:['id'],properties:{ id:{ type:'string',format:'uuid' } } } as const;
@@ -33,16 +37,28 @@ async function endpoint(tx:postgres.TransactionSql,c:postgres.Row,id:string,lock
   const row=(await tx`SELECT * FROM payment_webhook WHERE id=${id} AND connection_id=${c.id} ${lock ? tx`FOR UPDATE` : tx``}`)[0];
   if(!row)throw new HttpError(404,'PAYMENT_WEBHOOK_NOT_FOUND');return row;
 }
-function callbackUrl(id:string) {
+function callbackUrl(id:string,provider:string) {
   let url:URL;try { url=new URL(process.env.APP_ORIGIN ?? ''); }catch{ throw new HttpError(503,'PAYMENT_CALLBACK_ORIGIN_NOT_CONFIGURED'); }
   if(url.username || url.password || url.search || url.hash || url.pathname!=='/' || !['http:','https:'].includes(url.protocol)
     || (url.protocol==='http:' && (process.env.NODE_ENV==='production' || !['localhost','127.0.0.1','[::1]'].includes(url.hostname))))throw new HttpError(503,'PAYMENT_CALLBACK_ORIGIN_NOT_CONFIGURED');
-  return url.origin+'/api/webhooks/payments/stripe/'+id;
+  return url.origin+'/api/webhooks/payments/'+paymentWebhookProfile(provider).path+'/'+id;
 }
 function checkReason(text:string) { if(text.trim().length<3)throw new HttpError(400,'REASON_REQUIRED');return text.trim(); }
 async function audit(tx:postgres.TransactionSql,c:postgres.Row,actor:Principal|null,action:string,id:string,detail:postgres.JSONValue={}) {
   await tx`INSERT INTO audit_log(organization_id,branch_id,actor_user_id,action,target_type,target_id,detail)
     VALUES (${c.organization_id},${c.branch_id},${actor?.id ?? null},${action},'PAYMENT_WEBHOOK',${id},${tx.json(detail)})`;
+}
+async function storeReceipt(tx:postgres.TransactionSql,c:postgres.Row,w:postgres.Row,parsed:PaymentReceipt) {
+  const id=randomUUID();const sealed=sealOpaque('payment-event:'+id,parsed.raw);
+  const inserted=(await tx`INSERT INTO payment_webhook_event(id,webhook_id,connection_id,mode,external_event_id,event_type,object_id,object_type,provider_created_at,semantic_hash,ciphertext,nonce,auth_tag,key_version)
+    VALUES (${id},${w.id},${c.id},${parsed.mode},${parsed.externalId},${parsed.type},${parsed.objectId},${parsed.objectType},${new Date(parsed.created*1000)},${parsed.semanticHash},
+      ${sealed.ciphertext},${sealed.nonce},${sealed.authTag},${sealed.keyVersion}) ON CONFLICT(connection_id,mode,external_event_id) DO NOTHING RETURNING id`)[0];
+  const event=inserted ?? (await tx`SELECT id,semantic_hash FROM payment_webhook_event WHERE connection_id=${c.id} AND mode=${parsed.mode} AND external_event_id=${parsed.externalId}`)[0]!;
+  if(!inserted && !Buffer.from(event.semantic_hash).equals(parsed.semanticHash))throw new HttpError(409,'PAYMENT_WEBHOOK_EVENT_CONFLICT');
+  const delivery=(await tx`INSERT INTO payment_webhook_delivery(webhook_id,event_id) VALUES (${w.id},${event.id}) ON CONFLICT DO NOTHING RETURNING received_at`)[0];
+  if(delivery) { await tx`UPDATE payment_webhook SET last_signed_at=(SELECT received_at FROM payment_webhook_delivery WHERE webhook_id=${w.id} AND event_id=${event.id}) WHERE id=${w.id}`;
+    await audit(tx,c,null,'PAYMENT_WEBHOOK_RECEIVED',w.id,{ eventId:event.id,duplicate:!inserted }); }
+  return { accepted:true,duplicate:!inserted };
 }
 async function visible(tx:postgres.TransactionSql,c:postgres.Row,w:postgres.Row) {
   const probe=(await tx`SELECT id,state,error_code,snapshot,created_at,finished_at,expires_at<=clock_timestamp() AS expired
@@ -52,7 +68,8 @@ async function visible(tx:postgres.TransactionSql,c:postgres.Row,w:postgres.Row)
     version:w.version,created_at:w.created_at,last_signed_at:w.last_signed_at,secret_configured:!!w.ciphertext,current,
     endpointVerified:current && w.state==='CONFIGURED' && probe?.state==='VERIFIED',signedDeliveryVerified:!!w.last_signed_at,
     webhookReady:current && w.state==='CONFIGURED' && probe?.state==='VERIFIED' && !!w.last_signed_at,
-    financialProcessingReady:current && w.state==='CONFIGURED' && probe?.state==='VERIFIED' && !!w.last_signed_at,publicHttps:w.callback_url.startsWith('https:'),requiredEvents:[...stripePaymentEvents],
+    financialProcessingReady:current && w.state==='CONFIGURED' && probe?.state==='VERIFIED' && !!w.last_signed_at && !!paymentCheckoutAdapters[c.provider] && !!paymentReceiptAdapters[c.provider],
+    publicHttps:w.callback_url.startsWith('https:'),requiredEvents:paymentWebhookProfile(c.provider).events,
     latestProbe:probe ? { id:probe.id,state:probe.state==='RUNNING' && probe.expired ? 'INTERRUPTED' : probe.state,
       error_code:probe.state==='RUNNING' && probe.expired ? 'PAYMENT_TEST_INTERRUPTED' : probe.error_code,snapshot:probe.snapshot,created_at:probe.created_at,finished_at:probe.finished_at } : null };
 }
@@ -72,9 +89,9 @@ export function registerPaymentWebhookRoutes(app:FastifyInstance,db:Database,ada
   });
   app.post<{ Params:{ id:string };Body:{ connectionVersion:number;reason:string } }>(root+'/webhooks',{ schema:{ params,body:{ type:'object',additionalProperties:false,
     required:['connectionVersion','reason'],properties:{ connectionVersion:version,reason } } },config:{ rateLimit:{ max:20,timeWindow:'15 minutes' } } },async(request,reply)=> {
-    const actor=await principalFromRequest(request,db);const why=checkReason(request.body.reason);const id=randomUUID();const url=callbackUrl(id);
+    const actor=await principalFromRequest(request,db);const why=checkReason(request.body.reason);const id=randomUUID();
     const result=await db.begin(async(tx)=> { const c=await managed(tx,actor,request,request.params.id,true);
-      if(c.provider!=='STRIPE' || !adapters[c.provider]?.inspectWebhook)throw new HttpError(409,'PAYMENT_WEBHOOK_UNSUPPORTED');
+      paymentWebhookProfile(c.provider);if(!adapters[c.provider]?.inspectWebhook)throw new HttpError(409,'PAYMENT_WEBHOOK_UNSUPPORTED');const url=callbackUrl(id,c.provider);
       if(c.version!==request.body.connectionVersion)throw new HttpError(409,'CONNECTION_VERSION_CONFLICT');
       if(c.status==='DISABLED')throw new HttpError(409,'CONNECTION_DISABLED');if(!await activeBranch(tx,c.branch_id))throw new HttpError(409,'BRANCH_DISABLED');
       if(!await currentPaymentActor(tx,actor,request))throw new HttpError(403,'PAYMENT_ACCESS_REVOKED');
@@ -82,20 +99,23 @@ export function registerPaymentWebhookRoutes(app:FastifyInstance,db:Database,ada
         VALUES (${id},${c.id},${c.version},${c.config.mode},${url},${actor.id},${actor.id},${why}) RETURNING *`)[0]!;
       await audit(tx,c,actor,'PAYMENT_WEBHOOK_PREPARED',id,{ reason:why,connectionVersion:c.version });return visible(tx,c,w); });reply.code(201);return result;
   });
-  app.post<{ Params:Scope;Body:{ version:number;endpointId:string;signingSecret:string;reason:string } }>(root+'/webhooks/:webhookId/configure',{
-    schema:{ params:endpointParams,body:{ type:'object',additionalProperties:false,required:['version','endpointId','signingSecret','reason'],properties:{ version,reason,
-      endpointId:{ type:'string',pattern:'^we_[A-Za-z0-9]{6,100}$' },signingSecret:{ type:'string',minLength:22,maxLength:206 } } } },
+  app.post<{ Params:Scope;Body:{ version:number;endpointId:string;signingSecret?:string;reason:string } }>(root+'/webhooks/:webhookId/configure',{
+    schema:{ params:endpointParams,body:{ type:'object',additionalProperties:false,required:['version','endpointId','reason'],properties:{ version,reason,
+      endpointId:{ type:'string',minLength:8,maxLength:103 },signingSecret:{ type:'string',minLength:22,maxLength:206 } } } },
   },async(request)=> {
-    const actor=await principalFromRequest(request,db);const why=checkReason(request.body.reason);validateStripeWebhookSecret(request.body.signingSecret);
+    const actor=await principalFromRequest(request,db);const why=checkReason(request.body.reason);
     return db.begin(async(tx)=> { const c=await managed(tx,actor,request,request.params.id,true);const w=await endpoint(tx,c,request.params.webhookId,true);
+      const profile=paymentWebhookProfile(c.provider);if(!profile.endpointPattern.test(request.body.endpointId))throw new HttpError(400,'PAYMENT_WEBHOOK_PROFILE_INVALID');
+      if(profile.secret)validateStripeWebhookSecret(request.body.signingSecret!);
+      else if(request.body.signingSecret!==undefined)throw new HttpError(400,'PAYMENT_WEBHOOK_PROFILE_INVALID');
       if(w.version!==request.body.version)throw new HttpError(409,'PAYMENT_WEBHOOK_VERSION_CONFLICT');
       if(w.state!=='DRAFT')throw new HttpError(409,'PAYMENT_WEBHOOK_CONFIG_IMMUTABLE');
       if(c.status==='DISABLED' || w.connection_version!==c.version || w.mode!==c.config.mode)throw new HttpError(409,'PAYMENT_WEBHOOK_CONNECTION_STALE');
       if(!await activeBranch(tx,c.branch_id))throw new HttpError(409,'BRANCH_DISABLED');
       if(!await currentPaymentActor(tx,actor,request))throw new HttpError(403,'PAYMENT_ACCESS_REVOKED');
-      const sealed=sealOpaque('payment-webhook:'+w.id,request.body.signingSecret);
-      const updated=(await tx`UPDATE payment_webhook SET state='CONFIGURED',external_endpoint_id=${request.body.endpointId},ciphertext=${sealed.ciphertext},nonce=${sealed.nonce},
-        auth_tag=${sealed.authTag},key_version=${sealed.keyVersion},version=version+1,updated_by=${actor.id},change_reason=${why},updated_at=clock_timestamp() WHERE id=${w.id} RETURNING *`)[0]!;
+      const sealed=profile.secret ? sealOpaque('payment-webhook:'+w.id,request.body.signingSecret!) : null;
+      const updated=(await tx`UPDATE payment_webhook SET state='CONFIGURED',external_endpoint_id=${request.body.endpointId},ciphertext=${sealed?.ciphertext ?? null},nonce=${sealed?.nonce ?? null},
+        auth_tag=${sealed?.authTag ?? null},key_version=${sealed?.keyVersion ?? null},version=version+1,updated_by=${actor.id},change_reason=${why},updated_at=clock_timestamp() WHERE id=${w.id} RETURNING *`)[0]!;
       await audit(tx,c,actor,'PAYMENT_WEBHOOK_CONFIGURED',w.id,{ reason:why });return visible(tx,c,updated); });
   });
   app.post<{ Params:Scope;Body:{ version:number;reason:string } }>(root+'/webhooks/:webhookId/disable',{ schema:{ params:endpointParams,body:{ type:'object',additionalProperties:false,
@@ -123,7 +143,7 @@ export function registerPaymentWebhookRoutes(app:FastifyInstance,db:Database,ada
       await audit(tx,c,actor,'PAYMENT_WEBHOOK_TEST_STARTED',w.id,{ probeId:probe.id });return { c,w,credentials,probeId:probe.id }; });
     let code:string|null=null;let snapshot:PaymentWebhookInspection|null=null;
     try { const adapter=adapters[claim.c.provider];if(!adapter?.inspectWebhook)throw new PaymentProviderError('PAYMENT_WEBHOOK_UNSUPPORTED');
-      snapshot=checkedWebhookInspection(await adapter.inspectWebhook(claim.c.config,claim.credentials,claim.w.external_endpoint_id),{ mode:claim.w.mode,endpointId:claim.w.external_endpoint_id,callbackUrl:claim.w.callback_url });
+      snapshot=checkedWebhookInspection(await adapter.inspectWebhook(claim.c.config,claim.credentials,claim.w.external_endpoint_id),{ mode:claim.w.mode,endpointId:claim.w.external_endpoint_id,callbackUrl:claim.w.callback_url },claim.c.provider);
     }catch(error){ code=error instanceof PaymentProviderError ? error.code : 'PAYMENT_PROVIDER_UNAVAILABLE'; }
     const result=await db.begin(async(tx)=> {
       const c=(await tx`SELECT * FROM integration_connection WHERE id=${claim.c.id} FOR UPDATE`)[0]!;
@@ -213,6 +233,27 @@ export function registerPaymentWebhookRoutes(app:FastifyInstance,db:Database,ada
   });
   app.register(async(webhook)=> {
     webhook.addContentTypeParser('application/json',{ parseAs:'buffer' },(_request,body,done)=>done(null,body));
+    webhook.post<{ Params:{ webhookId:string };Body:Buffer }>('/api/webhooks/payments/paypal/:webhookId',{ bodyLimit:65536,
+      schema:{ params:{ type:'object',additionalProperties:false,required:['webhookId'],properties:{ webhookId:{ type:'string',format:'uuid' } } } },
+      config:{ rateLimit:{ max:300,timeWindow:'1 minute' } },
+    },async(request)=> {
+      const claim=await db.begin(async(tx)=> {
+        const ref=(await tx`SELECT connection_id FROM payment_webhook WHERE id=${request.params.webhookId}`)[0];if(!ref)throw new HttpError(404,'PAYMENT_WEBHOOK_NOT_FOUND');
+        const c=(await tx`SELECT * FROM integration_connection WHERE id=${ref.connection_id} AND kind='PAYMENT' AND provider='PAYPAL' FOR SHARE`)[0];if(!c)throw new HttpError(404,'PAYMENT_WEBHOOK_NOT_FOUND');
+        const w=await endpoint(tx,c,request.params.webhookId);if(w.state!=='CONFIGURED')throw new HttpError(409,'PAYMENT_WEBHOOK_NOT_CONFIGURED');
+        const clock=(await tx`SELECT extract(epoch FROM clock_timestamp())::double precision AS seconds`)[0]!.seconds as number;
+        return { c,w,clock };
+      });
+      // Certificate I/O is bounded and outside SQL locks. No credentials or financial call are needed for RSA verification.
+      await verifyPayPalPaymentSignature(request.body,request.headers,claim.w.external_endpoint_id,claim.w.mode,claim.clock);
+      const parsed=parsePayPalPaymentReceipt(request.body,claim.w.mode);
+      return db.begin(async(tx)=> {
+        const c=(await tx`SELECT * FROM integration_connection WHERE id=${claim.c.id} AND kind='PAYMENT' AND provider='PAYPAL' FOR SHARE`)[0];if(!c)throw new HttpError(404,'PAYMENT_WEBHOOK_NOT_FOUND');
+        const w=await endpoint(tx,c,request.params.webhookId,true);
+        if(w.state!=='CONFIGURED' || w.external_endpoint_id!==claim.w.external_endpoint_id || w.mode!==claim.w.mode)throw new HttpError(409,'PAYMENT_WEBHOOK_NOT_CONFIGURED');
+        return storeReceipt(tx,c,w,parsed);
+      });
+    });
     webhook.post<{ Params:{ webhookId:string };Body:Buffer }>('/api/webhooks/payments/stripe/:webhookId',{ bodyLimit:65536,
       schema:{ params:{ type:'object',additionalProperties:false,required:['webhookId'],properties:{ webhookId:{ type:'string',format:'uuid' } } } },
       config:{ rateLimit:{ max:300,timeWindow:'1 minute' } },
@@ -225,16 +266,7 @@ export function registerPaymentWebhookRoutes(app:FastifyInstance,db:Database,ada
         const secret=openOpaque('payment-webhook:'+w.id,{ ciphertext:w.ciphertext,nonce:w.nonce,authTag:w.auth_tag,keyVersion:w.key_version });
         const clock=(await tx`SELECT extract(epoch FROM clock_timestamp())::double precision AS seconds`)[0]!.seconds as number;
         verifyStripePaymentSignature(request.body,request.headers['stripe-signature'],secret,clock);const parsed=parseStripePaymentReceipt(request.body,w.mode);
-        const id=randomUUID();const sealed=sealOpaque('payment-event:'+id,parsed.raw);
-        const inserted=(await tx`INSERT INTO payment_webhook_event(id,webhook_id,connection_id,mode,external_event_id,event_type,object_id,object_type,provider_created_at,semantic_hash,ciphertext,nonce,auth_tag,key_version)
-          VALUES (${id},${w.id},${c.id},${parsed.mode},${parsed.externalId},${parsed.type},${parsed.objectId},${parsed.objectType},${new Date(parsed.created*1000)},${parsed.semanticHash},
-            ${sealed.ciphertext},${sealed.nonce},${sealed.authTag},${sealed.keyVersion}) ON CONFLICT(connection_id,mode,external_event_id) DO NOTHING RETURNING id`)[0];
-        const event=inserted ?? (await tx`SELECT id,semantic_hash FROM payment_webhook_event WHERE connection_id=${c.id} AND mode=${parsed.mode} AND external_event_id=${parsed.externalId}`)[0]!;
-        if(!inserted && !Buffer.from(event.semantic_hash).equals(parsed.semanticHash))throw new HttpError(409,'PAYMENT_WEBHOOK_EVENT_CONFLICT');
-        const delivery=(await tx`INSERT INTO payment_webhook_delivery(webhook_id,event_id) VALUES (${w.id},${event.id}) ON CONFLICT DO NOTHING RETURNING received_at`)[0];
-        if(delivery) { await tx`UPDATE payment_webhook SET last_signed_at=(SELECT received_at FROM payment_webhook_delivery WHERE webhook_id=${w.id} AND event_id=${event.id}) WHERE id=${w.id}`;
-          await audit(tx,c,null,'PAYMENT_WEBHOOK_RECEIVED',w.id,{ eventId:event.id,duplicate:!inserted }); }
-        return { accepted:true,duplicate:!inserted };
+        return storeReceipt(tx,c,w,parsed);
       });
     });
   });

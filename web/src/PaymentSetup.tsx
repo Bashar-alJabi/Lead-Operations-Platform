@@ -107,7 +107,7 @@ export function PaymentSetup({ locale,role,branches,api }: { locale:Locale;role:
       <h4>{t.history}</h4><ul>{probes.map((probe)=><li key={probe.id}><time>{new Date(probe.created_at).toLocaleString(locale)}</time> · <bdi>{probe.purpose}</bdi> · <bdi>{probe.state}</bdi> · {t.version} {probe.connection_version}{probe.error_code && <> · <bdi>{probe.error_code}</bdi></>}
         {probe.options_snapshot && <p>{ot.country}: <bdi>{probe.options_snapshot.country}</bdi> · {ot.currencies}: <bdi>{probe.options_snapshot.currencies.join(', ')}</bdi></p>}</li>)}</ul>
       {probeCursor && <button disabled={busy} className="secondary" onClick={()=>void history(selected.id,probeCursor).catch((e)=>setError(String(e)))}>{t.moreHistory}</button>}
-      {selected.provider==='STRIPE' && <PaymentWebhooks key={selected.id} connectionId={selected.id} connectionVersion={selected.version} disabled={selected.status==='DISABLED'} locale={locale} api={api} />}
+      <PaymentWebhooks key={selected.id} provider={selected.provider as 'STRIPE'|'PAYPAL'} connectionId={selected.id} connectionVersion={selected.version} disabled={selected.status==='DISABLED'} locale={locale} api={api} />
     </section>}
     <PaymentMethods locale={locale} role={role} branches={branches} api={api} />
   </section>;
