@@ -17,7 +17,9 @@ export class PaymentProviderError extends Error {
     |'PAYMENT_PROVIDER_RESPONSE_INVALID'|'PAYMENT_MODE_MISMATCH'|'PAYMENT_PROVIDER_OPTIONS_UNSUPPORTED'|'PAYMENT_WEBHOOK_UNSUPPORTED'
     |'PAYMENT_WEBHOOK_ENDPOINT_MISMATCH'|'PAYMENT_WEBHOOK_EVENTS_MISSING'|'PAYMENT_WEBHOOK_ENDPOINT_DISABLED') { super(code); }
 }
-export function validatePaymentCredentials(config:PaymentConfig,credentials:PaymentCredentials):void {
+export function validatePaymentCredentials(config:PaymentConfig,credentials:PaymentCredentials,provider='STRIPE'):void {
+  if(provider!=='STRIPE')throw new HttpError(400,'PAYMENT_PROVIDER_UNSUPPORTED');
+  if(!config || Object.keys(config).join(',')!=='mode')throw new HttpError(400,'PAYMENT_CONFIG_INVALID');
   const mode=config.mode==='TEST' ? 'test' : config.mode==='LIVE' ? 'live' : null;
   if (!mode || !credentials || typeof credentials.apiKey!=='string' || credentials.apiKey.length>4096
     || !new RegExp(`^(rk|sk)_${mode}_[A-Za-z0-9]{16,}$`).test(credentials.apiKey))

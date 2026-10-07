@@ -832,6 +832,10 @@ test('Payment setup encrypts and rotates test keys, verifies authentication only
     await page.goto('/');await page.getByRole('combobox',{ name:'Language' }).selectOption('en');
     await page.getByRole('button',{ name:'Payment setup',exact:true }).click();const panel=page.locator('.payment-setup');
     const name='Browser Payment <b>literal</b>';const key='rk_test_'+ 'browserSynthetic'.repeat(3);
+    const beforeUnsupported=(await control(page)).paymentCalls;
+    const unsupported=await page.request.post('/api/payments/connections',{ headers:{ origin:'http://127.0.0.1:4100' },
+      data:{ name:'Unconfigured provider is not ready',provider:'MOLLIE',config:{ mode:'TEST' },credentials:{ apiKey:key } } });
+    expect(unsupported.status()).toBe(400);expect((await control(page)).paymentCalls).toBe(beforeUnsupported);
     await panel.getByLabel('Payment connection name',{ exact:true }).fill(name);await panel.getByLabel('Payment API key',{ exact:true }).fill(key);
     await panel.getByRole('button',{ name:'Save payment connection',exact:true }).click();
     const row=panel.getByRole('row').filter({ hasText:name });await expect(row).toContainText('NOT_CONFIGURED');

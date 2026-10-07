@@ -1,5 +1,11 @@
 # المعمارية التقنية
 
+## Payment Providers المطلوبة وحماية Connection identity —2026-10-07
+
+القائمة الملزمة وفق المستخدم هيStripe وPayPal وAlma وBank Transfer مستقلة معtrusted reconciliation؛ راجع`payment-provider-requirements.md`. النصوص الأصلية تطلب دعم تعددProviders/Connections ولا تفرضMollie أوعددAdapters end-to-end بعينه. runtime receipt contracts وmerchant/session/exact money/native guards تبقى عامة؛ لا استخدامMollie-specific profileId/token/config فيCore. المسودةحُفظتignored بSHA-256،ولم تُطبقmigration القديمةأوتُفعّلMollieConnection.
+
+Migration070 العامة تمنع تعديلid/kind/organization/branch/provider/created_at/created_by لـPayment Connection أوتحويلConnection أخرىإلىPayment؛ rename/config/credential rotation/status/version تبقىعملياتالـlifecycle القائمة. الحمايةتمنع تغييرتفسيرhistorical receipts بسببprovider/scope edit خلفAPI؛ لاwhitelist لمزوّدغيرمنفذ ولاتفعيلCheckout/callback أوصلاحيةBusiness جديدة. Current role/session/resource authorization وencrypted credentials وimmutable evidence/Audit القائمةلا تتغير. PayPal/Alma/Bank Transfer تُضافمعprofiles المثبتةوtests وUI المطلوبة،وليستمجردregistry entries.
+
 ## Payment receipt runtime contract — prerequisite لمزوّد إضافي
 
 `PaymentReceiptAdapter` تفك تنسيق Provider إلى `PaymentReceiptEnvelope` schemaVersion1، مع profileId وexact stored event/resource identity وmode وresourceKind وkind وoptional opaque intentHint. `checkedPaymentReceipt` تعيد فحص الهوية مقابل signed immutable receipt، و64KiB bounds وprofile/schema/kind/UUID، وتسقط حقول claims/amount/customer/credentials غير المعلنة. Decoder لا تمنح authenticity أوPaid authority؛ التوقيع والاستلام الموثوق يسبقان هذا المسار، وmoney proof تبقى من retrieval مستقلة.

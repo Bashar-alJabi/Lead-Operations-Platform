@@ -1,5 +1,15 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: Payment Providers recovery وأولوية المستخدم —2026-10-07
+
+راجعت git status/diff وprogress/coverage وآخرcommit50820cf. النصوص الأصلية تطلبدعمعدةProviders/Connections وprovider-independent architecture،ولا تحددعددAdapters end-to-end أومزوّدًا ثانيًابعينه. اختياريMollie لم يكنRequirement. وفقالمستخدمالقائمةالملزمةStripe → PayPal → Alma → Bank Transfer كطريقةمستقلةمعtrusted verification/reconciliation؛ التوثيقوحسمالنطاق فيpayment-provider-requirements.md. لاInstallment schedules/ledger داخلCore ولاsuccess-page/customer-claim confirmation.
+
+كلتغييراتMollie غيرالملتزمةروجعت. حُفظتخمسةملفاتأصليةمعSHA-256 داخلignored .local/recovered-mollie/2026-10-07؛ no reset/discard أعمى. PostgreSQL/ClamAV أعيدتشغيلهماعبرCompose دونحذفvolumes؛ فحصDB أكدعدموجودmigration070 مطبقةأواتصالMollie وقتالفصل. أزيلتMollie-specific imports/registry/config/token/Endpoint draft منactive runtime بعدالأرشفة. احتُفظبprovider-aware validation العامةوحمايةهويةConnection في070_payment_connection_identity.sql: لاnative edit للprovider/kind/org/branch/creator/creation time،معrename/rotation/status lifecycle القائمة؛ لاتفعيلProvider فيها.
+
+التحققالمثبت: **100/100 unit،40/40 full PostgreSQL integration،19/19 Edge Browser**،Backend/Web typecheck/build وmigrations001–070 علىdevelopment/test. Unit ترفضunconfigured provider/foreign config قبلI/O؛ Integration ترفضnative identity mutations وMollie/unimplemented PayPal API دونprobe،وتثبتscope/encryption/rotation/history/session/config/late-result failures القائمة. Browser Payment setup ترفضMollie400 دونProvider I/O؛ full financial/Messaging/Meta regression ناجحة. هذهcheckpoint recovery وDB security فقط؛ لاMollie أوPayPal financial verification،ولاLive credential/Provider account/main merge/deploy.
+
+**الخطوة التالية الدقيقة:** PayPal secure Connection Authentication عبرclientId/clientSecret وTEST/LIVE endpoint منUI،معencrypted lifecycle/current roles-session/version/latest/history وفشلbounded/tests وBrowser. بعدهاmerchant/options وWebhook authenticity/order mapping وdurable capture/idempotency/independent exact-money proof/native guards/Enrollment/UI/recovery لتكوينPayPal end-to-end،ثمAlma ثمBank Transfer. لاProvider Complete قبلIntegration+Browser وحالةLive منفصلة.
+
 ## آخر حالة مستقرة: Payment receipt runtime contract وDB clock
 
 بدأت بعد حفظ ورفع مشاركة الروابط في `8c71bdd`. أُضيفت versioned receipt envelope وchecked adapter registry؛ Stripe decoder تفصل أسماء الأحداث وraw metadata عن runtime lookup وconfirmation policy وcredential recovery. المقارنة مع هوية الإيصال المخزنة إلزامية، ويُسقط أي metadata أوmoney claims غير مصرح بها. فك الإيصال لا يمنحه صلاحية تأكيد المال: تبقى independent retrieval وإثبات provider/account/mode/Session/intent/exact money والمحاولة السابقة والـnative guards إلزامية. unsupported events تصبح IGNORED دون financial I/O أوEnrollment، والأخطاء محدودة دون أسرار، وAudit تحفظ profile/schema المستخدمة.

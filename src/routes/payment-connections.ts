@@ -59,7 +59,7 @@ export function registerPaymentConnectionRoutes(app:FastifyInstance,db:Database,
     const actor=await principalFromRequest(request,db);requireRole(actor,'SUPER_ADMIN','MANAGER');
     const branchId=actor.role==='MANAGER' ? actor.branchId : request.body.branchId ?? null;
     if (actor.role==='MANAGER' && (!branchId || (Object.hasOwn(request.body,'branchId') && request.body.branchId!==branchId))) throw new HttpError(403,'FORBIDDEN');
-    validatePaymentCredentials(request.body.config,request.body.credentials!);if (!request.body.name.trim()) throw new HttpError(400,'NAME_REQUIRED');
+    validatePaymentCredentials(request.body.config,request.body.credentials!,request.body.provider);if (!request.body.name.trim()) throw new HttpError(400,'NAME_REQUIRED');
     const id=randomUUID();const sealed=sealSecret(id,JSON.stringify(request.body.credentials));
     await db.begin(async(tx)=> {
       if (!(await currentPaymentActor(tx,actor,request))) throw new HttpError(403,'PAYMENT_ACCESS_REVOKED');
@@ -82,7 +82,7 @@ export function registerPaymentConnectionRoutes(app:FastifyInstance,db:Database,
       if (row.provider!==request.body.provider || (Object.hasOwn(request.body,'branchId') && request.body.branchId!==row.branch_id)) throw new HttpError(400,'CONNECTION_SCOPE_IMMUTABLE');
       if (!(await branchActive(tx,row.branch_id))) throw new HttpError(409,'BRANCH_DISABLED');
       if (!request.body.name.trim()) throw new HttpError(400,'NAME_REQUIRED');
-      const credentials=request.body.credentials ?? await savedCredentials(tx,row.id);validatePaymentCredentials(request.body.config,credentials);
+      const credentials=request.body.credentials ?? await savedCredentials(tx,row.id);validatePaymentCredentials(request.body.config,credentials,row.provider);
       if (request.body.credentials) { const sealed=sealSecret(row.id,JSON.stringify(credentials));
         await tx`UPDATE connection_secret SET ciphertext=${sealed.ciphertext},nonce=${sealed.nonce},auth_tag=${sealed.authTag},key_version=${sealed.keyVersion},updated_at=now() WHERE connection_id=${row.id}`; }
       const result=(await tx`UPDATE integration_connection SET name=${request.body.name.trim()},config=${tx.json(request.body.config)},version=version+1,
@@ -122,7 +122,7 @@ export function registerPaymentConnectionRoutes(app:FastifyInstance,db:Database,
       if (row.version!==request.body.version) throw new HttpError(409,'CONNECTION_VERSION_CONFLICT');
       if (row.status==='DISABLED') throw new HttpError(409,'CONNECTION_DISABLED');
       if (!(await branchActive(tx,row.branch_id))) throw new HttpError(409,'BRANCH_DISABLED');
-      const credentials=await savedCredentials(tx,row.id);validatePaymentCredentials(row.config,credentials);
+      const credentials=await savedCredentials(tx,row.id);validatePaymentCredentials(row.config,credentials,row.provider);
       const purpose=request.body.inspectOptions ? 'OPTIONS' : 'AUTH';
       const probe=(await tx`INSERT INTO payment_connection_probe(connection_id,connection_version,actor_user_id,actor_role,actor_branch_id,purpose)
         VALUES (${row.id},${row.version},${actor.id},${actor.role},${actor.branchId},${purpose}) RETURNING id`)[0]!;

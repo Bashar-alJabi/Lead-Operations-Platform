@@ -2,6 +2,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { stripeConnectionAdapter,validatePaymentCredentials } from '../src/payments/providers.js';
 const config={ mode:'TEST' } as const;const credentials={ apiKey:'rk_test_'+ 'syntheticOnly'.repeat(3) };
+
+test('only configured provider profiles accept credentials and reject foreign provider config before I/O',()=> {
+  for(const provider of ['MOLLIE','PAYPAL','ALMA','BANK_TRANSFER','constructor'])
+    assert.throws(()=>validatePaymentCredentials(config,credentials,provider),/PAYMENT_PROVIDER_UNSUPPORTED/);
+  const foreignConfig={ ...config,profileId:'foreign-profile' };
+  assert.throws(()=>validatePaymentCredentials(foreignConfig,credentials),/PAYMENT_CONFIG_INVALID/);
+  assert.throws(()=>validatePaymentCredentials(null as unknown as typeof config,credentials),/PAYMENT_CONFIG_INVALID/);
+});
 test('payment API keys are scoped to selected environment and restricted server keys, never publishable/organization/control keys',()=> {
   validatePaymentCredentials(config,credentials);
   for(const apiKey of ['pk_test_'+ 'a'.repeat(20),'sk_live_'+ 'a'.repeat(20),'sk_org_'+ 'a'.repeat(20),'rk_test_short',credentials.apiKey+'\n',' rk_test_'+ 'a'.repeat(20)])

@@ -38,6 +38,14 @@ test('Payment Connection authentication lifecycle encrypts credentials, fences r
   assert.equal((await api('POST',root,{ ...input,branchId:null })).statusCode,403);
   assert.equal((await api('POST',root,{ ...input,credentials:{ apiKey:'pk_test_'+ 'x'.repeat(24) } })).statusCode,400);
   const made=await api('POST',root,input);assert.equal(made.statusCode,201,made.body);const id=made.json().id as string;const path=root+'/'+id;
+  const beforeUnsupported=calls;
+  assert.equal((await api('POST',root,{ ...input,provider:'MOLLIE' })).statusCode,400);
+  assert.equal((await api('POST',root,{ ...input,provider:'PAYPAL' })).statusCode,400,'unimplemented required provider is not exposed as ready');
+  assert.equal(calls,beforeUnsupported);
+  for(const [field,value] of [['provider','MOLLIE'],['branch_id',otherBranch],['organization_id',foreignOrg],['kind','AI'],
+    ['created_by',users.admin!.id],['created_at',new Date(0)]]) {
+    await assert.rejects(db`UPDATE integration_connection SET ${db({ [field as string]:value })} WHERE id=${id}`,/PAYMENT_CONNECTION_IDENTITY_IMMUTABLE/);
+  }
   const shared=await api('POST',root,{ ...input,name:'Organization account' },'admin');assert.equal(shared.statusCode,201,shared.body);
   assert.equal((await api('GET',root)).json().items.length,1);
   assert.equal((await api('GET',root,undefined,'admin')).json().items.length,2);
