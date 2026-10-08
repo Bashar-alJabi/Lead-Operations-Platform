@@ -1,4 +1,5 @@
 import { useEffect,useRef,useState } from 'react';
+import { AISharedUse,AIUsableProfiles } from './AISharedUse';
 type Api=<T>(path:string,options?:RequestInit)=>Promise<T>;
 type Locale='ar'|'en'|'fr';
 type Connection={ id:string;name:string;provider:string;branch_id:string|null;version:number;status:string;last_error_code:string|null;capabilities:{ modelCount?:number;catalogVersion?:number;inferenceVerified?:boolean } };
@@ -41,7 +42,8 @@ export function AISetup({ locale,role,branches,api }:{ locale:Locale;role:'SUPER
       <button disabled={busy || c.status==='DISABLED'} onClick={()=>void run(async()=>{ await api(`/api/ai/connections/${c.id}/test`,{ method:'POST',body:JSON.stringify({ version:c.version }) });await load();await loadProfiles();await detail(c); })}>{t('test')}</button>
       <button disabled={busy || reason.trim().length<3} onClick={()=>void run(async()=>{ await api(`/api/ai/connections/${c.id}/${c.status==='DISABLED' ? 'reconnect' : 'disable'}`,{ method:'POST',body:JSON.stringify({ version:c.version,reason }) });await load();await loadProfiles();if(selected?.id===c.id){ selectedRef.current=null;setSelected(null); } })}>{t(c.status==='DISABLED' ? 'reconnect' : 'disable')}</button>
       <button disabled={busy} onClick={()=>void run(()=>detail(c))}>{t('history')}</button></li>)}</ul>{cursor && <button disabled={busy} onClick={()=>void run(()=>load(cursor))}>{t('more')}</button>}
-    {selected && <section data-ai-detail><h3>{selected.name}</h3><ul>{revisions.map((h)=><li key={h.version}>{h.version} · {h.name} · {h.status} · {h.created_at}<p>{h.reason}</p></li>)}</ul>
+    <AIUsableProfiles locale={locale} branches={branches} api={api} />
+    {selected && <section data-ai-detail><h3>{selected.name}</h3>{role==='SUPER_ADMIN' && !selected.branch_id && <AISharedUse key={selected.id} locale={locale} connection={selected} branches={branches} api={api} />}<ul>{revisions.map((h)=><li key={h.version}>{h.version} · {h.name} · {h.status} · {h.created_at}<p>{h.reason}</p></li>)}</ul>
       {revisionCursor && <button disabled={busy} onClick={()=>void run(async()=>{ const p=await api<{ items:Revision[];nextCursor:string|null }>(`/api/ai/connections/${selected.id}/history?cursor=${encodeURIComponent(revisionCursor)}`);setRevisions((old)=>[...old,...p.items]);setRevisionCursor(p.nextCursor); })}>{t('more')}</button>}
       <ul>{probes.map((p)=><li key={p.id}>{p.state} · {p.error_code} · {p.created_at}</li>)}</ul>{probeCursor && <button disabled={busy} onClick={()=>void run(async()=>{ const p=await api<{ items:Probe[];nextCursor:string|null }>(`/api/ai/connections/${selected.id}/probes?cursor=${encodeURIComponent(probeCursor)}`);setProbes((old)=>[...old,...p.items]);setProbeCursor(p.nextCursor); })}>{t('more')}</button>}
       <h3>{t('profiles')}</h3><label>{t('search')}<input aria-label={t('search')} maxLength={200} value={query} disabled={busy} onChange={(e)=>setQuery(e.target.value)} /></label><button disabled={busy} onClick={()=>void run(()=>modelOptions(selected))}>{t('search')}</button>

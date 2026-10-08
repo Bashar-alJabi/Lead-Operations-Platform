@@ -50,6 +50,7 @@ import { registerBankTransferRoutes } from './routes/bank-transfers.js';
 import { registerAIConnectionRoutes } from './routes/ai-connections.js';
 import type { AIAdapterRegistry } from './ai/providers.js';
 import { registerAIKnowledgeRoutes } from './routes/ai-knowledge.js';
+import { registerAISharedUseRoutes } from './routes/ai-shared-use.js';
 
 export async function buildApp(db: Database, options: { logger?: boolean; emailAdapter?: IdentityEmailAdapter;
   messagingAdapter?: MessagingProviderAdapter; messagingTemplateAdapter?: MessagingTemplateAdapter;
@@ -141,5 +142,6 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   registerBankTransferRoutes(app,db);
   registerAIConnectionRoutes(app,db,options.aiConnectionAdapters);
   registerAIKnowledgeRoutes(app,db);
+  registerAISharedUseRoutes(app,db);
   return app;
 }

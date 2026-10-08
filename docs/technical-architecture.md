@@ -555,3 +555,7 @@ Connections وtask profiles مستقلة عن Campaign knowledge/configuration. 
 ## Campaign structured Knowledge — 092
 
 Draft/revisions وimmutable publication منفصلة ومقيدة بـCampaign/current Manager-Super Admin session/Branch. API تستخدم optimistic version وpublication request UUID، والتاريخ/Audit داخل transaction. Latest Published لا تتغير من Draft edits؛ لا context sharing بين Campaigns. Strict bounded text/FAQs/claims/HTTPS links تُrender كنص، ولا external fetch/AI activation. تفاصيل القرار وحدود scanned files/qualification/runtime التالية في `ai-campaign-knowledge.md`. المرحلة مثبتة بـ153 unit/61 PostgreSQL/29 Browser و001–092/build/typecheck.
+
+## Explicit shared AI profile use — 093
+
+Organization connection مشاركة تحتاج explicit current Super Admin grant لكل Branch؛ لا implicit fallback أوManager credential/config rights. Grant version/history/Audit native، وتعرض usable metadata فقط مع profile/Connection/grant versions وcurrent catalog/Branch/Connection/Profile availability. No business context sharing. Effective configuration/runtime المستقبلية يجب أن تعيد فحص current entitlement قبل execution. القرار والتحقق 153 unit/62 PostgreSQL/30 Browser و001–093 في `ai-shared-profile-use.md`؛ assets/qualification/runtime باقية.

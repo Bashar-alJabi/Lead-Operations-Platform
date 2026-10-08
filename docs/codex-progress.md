@@ -1,5 +1,21 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: explicit shared AI profile use — 2026-10-08
+
+بدأت من Knowledge `cb33288` المحفوظة والمرفوعة. Organization AI connection يمكن Super Admin إتاحتها صراحة لفرع، مع enable/revoke/version/current Connection version/session/reason وnative history/Audit atomicity. لا implicit fallback أوscope migration. Manager يرى usable profile metadata فقط ضمن فرعه وإتاحة حالية؛ لا shared credential/models endpoint/config/probe/history management. Own Branch profiles وShared granted profiles تظهر مع current catalog availability وprofile/Connection/grant versions؛ تعطيل Branch/Connection/Profile يوقف availability، وrevoke تمنع metadata use التالية دون حذف التاريخ. Runtime المستقبلية يجب أن تعيد فحص هذه الحدود قبل execution.
+
+Migration 093 تفرض immutable identity/version/current scoped Super Admin/session وsame Organization/shared Connection؛ native history/Audit rollback. Setup UI ar/en/fr لإدارة الإتاحة/history وBranch usable profile read/pagination/status؛ لا inference أوCampaign AI activation من grant أوcatalog فقط.
+
+**البوابة ناجحة:** migrations 001–093 development/test، **153/153 unit، 62/62 full Docker PostgreSQL integration، 30/30 full Edge Browser E2E** (1.4m)، focused shared-use **1/1**، Backend/Web build/typecheck. Integration تثبت أربعة edits متزامنة/one version، no implicit grant، role/Branch/foreign Organization/session/native history denial، pagination/version traces، Audit rollback، revoke/restore/Connection disable-reconnect/current stale version وinactive Branch، وعدم كشف secret أومنح Manager management rights. Browser تثبت explicit Admin grant→Manager metadata/use catalog→disable unavailable→revoke no profile، safe history/Agent boundary عبر API integration، secret omission/XSS وFrench/RTL 390px؛ الصورة فُحصت. Required Payment providers regression سليمة. Vite 640.80KB/gzip 184.17KB warning ضمن backlog.
+
+**الحالة:** shared-use prerequisite **Implemented وPostgreSQL/Local Browser Verified**؛ catalog verification في هذه focused integration تستخدم injected synthetic adapter، وفي Browser actual OpenAI HTTP adapter مع mock transport. لا external account/inference/Live Provider Verified؛ **Live Verification Pending External Credential/Approval**. AI/Knowledge والمنصة جزئية: scanned assets/qualification/effective configuration/tools/runtime/assistants/evaluations ثم Automation/Notifications/Analytics وبقية النطاق مطلوبة.
+
+**الحفظ الجاري:** توثيق checkpoint الحالية ثم commit وpush فقط إلى `codex/full-platform-build`.
+
+**قيد التنفيذ:** لا Knowledge assets code بعد. آخر مراحل مستقرة: Bank Transfer، AI Provider/Profile setup، structured Knowledge، explicit shared profile use. لا worktrees جديدة أوreset/discard أوmain merge/deployment.
+
+**التالي الدقيق:** اقرأ media storage/scanner/worker patterns القائمة و04 §§12–14 و03 §45 وAGENTS §8؛ نفّذ Campaign Knowledge assets بسياق مستقل عن Messaging attachments، private storage وcontent/type/size validation وmalware scanning، durable job/lease/retries/history وcurrent Campaign authorization، download/read control وUI/status/explicit approval. اربط approved safe asset references بDraft ثم immutable publication manifest، وامنع publish/read من pending/rejected/foreign asset؛ حدد content extraction كبيانات غير موثوقة ولا fetch arbitrary links. Unit/integration/Browser/build/migrations ثم checkpoint. بعدها qualification mapping، effective configuration/approved tools/runtime/jobs/assistants/evaluations؛ لا optional provider refinements.
+
 ## آخر حالة مستقرة: Campaign structured Knowledge — 2026-10-08
 
 بدأت من AI Provider/Profile `011f715` المحفوظة والمرفوعة. المرحلة المنظمة من Campaign Knowledge منفذة في Backend/DB/authorization/UI: تسعة أقسام، FAQs وallowed/prohibited claims وروابط HTTPS معتمدة، strict bounded content ورفض unknown configuration/control bytes/invalid Unicode/unsafe links. لا external link fetch أوAI call؛ النص غير الموثوق يُعرض كنص.
@@ -10,7 +26,7 @@ Migration 092 تحفظ Draft ذات optimistic version وnative current scope/se
 
 **الحالة:** structured Knowledge prerequisite **Implemented وPostgreSQL/Local Browser Verified**؛ لا ادعاء AI/Knowledge module كاملة. Approved scanned files/assets، qualification، effective configuration، inference/tools/assistants/evaluations باقية. لا external provider credential أوProduction deployment. AI provider Live Verification Pending External Credential/Approval.
 
-**الحفظ الجاري:** تحديث coverage/architecture/runbook ثم commit وpush فقط إلى `codex/full-platform-build`.
+**الحفظ:** checkpoint `cb33288` محفوظة ومرفوعة إلى `codex/full-platform-build`؛ الشجرة كانت نظيفة بعدها.
 
 **التالي الدقيق:** shared AI profile use entitlement: Super Admin تتيح Organization connection صراحة لفرع، Manager يستخدم metadata/profiles فقط دون credentials أوmanagement access؛ native current scope/version/history/Audit وUI/tests. هذه prerequisite من 03 §52 و04 §75 قبل effective configuration. ثم approved scanned Knowledge files/assets وqualification mappings، ثم Global guardrails → Branch defaults → Campaign effective configuration وapproved tools/runtime/evaluations. لا provider polish اختيارية.
 
