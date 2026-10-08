@@ -1,5 +1,17 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: Alma post-preflight admission contract — 2026-10-08
+
+عقد `AlmaCreateAdmission` الإلزامية مُثبتة: لا financial POST دون موافقة التطبيق بعد fresh Merchant/eligibility. Missing callback تمنع كل I/O، ورفضها أوفشلها يمنع write؛ تُنسخ وتُجمّد config/credentials/intent/money/plan طوال الانتظار. ثلاث unit جديدة تختبر missing/false/exception، late revocation، mutation أثناء I/O، ومنع admission بعد preflight refusal. callback الاختبار test double فقط؛ لا native DB admission أوworker مالية من هذه المرحلة.
+
+بوابة ناجحة: **143/143 unit،56/56 full PostgreSQL integration،25/25 Edge Browser E2E** (1.3m)،Backend/Web build/typecheck وmigrations001–081 على development/test. Integration/Browser هنا regression للمسارات القائمة، وليستا Alma financial end-to-end. Vite582.52KB/gzip168.65KB warning باقية في backlog. التصنيف: العقد **Implemented وUnit/HTTP Mock Verified**؛لا external Sandbox account أوLive Verification.
+
+**قيد التنفيذ/التالي الدقيق:** native immutable selected-plan intent وnotification context،durable NEVER policy وunique one-write marker مع current scope/session/lease بعد preflight؛ثم ربطworker. بعدها original-account independent captured proof → native monotonic Payment/separate Enrollment/history/read-only repair/scoped Lead UI وfinancial Integration/Browser. IPN تظل UNVERIFIED،وUNKNOWN/INTERRUPTED لا تسمحان second create. Alma المالية وBank Transfer باقية،ولا registry activation قبل اكتمال الحماية.
+
+## بداية Alma durable financial flow — 2026-10-08
+
+IPN checkpoint محفوظة ومرفوعة في `e56194e`؛working tree كانت نظيفة وHEAD=origin. آخر بوابة مثبتة140unit/56PostgreSQL/25Edge وmigrations001–081 وBackend/Web build/typecheck. بدأ العمل المالي المطلوب، لا إعادة للمراحل المحفوظة. أول dependency فعلية: إلزام hosted create بـapplication admission بعدfresh Merchant/eligibility مباشرة وقبلPOST،مع تثبيت inputs طوالI/O؛ثم native immutable selected-plan intent وat-most-one write marker/current scope/lease/worker. IPN تظلUNVERIFIED وUNKNOWN بلاreplay أوsecondcreate. بعدdurable issuance تأتيindependent captured proof/native confirmation/Payment/Enrollment/history/read-only repair/Lead UI وfinancial Integration/Browser،ثمBank Transfer. لاregistry activation قبل اكتمال الحماية.
+
 ## آخر حالة مستقرة: Alma unsigned IPN setup/notification inbox — 2026-10-08
 
 استُكملت التغييرات غير الملتزمة بعد `81ab35c` دون reset/discard/checkout. Backend وmigration081 وUI ar/en/fr تتيح إعداد callback وتعطيلها وإعادة تفعيلها وقراءة تاريخها ونسخ URL ومراجعة inbox محدودة الصلاحيات. Native guards تفرض current user/session/role/Branch/config/authenticated Merchant وimmutable identity/history؛Audit ذرية. إعادة الإعداد لنفس config تعيد endpoint نفسها ولا تعيد تفعيل المعطّلة تلقائيًا.

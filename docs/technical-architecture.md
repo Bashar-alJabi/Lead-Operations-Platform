@@ -1,5 +1,9 @@
 # المعمارية التقنية
 
+## Current authorization بعدAlma fresh preflight — 2026-10-08
+
+قراءةMerchant وeligibility قدتستغرقوقتًا يغيّرsession/assignment/config قبلPayment POST. لذلكhosted create لا تنفّذwrite بلا`AlmaCreateAdmission` صريحة بعدpreflight،معfrozen copied intent/money/plan/config/credentials طوالI/O. callback فاشلةأوfalse لا تتحولwrite أوPaid؛exception تُخفى خلفfinite code. الcallback المقبلةفيworker يجب أن تعيدفحصnative current scope وlease/budget وتحفظunique immutable write marker ذرّيًا معAudit؛لاDB locks عبرprovider I/O. هذاعقدإلزامي للربط،ليسDB guard منفذةأوfinancial baseline. Registry activation تنتظركاملmoney/notification-independent proof/Enrollment/UI وIntegration/Browser؛لاfake provider guarantee أوautomatic second create عندUNKNOWN.
+
 ## حدود unsigned Payment notifications — 2026-10-08
 
 Alma GETIPN ليستsigned receipt؛تُحفظ في generic untrusted notification endpoint/inbox منفصلة،معcurrent managed setup/native Merchant/session/version/history وdedup علىConnection/mode/resource. هذا يفصل notification origin غيرالمثبتة عنfinancial authority؛لا signedDeliveryVerified مزيفة أوPayment/Enrollment أوcustomer claim proof. التاليfinancial integration تستخدمnotification trigger للقراءةالمستقلة وربطoriginal immutable intent/account/money/plan،معnative proof قبل أيtransition؛signed Stripe/PayPal contracts ثابتة.

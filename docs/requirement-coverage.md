@@ -1,5 +1,11 @@
 # مصفوفة تغطية المتطلبات
 
+> أحدث تحقق2026-10-08: **143unit/56 full PostgreSQL integration/25 Edge Browser E2E** وmigrations001–081 وBackend/Web build/typecheck ناجحة. أضيفت حماية post-preflight admission والتثبيت عبرI/O،مثبتة Unit/HTTP Mock فقط؛full integration/Browser regression للمسارات القائمة. لا native Alma financial flow أوLive Verification من هذه المرحلة. الأعداد أدناه تحفظ سياق checkpoints التاريخية.
+
+| إضافة checkpoint | التنفيذ المثبت | الاختبارات وحدود الحالة |
+|---|---|---|
+| Alma post-preflight admission،AGENTS §§8/15/16/28 و02 §§60–63 | callback إلزامية بعد fresh reads وقبل POST،fail-closed،frozen copied inputs،ولا default runtime admission | 3unit جديدة للmissing/refusal/exception/late revocation/mutation/no write؛143/56/25 regression ناجحة؛Implemented وUnit/HTTP Mock Verified فقط. native durability/current DB authorization/worker/confirmation/Enrollment/Lead UI باقية؛Live Verification Pending External Credential/Approval |
+
 الحالة هنا تعكس **تنفيذاً مثبتاً**، وليست وعداً. `جزئي` يعني أن المسار المطلوب للإنتاج غير مكتمل. لا توجد منطقة موسومة `Complete` حالياً. اختبارات الـAPI تعمل على PostgreSQL 18 داخل Docker؛ لا تثبت الميزات التي لم تُنفذ.
 
 > نقطة تحقق2026-10-08: migrations001–081 علىdevelopment/test،و140unit و56 full PostgreSQL integration و25 Edge Browser E2E وBackend/Web build/typecheck ناجحة. PayPal ماليةend-to-end ثابتة وAlma Authentication/Offers/eligibility وunsigned IPN setup/reception مثبتة؛standalone hosted/no-replay protocol Unit/HTTP Mock Verified فقط. Mock/Sandbox Verified محليًا بـactual adapters وHTTP mocks وDocker PostgreSQL/Edge،ولاSandbox account خارجي أوLive Provider Verified. Alma المالية وBank Transfer باقية؛المنصةوPayments module جزئيتان. صفوفالمراحلالسابقة تحفظأعدادهاوحدودهاالتاريخية.

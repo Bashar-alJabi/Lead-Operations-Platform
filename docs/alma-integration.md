@@ -1,5 +1,11 @@
 # تكامل Alma
 
+## Post-preflight admission — عقد مثبتة 2026-10-08
+
+`almaHostedAdapter.create` تتطلب `AlmaCreateAdmission` منApplication Service؛لاdefault permissive callback. بعدsuccessful fresh Merchant/eligibility،وقبلPOST المالية مباشرة،يجب أن تعيدcallback `true` فقط بعدcurrent authorization وdurable one-write admission. Missing callback تفشل قبلI/O،false تعنيaccess denied قبلwrite،وexception أوunexpected result تفشلclosed بfinite code دونprovider/application secrets. Preflight refusal لا تستدعيcallback ولاwrite.
+
+Config/credentials/intent ومكوناmoney/plan تُنسخ وتُجمّد قبلawait،فلا يغيّر caller الخطة أوالمبلغ أوMerchant أوreturn targets أوkey أثناءpreflight. هذهحمايةcontract فعلية لازمةللworker،وليستcurrent DB admission أوruntimefinancial activation. callback الـunit test double معلّمةصراحة؛لاno-op callback فيproduction،ولاAlma entry فيCheckout/receipt registries حتىاكتمالnative durability/independent proof/Lead UI. No-replay وUNKNOWN وhistorical read semantics ثابتة. بوابة143unit/56PostgreSQL/25Edge وbuild/typecheck/migrations001–081 ناجحة؛ثلاثunit جديدة تثبت admission وmutation guards،وبقية integration/Browser regression للمسارات الموجودة. الحالة Unit/HTTP Mock Verified فقط؛لاclaim ماليةend-to-end أوLive Verification من هذه المرحلة.
+
 ## إعداد واستقبال IPN غير الموقّعة — checkpoint مثبتة 2026-10-08
 
 تُجهّز callback من Payment setup → Alma بعد Authentication للنسخة الحالية، مع سبب صريح. يحفظ Backend هوية Merchant والبيئة والنسخة ومرجع Authentication والعنوان الذي يولّده من أصل التطبيق؛ لا يقبل عنوانًا أوحسابًا يقدمه العميل. Manager يدير اتصال فرعه، وSuper Admin اتصالات مؤسسته، وAgent لا يقرأ هذا الإعداد أوتاريخه. إعادة الطلب لنفس النسخة تعيد endpoint نفسها دون إعادة تفعيل endpoint معطّلة. Disable/Reconnect تستعمل version وملاحظة، وتحفظ تاريخًا مستقلًا وAudit ذرية.

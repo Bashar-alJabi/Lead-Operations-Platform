@@ -6,6 +6,9 @@ import { PaymentCheckoutError,PaymentProviderError } from './provider-errors.js'
 import type { CheckoutIntent } from './checkout-provider.js';
 import type { PaymentConfig,PaymentCredentials } from './providers.js';
 export type AlmaHostedIntent=CheckoutIntent&{ plan:PaymentPlanSelection;ipnUrl:string };
+// The application must commit durable admission with current authorization after preflight.
+// A successful read or creation acknowledgement supplies no payment authority.
+export type AlmaCreateAdmission=(intent:Readonly<AlmaHostedIntent>)=>Promise<boolean>;
 export type AlmaProcessingStatus='awaiting_authorization'|'authorized'|'captured'|'canceled';
 export type AlmaHostedSnapshot={ paymentId:string;intentId:string;merchantId:string;mode:'TEST'|'LIVE';currency:'EUR';minor:string;plan:PaymentPlanSelection;
   processingStatus:AlmaProcessingStatus;customerUrl:string|null;expiresAt:null;refundMinor:string;completelyRefunded:boolean };
@@ -61,8 +64,12 @@ function snapshot(raw:unknown,config:PaymentConfig,intent:AlmaHostedIntent,expec
     processingStatus:data.processing_status as AlmaProcessingStatus,customerUrl,expiresAt:null,refundMinor:String(data.amount_already_refunded),completelyRefunded:data.is_completely_refunded };
 }
 export const almaHostedAdapter={ writeReplay:'NEVER' as const,dispatchBudgetMs:30000,
-  async create(config:PaymentConfig,credentials:PaymentCredentials,intent:AlmaHostedIntent):Promise<AlmaHostedSnapshot> {
+  async create(config:PaymentConfig,credentials:PaymentCredentials,intent:AlmaHostedIntent,admit:AlmaCreateAdmission):Promise<AlmaHostedSnapshot> {
     input(intent);validateAlmaCredentials(config,credentials);
+    if(typeof admit!=='function')throw new PaymentCheckoutError('PAYMENT_WRITE_ADMISSION_REQUIRED','REJECTED');
+    // No mutable caller object can change the assessed intent, merchant or key across awaited I/O.
+    config=Object.freeze({ ...config });credentials=Object.freeze({ ...credentials });
+    intent=Object.freeze({ ...intent,money:Object.freeze({ ...intent.money }),plan:Object.freeze({ ...intent.plan }) });
     // Preflight failures are known to occur before payment creation. No hidden retry or invented provider key.
     try { const verified=await almaConnectionAdapter.inspectEligibility!(config,credentials,{ money:intent.money,plan:intent.plan });
       if(verified.eligibility.accountRef!==intent.accountRef)throw new PaymentCheckoutError('PAYMENT_ACCOUNT_MISMATCH','REJECTED');
@@ -72,6 +79,9 @@ export const almaHostedAdapter={ writeReplay:'NEVER' as const,dispatchBudgetMs:3
           : error.code==='PAYMENT_PROVIDER_RESPONSE_INVALID' ? 'PAYMENT_PROVIDER_RESPONSE_INVALID' : 'PAYMENT_PROVIDER_UNAVAILABLE';
         throw new PaymentCheckoutError(code,'REJECTED');
       }throw error; }
+    let admitted=false;
+    try { admitted=await admit(intent); }catch { throw new PaymentCheckoutError('PAYMENT_WRITE_ADMISSION_REQUIRED','REJECTED'); }
+    if(admitted!==true)throw new PaymentCheckoutError('PAYMENT_ACCESS_REVOKED','REJECTED');
     const raw=await readOrWrite(config,credentials,'/v1/payments',{ origin:'online',payment:{ purchase_amount:Number(intent.money.minor),installments_count:intent.plan.installments,
       deferred_months:intent.plan.deferredMonths,deferred_days:intent.plan.deferredDays,capture_method:'automatic',return_url:intent.successUrl,
       customer_cancel_url:intent.cancelUrl,failure_return_url:intent.cancelUrl,ipn_callback_url:intent.ipnUrl,custom_data:{ intentId:intent.id } } });
