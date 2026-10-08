@@ -1,5 +1,19 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: Effective AI configuration prerequisite — 2026-10-09
+
+بدأت من `3637eb9` النظيفة بعد Qualification. Versioned scoped Branch defaults/Campaign overrides لأربعة task Profiles وsupported/preferred/detected language وtone وhuman escalation target/SLA، مع immutable Global guardrails وcurrent scope/session/reference guards، native history/Audit وoptimistic concurrency منفذة. null وراثة/غير محدد، وempty tone وdetect=false overrides صريحة؛ لا Provider/Profile fallback. UI ar/en/fr لاختيار metadata/target search/pagination/reason/history وعرض effective values ومصدرها والنسخ الحالية والقيود والجاهزية.
+
+Campaign preview تحمل latest Published Knowledge/immutable asset manifests من الحملة فقط، current Qualification/Field versions وtyped criteria validity، Current Profile/Connection/shared grant وhandoff target/Agent eligibility، والـCentral Messaging timezone/window/frequency/new-conversation Sender resolution. Canonical hash ثابت لنفس الحالة ويتغير مع version/dependency/context؛ Draft لا تغير السياق المنشور. Revoke/disable يمنعان current use ويخفيان inaccessible model/connection metadata، دون Model fallback. المعاينة لا تكتب Lead/Message أوتفعل AI.
+
+**البوابة ناجحة:** development/test migrations 001–099، **159/159 unit، 65/65 full Docker PostgreSQL integration، 33/33 full Edge Browser E2E** (1.2m)، focused effective-config Browser1/1 وfocused PostgreSQL1/1 بعد current Field type-change negative؛ Backend/Web build/typecheck. Native definition/session/role/scope/history/version/Audit rollback، four-way Branch first insert وCampaign edits، task mismatch/current grant revocation/Connection disable/reference clearing/no implicit shared grant؛ same hash/versions/Draft-Published/Campaign isolation/current typed qualification/target-Agent eligibility/Branch negatives/pagination. Browser inheritance→French/empty tone/SLA→history→disable unavailable→clear reference،no secret/Agent denial/XSS/long text/French/RTL390px؛ الصورة فُحصت. Vite674.60KB/gzip193.26KB warning ضمن backlog.
+
+**الحالة:** operational inheritance/effective-preview prerequisite **Implemented وPostgreSQL/Local Browser Verified**؛ ليست full AI configuration/runtime/assistant baseline. allowedTools فارغة وassistantReady=false، مع runtime/tools/follow-up/simulation blockers. Disclosure/formality وfollow-up/closed-returning/handoff policy التفصيلية، actual qualification answers/results وapproved tools وexecution snapshots/Lead-Conversation-pinned-Sender traces/runtime/jobs/assistants/evaluations باقية. لا inference أوLive AI call؛ **Live Verification Pending External Credential/Approval**. لا ادعاء اكتمال المنصة.
+
+**الحفظ:** البوابة مثبتة؛ يجري حفظ implementation checkpoint ورفعها فقط إلى `codex/full-platform-build`. لا reset/discard/main merge أوdeployment.
+
+**التالي الدقيق:** اقرأ actual Field value write/history services و04 §§17–20/25–35 و01 §§65–70 و02 AI tool permissions؛ نفّذ scoped actual qualification answer/result application service + immutable source/history/version/idempotency/native guards + authorized Human Lead UI، مع approved action boundary قابلة لاستعمال AI/Form لاحقًا دون اختلاق source أوصلاحيات. لا Preview→result ولا automatic handoff/send قبل current Controller/approved tools/runtime. بعدها remaining Campaign policies وapproved tools/effective execution snapshot/runtime/jobs/AI assistants/evaluations،ثم Automation/Notifications/Analytics وبقية النطاق؛ لا provider refinements اختيارية.
+
 ## آخر حالة مستقرة: Campaign Qualification configuration — 2026-10-09
 
 بدأت من `75c5bf0` المحفوظة والمرفوعة. إعداد أسئلة مرتبة وrequired/optional وoptional Platform Field mapping، شروط completion/handoff صريحة، وtyped write-free Preview منفذة في Backend/DB/UI. Manager ضمن فرعه وSuper Admin ضمن Organization؛ لا Agent management أوforeign Campaign read. Current active MANUAL/usable_by_ai fields/bindings/types/options/validation تُفحص قبل الحفظ والمعاينة؛ required answers تبقى لازمة مع custom conditions، وfalse/0 إجابات صحيحة وليستا missing.
@@ -13,6 +27,8 @@ Native 096–098 تفرض strict definition/version/current session/scope وimmu
 **الحفظ:** implementation checkpoint `58656a2` محفوظة ومرفوعة إلى `codex/full-platform-build`؛ بوابة157/64/32 و001–098/build/typecheck مثبتة. لا reset/discard/main merge أوdeployment.
 
 **قيد التنفيذ/التالي الدقيق:** deterministic immutable Global guardrails → versioned scoped Branch defaults → Campaign configuration/effective preview/trace، مع current task Profile/Connection/shared grant وPublished Knowledge/approved manifests وQualification/Field versions، وCampaign context isolation. لا catalog أوconfiguration تعني inference readiness. ثم approved tools وactual qualification answer/result history، runtime/jobs/customer assistant/copilot/Operations assistant/evaluations؛ بعدها Automation/Notifications/Analytics وبقية النطاق، دون optional provider refinements.
+
+**مرحلة لاحقة محفوظة أعلاه:** Effective configuration prerequisite اجتازت159unit/65integration/33Browser و001–099/build/typecheck وfocused current Field type-change negative. هذا القسم تاريخي لـQualification؛ الحالة الأحدث في أعلى الملف.
 
 ## آخر حالة مستقرة: Campaign Knowledge assets — 2026-10-09
 

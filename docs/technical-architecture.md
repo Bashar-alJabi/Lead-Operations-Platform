@@ -567,3 +567,7 @@ Campaign-scoped private quarantine/ClamAV/durable scan/explicit approval منف�
 ## Campaign Qualification configuration — 096–098
 
 Ordered question UUIDs/required/optional/optional current Field mapping، explicit bounded typed ALL_REQUIRED أوcondition ALL/ANY ANSWERED/EQUALS، custom completion/handoff وwrite-free preview. Scoped current session/Field permission validation وnative immutable version/history/Audit؛ exact disable-only يحفظ التعريف إذا أصبحت mapping غير متاحة دون السماح بإعادة تفعيلها. UI typed field inputs/history/pagination. التفاصيل في `ai-qualification-configuration.md`؛ actual result writes وAI tools/runtime/effective configuration/evaluations مرحلة الاعتماد التالية،ولا readiness من config وحدها.
+
+## Effective AI operational configuration — 099
+
+Typed versioned Branch/Campaign config فيجدولمستقلعنlegacy generic JSON؛immutable Global guardrails لاprompt-only enforcement. Explicit null inheritance/empty-tone/false،current task/catalog/scope/shared-grant/target checks وimmutable history/Audit/version/concurrency. Campaign-only Published Knowledge/manifests وQualification/current Field trace،Central Messaging config دونduplicate policy،canonical deterministichash وtruthful readiness blockers. تفاصيلالحدودوالاختباراتفي `ai-effective-configuration.md`؛runtime/tool action/Lead-Conversation-pinned-Sender execution snapshots لاحقة.
