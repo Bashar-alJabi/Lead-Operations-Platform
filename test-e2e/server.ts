@@ -26,6 +26,7 @@ import { almaConnectionAdapter } from '../src/payments/alma-connection.js';
 import { processOnePaymentDispatch } from '../src/payments/dispatch-worker.js';
 import { processOnePaymentReceipt } from '../src/payments/confirmation-worker.js';
 import { processOneBankSettlement } from '../src/payments/bank-worker.js';
+import { processOneKnowledgeAsset } from '../src/ai/knowledge-asset-worker.js';
 import { stripeCurrencyPrecision,PaymentCheckoutError,type CheckoutSnapshot,type PaymentCheckoutAdapter } from '../src/payments/checkout-provider.js';
 import { paypalPaymentEvents } from '../src/payments/webhook-profile.js';
 import { testPayPalCertificate,testPayPalCertUrl } from '../test/paypal-test-support.js';
@@ -229,9 +230,9 @@ app.get<{ Params:{ name:string } }>('/assets/:name',async (request,reply)=> {
   const type = request.params.name.endsWith('.js') ? 'text/javascript' : 'text/css';
   return reply.type(type).send(await readFile(resolve('dist-web/assets',request.params.name)));
 });
-app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:boolean; assigned?:'agent'|'second'; approveTemplates?:boolean;replyTo?:string;replyIndex?:number;processSample?:boolean;rejectSample?:boolean;sourceFailure?:boolean;sourceSubscriptionFailure?:boolean;sourceNotification?:string;retrieveSource?:boolean;sourceRetrievalFailure?:boolean;historicalPreview?:boolean;historicalImport?:boolean;historicalFailure?:boolean;sourceReferenceFixture?:boolean;sourceReferral?:'KNOWN'|'UNKNOWN'|'INVALID';paymentFailure?:boolean;paymentChargesEnabled?:boolean;paymentDispatch?:boolean;paymentReceipts?:boolean;paymentIndependentReads?:boolean;bankSettlements?:boolean;paymentPaid?:string;paymentReceiptAuthFailure?:boolean;paypalApprove?:string;paypalCapture?:boolean;paypalPending?:string;paypalComplete?:string;paypalReadFailure?:boolean;almaLoseResponse?:boolean;almaReadFailure?:boolean;almaCaptured?:string } }>(
+app.post<{ Body:{ processKnowledgeAsset?:boolean;rejectKnowledgeAsset?:boolean;process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:boolean; assigned?:'agent'|'second'; approveTemplates?:boolean;replyTo?:string;replyIndex?:number;processSample?:boolean;rejectSample?:boolean;sourceFailure?:boolean;sourceSubscriptionFailure?:boolean;sourceNotification?:string;retrieveSource?:boolean;sourceRetrievalFailure?:boolean;historicalPreview?:boolean;historicalImport?:boolean;historicalFailure?:boolean;sourceReferenceFixture?:boolean;sourceReferral?:'KNOWN'|'UNKNOWN'|'INVALID';paymentFailure?:boolean;paymentChargesEnabled?:boolean;paymentDispatch?:boolean;paymentReceipts?:boolean;paymentIndependentReads?:boolean;bankSettlements?:boolean;paymentPaid?:string;paymentReceiptAuthFailure?:boolean;paypalApprove?:string;paypalCapture?:boolean;paypalPending?:string;paypalComplete?:string;paypalReadFailure?:boolean;almaLoseResponse?:boolean;almaReadFailure?:boolean;almaCaptured?:string } }>(
   '/__test__/control', { schema: { body:{ type:'object',additionalProperties:false,properties: {
-    process:{ type:'boolean' },mode:{ type:'string',enum:['accept','reject','unknown'] },
+    processKnowledgeAsset:{ type:'boolean' },rejectKnowledgeAsset:{ type:'boolean' },process:{ type:'boolean' },mode:{ type:'string',enum:['accept','reject','unknown'] },
     dnc:{ type:'boolean' },assigned:{ type:'string',enum:['agent','second'] },
     approveTemplates:{ type:'boolean' },
     processSample:{ type:'boolean' },rejectSample:{ type:'boolean' },
@@ -247,6 +248,7 @@ app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:bool
   } } } },async (request)=> {
     const header = request.headers.authorization;
     if (typeof header !== 'string' || !safeTokenEqual(header,'Bearer '+testToken)) throw new HttpError(403,'TEST_CONTROL_DENIED');
+    if(request.body.processKnowledgeAsset)await processOneKnowledgeAsset(db,{ storage,scanner:{ scan:async()=>({ clean:!request.body.rejectKnowledgeAsset,version:'BrowserFakeScanner/test-only' }) } });
     if (request.body.mode) mode=request.body.mode;
     if(typeof request.body.paymentFailure==='boolean')paymentFailure=request.body.paymentFailure;
     if(typeof request.body.paymentChargesEnabled==='boolean')paymentChargesEnabled=request.body.paymentChargesEnabled;

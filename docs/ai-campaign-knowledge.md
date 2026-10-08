@@ -17,3 +17,7 @@ Native 092 تفرض version sequence/current role-organization-Branch-session و
 153 unit/61 full Docker PostgreSQL integration/29 full Edge Browser E2E وfocused Knowledge 1/1، migrations 001–092 وBackend/Web build/typecheck. Native scope/session/version/immutable publication وAudit rollback، four-way draft edits/eight-way idempotent publish، isolation بين Campaigns، Draft لا تغيّر Published وhistory/version pagination مثبتة. UI ar/en/fr وXSS/Agent denial/RTL 390px فُحصت.
 
 **Structured phase Implemented وPostgreSQL/Local Browser Verified**؛ Knowledge وAI module جزئيتان. لا inference أوAI evaluations أوprovider live call من هذه المرحلة. AI Live Verification Pending External Credential/Approval. التالي explicit shared-use profile entitlement قبل effective configuration، ثم scanned Knowledge assets وqualification/runtime/tools/assistants/evaluations.
+
+## تحديث الملفات المعتمدة — 2026-10-09
+
+المرحلة التالية الموثقة سابقًا نُفذت: scanned assets وexplicit approval وDraft refs/immutable manifests في 094–095،155unit/63integration/31Browser/build/typecheck. راجع ai-knowledge-assets.md للأنواع والأمن والحدود. Qualification/effective config/runtime/evaluations باقية؛لا inference أوactivation من Publish. ما سبق وصف تاريخي للمرحلة المنظمة الأولى.

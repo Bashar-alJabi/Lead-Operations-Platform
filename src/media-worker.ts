@@ -1,6 +1,7 @@
 import { createDatabase } from './db.js';
 import { processOneInboundAttachment } from './media/inbound-worker.js';
 import { processOneTemplateSample } from './media/template-sample-worker.js';
+import { processOneKnowledgeAsset } from './ai/knowledge-asset-worker.js';
 const db = createDatabase();
 let running = false; let stopping = false;
 async function tick() {
@@ -9,7 +10,8 @@ async function tick() {
   try { for (let i = 0; i < 5 && !stopping; i++) {
     const inbound=await processOneInboundAttachment(db);
     const sample=!stopping && await processOneTemplateSample(db);
-    if (!inbound && !sample) break;
+    const knowledge=!stopping && await processOneKnowledgeAsset(db);
+    if (!inbound && !sample && !knowledge) break;
   } }
   catch { process.stderr.write('Media worker cycle failed; retrying.\n'); }
   finally { running = false; }

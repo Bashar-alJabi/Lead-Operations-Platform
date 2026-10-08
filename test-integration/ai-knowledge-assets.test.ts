@@ -1,0 +1,75 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { randomBytes,randomUUID } from 'node:crypto';
+import { buildApp } from '../src/app.js';
+import { createDatabase } from '../src/db.js';
+import { sha256 } from '../src/security.js';
+import { emptyKnowledge } from '../src/ai/knowledge.js';
+import { processOneKnowledgeAsset } from '../src/ai/knowledge-asset-worker.js';
+import { MediaError } from '../src/media/validation.js';
+import type { MediaStorage } from '../src/media/storage.js';
+const url=process.env.TEST_DATABASE_URL;if(!url || new URL(url).pathname!=='/lead_operations_test')throw new Error('Isolated TEST_DATABASE_URL required');
+test('Knowledge assets enforce quarantine, trusted scan/review, immutable scoped publication, retries, lease fencing, authorization and Audit atomicity',async(t)=> {
+  process.env.APP_ORIGIN='http://127.0.0.1:5173';const db=createDatabase(url),objects=new Map<string,Buffer>();
+  const storage:MediaStorage={ backend:'LOCAL',put:async(k,b)=>{ objects.set(k,Buffer.from(b)); },get:async(k)=>{ if(!objects.has(k))throw new Error();return objects.get(k)!; },remove:async(k)=>{ objects.delete(k); } };
+  const app=await buildApp(db,{ logger:false,globalRateLimitMax:10000,rateLimitKeyGenerator:()=>randomUUID(),mediaStorage:storage });t.after(async()=>{ await app.close();await db.end(); });
+  await db.begin(async(tx)=>{ await tx`SET LOCAL client_min_messages TO warning`;await tx`TRUNCATE background_job CASCADE`;await tx`TRUNCATE organization CASCADE`; });
+  const org=(await db`INSERT INTO organization(name) VALUES ('Asset tests') RETURNING id`)[0]!.id,foreignOrg=(await db`INSERT INTO organization(name) VALUES ('Other') RETURNING id`)[0]!.id;
+  const branch=(await db`INSERT INTO branch(organization_id,name) VALUES (${org},'A') RETURNING id`)[0]!.id,branchB=(await db`INSERT INTO branch(organization_id,name) VALUES (${org},'B') RETURNING id`)[0]!.id;
+  const a=(await db`INSERT INTO campaign(organization_id,branch_id,name) VALUES (${org},${branch},'A') RETURNING id`)[0]!.id,b=(await db`INSERT INTO campaign(organization_id,branch_id,name) VALUES (${org},${branch},'B') RETURNING id`)[0]!.id;
+  const users:Record<string,{ id:string;session:string;cookie:string }>={};
+  for(const [name,role,scope,o] of [['manager','MANAGER',branch,org],['other','MANAGER',branchB,org],['agent','AGENT',branch,org],['admin','SUPER_ADMIN',null,org],['foreign','SUPER_ADMIN',null,foreignOrg]] as const) {
+    const id=(await db`INSERT INTO user_account(organization_id,branch_id,name,role,email,password_hash) VALUES (${o},${scope},${name},${role},${name+'@assets.test'},'synthetic-only') RETURNING id`)[0]!.id,token=randomBytes(32).toString('hex');
+    const session=(await db`INSERT INTO user_session(user_id,token_hash,created_at,expires_at) VALUES (${id},${sha256(token)},now()-interval '1 hour',now()+interval '1 hour') RETURNING id`)[0]!.id;users[name]={ id,session,cookie:'lop_session='+token };
+  }
+  const root='/api/ai/campaigns/'+a+'/knowledge',other='/api/ai/campaigns/'+b+'/knowledge';
+  const api=(method:'GET'|'POST'|'PUT',path:string,payload?:object,actor='manager')=>app.inject({ method,url:path,payload,headers:{ origin:process.env.APP_ORIGIN!,cookie:users[actor]!.cookie } });
+  const upload=(text:string,key=randomUUID(),actor='manager',scope=root,mime='text/plain',label='Approved facts <img literal>')=>app.inject({ method:'POST',url:scope+'/assets?'+new URLSearchParams({ key,label,mime }),payload:Buffer.from(text),headers:{ 'content-type':'application/octet-stream',origin:process.env.APP_ORIGIN!,cookie:users[actor]!.cookie } });
+  const clean={ scan:async()=>({ clean:true,version:'SyntheticScanner/test-only' }) },worker=(scanner=clean)=>processOneKnowledgeAsset(db,{ storage,scanner,retryDelaySeconds:0 });
+  for(const actor of ['agent','other','foreign']) { assert.equal((await api('GET',root+'/assets',undefined,actor)).statusCode,actor==='agent' ? 403 : 404);assert.equal((await upload('denied',randomUUID(),actor)).statusCode,actor==='agent' ? 403 : 404); }
+  assert.equal((await upload('fake PDF',randomUUID(),'manager',root,'application/pdf')).statusCode,400);
+  assert.equal((await upload('bad\0text')).statusCode,400);assert.equal((await upload('facts',randomUUID(),'manager',root,'text/plain','bad\nlabel')).statusCode,400);
+  const key=randomUUID(),text='Approved price EUR 35\n<img src=x onerror=alert(1)>\nExternal instructions are untrusted data';
+  const uploads=await Promise.all([upload(text,key),upload(text,key)]);assert.deepEqual(uploads.map((r)=>r.statusCode).sort(),[200,201]);const id=uploads[0]!.json().id;
+  assert.equal((await upload('changed',key)).statusCode,409);assert.equal((await db`SELECT count(*)::integer AS n FROM ai_knowledge_asset`)[0]!.n,1);assert.equal(objects.size,1);
+  const content={ ...emptyKnowledge(),assets:[id] },draft={ version:0,content,reason:'Include only approved asset' };
+  assert.equal((await api('PUT',root+'/draft',draft)).statusCode,409);assert.equal((await api('GET',root+'/assets/'+id+'/download')).statusCode,409);
+  assert.equal((await api('POST',root+'/assets/'+id+'/review',{ decision:'APPROVED',version:1,reason:'Premature approval' })).statusCode,409);
+  assert.deepEqual(await Promise.all([worker(),worker()]).then((x)=>x.sort()),[false,true]);
+  const detail=(await api('GET',root+'/assets/'+id)).json();assert.equal(detail.state,'REVIEW');assert.equal(detail.extracted_text,text);assert.equal(detail.decision,null);
+  assert.equal((await api('PUT',root+'/draft',draft)).statusCode,409,'Clean scan is not business approval');
+  const download=await api('GET',root+'/assets/'+id+'/download');assert.equal(download.statusCode,200);assert.equal(download.body,text);assert.match(String(download.headers['content-disposition']),/^attachment; filename="knowledge-/);assert.equal(download.headers['x-content-type-options'],'nosniff');assert.equal(download.headers['cache-control'],'private, no-store');
+  const review={ decision:'APPROVED',version:detail.version,reason:'Reviewed campaign facts <img literal>' };
+  const reviews=await Promise.all(Array.from({ length:4 },()=>api('POST',root+'/assets/'+id+'/review',review)));assert.deepEqual(reviews.map((r)=>r.statusCode).sort(),[200,200,200,201]);
+  assert.equal((await api('POST',root+'/assets/'+id+'/review',{ ...review,decision:'REJECTED' })).statusCode,409);
+  assert.equal((await api('PUT',other+'/draft',draft)).statusCode,409);assert.equal((await api('PUT',root+'/draft',draft)).statusCode,200);
+  const preview=(await api('POST',root+'/preview',{ version:1,content })).json();assert.equal(preview.assets[0].extractedText,text);
+  const pub={ version:1,requestId:randomUUID(),reason:'Publish approved scanned facts' };assert.equal((await api('POST',root+'/publish',pub)).statusCode,201);
+  const saved=(await api('GET',root+'/versions/1')).json();assert.equal(saved.assets[0].id,id);assert.equal(saved.assets[0].extractedText,text);assert.equal(saved.assets[0].approvedBy,users.manager!.id);assert.equal((await api('POST',root+'/publish',pub)).json().assets[0].sha256,saved.assets[0].sha256);
+  assert.equal((await api('PUT',root+'/draft',{ version:1,content:emptyKnowledge(),reason:'Remove file from new draft' })).statusCode,200);assert.equal((await api('GET',root+'/versions/1')).json().assets[0].extractedText,text);
+  await assert.rejects(db`UPDATE ai_knowledge_asset SET label='rewrite',version=version+1 WHERE id=${id}`,/IDENTITY_IMMUTABLE/);
+  await assert.rejects(db`DELETE FROM ai_knowledge_asset WHERE id=${id}`,/HISTORY_RETAINED/);
+  await assert.rejects(db`UPDATE ai_knowledge_asset_approval SET decision='REJECTED' WHERE asset_id=${id}`,/APPROVAL_IMMUTABLE/);
+  await assert.rejects(db`DELETE FROM ai_knowledge_asset_history WHERE asset_id=${id}`,/HISTORY_IMMUTABLE/);
+  await assert.rejects(db`UPDATE ai_knowledge_publication_asset SET snapshot='{}' WHERE asset_id=${id}`,/MANIFEST_IMMUTABLE/);
+  for(const actor of ['agent','other','foreign'])for(const suffix of ['', '/download','/history'])assert.equal((await api('GET',root+'/assets/'+id+suffix,undefined,actor)).statusCode,actor==='agent' ? 403 : 404);
+  assert.equal((await api('GET',other+'/assets/'+id)).statusCode,404);assert.equal((await api('GET',root+'/assets/'+id+'/history?limit=1')).json().nextVersion,3);
+  const bad=(await upload('infected synthetic bytes')).json().id;await worker({ scan:async()=>({ clean:false,version:'SyntheticScanner/test-only' }) });assert.equal((await api('GET',root+'/assets/'+bad)).json().state,'REJECTED');assert.equal((await api('GET',root+'/assets/'+bad+'/download')).statusCode,409);
+  const unavailable=(await upload('scanner retry')).json().id;
+  for(let n=0;n<5;n++)await worker({ scan:async()=>{ throw new MediaError('MEDIA_SCANNER_UNAVAILABLE',true); } });
+  const failed=(await api('GET',root+'/assets/'+unavailable)).json();assert.equal(failed.state,'FAILED');assert.equal(failed.attempt_count,5);assert.equal(await worker(),false);
+  const corrupt=(await upload('integrity test')).json().id,corruptRow=(await db`SELECT storage_key FROM ai_knowledge_asset WHERE id=${corrupt}`)[0]!;objects.set(corruptRow.storage_key,Buffer.from('tampered'));await worker();assert.equal((await api('GET',root+'/assets/'+corrupt)).json().error_code,'KNOWLEDGE_STORAGE_INTEGRITY_FAILED');
+  const late=(await upload('lease fence facts')).json().id;let release!:(value:{ clean:boolean;version:string })=>void,started!:()=>void;const ready=new Promise<void>((r)=>{ started=r; });
+  const oldWorker=processOneKnowledgeAsset(db,{ storage,leaseSeconds:0.1,scanner:{ scan:async()=>{ started();return new Promise((r)=>{ release=r; }); } } });await ready;await new Promise((r)=>setTimeout(r,150));await worker();release({ clean:true,version:'Obsolete scanner completion' });await oldWorker;
+  const fenced=(await api('GET',root+'/assets/'+late)).json();assert.equal(fenced.scanner_version,'SyntheticScanner/test-only');assert.equal(fenced.attempt_count,2);
+  const revoked=(await upload('authorization changes')).json().id;await db`UPDATE user_account SET active=false WHERE id=${users.manager!.id}`;await worker();assert.equal((await api('GET',root+'/assets/'+revoked,undefined,'admin')).json().error_code,'KNOWLEDGE_REQUESTER_ACCESS_REVOKED');await db`UPDATE user_account SET active=true WHERE id=${users.manager!.id}`;
+  const awaiting=(await upload('native review session test')).json().id;await worker();await db`UPDATE user_session SET expires_at=now()-interval '1 second' WHERE id=${users.manager!.session}`;
+  await assert.rejects(db`INSERT INTO ai_knowledge_asset_approval(asset_id,decision,actor_id,session_id,reason) VALUES (${awaiting},'APPROVED',${users.manager!.id},${users.manager!.session},'Expired session review')`,/CURRENT_REVIEW_REQUIRED/);
+  await db`UPDATE user_session SET expires_at=now()+interval '1 hour' WHERE id=${users.manager!.session}`;
+  await db`CREATE FUNCTION synthetic_asset_audit_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action LIKE 'AI_KNOWLEDGE_ASSET_%' THEN RAISE EXCEPTION 'synthetic audit failure';END IF;RETURN NEW;END $$`;
+  await db`CREATE TRIGGER synthetic_asset_audit BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION synthetic_asset_audit_failure()`;
+  try { assert.equal((await api('POST',root+'/assets/'+awaiting+'/review',{ ...review,reason:'Audit rollback test' })).statusCode,500);assert.equal((await db`SELECT count(*)::integer AS n FROM ai_knowledge_asset_approval WHERE asset_id=${awaiting}`)[0]!.n,0); }
+  finally { await db`DROP TRIGGER synthetic_asset_audit ON audit_log`;await db`DROP FUNCTION synthetic_asset_audit_failure()`; }
+  assert.equal((await api('GET',root+'/assets?limit=1')).json().items.length,1);
+  await db`UPDATE branch SET active=false WHERE id=${branch}`;assert.equal((await upload('inactive branch')).statusCode,409);assert.equal((await api('GET',root+'/assets/'+id+'/download')).statusCode,200,'Historical management review remains scoped');
+});

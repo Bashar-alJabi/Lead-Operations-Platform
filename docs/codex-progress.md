@@ -1,5 +1,21 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: Campaign Knowledge assets — 2026-10-09
+
+بدأت من `a574f3c` النظيفة. Campaign-scoped private quarantine upload/content type-size-UTF8 validation، durable ClamAV worker وlease/retry/completion fences، explicit scoped approval/rejection وsafe authorized download/history منفذة. Manager ضمن فرعه وSuper Admin ضمن Organization؛ Agent/foreign Campaign/Branch/session denial في Backend وnative guards. لا Messaging scope reuse؛ storage/scanner primitives فقط.
+
+Draft اختيارية asset UUIDs مع approved same-Campaign validation؛ immutable publication manifests تحفظ original hash/type/size/scan/text/approval trace. TXT untrusted data حتى 32KiB؛ PDF وPNG/JPEG approved binary references بلا OCR/extracted business facts. Native 094–095 identity/state/version/attempt/completion proof/history/Audit؛ new versions فقط، legacy publications لا يعاد كتابتها. UI ar/en/fr للرفع/status/review/reason/include/preview/publish/download/history، ولا clean scan أوupload تعني نشرًا.
+
+**البوابة ناجحة:** development/test migrations 001–095، **155/155 unit، 63/63 full Docker PostgreSQL integration، 31/31 full Edge Browser E2E** (2.8m)، focused assets 1/1، Backend/Web build/typecheck. Native immutability/current expired session وscope/Audit rollback، concurrent upload/review/worker claim، no premature/foreign refs، malware/scanner failures/five-attempt exhaustion/storage integrity/revoked uploader وexpired-lease late completion، manifests/history/version traces. Browser safe actual upload/review/publish/download/new version/historical manifest وscan rejection/Agent denial/XSS/French/RTL 390px. Long unbroken text regression كشفت overflow؛ CSS أصلحت، web rebuilt وfocused/full Browser أعيدتا بنجاح؛ الصورة العربية فُحصت. Vite648.07KB/gzip186.32KB warning backlog.
+
+**الحالة:** Knowledge assets prerequisite **Implemented وPostgreSQL/Local Browser Verified**، scanner في هذه integration/Browser synthetic injection؛ production path يستخدم configured ClamAV/storage primitives. لا inference أوLive AI call أوAI evaluations. AI **Live Verification Pending External Credential/Approval**؛ qualification/effective configuration/tools/runtime/assistants/evaluations ثم Automation/Notifications/Analytics وبقية النطاق باقية. لا ادعاء اكتمال المنصة.
+
+**الحفظ:** checkpoint هذه ستُحفظ وترفع إلى `codex/full-platform-build` بعد توثيق البوابة؛ آخر مرجع سابق `a574f3c`. لا reset/discard/main merge أوdeployment.
+
+**قيد التنفيذ:** assets stable، لا Qualification code بعد. `ai-knowledge-assets.md` وarchitecture/runbook يحددان storage/scan/reference/manifest boundaries، الأنواع وحدود extraction/history.
+
+**التالي الدقيق:** Campaign Qualification definitions/order/required-optional وoptional Platform Field mapping/current binding permissions؛ completion/handoff criteria واضحة وقابلة للمعاينة دون تخمين AI، native version/history/Audit/current session وscoped UI/tests. بعد configuration prerequisite: effective Global/Branch/Campaign config وapproved tools/qualification results/runtime/jobs/assistants/evaluations؛ لا optional provider refinements.
+
 ## آخر حالة مستقرة: explicit shared AI profile use — 2026-10-08
 
 بدأت من Knowledge `cb33288` المحفوظة والمرفوعة. Organization AI connection يمكن Super Admin إتاحتها صراحة لفرع، مع enable/revoke/version/current Connection version/session/reason وnative history/Audit atomicity. لا implicit fallback أوscope migration. Manager يرى usable profile metadata فقط ضمن فرعه وإتاحة حالية؛ لا shared credential/models endpoint/config/probe/history management. Own Branch profiles وShared granted profiles تظهر مع current catalog availability وprofile/Connection/grant versions؛ تعطيل Branch/Connection/Profile يوقف availability، وrevoke تمنع metadata use التالية دون حذف التاريخ. Runtime المستقبلية يجب أن تعيد فحص هذه الحدود قبل execution.
@@ -12,7 +28,7 @@ Migration 093 تفرض immutable identity/version/current scoped Super Admin/ses
 
 **الحفظ:** implementation checkpoint `a73bc8f` محفوظة ومرفوعة إلى `codex/full-platform-build`؛ قبلها `cb33288` للمعرفة المنظمة و`011f715` لإعداد AI و`9ae90de` لـBank Transfer. بوابة implementation الحالية مثبتة بـ153 unit/62 integration/30 Browser و001–093/build/typecheck؛ هذا تحديث مرجع استكمال فقط، دون تعديل code بعد الاختبارات.
 
-**قيد التنفيذ:** لا Knowledge assets code بعد. آخر مراحل مستقرة: Bank Transfer، AI Provider/Profile setup، structured Knowledge، explicit shared profile use. لا worktrees جديدة أوreset/discard أوmain merge/deployment.
+**قيد التثبيت — 2026-10-09:** Knowledge assets اجتازت 155 unit/63 integration/31 Browser و001–095/build/typecheck. أضيف Browser long-token regression فكشف overflow؛ CSS أصلحت، focused أعيدت ونجحت بعد web rebuild؛ full Browser الأخيرة تعمل قبل الحفظ. التنفيذ: private quarantine upload → durable scan → explicit scoped approval → Draft references → immutable publication manifest. آخر checkpoint المختبرة كما هي أدناه؛ المجموعة الجديدة غير مثبتة بعد. آخر مراحل مستقرة: Bank Transfer، AI Provider/Profile setup، structured Knowledge، explicit shared profile use. لا worktrees جديدة أوreset/discard أوmain merge/deployment.
 
 **التالي الدقيق:** اقرأ media storage/scanner/worker patterns القائمة و04 §§12–14 و03 §45 وAGENTS §8؛ نفّذ Campaign Knowledge assets بسياق مستقل عن Messaging attachments، private storage وcontent/type/size validation وmalware scanning، durable job/lease/retries/history وcurrent Campaign authorization، download/read control وUI/status/explicit approval. اربط approved safe asset references بDraft ثم immutable publication manifest، وامنع publish/read من pending/rejected/foreign asset؛ حدد content extraction كبيانات غير موثوقة ولا fetch arbitrary links. Unit/integration/Browser/build/migrations ثم checkpoint. بعدها qualification mapping، effective configuration/approved tools/runtime/jobs/assistants/evaluations؛ لا optional provider refinements.
 

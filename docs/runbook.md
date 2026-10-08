@@ -406,3 +406,9 @@ UNKNOWN أو PREPARED/accepted outcome لا تستخدم هذا الإجراء،
 ## Shared AI profiles
 
 Super Admin فقط تدير Organization AI connection branch-use من تفاصيل AI setup. اختر Branch وactive وسبب، واحفظ grant أوrevoke؛ version/history/Audit محفوظة. Manager يختار فرعه في usable profiles view لقراءة metadata/catalog availability فقط، ولا يحصل على credential أوconnection management. Version conflict يتطلب refresh/review دون force overwrite. Connection/Branch/Profile disable توقف current availability؛ revoke تمنع shared metadata use التالية وتحفظ التاريخ. لا تستنتج inference أوassistant activation من grant أوcatalog. Native/API/UI regression 153 unit/62 integration/30 Browser و001–093/build/typecheck؛ actual HTTP mock في Browser، وLive Verification Pending External Credential/Approval. `ai-shared-profile-use.md` يحدد الحدود.
+
+## Campaign Knowledge files
+
+من Campaign Knowledge ارفع TXT/PDF/PNG/JPEG بعنوان واضح. `worker:media` مع private storage وClamAV ينقل QUEUED إلى REVIEW بعد نجاح الفحص؛ إذا بقي QUEUED افحص worker/scanner/storage health وerror/history من الواجهة. Scanner transient failure يعاد حتى خمس محاولات، FAILED/REJECTED تبقى تاريخيًا؛ أصلح infrastructure ثم أعد رفع أصل جديد. لا تثق في filename/MIME ولا تستخدم public blob URLs.
+
+في REVIEW اقرأ النص أوdownload الملف ثم اعتمد أوارفض مع reason. Approval لا تنشر المعرفة: حدد Include in Draft ثم Save/Preview/Publish. Pending/foreign/rejected IDs تُرفض من Backend وDB. History publication تعرض manifest الأصلية، وإزالة file من Draft لا تمحوها. Agent لا يدير/ينزل Knowledge assets؛ runtime access scope يُنفذ في مرحلة AI tools. حجم TXT 32KiB، والحد العام عبر infrastructure `KNOWLEDGE_ASSET_MAX_BYTES` الافتراضي 10MiB. Restore يجب أن يجمع DB وprivate blobs. لا delete آلي للأصول، ومراجعة orphan storage تتطلب DB inventory موثوقة دون حذف أي key referenced. راجع `ai-knowledge-assets.md`.

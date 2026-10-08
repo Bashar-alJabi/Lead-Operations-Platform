@@ -1,8 +1,10 @@
 import { useEffect,useRef,useState } from 'react';
+import { CampaignKnowledgeAssets } from './CampaignKnowledgeAssets';
 type Api=<T>(path:string,options?:RequestInit)=>Promise<T>;
 const sections=['description','product','prices','locations','schedules','availability','requirements','registration','policies'] as const;
-type Content={ sections:Record<typeof sections[number],string>;faqs:{ question:string;answer:string }[];allowedClaims:string[];prohibitedClaims:string[];links:{ label:string;url:string }[] };
-type Publication={ version:number;draft_version:number;content:Content;reason:string;published_at:string };
+type Content={ sections:Record<typeof sections[number],string>;faqs:{ question:string;answer:string }[];allowedClaims:string[];prohibitedClaims:string[];links:{ label:string;url:string }[];assets?:string[] };
+type Manifest={ id:string;label:string;mime:string;sha256:string;extractedText:string|null;approvalReason:string };
+type Publication={ version:number;draft_version:number;content:Content;reason:string;published_at:string;assets:Manifest[] };
 type History={ version:number;draft_version?:number;reason:string;created_at:string };
 const empty=():Content=>({ sections:Object.fromEntries(sections.map((k)=>[k,''])) as Content['sections'],faqs:[],allowedClaims:[],prohibitedClaims:[],links:[] });
 const words={
@@ -16,7 +18,7 @@ const words={
 export function CampaignKnowledge({ campaignId,locale,api }:{ campaignId:string;locale:'ar'|'en'|'fr';api:Api }) {
   const index=locale==='ar' ? 0 : locale==='en' ? 1 : 2,t=(key:keyof typeof words)=>words[key][index],root='/api/ai/campaigns/'+campaignId+'/knowledge';
   const [content,setContent]=useState<Content>(empty),[version,setVersion]=useState(0),[published,setPublished]=useState<Publication|null>(null),[saved,setSaved]=useState(''),[reason,setReason]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
-  const [allowed,setAllowed]=useState(''),[prohibited,setProhibited]=useState(''),[preview,setPreview]=useState<Content|null>(null),[viewed,setViewed]=useState<Publication|null>(null);
+  const [allowed,setAllowed]=useState(''),[prohibited,setProhibited]=useState(''),[preview,setPreview]=useState<Content|null>(null),[previewAssets,setPreviewAssets]=useState<Manifest[]>([]),[viewed,setViewed]=useState<Publication|null>(null);
   const [history,setHistory]=useState<History[]>([]),[historyBefore,setHistoryBefore]=useState<number|null>(null),[revisions,setRevisions]=useState<History[]>([]),[revisionBefore,setRevisionBefore]=useState<number|null>(null);
   const publishRequest=useRef<{ version:number;reason:string;requestId:string }|null>(null);
   const editing=()=>({ ...content,allowedClaims:allowed.split('\n').map((x)=>x.trim()).filter(Boolean),prohibitedClaims:prohibited.split('\n').map((x)=>x.trim()).filter(Boolean) });
@@ -25,7 +27,7 @@ export function CampaignKnowledge({ campaignId,locale,api }:{ campaignId:string;
   async function load() { const p=await api<{ draft:{ version:number;content:Content };published:Publication|null }>(root);setContent(p.draft.content);setVersion(p.draft.version);setSaved(JSON.stringify(p.draft.content));setAllowed(p.draft.content.allowedClaims.join('\n'));setProhibited(p.draft.content.prohibitedClaims.join('\n'));setPublished(p.published);setPreview(null);await Promise.all([histories('history'),histories('revisions')]); }
   async function run(fn:()=>Promise<void>) { setBusy(true);setError('');try { await fn(); }catch(e){ setError((e as Error).message); }finally { setBusy(false); } }
   useEffect(()=>{ void run(load); },[campaignId,api]);
-  function render(c:Content) { return <div className="knowledge-content">{sections.filter((k)=>c.sections[k]).map((k)=><section key={k}><h4>{t(k)}</h4><p>{c.sections[k]}</p></section>)}{c.faqs.length>0 && <section><h4>{t('faqs')}</h4>{c.faqs.map((f,i)=><div key={i}><strong>{f.question}</strong><p>{f.answer}</p></div>)}</section>}
+  function render(c:Content,assets:Manifest[]=[]) { return <div className="knowledge-content">{assets.map((a)=><section key={a.id} data-knowledge-manifest={a.id}><h4>{a.label}</h4><p>{a.mime} · SHA256 {a.sha256}</p>{a.extractedText && <p>{a.extractedText}</p>}<p>{a.approvalReason}</p><a href={root+'/assets/'+a.id+'/download'} download>{a.label}</a></section>)}{sections.filter((k)=>c.sections[k]).map((k)=><section key={k}><h4>{t(k)}</h4><p>{c.sections[k]}</p></section>)}{c.faqs.length>0 && <section><h4>{t('faqs')}</h4>{c.faqs.map((f,i)=><div key={i}><strong>{f.question}</strong><p>{f.answer}</p></div>)}</section>}
     {c.allowedClaims.length>0 && <section><h4>{t('allowed')}</h4><ul>{c.allowedClaims.map((s,i)=><li key={i}>{s}</li>)}</ul></section>}{c.prohibitedClaims.length>0 && <section><h4>{t('prohibited')}</h4><ul>{c.prohibitedClaims.map((s,i)=><li key={i}>{s}</li>)}</ul></section>}
     {c.links.length>0 && <section><h4>{t('links')}</h4><ul>{c.links.map((l,i)=><li key={i}><a href={l.url} target="_blank" rel="noopener noreferrer">{l.label}</a></li>)}</ul></section>}</div>; }
   return <section className="panel" data-campaign-knowledge><h3>{t('title')}</h3><p>{t('note')}</p><p>{t('draft')}: <strong>{version}</strong> · {t('published')}: <strong>{published?.version ?? '—'}</strong></p>{error && <p role="alert">{error}</p>}
@@ -36,14 +38,15 @@ export function CampaignKnowledge({ campaignId,locale,api }:{ campaignId:string;
       <label>{t('allowed')}<textarea aria-label={t('allowed')} disabled={busy} maxLength={40079} value={allowed} onChange={(e)=>setAllowed(e.target.value)} /></label><label>{t('prohibited')}<textarea aria-label={t('prohibited')} disabled={busy} maxLength={40079} value={prohibited} onChange={(e)=>setProhibited(e.target.value)} /></label>
       <fieldset><legend>{t('links')}</legend>{content.links.map((l,i)=><div key={i} className="knowledge-entry"><label>{t('linkLabel')} {i+1}<input aria-label={t('linkLabel')+' '+(i+1)} required maxLength={200} disabled={busy} value={l.label} onChange={(e)=>setContent({ ...content,links:content.links.map((x,j)=>j===i ? { ...x,label:e.target.value } : x) })} /></label>
         <label>{t('linkUrl')} {i+1}<input aria-label={t('linkUrl')+' '+(i+1)} type="url" required maxLength={2048} disabled={busy} value={l.url} onChange={(e)=>setContent({ ...content,links:content.links.map((x,j)=>j===i ? { ...x,url:e.target.value } : x) })} /></label><button type="button" disabled={busy} onClick={()=>setContent({ ...content,links:content.links.filter((_,j)=>j!==i) })}>{t('remove')}</button></div>)}<button type="button" disabled={busy || content.links.length>=30} onClick={()=>setContent({ ...content,links:[...content.links,{ label:'',url:'' }] })}>{t('addLink')}</button></fieldset>
+      <CampaignKnowledgeAssets campaignId={campaignId} locale={locale} api={api} selected={content.assets ?? []} disabled={busy} onChange={(assets)=>{ setContent({ ...content,assets });setPreview(null); }} />
       <label>{t('reason')}<input aria-label={t('reason')} required minLength={3} maxLength={500} disabled={busy} value={reason} onChange={(e)=>setReason(e.target.value)} /></label><button disabled={busy}>{t('save')}</button>
-    </form><div className="actions"><button disabled={busy} onClick={()=>void run(async()=>{ const p=await api<{ content:Content }>(root+'/preview',{ method:'POST',body:JSON.stringify({ version,content:editing() }) });setPreview(p.content); })}>{t('preview')}</button>
+    </form><div className="actions"><button disabled={busy} onClick={()=>void run(async()=>{ const p=await api<{ content:Content;assets:Manifest[] }>(root+'/preview',{ method:'POST',body:JSON.stringify({ version,content:editing() }) });setPreview(p.content);setPreviewAssets(p.assets); })}>{t('preview')}</button>
       <button disabled={busy || version===0 || dirty || reason.trim().length<3 || published?.draft_version===version} onClick={()=>void run(async()=>{ if(!publishRequest.current || publishRequest.current.version!==version || publishRequest.current.reason!==reason)publishRequest.current={ version,reason,requestId:crypto.randomUUID() };await api(root+'/publish',{ method:'POST',body:JSON.stringify(publishRequest.current) });await load(); })}>{t('publish')}</button>
       <button disabled={busy} onClick={()=>void run(load)}>{t('refresh')}</button></div>{dirty && <p>{t('unsaved')}</p>}
-    {preview && <section data-knowledge-preview><h4>{t('previewTitle')}</h4>{render(preview)}</section>}
-    <section data-knowledge-published><h4>{t('published')} {published?.version}</h4>{published ? <>{render(published.content)}<p>{published.published_at} · {published.reason}</p></> : <p>{t('none')}</p>}</section>
+    {preview && <section data-knowledge-preview><h4>{t('previewTitle')}</h4>{render(preview,previewAssets)}</section>}
+    <section data-knowledge-published><h4>{t('published')} {published?.version}</h4>{published ? <>{render(published.content,published.assets)}<p>{published.published_at} · {published.reason}</p></> : <p>{t('none')}</p>}</section>
     <h4>{t('history')}</h4><ul>{history.map((h)=><li key={h.version}>{h.version} · Draft {h.draft_version} · {h.created_at}<p>{h.reason}</p><button disabled={busy} onClick={()=>void run(async()=>setViewed(await api<Publication>(root+'/versions/'+h.version)))}>{t('view')} {h.version}</button></li>)}</ul>{historyBefore && <button disabled={busy} onClick={()=>void run(()=>histories('history',historyBefore))}>{t('more')}</button>}
-    {viewed && <section data-knowledge-version><h4>{t('view')} {viewed.version}</h4>{render(viewed.content)}<p>{viewed.reason}</p></section>}
+    {viewed && <section data-knowledge-version><h4>{t('view')} {viewed.version}</h4>{render(viewed.content,viewed.assets)}<p>{viewed.reason}</p></section>}
     <h4>{t('revisions')}</h4><ul>{revisions.map((h)=><li key={h.version}>{h.version} · {h.created_at}<p>{h.reason}</p></li>)}</ul>{revisionBefore && <button disabled={busy} onClick={()=>void run(()=>histories('revisions',revisionBefore))}>{t('more')}</button>}
   </section>;
 }

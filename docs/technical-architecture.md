@@ -559,3 +559,7 @@ Draft/revisions وimmutable publication منفصلة ومقيدة بـCampaign/c
 ## Explicit shared AI profile use — 093
 
 Organization connection مشاركة تحتاج explicit current Super Admin grant لكل Branch؛ لا implicit fallback أوManager credential/config rights. Grant version/history/Audit native، وتعرض usable metadata فقط مع profile/Connection/grant versions وcurrent catalog/Branch/Connection/Profile availability. No business context sharing. Effective configuration/runtime المستقبلية يجب أن تعيد فحص current entitlement قبل execution. القرار والتحقق 153 unit/62 PostgreSQL/30 Browser و001–093 في `ai-shared-profile-use.md`؛ assets/qualification/runtime باقية.
+
+## Campaign Knowledge assets — 094–095
+
+Campaign-scoped private quarantine/ClamAV/durable scan/explicit approval منفصلة عن Messaging domain مع reuse للتخزين/scanner فقط. New Draft optional asset UUIDs مع native current same-Campaign approved validation؛ immutable publication manifests تحفظ original hash/text/approval trace وتبقي legacy versions دون rewrite. Native completion lease proof وcurrent requester checks/retries/history/Audit؛ scoped safe downloads وar/en/fr review/editor UI. التفاصيل والحدود في `ai-knowledge-assets.md`. Binary assets approved references بلا OCR/implicit extracted facts؛ TXT untrusted data. Runtime/qualification/effective configuration لا تزال مطلوبة.
