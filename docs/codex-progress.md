@@ -10,7 +10,7 @@ Native 096–098 تفرض strict definition/version/current session/scope وimmu
 
 **الحالة:** Qualification configuration prerequisite **Implemented وPostgreSQL/Local Browser Verified**؛ actual Lead qualification answers/results/source/history وapproved tools/runtime/AI assistants/evaluations غير منفذة بعد. لا inference أوLive AI call، وAI **Live Verification Pending External Credential/Approval**. لا ادعاء اكتمال AI أوالمنصة.
 
-**الحفظ:** البوابة مثبتة؛ يجري حفظ implementation checkpoint ورفعها فقط إلى `codex/full-platform-build`. لا reset/discard/main merge أوdeployment.
+**الحفظ:** implementation checkpoint `58656a2` محفوظة ومرفوعة إلى `codex/full-platform-build`؛ بوابة157/64/32 و001–098/build/typecheck مثبتة. لا reset/discard/main merge أوdeployment.
 
 **قيد التنفيذ/التالي الدقيق:** deterministic immutable Global guardrails → versioned scoped Branch defaults → Campaign configuration/effective preview/trace، مع current task Profile/Connection/shared grant وPublished Knowledge/approved manifests وQualification/Field versions، وCampaign context isolation. لا catalog أوconfiguration تعني inference readiness. ثم approved tools وactual qualification answer/result history، runtime/jobs/customer assistant/copilot/Operations assistant/evaluations؛ بعدها Automation/Notifications/Analytics وبقية النطاق، دون optional provider refinements.
 
