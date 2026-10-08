@@ -40,7 +40,7 @@ test('Payment Connection authentication lifecycle encrypts credentials, fences r
   const made=await api('POST',root,input);assert.equal(made.statusCode,201,made.body);const id=made.json().id as string;const path=root+'/'+id;
   const beforeUnsupported=calls;
   assert.equal((await api('POST',root,{ ...input,provider:'MOLLIE' })).statusCode,400);
-  assert.equal((await api('POST',root,{ ...input,provider:'ALMA' })).statusCode,400,'unimplemented required provider is not exposed as ready');
+  assert.equal((await api('POST',root,{ ...input,provider:'BANK_TRANSFER' })).statusCode,400,'unimplemented required method is not exposed as ready');
   assert.equal(calls,beforeUnsupported);
   for(const [field,value] of [['provider','MOLLIE'],['branch_id',otherBranch],['organization_id',foreignOrg],['kind','AI'],
     ['created_by',users.admin!.id],['created_at',new Date(0)]]) {

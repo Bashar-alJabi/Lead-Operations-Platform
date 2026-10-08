@@ -1,5 +1,25 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: Alma Authentication وmerchant identity — 2026-10-08
+
+بعد حفظ ورفعPayPal financial baseline `f777831` نُفّذتAlma prerequisite بالكامل: encrypted scoped Connection lifecycle وactual read-only merchant adapter وfixed environments وsafe schema1 identity دونPII/fake capabilities،current session/config/latest-result وnative immutable snapshot/history078 وatomic Audit،وsetup/status/recovery/rotation/history UI ar/en/fr. لاfinancial registry activation أوPayment/Enrollment لـAlma.
+
+بوابةcheckpoint النهائية ناجحة: **124/124 unit،54/54 full PostgreSQL integration،24/24 Edge Browser E2E** (47.7s)،Backend/Web build/typecheck وmigrations001–078 علىdevelopment/test. ثلاثunit جديدة تشملopaque key/config/origins وactual HTTP identity/strict safe snapshot وfailure bounds؛integration actual adapter تختبرscopes/encryption/native shape/history/session/config/latest4-way concurrency وrevocation/expiry/role/disable أثناءI/O وAudit rollback/rotation/pagination/no financial records. Browser24 تختبرactual API adapter معHTTP mock وsetup→Authentication→failure→disable/reconnect/rotation→current/historical identity وAgent denial وFrench/RTL390px؛الصورةفُحصت بصريًا. أُصلحت3توقعاتfixtures قديمة وfixture فسادsample فيWindows دونتعديلproduction storage guard. Vite563.39KB/gzip163.61KB warning ضمنperformance backlog.
+
+**التصنيف:** هذهAuthentication prerequisite **Implemented وMock/Sandbox Verified محليًا** فقط؛Alma financial end-to-end غيرمنفذة،ولاSandbox account خارجي أوLive Provider Verified. **Live Verification Pending External Credential/Approval**؛المواصفاتالكاملة وBank Transfer وModules التالية باقية.
+
+**الحالة الجارية:** احفظوارفعcheckpoint المختبرة قبلالمرحلةالمالية. **التاليالدقيق:** Alma merchant offers/eligibility وconfiguration قابلةللإعداد منUI وimmutable beneficiary/money/plan/intent،ثمhosted creation معdurable policy لا تفترضprovider idempotency retention (SDK الحاليةلا تثبتها)،وUNKNOWN→trusted reconciliation دونautomatic second write؛IPN غيرموقّعة→independent Payment retrieval/merchant/exact money/intent/captured/native guards/separate Enrollment/repair/history/UI وIntegration/Browser كاملة. بعدهاBank Transfer كطريقةمستقلة معtrusted reconciliation. المصادر والعقدوحدودالتحقق في`alma-integration.md`؛لاPayPal/Authentication refinements اختيارية أومain merge/deployment.
+
+### سجل استئناف هذه المرحلة
+
+حُفظت PayPal المالية في `f777831` ورُفعت إلى `origin/codex/full-platform-build`؛ HEAD متطابقة وworking tree نظيفة عند بدء Alma. آخر baseline مثبتة:121unit/53PostgreSQL/23Browser وmigrations001–077 وBackend/Web build/typecheck.
+
+المرحلة الحالية prerequisite مستقلة ذات معنى: Alma API key مشفّرة وConnection lifecycle/scopes من UI،actual read-only `GET /v1/me/extended-data` على fixed TEST/LIVE origins مع`Alma-Auth`،safe immutable authenticated merchant snapshot/current session/config/latest-result guards وAudit،ثم unit/integration/Browser E2E. نجاح Authentication لا يعني financial readiness ولا Payment/Enrollment. الخطوة التالية الدقيقة بعد حفظ هذه المرحلة: merchant offers/eligible checkout plan وhosted creation/idempotency evidence وIPN غيرموثوقة→independent Payment retrieval/exact merchant-money-intent proof/native confirmation/UI،ثم Bank Transfer trusted reconciliation. مراجعة contract المالية مستمرة؛لا ضمان idempotency مفترض أومساواة authorization بـcaptured.
+
+المصادر الرسمية المقروءة: `https://docs.almapay.com/reference/authentification`،`https://docs.almapay.com/reference/v10`،`https://docs.almapay.com/docs/custom-integration-technical-guide`،`https://docs.almapay.com/reference/payment`،وAlma official PHP client `src/Endpoints/Merchants.php` و`src/Entities/Merchant.php`/`Base.php`. contract توضح`processing_status` بدلstate القديمة؛IPN GET `pid` غيرموقّعة ولا تعتبرauthority. لاcredentials خارجية متاحة أومستخدمة.
+
+تحديث أثناء التنفيذ: actual Alma setup/adapter/native snapshot078/UI مكتملة لهذهprerequisite؛124unit و2integration متأثرة و1Browser مركّزة ناجحة معtypecheck/build/migrations. full regression كشفتfixture فسادsample قديمة تستخدمproduction idempotent put لاستبدالbytes،وWindows قديرفضهابحمايةintegrity الصحيحة؛أُصلحتfixture لتكتبcorruption مباشرةداخلtemporary test root فقط. الحمايةالإنتاجيةثابتة. الخطوةالجاريةالآنfull gates بعدالإصلاح،ثمprogress/coverage/commit/push قبلأيAlma مالية. فُحصت `.local/e2e/alma-authentication-ar.png` بصريًا دونoverflow.
+
 ## آخر حالة مستقرة: PayPal end-to-end financial baseline — 2026-10-08
 
 استُؤنف من `e8c269a` على `codex/full-platform-build` مع working tree نظيفة. أُعيد تشغيل Docker PostgreSQL وClamAV دون حذف volumes، ونجحت baseline السابقة 119 unit/43 integration. أُكملت الآن PayPal issuance → durable capture → trusted financial confirmation → native DB guards → UI؛ لم يُستخدم reset/discard أوحساب خارجي أوcredential production/شخصية.

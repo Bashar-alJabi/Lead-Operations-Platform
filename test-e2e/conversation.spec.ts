@@ -1346,3 +1346,45 @@ test('browser issues PayPal link, explicitly queues capture and separates accept
     await expect(row).toContainText('اشتراك مؤكد');await page.screenshot({ path:'.local/e2e/paypal-financial-ar.png' });expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);expect(errors).toEqual([]);
   }finally { await control(page,{ paypalReadFailure:false });await context.close(); }
 });
+
+test('browser configures Alma encrypted key, verifies merchant identity and retains scoped rotation/failure history without financial readiness',async({ browser })=> {
+  const context=await browser.newContext({ storageState:managerStorageState,extraHTTPHeaders:{ 'x-e2e-rate-scope':randomUUID() } });const page=await context.newPage();const errors:string[]=[];
+  page.on('pageerror',(error)=>errors.push(error.message));
+  try {
+    if(!managerStorageState)await login(page,'manager');else await page.goto('/');await control(page,{ paymentFailure:false });
+    await page.getByRole('combobox',{ name:'Language' }).selectOption('en');await page.getByRole('button',{ name:'Payment setup',exact:true }).click();const panel=page.locator('.payment-setup');
+    await panel.getByLabel('Payment provider',{ exact:true }).selectOption('ALMA');const name='Alma browser <img literal>';const key='AlmaBrowserSyntheticOpaqueKey_123456';const rotated='AlmaBrowserRotatedOpaqueKey_123456';
+    await expect(panel.getByRole('link',{ name:'Alma API setup',exact:true })).toHaveAttribute('href','https://docs.almapay.com/reference/authentification');
+    await expect(panel.getByLabel('PayPal Client Secret',{ exact:true })).toHaveCount(0);await panel.getByLabel('Payment connection name',{ exact:true }).fill(name);
+    await panel.getByLabel('Alma API key',{ exact:true }).fill(key);await panel.getByRole('button',{ name:'Save payment connection',exact:true }).click();
+    const row=panel.getByRole('row').filter({ hasText:name });await expect(row).toContainText('ALMA');await expect(row).toContainText('NOT_CONFIGURED');await expect(row.locator('img')).toHaveCount(0);
+    await expect(panel.getByLabel('Alma API key',{ exact:true })).toHaveValue('');await expect(panel.getByLabel('Payment provider',{ exact:true })).toBeDisabled();
+    await expect(panel.locator('.payment-webhooks')).toHaveCount(0);await expect(panel.getByRole('button',{ name:'Inspect payment options',exact:true })).toHaveCount(0);
+    await expect(panel).toContainText('does not prove payment eligibility');
+    const items=(await (await page.request.get('/api/payments/connections')).json()).items;const id=items.find((i:{ name:string })=>i.name===name).id;const path='/api/payments/connections/'+id;
+    const auth=page.waitForResponse((r)=>r.url().endsWith('/'+id+'/test') && r.request().method()==='POST');
+    await panel.getByRole('button',{ name:'Test authentication',exact:true }).click();expect((await auth).status()).toBe(200);await expect(row).toContainText('WARNING');
+    await expect(panel.locator('.payment-authentication-identity')).toContainText('merchant_BrowserSynthetic123');
+    const detail=await (await page.request.get(path)).json();expect(detail.capabilities.authentication.profile).toBe('ALMA_ME_V1');expect(detail.capabilities.authentication.accountRef).toBe('merchant_BrowserSynthetic123');
+    expect(detail.capabilities.authenticationVersion).toBe(1);expect(detail.capabilities.paymentLinksReady).toBe(false);expect(detail.capabilities.webhookReady).toBe(false);expect(detail.capabilities.paymentOptions).toBeUndefined();
+    await control(page,{ paymentFailure:true });await panel.getByRole('button',{ name:'Test authentication',exact:true }).click();await expect(row).toContainText('AUTH_EXPIRED');
+    await expect(panel.getByRole('alert').first()).toContainText('PAYMENT_PROVIDER_AUTH_FAILED');await expect(panel.locator('.payment-authentication-identity')).toHaveCount(0);
+    await panel.getByLabel('Payment connection change reason',{ exact:true }).fill('Rotate intended Alma key');await panel.getByRole('button',{ name:'Disable payment connection',exact:true }).click();
+    await expect(row).toContainText('DISABLED');await expect(panel.getByRole('button',{ name:'Test authentication',exact:true })).toBeDisabled();
+    await panel.getByRole('button',{ name:'Reconnect payment connection',exact:true }).click();await expect(row).toContainText('NOT_CONFIGURED');
+    await panel.getByLabel('Alma API key',{ exact:true }).fill(rotated);await panel.getByRole('button',{ name:'Save payment connection',exact:true }).click();await expect(panel.getByLabel('Alma API key',{ exact:true })).toHaveValue('');
+    await control(page,{ paymentFailure:false });await panel.getByRole('button',{ name:'Test authentication',exact:true }).click();await expect(panel.locator('.payment-authentication-identity')).toContainText('merchant_BrowserRotated456');
+    const history=await (await page.request.get(path+'/history')).json();expect(history.items.some((p:any)=>p.authentication_snapshot?.accountRef==='merchant_BrowserSynthetic123' && p.connection_version===1)).toBe(true);
+    expect(history.items.some((p:any)=>p.authentication_snapshot?.accountRef==='merchant_BrowserRotated456' && p.connection_version===4)).toBe(true);
+    const publicText=JSON.stringify([items,detail,history,await (await page.request.get(path)).json()]);
+    for(const secret of [key,rotated,'private Alma business data','private Alma bank data','private@alma.browser.test'])expect(publicText).not.toContain(secret);
+    const second=await browser.newContext({ extraHTTPHeaders:{ 'x-e2e-rate-scope':randomUUID() } });try { const unauthorized=await second.newPage();await login(unauthorized,'second');
+      expect((await unauthorized.request.get(path)).status()).toBe(403);expect((await unauthorized.request.get(path+'/history')).status()).toBe(403);
+      expect((await unauthorized.request.post(path+'/test',{ data:{ version:4 },headers:{ origin:'http://127.0.0.1:4100' } })).status()).toBe(403);
+    }finally { await second.close(); }
+    await page.getByRole('combobox',{ name:'Language' }).selectOption('fr');await expect(panel).toContainText('Ce contrôle en lecture seule');await expect(panel.locator('.payment-authentication-identity')).toContainText('Identité Alma vérifiée');
+    await page.setViewportSize({ width:390,height:844 });await page.getByRole('combobox',{ name:'Language' }).selectOption('ar');await panel.locator('.payment-authentication-identity').scrollIntoViewIfNeeded();
+    await expect(panel).toContainText('هوية Alma المفحوصة');await page.screenshot({ path:'.local/e2e/alma-authentication-ar.png' });
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);expect(errors).toEqual([]);
+  } finally { await control(page,{ paymentFailure:false });await context.close(); }
+});

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createHash, randomBytes } from 'node:crypto';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { createDatabase } from '../src/db.js';
 import { buildApp } from '../src/app.js';
@@ -118,7 +118,9 @@ test('approval samples isolate managed connections, scanned assets, encrypted ha
   const rescan=(await upload('worker-rescan-rejected')).json();clean=false;const priorUploads=uploads;await work();clean=true;
   assert.equal(uploads,priorUploads);assert.equal((await api('GET',`/api/messaging/template-samples/${rescan.id}/download`)).statusCode,422);
   const tampered=(await upload('storage-integrity-test')).json();const tamperedRow=(await db`SELECT storage_key FROM messaging_template_sample WHERE id=${tampered.id}`)[0]!;
-  await storage.put(tamperedRow.storage_key,Buffer.from('%PDF-1.7\nDifferent private bytes\n%%EOF\n'));await work();
+  // Simulate external corruption directly inside this isolated temporary fixture.
+  // Production put is idempotent and may correctly reject overwriting different bytes on Windows.
+  await writeFile(resolve(root,tamperedRow.storage_key),Buffer.from('%PDF-1.7\nDifferent private bytes\n%%EOF\n'));await work();
   assert.equal(uploads,priorUploads);assert.equal((await db`SELECT last_error_code FROM messaging_template_sample WHERE id=${tampered.id}`)[0]!.last_error_code,'MEDIA_STORAGE_INTEGRITY_FAILED');
   assert.equal((await api('GET',`/api/messaging/template-samples/${tampered.id}/download`)).statusCode,503);
   const shared=(await db`INSERT INTO integration_connection (organization_id,kind,provider,name,status,config)

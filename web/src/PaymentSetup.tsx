@@ -5,9 +5,10 @@ type Api=<T>(path:string,options?:RequestInit)=>Promise<T>;
 type Locale='ar'|'en'|'fr';
 type Connection={ id:string;name:string;provider:string;branch_id:string|null;config:{ mode:'TEST'|'LIVE';expectedMerchantId?:string };version:number;status:string;
   last_error_code:string|null;last_success_at:string|null;last_failure_at:string|null;secret_configured:boolean;
-  capabilities:{ authenticationVerified?:boolean;paymentOptions?:ProviderOptions;paymentOptionsVersion?:number;paymentOptionsAt?:string } };
+  capabilities:{ authenticationVerified?:boolean;authentication?:Authentication;authenticationVersion?:number;authenticationAt?:string;paymentOptions?:ProviderOptions;paymentOptionsVersion?:number;paymentOptionsAt?:string } };
+type Authentication={ schemaVersion:1;profile:'ALMA_ME_V1';accountRef:string;mode:'TEST'|'LIVE' };
 type ProviderOptions={ accountRef:string;country:string;defaultCurrency:string;currencies:string[];paymentMethods:string[];chargesEnabled:boolean;cardPayments:string };
-type Probe={ id:string;connection_version:number;state:string;error_code:string|null;created_at:string;finished_at:string|null;purpose:string;options_snapshot:ProviderOptions|null };
+type Probe={ id:string;connection_version:number;state:string;error_code:string|null;created_at:string;finished_at:string|null;purpose:string;options_snapshot:ProviderOptions|null;authentication_snapshot:Authentication|null };
 type BeneficiaryConfiguration={ id:string;connection_version:number;mode:string;expected_merchant_id:string|null;actor_role:string;created_at:string };
 const beneficiaryLabels={
   ar:{ merchant:'PayPal Merchant ID المتوقع',guide:'انسخ PayPal Merchant ID من Account Settings → Business information للحساب Business المقصود. في TEST استخدم حساب Sandbox Business المرتبط بالتطبيق. يمكن تركه فارغًا لإعداد Authentication فقط.',
@@ -27,6 +28,17 @@ const paypalLabels={
     clientId:'PayPal Client ID',clientSecret:'PayPal Client Secret',note:'The OAuth test verifies app authentication only, not payee identity or completed capture. Payee and webhook verification are required before issuing links; a success page or customer claim never confirms payment.' },
   fr:{ guide:'Créez une REST App pour un compte PayPal Business dans Developer Dashboard → Apps & Credentials. Choisissez Sandbox pour le développement ouLive prévue, puis copiez Client ID et Client Secret correspondants. Utilisez un compte sandbox dédié aux tests.',
     clientId:'PayPal Client ID',clientSecret:'PayPal Client Secret',note:'Le test OAuth vérifie seulement l’authentification de l’application, pas le bénéficiaire ni le capture confirmé. Bénéficiaire et webhook doivent être vérifiés avant émission ; page de succès oudéclaration client ne confirment pas le paiement.' },
+};
+const almaLabels={
+  ar:{ guide:'أنشئ حساب Alma المخصص وأكمل تفعيله لدى المزود. من Dashboard → Paramètres → Configuration d’API انسخ مفتاح Sandbox للاختبار أوLive المقصودة واختر البيئة المطابقة. إعدادات Sandbox وLive مستقلة.',
+    note:'هذا الفحص يقرأ هوية Merchant للمفتاح فقط. لا يثبت أهلية عرض الدفع أوإنشاء Checkout أوIPN أوcapture أوإتمام الدفع. تُحفظ الهوية مع نسخة الإعداد؛ لا تُعرض بيانات الحساب الخاصة. نجاح الصفحة أوادعاء العميل ليس إثبات دفع.',
+    merchant:'هوية Alma المفحوصة',at:'وقت فحص هوية Alma',key:'مفتاح Alma API',help:'إعداد Alma API' },
+  en:{ guide:'Create the intended Alma merchant account and complete provider activation. In Dashboard → Paramètres → Configuration d’API copy the Sandbox test key or intended Live key and select the matching environment. Sandbox and Live settings are independent.',
+    note:'This read-only probe identifies the merchant authenticated by the key. It does not prove payment eligibility, Checkout, IPN, capture or paid money. Identity is retained with its configuration version; private account data is omitted. A success page or customer claim is not payment proof.',
+    merchant:'Verified Alma identity',at:'Alma identity checked at',key:'Alma API key',help:'Alma API setup' },
+  fr:{ guide:'Créez le compte marchand Alma prévu et terminez son activation. Dans Dashboard → Paramètres → Configuration d’API, copiez la clé de test Sandbox ouLive prévue, puis choisissez l’environnement correspondant. Les configurations Sandbox et Live sont indépendantes.',
+    note:'Ce contrôle en lecture seule identifie le marchand authentifié par la clé. Il ne prouve ni éligibilité, ni Checkout, IPN, capture oupaiement. L’identité conserve sa version de configuration ; les données privées sont omises. Page de succès ou déclaration client ne prouvent pas le paiement.',
+    merchant:'Identité Alma vérifiée',at:'Identité Alma contrôlée le',key:'Clé API Alma',help:'Configuration API Alma' },
 };
 const labels={
   ar:{ title:'اتصالات الدفع',guide:'أنشئ حسابًا أو Sandbox لدى Stripe. من API keys أنشئ Restricted Key بصلاحية قراءة Balance لاختبار الاتصال، واختر TEST أو LIVE المطابقة. استخدم مفاتيح اختبار مخصصة أثناء التطوير.',
@@ -57,7 +69,7 @@ export function PaymentSetup({ locale,role,branches,api }: { locale:Locale;role:
   const t=labels[locale];const ot=optionLabels[locale];const [items,setItems]=useState<Connection[]>([]);const [cursor,setCursor]=useState<string|null>(null);
   const [selected,setSelected]=useState<Connection|null>(null);const selectedRef=useRef<string|null>(null);
   const [name,setName]=useState('');const [branchId,setBranchId]=useState('');const [mode,setMode]=useState<'TEST'|'LIVE'>('TEST');
-  const [provider,setProvider]=useState<'STRIPE'|'PAYPAL'>('STRIPE');const [clientId,setClientId]=useState('');const [clientSecret,setClientSecret]=useState('');const pt=paypalLabels[locale];
+  const [provider,setProvider]=useState<'STRIPE'|'PAYPAL'|'ALMA'>('STRIPE');const [clientId,setClientId]=useState('');const [clientSecret,setClientSecret]=useState('');const pt=paypalLabels[locale];const at=almaLabels[locale];
   const [expectedMerchantId,setExpectedMerchantId]=useState('');const bt=beneficiaryLabels[locale];const [editVersion,setEditVersion]=useState<number|null>(null);
   const [beneficiaries,setBeneficiaries]=useState<BeneficiaryConfiguration[]>([]);const [beneficiaryCursor,setBeneficiaryCursor]=useState<string|null>(null);
   const [key,setKey]=useState('');const [reason,setReason]=useState('');const [busy,setBusy]=useState(false);const [error,setError]=useState('');
@@ -72,38 +84,38 @@ export function PaymentSetup({ locale,role,branches,api }: { locale:Locale;role:
   async function beneficiaryHistory(id:string,next?:string) { const page=await api<{ items:BeneficiaryConfiguration[];nextCursor:string|null }>(`/api/payments/connections/${id}/beneficiary-history`+(next ? '?cursor='+encodeURIComponent(next) : ''));
     if(selectedRef.current!==id)return;setBeneficiaries((prior)=>next ? [...prior,...page.items] : page.items);setBeneficiaryCursor(page.nextCursor); }
   function choose(item:Connection|null) { selectedRef.current=item?.id ?? null;setSelected(item);setName(item?.name ?? '');setBranchId(item?.branch_id ?? '');setMode(item?.config.mode ?? 'TEST');
-    setProvider(item?.provider==='PAYPAL' ? 'PAYPAL' : 'STRIPE');setClientId('');setClientSecret('');
+    setProvider(item?.provider==='PAYPAL' ? 'PAYPAL' : item?.provider==='ALMA' ? 'ALMA' : 'STRIPE');setClientId('');setClientSecret('');
     setExpectedMerchantId(item?.config.expectedMerchantId ?? '');setEditVersion(item?.version ?? null);setBeneficiaries([]);setBeneficiaryCursor(null);
     if(item?.provider==='PAYPAL')void beneficiaryHistory(item.id).catch((e)=>setError(String(e)));
     setKey('');setReason('');setNotice('');setError('');setProbes([]);setProbeCursor(null);if(item)void history(item.id).catch((e)=>setError(String(e))); }
   async function save() { setBusy(true);setError('');setNotice('');try {
     const input={ name,provider,config:{ mode,...(provider==='PAYPAL' && expectedMerchantId ? { expectedMerchantId } : {}) },...(role==='SUPER_ADMIN' ? { branchId:branchId || null } : {}),
-      ...(provider==='STRIPE' ? key ? { credentials:{ apiKey:key } } : {} : clientId || clientSecret ? { credentials:{ clientId,clientSecret } } : {}),...(selected ? { version:editVersion } : {}) };
+      ...(provider!=='PAYPAL' ? key ? { credentials:{ apiKey:key } } : {} : clientId || clientSecret ? { credentials:{ clientId,clientSecret } } : {}),...(selected ? { version:editVersion } : {}) };
     const result=await api<{ id?:string;version:number;status:string }>('/api/payments/connections'+(selected ? '/'+selected.id : ''),{ method:selected ? 'PUT' : 'POST',body:JSON.stringify(input) });
     setKey('');setEditVersion(result.version);const id=selected?.id ?? result.id!;selectedRef.current=id;await load();await history(id);
     if(provider==='PAYPAL')await beneficiaryHistory(id);setNotice(result.status);
-  } catch(e) { setError(String(e)); } finally { setClientId('');setClientSecret('');setBusy(false); } }
+  } catch(e) { setError(String(e)); } finally { setKey('');setClientId('');setClientSecret('');setBusy(false); } }
   async function action(kind:'test'|'options'|'disable'|'reconnect') { if(!selected)return;setBusy(true);setError('');setNotice('');const id=selected.id;
     try { const result=await api<{ state?:string;status?:string;errorCode?:string|null;version?:number }>(`/api/payments/connections/${id}/${kind==='options' ? 'test' : kind}`,{
       method:'POST',body:JSON.stringify({ version:selected.version,...(kind==='options' ? { inspectOptions:true } : kind==='test' ? {} : { reason }) }) });
       if(result.version!==undefined && editVersion===selected.version)setEditVersion(result.version);setNotice(result.state ?? result.status ?? ''); }
     catch(e) { setError(String(e)); } finally { await load().catch((e)=>setError(String(e)));await history(id).catch((e)=>setError(String(e)));setBusy(false); } }
-  return <section className="payment-setup"><h2>{t.title}</h2><p>{provider==='STRIPE' ? t.guide : pt.guide}{' '}
-    <a href={provider==='STRIPE' ? 'https://docs.stripe.com/keys' : 'https://developer.paypal.com/api/rest/authentication/'} target="_blank" rel="noopener noreferrer">{provider==='STRIPE' ? 'Stripe API keys' : 'PayPal REST credentials'}</a></p><p role="status">{provider==='STRIPE' ? t.note : pt.note}</p>
+  return <section className="payment-setup"><h2>{t.title}</h2><p>{provider==='STRIPE' ? t.guide : provider==='PAYPAL' ? pt.guide : at.guide}{' '}
+    <a href={provider==='STRIPE' ? 'https://docs.stripe.com/keys' : provider==='PAYPAL' ? 'https://developer.paypal.com/api/rest/authentication/' : 'https://docs.almapay.com/reference/authentification'} target="_blank" rel="noopener noreferrer">{provider==='STRIPE' ? 'Stripe API keys' : provider==='PAYPAL' ? 'PayPal REST credentials' : at.help}</a></p><p role="status">{provider==='STRIPE' ? t.note : provider==='PAYPAL' ? pt.note : at.note}</p>
     {error && <p role="alert" className="error">{error}</p>}{notice && <p role="status">{t.result}: <bdi>{notice}</bdi></p>}
     <div className="actions"><button disabled={busy} className="secondary" onClick={()=>choose(null)}>{t.add}</button>
       <button disabled={busy} className="secondary" onClick={()=>void load().catch((e)=>setError(String(e)))}>{t.refresh}</button></div>
     <section className="panel"><h3>{selected ? t.edit : t.add}</h3><form className="campaign-form" onSubmit={(event)=>{ event.preventDefault();void save(); }}>
       <label>{t.name}<input aria-label={t.name} required maxLength={100} value={name} disabled={busy || selected?.status==='DISABLED'} onChange={(e)=>setName(e.target.value)} /></label>
       <label>{t.provider}<select aria-label={t.provider} value={provider} disabled={busy || Boolean(selected)} onChange={(e)=>{ setProvider(e.target.value as typeof provider);setKey('');setClientId('');setClientSecret('');setExpectedMerchantId(''); }}>
-        <option value="STRIPE">Stripe</option><option value="PAYPAL">PayPal</option></select></label>
+        <option value="STRIPE">Stripe</option><option value="PAYPAL">PayPal</option><option value="ALMA">Alma</option></select></label>
       {role==='SUPER_ADMIN' && <label>{t.scope}<select aria-label={t.scope} value={branchId} disabled={busy || Boolean(selected)} onChange={(e)=>setBranchId(e.target.value)}>
         <option value="">{t.org}</option>{branches.map((b)=><option key={b.id} value={b.id}>{b.name}</option>)}</select></label>}
       <label>{t.mode}<select aria-label={t.mode} value={mode} disabled={busy || selected?.status==='DISABLED'} onChange={(e)=>setMode(e.target.value as 'TEST'|'LIVE')}><option>TEST</option><option>LIVE</option></select></label>
       {provider==='PAYPAL' && <><label>{bt.merchant}<input aria-label={bt.merchant} autoComplete="off" pattern="[2-9A-HJ-NP-Z]{13}" maxLength={13}
         value={expectedMerchantId} disabled={busy || selected?.status==='DISABLED'} onChange={(e)=>setExpectedMerchantId(e.target.value)} /></label>
         <p>{bt.guide} <a href="https://www.paypal.com/us/cshelp/article/how-do-i-find-my-secure-merchant-id-on-my-paypal-account-help538" target="_blank" rel="noopener noreferrer">{bt.help}</a></p><p>{bt.note}</p></>}
-      {provider==='STRIPE' ? <label>{t.key}<input aria-label={t.key} type="password" autoComplete="off" required={!selected} value={key} maxLength={4096} disabled={busy || selected?.status==='DISABLED'} onChange={(e)=>setKey(e.target.value)} /></label>
+      {provider!=='PAYPAL' ? <label>{provider==='ALMA' ? at.key : t.key}<input aria-label={provider==='ALMA' ? at.key : t.key} type="password" autoComplete="off" required={!selected} value={key} maxLength={4096} disabled={busy || selected?.status==='DISABLED'} onChange={(e)=>setKey(e.target.value)} /></label>
         : <><label>{pt.clientId}<input aria-label={pt.clientId} autoComplete="off" required={!selected || !!clientSecret} value={clientId} maxLength={1024} disabled={busy || selected?.status==='DISABLED'} onChange={(e)=>setClientId(e.target.value)} /></label>
           <label>{pt.clientSecret}<input aria-label={pt.clientSecret} type="password" autoComplete="new-password" required={!selected || !!clientId} value={clientSecret} maxLength={4096} disabled={busy || selected?.status==='DISABLED'} onChange={(e)=>setClientSecret(e.target.value)} /></label></>}
       <button disabled={busy || selected?.status==='DISABLED'}>{t.save}</button>
@@ -116,6 +128,9 @@ export function PaymentSetup({ locale,role,branches,api }: { locale:Locale;role:
       <div><dt>{t.success}</dt><dd>{selected.last_success_at ? new Date(selected.last_success_at).toLocaleString(locale) : '—'}</dd></div>
       <div><dt>{t.failure}</dt><dd>{selected.last_failure_at ? new Date(selected.last_failure_at).toLocaleString(locale) : '—'}</dd></div></dl>
       <p>{t.pending} <bdi>{selected.last_error_code}</bdi></p><button disabled={busy || selected.status==='DISABLED'} onClick={()=>void action('test')}>{t.test}</button>
+      {selected.provider==='ALMA' && selected.capabilities.authentication && selected.capabilities.authenticationVersion===selected.version && <section className="payment-authentication-identity">
+        <h4>{at.merchant}</h4><dl className="inbound-target-summary"><div><dt>{at.merchant}</dt><dd><bdi>{selected.capabilities.authentication.accountRef}</bdi></dd></div>
+          <div><dt>{t.mode}</dt><dd><bdi>{selected.capabilities.authentication.mode}</bdi></dd></div><div><dt>{at.at}</dt><dd>{selected.capabilities.authenticationAt ? new Date(selected.capabilities.authenticationAt).toLocaleString(locale) : '—'}</dd></div></dl></section>}
       {selected.provider==='STRIPE' && <><p>{ot.guide}</p><button disabled={busy || selected.status==='DISABLED'} onClick={()=>void action('options')}>{ot.inspect}</button></>}
       {selected.capabilities.paymentOptions && selected.capabilities.paymentOptionsVersion===selected.version && <section className="payment-provider-options"><h4>{ot.title}</h4>
         <dl className="inbound-target-summary"><div><dt>{ot.country}</dt><dd><bdi>{selected.capabilities.paymentOptions.country}</bdi></dd></div>
@@ -128,6 +143,7 @@ export function PaymentSetup({ locale,role,branches,api }: { locale:Locale;role:
       <label>{t.reason}<input aria-label={t.reason} maxLength={500} value={reason} onChange={(e)=>setReason(e.target.value)} /></label>
       <button disabled={busy || reason.trim().length<3} className="secondary" onClick={()=>void action(selected.status==='DISABLED' ? 'reconnect' : 'disable')}>{selected.status==='DISABLED' ? t.reconnect : t.disable}</button>
       <h4>{t.history}</h4><ul>{probes.map((probe)=><li key={probe.id}><time>{new Date(probe.created_at).toLocaleString(locale)}</time> · <bdi>{probe.purpose}</bdi> · <bdi>{probe.state}</bdi> · {t.version} {probe.connection_version}{probe.error_code && <> · <bdi>{probe.error_code}</bdi></>}
+        {probe.authentication_snapshot && <p>{at.merchant}: <bdi>{probe.authentication_snapshot.accountRef}</bdi> · <bdi>{probe.authentication_snapshot.mode}</bdi></p>}
         {probe.options_snapshot && <p>{ot.country}: <bdi>{probe.options_snapshot.country}</bdi> · {ot.currencies}: <bdi>{probe.options_snapshot.currencies.join(', ')}</bdi></p>}</li>)}</ul>
       {probeCursor && <button disabled={busy} className="secondary" onClick={()=>void history(selected.id,probeCursor).catch((e)=>setError(String(e)))}>{t.moreHistory}</button>}
       {selected.provider==='PAYPAL' && <section className="payment-beneficiary-history"><h4>{bt.history}</h4><p>{bt.configured}</p>
@@ -135,7 +151,7 @@ export function PaymentSetup({ locale,role,branches,api }: { locale:Locale;role:
         <button disabled={busy} className="secondary" onClick={()=>void beneficiaryHistory(selected.id).catch((e)=>setError(String(e)))}>{bt.refresh}</button>
         {beneficiaryCursor && <button disabled={busy} className="secondary" onClick={()=>void beneficiaryHistory(selected.id,beneficiaryCursor).catch((e)=>setError(String(e)))}>{bt.more}</button>}
       </section>}
-      <PaymentWebhooks key={selected.id} provider={selected.provider as 'STRIPE'|'PAYPAL'} connectionId={selected.id} connectionVersion={selected.version} disabled={selected.status==='DISABLED'} locale={locale} api={api} />
+      {['STRIPE','PAYPAL'].includes(selected.provider) && <PaymentWebhooks key={selected.id} provider={selected.provider as 'STRIPE'|'PAYPAL'} connectionId={selected.id} connectionVersion={selected.version} disabled={selected.status==='DISABLED'} locale={locale} api={api} />}
     </section>}
     <PaymentMethods locale={locale} role={role} branches={branches} api={api} />
   </section>;

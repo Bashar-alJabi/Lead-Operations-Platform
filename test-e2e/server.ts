@@ -22,6 +22,7 @@ import { SourceProviderError } from '../src/sources/meta-provider.js';
 import { processOneSourceRetrieval } from '../src/sources/retrieval-worker.js';
 import { processOneHistoricalPreview,processOneHistoricalImport } from '../src/sources/historical.js';
 import { PaymentProviderError } from '../src/payments/providers.js';
+import { almaConnectionAdapter } from '../src/payments/alma-connection.js';
 import { processOnePaymentDispatch } from '../src/payments/dispatch-worker.js';
 import { processOnePaymentReceipt } from '../src/payments/confirmation-worker.js';
 import { stripeCurrencyPrecision,PaymentCheckoutError,type CheckoutSnapshot,type PaymentCheckoutAdapter } from '../src/payments/checkout-provider.js';
@@ -36,6 +37,14 @@ const connectionUrl = requireLocalE2ETarget(process.env.TEST_DATABASE_URL,proces
 const paypalTransport=syntheticPayPalFinancialTransport();
 globalThis.fetch=async(target,init)=> { if(String(target)===testPayPalCertUrl)return new Response(testPayPalCertificate);
   if(String(target).startsWith('https://api-m.sandbox.paypal.com/'))return paypalTransport.fetch(target,init);
+  if(String(target)==='https://api.sandbox.getalma.eu/v1/me/extended-data') {
+    paymentCalls++;if(init?.method!=='GET' || init.redirect!=='error')throw new Error('UNEXPECTED_ALMA_TEST_REQUEST');
+    if(paymentFailure)return new Response('synthetic private provider error',{ status:401 });
+    const key=new Headers(init.headers).get('authorization');
+    if(!key || !key.startsWith('Alma-Auth '))return new Response('invalid auth',{ status:401 });
+    return new Response(JSON.stringify({ id:key.includes('Rotated') ? 'merchant_BrowserRotated456' : 'merchant_BrowserSynthetic123',
+      name:'private Alma business data',bank_account:'private Alma bank data',email:'private@alma.browser.test',can_create_payments:true }));
+  }
   throw new Error('UNEXPECTED_EXTERNAL_HTTP_IN_LOCAL_E2E'); };
 
 process.env.APP_ORIGIN = 'http://127.0.0.1:4100';
@@ -138,7 +147,7 @@ const app = await buildApp(db, { logger:false,globalRateLimitMax:10000,mediaStor
   // Isolate loopback browser scenarios while retaining each route's actual limits.
   // Only this guarded test entrypoint reads this header; the production server uses request.ip.
   rateLimitKeyGenerator:(request)=>request.ip+':'+String(request.headers['x-e2e-rate-scope'] ?? 'shared').slice(0,100),
-  paymentConnectionAdapters:{ PAYPAL:{ verify:async(config)=>{ paymentCalls++;if(paymentFailure)throw new PaymentProviderError('PAYMENT_PROVIDER_AUTH_FAILED');return { mode:config.mode }; },
+  paymentConnectionAdapters:{ ALMA:almaConnectionAdapter,PAYPAL:{ verify:async(config)=>{ paymentCalls++;if(paymentFailure)throw new PaymentProviderError('PAYMENT_PROVIDER_AUTH_FAILED');return { mode:config.mode }; },
     inspectWebhook:async(config,_credentials,id)=> { paymentCalls++;if(paymentFailure)throw new PaymentProviderError('PAYMENT_PROVIDER_AUTH_FAILED');
       const w=(await db`SELECT callback_url FROM payment_webhook WHERE external_endpoint_id=${id} ORDER BY created_at DESC LIMIT 1`)[0];
       if(!w)throw new PaymentProviderError('PAYMENT_PROVIDER_RESPONSE_INVALID');

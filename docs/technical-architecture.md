@@ -1,5 +1,9 @@
 # المعمارية التقنية
 
+## Alma Authentication identity — 2026-10-08
+
+تفاصيلالإعدادوالحدود في [Alma integration](alma-integration.md): actual read-only adapter وfixed environments/server-only encrypted opaque key،safe versioned merchant identity snapshot دونfake Stripe options،native current session/config/latest/TTL/history guards في078 وatomic Audit،UI ar/en/fr. نجاحprobe ليستfinancial readiness؛Checkout/IPN/Payment/Enrollment تبقىخارجregistry حتىاكتمالالمرحلةالمالية واختباراتend-to-end. لاLive claim.
+
 ## PayPal financial activation — 2026-10-08
 
 التصميم والتنفيذ الحاليان في [PayPal financial flow](paypal-financial-flow.md): provider-aware immutable issuance دون fake account capabilities، unknown expiry مع حفظ Stripe guard، durable capture بفعل صريح/current authorization/key/retention/merchant lease منفصلة، ثم signed receipt وindependent order+capture/payee/exact-money proof قبل native Payment/Enrollment transition. migrations 074–077 توسع الحماية دون تعديل migrations السابقة؛ credential repair للقراءة فقط تحفظ تاريخ الميزانية المالية. نتائج التحقق وحدوده في progress وcoverage؛ لا Live claim. الأقسام القديمة التي تصف PayPal بأنها غيرمفعّلة هي تاريخ checkpoints السابقة.

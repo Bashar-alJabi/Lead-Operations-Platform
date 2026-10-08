@@ -1,5 +1,9 @@
 # دليل التشغيل والتطوير
 
+## إعداد Alma Authentication — 2026-10-08
+
+شغّلmigrations حتى078 علىDocker PostgreSQL. منPayment setup اخترAlma وConnection scope المسموحة وTEST،واتبعتعليماتالمزود للحصول علىمفتاحSandbox مخصص؛الحفظ مشفّر وTest authentication قراءةMerchant فقط. راجعcurrent identity/version/history والfinite error،ودوّرالمفتاح/disable/reconnect منUI. `PAYMENT_FLOW_NOT_READY` مقصودةفيهذهprerequisite ولا تعنيPayment confirmed؛لاCheckout/IPN ماليةمفعّلةبعد. المصدر والتفاصيل في[Alma integration](alma-integration.md)،والتحققبHTTP mocks فقطوالLive pending.
+
 ## تشغيل PayPal المالي — 2026-10-08
 
 راجع [PayPal financial flow](paypal-financial-flow.md) لإعداد credentials/Merchant ID/Webhook/Branch Method من UI، ثم إصدار Link وطلب capture وتتبع attempts/financial confirmation/separate Enrollment. `PAYMENT_APPROVAL_REQUIRED` تحجب capture حتى موافقة PayPal وطلب جديد بصلاحية حالية؛ UNKNOWN أوexhausted window لا تعني فشل الدفع ولا تبرر مفتاحًا جديدًا تلقائيًا. historical receipt recovery للقراءة فقط من Payment webhooks مع Provider/Merchant ID/mode ثابتة. شغّل migrations حتى077 وpayment worker الحالي؛ التطوير والاختبارات تعتمد Docker PostgreSQL لاembedded-postgres. التحقق الخارجي pending، والتفاصيل والأعداد الحالية في progress/coverage؛ النصوص السابقة تاريخية عند تعارضها مع هذا المسار.

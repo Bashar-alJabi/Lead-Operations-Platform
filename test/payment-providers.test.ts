@@ -4,7 +4,7 @@ import { stripeConnectionAdapter,validatePaymentCredentials } from '../src/payme
 const config={ mode:'TEST' } as const;const credentials={ apiKey:'rk_test_'+ 'syntheticOnly'.repeat(3) };
 
 test('only configured provider profiles accept credentials and reject foreign provider config before I/O',()=> {
-  for(const provider of ['MOLLIE','ALMA','BANK_TRANSFER','constructor'])
+  for(const provider of ['MOLLIE','BANK_TRANSFER','constructor'])
     assert.throws(()=>validatePaymentCredentials(config,credentials,provider),/PAYMENT_PROVIDER_UNSUPPORTED/);
   const foreignConfig={ ...config,profileId:'foreign-profile' };
   assert.throws(()=>validatePaymentCredentials(foreignConfig,credentials),/PAYMENT_CONFIG_INVALID/);

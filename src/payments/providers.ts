@@ -1,19 +1,22 @@
 import { HttpError } from '../security.js';
 import { boundedResponse } from '../media/meta-provider.js';
 import { paypalConnectionAdapter,validatePayPalCredentials } from './paypal-connection.js';
+import { almaConnectionAdapter,validateAlmaCredentials } from './alma-connection.js';
 import { PaymentProviderError } from './provider-errors.js';
 export { PaymentProviderError } from './provider-errors.js';
 
 export type PaymentConfig={ mode:'TEST'|'LIVE';expectedMerchantId?:string };
 export type StripePaymentCredentials={ apiKey:string };
 export type PayPalPaymentCredentials={ clientId:string;clientSecret:string };
-export type PaymentCredentials=StripePaymentCredentials|PayPalPaymentCredentials;
+export type AlmaPaymentCredentials={ apiKey:string };
+export type PaymentCredentials=StripePaymentCredentials|PayPalPaymentCredentials|AlmaPaymentCredentials;
+export type PaymentAuthenticationSnapshot={ schemaVersion:1;profile:'ALMA_ME_V1';accountRef:string;mode:'TEST'|'LIVE' };
 export type PaymentProviderOptions={ accountRef:string;country:string;defaultCurrency:string;currencies:string[];paymentMethods:string[];
   chargesEnabled:boolean;cardPayments:'ACTIVE'|'INACTIVE'|'PENDING'|'UNKNOWN' };
 export type PaymentWebhookInspection={ mode:'TEST'|'LIVE';endpointId:string;url:string;enabled:boolean;enabledEvents:string[] };
 export const stripePaymentEvents=['checkout.session.completed','checkout.session.async_payment_succeeded','checkout.session.async_payment_failed','checkout.session.expired'] as const;
 export type PaymentConnectionAdapter={
-  verify(config:PaymentConfig,credentials:PaymentCredentials):Promise<{ mode:'TEST'|'LIVE' }>;
+  verify(config:PaymentConfig,credentials:PaymentCredentials):Promise<{ mode:'TEST'|'LIVE';authentication?:PaymentAuthenticationSnapshot }>;
   inspect?(config:PaymentConfig,credentials:PaymentCredentials):Promise<{ mode:'TEST'|'LIVE';options:PaymentProviderOptions }>;
   inspectWebhook?(config:PaymentConfig,credentials:PaymentCredentials,endpointId:string):Promise<PaymentWebhookInspection>;
 };
@@ -21,6 +24,7 @@ export function validatePaymentCredentials(config:PaymentConfig,credentials:Paym
 export function validatePaymentCredentials(config:PaymentConfig,credentials:PaymentCredentials,provider:string):void;
 export function validatePaymentCredentials(config:PaymentConfig,credentials:PaymentCredentials,provider='STRIPE'):void {
   if(provider==='PAYPAL') { validatePayPalCredentials(config,credentials);return; }
+  if(provider==='ALMA') { validateAlmaCredentials(config,credentials);return; }
   if(provider!=='STRIPE')throw new HttpError(400,'PAYMENT_PROVIDER_UNSUPPORTED');
   if(!config || Object.keys(config).join(',')!=='mode')throw new HttpError(400,'PAYMENT_CONFIG_INVALID');
   const mode=config.mode==='TEST' ? 'test' : config.mode==='LIVE' ? 'live' : null;
@@ -90,4 +94,15 @@ export const stripeConnectionAdapter:PaymentConnectionAdapter={ async verify(con
 } };
 
 export type PaymentAdapterRegistry=Readonly<Record<string,PaymentConnectionAdapter>>;
-export const paymentConnectionAdapters:PaymentAdapterRegistry={ STRIPE:stripeConnectionAdapter,PAYPAL:paypalConnectionAdapter };
+export const paymentConnectionAdapters:PaymentAdapterRegistry={ STRIPE:stripeConnectionAdapter,PAYPAL:paypalConnectionAdapter,ALMA:almaConnectionAdapter };
+export function checkedPaymentAuthentication(value:unknown,provider:string,config:PaymentConfig):PaymentAuthenticationSnapshot|null {
+  if(provider!=='ALMA') {
+    if(value!==undefined)throw new PaymentProviderError('PAYMENT_PROVIDER_RESPONSE_INVALID');return null;
+  }
+  const data=value as Partial<PaymentAuthenticationSnapshot>|null;
+  if(!data || typeof data!=='object' || Array.isArray(data) || Object.keys(data).sort().join(',')!=='accountRef,mode,profile,schemaVersion'
+    || data.schemaVersion!==1 || data.profile!=='ALMA_ME_V1' || data.mode!==config.mode
+    || typeof data.accountRef!=='string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(data.accountRef))
+    throw new PaymentProviderError('PAYMENT_PROVIDER_RESPONSE_INVALID');
+  return { schemaVersion:1,profile:'ALMA_ME_V1',accountRef:data.accountRef,mode:data.mode };
+}

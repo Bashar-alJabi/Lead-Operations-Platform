@@ -1,0 +1,35 @@
+import { HttpError } from '../security.js';
+import { boundedResponse } from '../media/meta-provider.js';
+import { PaymentProviderError } from './provider-errors.js';
+import type { PaymentConfig,PaymentCredentials,AlmaPaymentCredentials,PaymentConnectionAdapter,PaymentAuthenticationSnapshot } from './providers.js';
+
+export function validateAlmaCredentials(config:PaymentConfig,credentials:PaymentCredentials):asserts credentials is AlmaPaymentCredentials {
+  if(!config || !['TEST','LIVE'].includes(config.mode) || Object.keys(config).join(',')!=='mode')throw new HttpError(400,'PAYMENT_CONFIG_INVALID');
+  // Alma documents an opaque key, not a Stripe-like mode prefix. Mode is selected by the fixed API environment.
+  if(!credentials || Object.keys(credentials).join(',')!=='apiKey' || !('apiKey' in credentials)
+    || typeof credentials.apiKey!=='string' || !/^[\x21-\x7e]{20,4096}$/.test(credentials.apiKey))
+    throw new HttpError(400,'PAYMENT_CREDENTIAL_MODE_INVALID');
+}
+export function almaOrigin(mode:PaymentConfig['mode']):string {
+  if(mode==='TEST')return 'https://api.sandbox.getalma.eu';
+  if(mode==='LIVE')return 'https://api.getalma.eu';
+  throw new HttpError(400,'PAYMENT_CONFIG_INVALID');
+}
+export const almaConnectionAdapter:PaymentConnectionAdapter={ async verify(config,credentials) {
+  validateAlmaCredentials(config,credentials);let response:Response;
+  try { response=await fetch(almaOrigin(config.mode)+'/v1/me/extended-data',{
+    method:'GET',redirect:'error',signal:AbortSignal.timeout(8000),headers:{
+      authorization:'Alma-Auth '+credentials.apiKey,accept:'application/json','content-type':'application/json' } }); }
+  catch { throw new PaymentProviderError('PAYMENT_PROVIDER_UNAVAILABLE'); }
+  if([401,403].includes(response.status))throw new PaymentProviderError('PAYMENT_PROVIDER_AUTH_FAILED');
+  if(response.status===429)throw new PaymentProviderError('PAYMENT_PROVIDER_RATE_LIMITED');
+  if(!response.ok)throw new PaymentProviderError('PAYMENT_PROVIDER_UNAVAILABLE');
+  let data:unknown;
+  try { data=JSON.parse(new TextDecoder('utf-8',{ fatal:true }).decode(await boundedResponse(response,262144))); }
+  catch { throw new PaymentProviderError('PAYMENT_PROVIDER_RESPONSE_INVALID'); }
+  const id=data && typeof data==='object' && !Array.isArray(data) ? (data as Record<string,unknown>).id : null;
+  // Technical safe identifier bounds; no guessed provider prefix, fake country or business capability.
+  if(typeof id!=='string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(id))throw new PaymentProviderError('PAYMENT_PROVIDER_RESPONSE_INVALID');
+  const authentication:PaymentAuthenticationSnapshot={ schemaVersion:1,profile:'ALMA_ME_V1',accountRef:id,mode:config.mode };
+  return { mode:config.mode,authentication };
+} };
