@@ -1,5 +1,15 @@
 # تكامل Alma
 
+## Amount-specific eligibility prerequisite — 2026-10-08
+
+`inspectEligibility` امتداد اختياري لـPaymentConnectionAdapter؛Alma تنفّذ current Merchant ثم `POST /v2/payments/eligibility` مع purchase_amount EUR cents/int32 وorigin=online وquery واحدة لخطة مختارة صراحة،دون provider default. العملية تقييم فقط ولا تنشئ Payment لدى المزود. الإجابة يجب أن تحتوي result واحدة بنفس installments/deferred tuple وeligible boolean؛money/account/mode من الطلب والهوية المستقلة،ولا raw reasons/fees/PII/payment schedules تُحفظ أو تُعرض. False eligible نتيجة تقييم ناجحة وليست Authentication failure أوPayment failed.
+
+`ALMA_ELIGIBILITY_V2` schema1 تربط merchant/mode/exact normalized money/plan/eligible؛Migration080 تحفظ immutable eligibility_request وeligibility_snapshot،وتفرض native canonical EUR amount/minor/int32/precision/plan وmatching request/authenticated current identity. Session/role/Branch/version/latest/TTL fences وatomic Audit تبقى؛late rotation/disable تُسجلSUPERSEDED وlate access revoke تُسجلBLOCKED. لا caller eligibility claim أوcurrent result لمبلغ/خطة أخرى.
+
+من Payment setup افحص العروض،ثم أدخل مبلغ EUR واختر خطة allowed صراحة واضغط فحص أهلية خطة Alma. النتيجة تعرض مبلغها وخطتها وmerchant/البيئة،ولا تُعاملcustomer credit approval أو link issuance أوPaid. current/historical results ar/en/fr قابلة للقراءة بالصلاحيات؛rotation/failure تُبطل الحالية وتحفظ التاريخ. يحتاج الإصدار المقبل أهلية جديدة لنفس immutable intent،ولا يعتمد على setup assessment قديمة. Financial registry لا تزال غيرمفعّلة لـAlma؛تفاصيل نتيجة البوابة في progress/coverage.
+
+التحقق النهائي129unit/55PostgreSQL/24Edge وBackend/Web build/typecheck/migrations001–080 ناجح؛actual adapters معHTTP mocks وDocker PostgreSQL/Browser محليًا فقط. Native negatives و4-way latest publication/session expiry-revocation/config rotation/disable/Audit rollback وeligible/ineligible/precision/history/ACL/RTL مثبتة. **Implemented وMock/Sandbox Verified لهذهprerequisite؛Live Verification Pending External Credential/Approval**. ليستAlma ماليةend-to-end أوPayments Complete.
+
 ## Merchant offers prerequisite — 2026-10-08
 
 من Payment setup → Alma استخدم **فحص عروض Alma** بعد حفظ Connection؛ القراءة الفعلية تستخدم current Merchant ثم `GET /v1/me/fee-plans?kind=general&only=all&deferred=true` بنفس المفتاح/البيئة الثابتة. لا customer/payment writes أو hidden retries. `PaymentConnectionAdapter.inspectOffers` اختيارية وعامة؛ Stripe-shaped country/options غير مدعومة لـAlma ولا تتظاهر الواجهة بدعمها.
@@ -40,7 +50,7 @@ adapter الفعلية تستخدمHTTP mocks فيunit/PostgreSQL/Browser؛لاA
 
 ## التالي: financial baseline
 
-Merchant offers مثبتة؛التالي current V2 eligibility وhosted creation configuration منUI دون installments Business defaults مختلقة،ثمimmutable merchant/money/intent/options وdurable write policy. Reference V2 توثق purchase amount كـEUR cents/int32؛هذا API money profile وليس إثبات capability لكل حساب أوcustomer underwriting. لاidempotency retention أوUNKNOWN retry مفترضةحتىيتحققعقدالمزوّد؛reconciliation تحفظhistory ولا تنشئPayment ثانيةتخمينًا.
+Merchant offers وcurrent V2 specific-query eligibility مثبتتان؛التالي hosted creation protocol/selected-plan Lead UI دون installments Business defaults مختلقة،ثمimmutable merchant/money/intent/options وdurable write policy. Reference V2 توثق purchase amount كـEUR cents/int32؛هذا API money profile وليس إثبات capability لكل حساب أوcustomer underwriting. لاidempotency retention أوUNKNOWN retry مفترضةحتىيتحققعقدالمزوّد؛reconciliation تحفظhistory ولا تنشئPayment ثانيةتخمينًا.
 
 IPN الرسميةGET `pid` غيرموقّعة؛notification غيرموثوقة تحتاجcorrelation/abuse bounds/dedup ثمindependent authenticated GETPayment وmerchant/exact money/currency/intent. `processing_status` مرجعالحالةبدلstate القديمة،و`authorized` لا تُساوىcaptured. Native confirmation/monotonic Payment/separate Enrollment/history/repair/scoped UI وnegative integration/Browser E2E قبلfinancial activation. Bank Transfer بعدهذهbaseline معtrusted reconciliation لاcustomer claim.
 
@@ -49,5 +59,5 @@ IPN الرسميةGET `pid` غيرموقّعة؛notification غيرموثوقة 
 - [Authentication](https://docs.almapay.com/reference/authentification)،[environments](https://docs.almapay.com/reference/v10): الإعداد/headers/origins.
 - [Official SDK Merchants](https://github.com/alma/alma-php-client/blob/main/src/Endpoints/Merchants.php)،[Merchant](https://github.com/alma/alma-php-client/blob/main/src/Entities/Merchant.php)،[Base identity](https://github.com/alma/alma-php-client/blob/main/src/Entities/Base.php): current merchant endpoint/identity.
 - [Official SDK FeePlan](https://github.com/alma/alma-php-client/blob/main/src/Entities/FeePlan.php): general offers وallowed/count/deferred/purchase bounds.
-- [V2 eligibility](https://docs.almapay.com/reference/verifier-eligibilite-achat): amount-specific EUR eligibility،queries وترتيب الإجابة؛مرجع للمرحلة التالية،وليستcustomer/payment verification منفذة.
+- [V2 eligibility](https://docs.almapay.com/reference/verifier-eligibilite-achat): amount-specific EUR eligibility،queries وترتيب الإجابة؛inspection مثبتة،وليستcustomer/payment verification.
 - [Technical guide](https://docs.almapay.com/docs/custom-integration-technical-guide)،[Payment](https://docs.almapay.com/reference/payment): IPN/independent lookup/processing states؛مراجعةللمرحلةالتاليّةوليستverification ماليةمنفذة.

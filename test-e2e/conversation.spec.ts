@@ -1370,9 +1370,23 @@ test('browser configures Alma encrypted key, verifies merchant identity and reta
     await panel.getByRole('button',{ name:'Inspect Alma offers',exact:true }).click();const offersPanel=panel.locator('.payment-merchant-offers');await expect(offersPanel).toContainText('300000');
     await expect(offersPanel).toContainText('Not allowed');await expect(panel).toContainText('No default installment count');
     const offered=(await (await page.request.get(path)).json()).capabilities.merchantOffers;expect(offered.accountRef).toBe(detail.capabilities.authentication.accountRef);expect(offered.plans.map((p:any)=>p.installments)).toEqual([1,3]);expect(offered.currencies).toBeUndefined();
+    const eligibilityPanel=panel.locator('.payment-eligibility');await expect(eligibilityPanel.getByLabel('Alma eligibility plan',{ exact:true })).toHaveValue('');
+    await expect(eligibilityPanel.getByRole('button',{ name:'Inspect Alma plan eligibility',exact:true })).toBeDisabled();
+    await eligibilityPanel.getByLabel('Alma eligibility amount (EUR)',{ exact:true }).fill('100');
+    await eligibilityPanel.getByLabel('Alma eligibility plan',{ exact:true }).selectOption({ index:1 });
+    await eligibilityPanel.getByRole('button',{ name:'Inspect Alma plan eligibility',exact:true }).click();const eligibilityResult=eligibilityPanel.locator('.payment-eligibility-result');
+    await expect(eligibilityResult).toContainText('100.00 EUR');await expect(eligibilityResult).toContainText('Plan eligible for the assessed amount');
+    await expect(eligibilityPanel).toContainText('without final customer credit approval');
+    const eligible=(await (await page.request.get(path)).json()).capabilities.paymentEligibility;expect(eligible.eligible).toBe(true);expect(eligible.plan.installments).toBe(3);expect(eligible.accountRef).toBe(detail.capabilities.authentication.accountRef);
+    expect(eligible.money.minor).toBe('10000');expect(eligible.customer_total_cost_amount).toBeUndefined();
+    await eligibilityPanel.getByLabel('Alma eligibility amount (EUR)',{ exact:true }).fill('50');await eligibilityPanel.getByRole('button',{ name:'Inspect Alma plan eligibility',exact:true }).click();
+    await expect(eligibilityResult).toContainText('50.00 EUR');await expect(eligibilityResult).toContainText('Plan not eligible for the assessed amount');await expect(row).toContainText('WARNING');
+    await eligibilityPanel.getByLabel('Alma eligibility amount (EUR)',{ exact:true }).fill('1.001');await eligibilityPanel.getByRole('button',{ name:'Inspect Alma plan eligibility',exact:true }).click();
+    await expect(eligibilityPanel.getByRole('alert')).toContainText('PAYMENT_AMOUNT_PRECISION_INVALID');await expect(eligibilityResult).toContainText('50.00 EUR');
     await control(page,{ paymentFailure:true });await panel.getByRole('button',{ name:'Test authentication',exact:true }).click();await expect(row).toContainText('AUTH_EXPIRED');
     await expect(panel.getByRole('alert').first()).toContainText('PAYMENT_PROVIDER_AUTH_FAILED');await expect(panel.locator('.payment-authentication-identity')).toHaveCount(0);
     await expect(offersPanel).toHaveCount(0);
+    await expect(eligibilityResult).toHaveCount(0);
     await panel.getByLabel('Payment connection change reason',{ exact:true }).fill('Rotate intended Alma key');await panel.getByRole('button',{ name:'Disable payment connection',exact:true }).click();
     await expect(row).toContainText('DISABLED');await expect(panel.getByRole('button',{ name:'Test authentication',exact:true })).toBeDisabled();
     await panel.getByRole('button',{ name:'Reconnect payment connection',exact:true }).click();await expect(row).toContainText('NOT_CONFIGURED');
@@ -1383,15 +1397,18 @@ test('browser configures Alma encrypted key, verifies merchant identity and reta
     expect(history.items.some((p:any)=>p.authentication_snapshot?.accountRef==='merchant_BrowserRotated456' && p.connection_version===4)).toBe(true);
     expect(history.items.some((p:any)=>p.offers_snapshot?.accountRef==='merchant_BrowserSynthetic123' && p.connection_version===1)).toBe(true);
     expect(history.items.some((p:any)=>p.offers_snapshot?.accountRef==='merchant_BrowserRotated456' && p.connection_version===4)).toBe(true);
+    expect(history.items.some((p:any)=>p.eligibility_snapshot?.eligible===true && p.eligibility_snapshot.money.amount==='100.00' && p.connection_version===1)).toBe(true);
+    expect(history.items.some((p:any)=>p.eligibility_snapshot?.eligible===false && p.eligibility_snapshot.money.amount==='50.00' && p.connection_version===1)).toBe(true);
     const publicText=JSON.stringify([items,detail,history,await (await page.request.get(path)).json()]);
-    for(const secret of [key,rotated,'private Alma business data','private Alma bank data','private@alma.browser.test'])expect(publicText).not.toContain(secret);
+    for(const secret of [key,rotated,'private Alma business data','private Alma bank data','private@alma.browser.test','private Alma underwriting'])expect(publicText).not.toContain(secret);
     const second=await browser.newContext({ extraHTTPHeaders:{ 'x-e2e-rate-scope':randomUUID() } });try { const unauthorized=await second.newPage();await login(unauthorized,'second');
       expect((await unauthorized.request.get(path)).status()).toBe(403);expect((await unauthorized.request.get(path+'/history')).status()).toBe(403);
       expect((await unauthorized.request.post(path+'/test',{ data:{ version:4 },headers:{ origin:'http://127.0.0.1:4100' } })).status()).toBe(403);
+      expect((await unauthorized.request.post(path+'/test',{ data:{ version:4,eligibility:{ amount:'100',currency:'EUR',plan:{ installments:3,deferredMonths:0,deferredDays:0 } } },headers:{ origin:'http://127.0.0.1:4100' } })).status()).toBe(403);
     }finally { await second.close(); }
     await page.getByRole('combobox',{ name:'Language' }).selectOption('fr');await expect(panel).toContainText('Ce contrôle en lecture seule');await expect(panel.locator('.payment-authentication-identity')).toContainText('Identité Alma vérifiée');
-    await page.setViewportSize({ width:390,height:844 });await page.getByRole('combobox',{ name:'Language' }).selectOption('ar');await panel.locator('.payment-authentication-identity').scrollIntoViewIfNeeded();
-    await expect(panel).toContainText('هوية Alma المفحوصة');await page.screenshot({ path:'.local/e2e/alma-authentication-ar.png' });
+    await page.setViewportSize({ width:390,height:844 });await page.getByRole('combobox',{ name:'Language' }).selectOption('ar');await eligibilityPanel.scrollIntoViewIfNeeded();
+    await expect(panel).toContainText('هوية Alma المفحوصة');await expect(eligibilityPanel).toContainText('أهلية خطة Alma للمبلغ');await expect(panel.locator('.payment-eligibility-history')).toHaveCount(2);await page.screenshot({ path:'.local/e2e/alma-eligibility-ar.png' });
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);expect(errors).toEqual([]);
   } finally { await control(page,{ paymentFailure:false });await context.close(); }
 });

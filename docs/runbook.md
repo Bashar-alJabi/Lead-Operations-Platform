@@ -1,5 +1,9 @@
 # دليل التشغيل والتطوير
 
+## فحص أهلية مبلغ وخطة Alma — 2026-10-08
+
+شغّل migrations حتى080. من Payment setup → Alma افحص Authentication/Offers ثم أدخل مبلغ EUR بأرقام إنجليزية ونقطة عشرية واختر خطة allowed صراحة. زر **فحص أهلية خطة Alma** يقيّم المبلغ والخطة فقط؛راجع result money/plan/merchant/mode/history. لا اختيار افتراضي أوcustomer credit approval أورابط/Payment/Enrollment منالفحص. PAYMENT_AMOUNT_PRECISION_INVALID/AMOUNT_INVALID ترفض rounding/zero/int32 overflow قبل I/O؛false eligible تعني عدم أهلية الخطة للمبلغ دونتأكيدفشل دفع. provider/auth failure finite وتتطلبتصحيح الاتصال وإعادةفحص؛rotation/disable لا تحذفhistory. Actual eligibility HTTP mocked محليًا؛Live Verification Pending External Credential/Approval.
+
 ## فحص عروض Alma — 2026-10-08
 
 شغّل migrations حتى079. من Payment setup → Alma احفظ الاتصال ثم **فحص عروض Alma**؛ العملية قراءة current Merchant وfee plans فقط. راجع allowed والخطط والتأجيل وحدود purchase amount بالسنتات، والهوية/config version وhistory. العروض ليست أهلية العميل النهائية؛ لا default plan مختلقة ولا currency capability مستنتجة منها. Failure/rotation تزيل current offers ويحتاج الاتصال فحصًا جديدًا؛ التاريخ باقٍ. `PAYMENT_FLOW_NOT_READY` تظل صحيحة حتى تفعيل financial baseline؛ لا DB/CLI override. الاختبارات المحلية126unit/54PostgreSQL/24Edge ناجحة؛ Live Verification Pending External Credential/Approval.

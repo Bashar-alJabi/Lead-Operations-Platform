@@ -37,11 +37,14 @@ const connectionUrl = requireLocalE2ETarget(process.env.TEST_DATABASE_URL,proces
 const paypalTransport=syntheticPayPalFinancialTransport();
 globalThis.fetch=async(target,init)=> { if(String(target)===testPayPalCertUrl)return new Response(testPayPalCertificate);
   if(String(target).startsWith('https://api-m.sandbox.paypal.com/'))return paypalTransport.fetch(target,init);
-  if(['https://api.sandbox.getalma.eu/v1/me/extended-data','https://api.sandbox.getalma.eu/v1/me/fee-plans?kind=general&only=all&deferred=true'].includes(String(target))) {
-    paymentCalls++;if(init?.method!=='GET' || init.redirect!=='error')throw new Error('UNEXPECTED_ALMA_TEST_REQUEST');
+  if(['https://api.sandbox.getalma.eu/v1/me/extended-data','https://api.sandbox.getalma.eu/v1/me/fee-plans?kind=general&only=all&deferred=true','https://api.sandbox.getalma.eu/v2/payments/eligibility'].includes(String(target))) {
+    const assessing=String(target).endsWith('/eligibility');paymentCalls++;if(init?.method!==(assessing ? 'POST' : 'GET') || init.redirect!=='error')throw new Error('UNEXPECTED_ALMA_TEST_REQUEST');
     if(paymentFailure)return new Response('synthetic private provider error',{ status:401 });
     const key=new Headers(init.headers).get('authorization');
     if(!key || !key.startsWith('Alma-Auth '))return new Response('invalid auth',{ status:401 });
+    if(assessing){ const body=JSON.parse(init.body as string);if(body.queries.length!==1 || body.origin!=='online')throw new Error('UNEXPECTED_ALMA_TEST_ELIGIBILITY');
+      return new Response(JSON.stringify([{ ...body.queries[0],eligible:body.purchase_amount>=10000 && body.purchase_amount<=300000,customer_total_cost_amount:100,
+        reasons:{ private:'private Alma underwriting' },payment_plan:[{ bank:'private Alma bank data' }] }])); }
     if(String(target).includes('/fee-plans'))return new Response(JSON.stringify([{ kind:'general',installments_count:3,deferred_months:0,deferred_days:0,allowed:true,min_purchase_amount:10000,max_purchase_amount:300000,private:'private Alma bank data' },
       { kind:'general',installments_count:1,deferred_months:0,deferred_days:30,allowed:false,min_purchase_amount:5000,max_purchase_amount:100000 }]));
     return new Response(JSON.stringify({ id:key.includes('Rotated') ? 'merchant_BrowserRotated456' : 'merchant_BrowserSynthetic123',

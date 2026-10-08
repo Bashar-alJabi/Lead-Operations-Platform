@@ -3,6 +3,7 @@ import { boundedResponse } from '../media/meta-provider.js';
 import { paypalConnectionAdapter,validatePayPalCredentials } from './paypal-connection.js';
 import { almaConnectionAdapter,validateAlmaCredentials } from './alma-connection.js';
 import type { PaymentMerchantOffers } from './merchant-offers.js';
+import type { PaymentEligibilityRequest,PaymentEligibilitySnapshot } from './eligibility.js';
 import { PaymentProviderError } from './provider-errors.js';
 export { PaymentProviderError } from './provider-errors.js';
 
@@ -20,6 +21,7 @@ export type PaymentConnectionAdapter={
   verify(config:PaymentConfig,credentials:PaymentCredentials):Promise<{ mode:'TEST'|'LIVE';authentication?:PaymentAuthenticationSnapshot }>;
   inspect?(config:PaymentConfig,credentials:PaymentCredentials):Promise<{ mode:'TEST'|'LIVE';options:PaymentProviderOptions }>;
   inspectOffers?(config:PaymentConfig,credentials:PaymentCredentials):Promise<{ mode:'TEST'|'LIVE';authentication:PaymentAuthenticationSnapshot;offers:PaymentMerchantOffers }>;
+  inspectEligibility?(config:PaymentConfig,credentials:PaymentCredentials,request:PaymentEligibilityRequest):Promise<{ mode:'TEST'|'LIVE';authentication:PaymentAuthenticationSnapshot;eligibility:PaymentEligibilitySnapshot }>;
   inspectWebhook?(config:PaymentConfig,credentials:PaymentCredentials,endpointId:string):Promise<PaymentWebhookInspection>;
 };
 export function validatePaymentCredentials(config:PaymentConfig,credentials:PaymentCredentials):asserts credentials is StripePaymentCredentials;

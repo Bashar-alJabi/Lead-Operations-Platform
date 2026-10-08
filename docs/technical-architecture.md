@@ -1,5 +1,9 @@
 # المعمارية التقنية
 
+## Alma amount-specific eligibility — 2026-10-08
+
+Optional `inspectEligibility` تعيد safe normalized request/snapshot لا financial proof. كل تقييم يقرأ actual Merchant ثم specific V2 query بخطة صريحة وEUR int32 cents؛unexpected count/plan/bool مرفوضة،PII/fee schedules/raw reasons تُسقط. Native080 تحفظ original money/plan request immutable وتراجع exact result/request/authenticated identity وcurrent session/config/latest/TTL مع Audit transaction واحدة. الواجهة تميز current assessment عن historical وتعرض مبلغها وخطتها؛لا default plan أو customer underwriting أوPayment/Enrollment منprobe. المستقبل يربط selected plan بـLead intent ويعيد fresh eligibility قبلwrite،دون replay guarantee مفترضة.
+
 ## Alma Merchant offers — 2026-10-08
 
 `PaymentConnectionAdapter.inspectOffers` امتداد اختياري عام دون تغيير financial registries. Alma تقرأ current Merchant ثم general fee plans؛ normalization تحفظ profile `ALMA_FEE_PLANS_V1` schema1 وaccount/mode وخططًا bounded ومرتبة/fail closed دون raw fees أو PII أو currencies مختلقة. Migration079 تفرض native schema/identity/unique ordered tuples/exact integer money وOFFERS purpose مع current authorization/config/latest/TTL وimmutable history. current offers مربوطة بconfig version والهوية؛ auth لنفس الهوية تحفظها، بينما الفشل/rotation تبطل current snapshot دون محو التاريخ. UI تستخدمها معلومات عرض فقط، لا customer eligibility أو financial proof. تفاصيل العقد والتحقق في [Alma integration](alma-integration.md).

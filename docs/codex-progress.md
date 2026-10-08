@@ -1,5 +1,15 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: Alma amount-specific eligibility prerequisite — 2026-10-08
+
+Checkpoint عروض Alma محفوظة ومرفوعة في `1a50cf9` مع واجهتها في `d0f7598`؛working tree كانت نظيفة وHEAD=origin عند البدء. أُكملت prerequisite اللازمة للإصدار: actual current Merchant + V2 specific-query eligibility لخطة مختارة صراحة ومبلغ EUR exact minor/int32،safe schema1 result وimmutable original request/native session/config/current identity/latest/TTL/history/Audit وsetup UI ar/en/fr. لا default plan أوcustomer underwriting أوfinancial confirmation؛false eligible تقييم ناجح لاPayment failed،ولا financial registry activation أوPayment/Enrollment.
+
+بوابة checkpoint النهائية ناجحة: **129/129 unit،55/55 full PostgreSQL integration،24/24 Edge Browser E2E** (2.2m)،Backend/Web build/typecheck وmigrations001–080 على development/test. ثلاثunit جديدة تثبت exact int32 EUR/no rounding/explicit plan/checked response وactual adapter/one query/identity/PII omission/finite failures/no hidden retry. PostgreSQL الجديدة تختبرcurrent ACL/session/expiry/version/identity/native input-snapshot immutability/shape/money-plan mismatch/4-way concurrency/rotation/disable/Audit rollback/pagination/no financial records. Browser24 توسعت explicit selection→eligible→ineligible→invalid precision/current invalidation/historical exact money/Agent denial/French/RTL390px؛صورة `.local/e2e/alma-eligibility-ar.png` فُحصت بصريًا دونoverflow. أُصلح توقع اختبار NULL proof لأنidentity trigger يرفضقبلCHECK؛production guards و080 المطبقة لم تتغير. Vite571.91KB/gzip166.14KB warning ضمنperformance/code splitting backlog.
+
+**التصنيف:** Authentication/Offers/amount-specific eligibility prerequisites **Implemented وMock/Sandbox Verified محليًا** (actual adapters وHTTP mocks وDocker PostgreSQL/Edge،لا Sandbox account خارجي). Alma financial end-to-end غير مكتملة؛ **Live Verification Pending External Credential/Approval**. PayPal baseline المالية ثابتة؛Bank Transfer باقية.
+
+**الحالة الجارية:** document/commit/push لهذهcheckpoint قبلالمرحلةالمالية. **التالي الدقيق:** Alma hosted protocol وimmutable selected plan/merchant/money/intent وat-most-one uncertain write policy (لا provider idempotency retention مثبتة)،ثم ربطها بالdurable issuance/native guards وLead UI؛unsigned IPN → independent authenticated GETPayment/merchant/exact money/intent/processing_status=captured → native monotonic Payment/separate Enrollment/history/read-only repair/UI وIntegration/Browser كاملة. بعدهاBank Transfer المستقلة معtrusted reconciliation؛لا optional provider refinements أوmain merge/deployment.
+
 ## آخر حالة مستقرة: Alma Merchant offers prerequisite — 2026-10-08
 
 بعد حفظ ورفع Authentication في `92e7d29` أُكملت قراءة عروض Alma الفعلية: current Merchant ثم `GET /v1/me/fee-plans?kind=general&only=all&deferred=true` على fixed TEST/LIVE origins، وعقد عامة optional inspection تحفظ safe schema1 offers دون raw fees/PII أو fake currencies. الخطط تحفظ installment count والتأجيل وallowed وحدود purchase amount فقط؛ duplicate tuples أو malformed/out-of-range money مرفوضة والترتيب deterministic. Empty offers صالحة ولا تعني توفر خطة.

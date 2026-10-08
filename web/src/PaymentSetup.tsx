@@ -1,15 +1,16 @@
 import { useEffect,useRef,useState } from 'react';
 import { PaymentMethods } from './PaymentMethods.js';
+import { PaymentEligibility,EligibilityDetails,type Eligibility } from './PaymentEligibility.js';
 import { PaymentWebhooks } from './PaymentWebhooks.js';
 type Api=<T>(path:string,options?:RequestInit)=>Promise<T>;
 type Locale='ar'|'en'|'fr';
 type Connection={ id:string;name:string;provider:string;branch_id:string|null;config:{ mode:'TEST'|'LIVE';expectedMerchantId?:string };version:number;status:string;
   last_error_code:string|null;last_success_at:string|null;last_failure_at:string|null;secret_configured:boolean;
-  capabilities:{ authenticationVerified?:boolean;authentication?:Authentication;authenticationVersion?:number;authenticationAt?:string;merchantOffers?:MerchantOffers;merchantOffersVersion?:number;merchantOffersAt?:string;paymentOptions?:ProviderOptions;paymentOptionsVersion?:number;paymentOptionsAt?:string } };
+  capabilities:{ authenticationVerified?:boolean;authentication?:Authentication;authenticationVersion?:number;authenticationAt?:string;merchantOffers?:MerchantOffers;merchantOffersVersion?:number;merchantOffersAt?:string;paymentEligibility?:Eligibility;paymentEligibilityVersion?:number;paymentOptions?:ProviderOptions;paymentOptionsVersion?:number;paymentOptionsAt?:string } };
 type Authentication={ schemaVersion:1;profile:'ALMA_ME_V1';accountRef:string;mode:'TEST'|'LIVE' };
 type MerchantOffers={ schemaVersion:1;profile:'ALMA_FEE_PLANS_V1';accountRef:string;mode:'TEST'|'LIVE';plans:{ installments:number;deferredMonths:number;deferredDays:number;allowed:boolean;minMinor:string;maxMinor:string }[] };
 type ProviderOptions={ accountRef:string;country:string;defaultCurrency:string;currencies:string[];paymentMethods:string[];chargesEnabled:boolean;cardPayments:string };
-type Probe={ id:string;connection_version:number;state:string;error_code:string|null;created_at:string;finished_at:string|null;purpose:string;options_snapshot:ProviderOptions|null;authentication_snapshot:Authentication|null;offers_snapshot:MerchantOffers|null };
+type Probe={ id:string;connection_version:number;state:string;error_code:string|null;created_at:string;finished_at:string|null;purpose:string;options_snapshot:ProviderOptions|null;authentication_snapshot:Authentication|null;offers_snapshot:MerchantOffers|null;eligibility_snapshot:Eligibility|null };
 type BeneficiaryConfiguration={ id:string;connection_version:number;mode:string;expected_merchant_id:string|null;actor_role:string;created_at:string };
 const beneficiaryLabels={
   ar:{ merchant:'PayPal Merchant ID المتوقع',guide:'انسخ PayPal Merchant ID من Account Settings → Business information للحساب Business المقصود. في TEST استخدم حساب Sandbox Business المرتبط بالتطبيق. يمكن تركه فارغًا لإعداد Authentication فقط.',
@@ -146,6 +147,10 @@ export function PaymentSetup({ locale,role,branches,api }: { locale:Locale;role:
         {!selected.capabilities.merchantOffers.plans.length && <p>{ft.empty}</p>}<ul>{selected.capabilities.merchantOffers.plans.map((p)=><li key={[p.installments,p.deferredMonths,p.deferredDays].join(':')}>
           <dl className="inbound-target-summary"><div><dt>{ft.installments}</dt><dd>{p.installments}</dd></div><div><dt>{ft.months}</dt><dd>{p.deferredMonths}</dd></div><div><dt>{ft.days}</dt><dd>{p.deferredDays}</dd></div>
             <div><dt>{ft.allowed}</dt><dd>{p.allowed ? ft.yes : ft.no}</dd></div><div><dt>{ft.min}</dt><dd><bdi>{p.minMinor}</bdi></dd></div><div><dt>{ft.max}</dt><dd><bdi>{p.maxMinor}</bdi></dd></div></dl></li>)}</ul></section>}
+      {selected.provider==='ALMA' && <PaymentEligibility key={selected.id} locale={locale} connectionId={selected.id} version={selected.version}
+        disabled={busy || selected.status==='DISABLED' || selected.capabilities.authenticationVersion!==selected.version}
+        plans={selected.capabilities.merchantOffersVersion===selected.version ? selected.capabilities.merchantOffers?.plans ?? [] : []}
+        current={selected.capabilities.paymentEligibilityVersion===selected.version ? selected.capabilities.paymentEligibility ?? null : null} api={api} onRefresh={async()=>{ await load();await history(selected.id); }} />}
       {selected.provider==='STRIPE' && <><p>{ot.guide}</p><button disabled={busy || selected.status==='DISABLED'} onClick={()=>void action('options')}>{ot.inspect}</button></>}
       {selected.capabilities.paymentOptions && selected.capabilities.paymentOptionsVersion===selected.version && <section className="payment-provider-options"><h4>{ot.title}</h4>
         <dl className="inbound-target-summary"><div><dt>{ot.country}</dt><dd><bdi>{selected.capabilities.paymentOptions.country}</bdi></dd></div>
@@ -160,6 +165,7 @@ export function PaymentSetup({ locale,role,branches,api }: { locale:Locale;role:
       <h4>{t.history}</h4><ul>{probes.map((probe)=><li key={probe.id}><time>{new Date(probe.created_at).toLocaleString(locale)}</time> · <bdi>{probe.purpose}</bdi> · <bdi>{probe.state}</bdi> · {t.version} {probe.connection_version}{probe.error_code && <> · <bdi>{probe.error_code}</bdi></>}
         {probe.authentication_snapshot && <p>{at.merchant}: <bdi>{probe.authentication_snapshot.accountRef}</bdi> · <bdi>{probe.authentication_snapshot.mode}</bdi></p>}
         {probe.offers_snapshot && <p>{ft.history}: <bdi>{probe.offers_snapshot.plans.map((p)=>`${p.installments} (${p.deferredMonths}/${p.deferredDays}) · ${p.allowed ? ft.yes : ft.no} · ${p.minMinor}–${p.maxMinor}`).join(' ; ') || ft.empty}</bdi></p>}
+        {probe.eligibility_snapshot && <EligibilityDetails data={probe.eligibility_snapshot} locale={locale} historical />}
         {probe.options_snapshot && <p>{ot.country}: <bdi>{probe.options_snapshot.country}</bdi> · {ot.currencies}: <bdi>{probe.options_snapshot.currencies.join(', ')}</bdi></p>}</li>)}</ul>
       {probeCursor && <button disabled={busy} className="secondary" onClick={()=>void history(selected.id,probeCursor).catch((e)=>setError(String(e)))}>{t.moreHistory}</button>}
       {selected.provider==='PAYPAL' && <section className="payment-beneficiary-history"><h4>{bt.history}</h4><p>{bt.configured}</p>
