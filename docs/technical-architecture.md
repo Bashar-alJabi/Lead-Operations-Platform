@@ -563,3 +563,7 @@ Organization connection مشاركة تحتاج explicit current Super Admin gra
 ## Campaign Knowledge assets — 094–095
 
 Campaign-scoped private quarantine/ClamAV/durable scan/explicit approval منفصلة عن Messaging domain مع reuse للتخزين/scanner فقط. New Draft optional asset UUIDs مع native current same-Campaign approved validation؛ immutable publication manifests تحفظ original hash/text/approval trace وتبقي legacy versions دون rewrite. Native completion lease proof وcurrent requester checks/retries/history/Audit؛ scoped safe downloads وar/en/fr review/editor UI. التفاصيل والحدود في `ai-knowledge-assets.md`. Binary assets approved references بلا OCR/implicit extracted facts؛ TXT untrusted data. Runtime/qualification/effective configuration لا تزال مطلوبة.
+
+## Campaign Qualification configuration — 096–098
+
+Ordered question UUIDs/required/optional/optional current Field mapping، explicit bounded typed ALL_REQUIRED أوcondition ALL/ANY ANSWERED/EQUALS، custom completion/handoff وwrite-free preview. Scoped current session/Field permission validation وnative immutable version/history/Audit؛ exact disable-only يحفظ التعريف إذا أصبحت mapping غير متاحة دون السماح بإعادة تفعيلها. UI typed field inputs/history/pagination. التفاصيل في `ai-qualification-configuration.md`؛ actual result writes وAI tools/runtime/effective configuration/evaluations مرحلة الاعتماد التالية،ولا readiness من config وحدها.

@@ -51,6 +51,7 @@ import { registerAIConnectionRoutes } from './routes/ai-connections.js';
 import type { AIAdapterRegistry } from './ai/providers.js';
 import { registerAIKnowledgeRoutes } from './routes/ai-knowledge.js';
 import { registerAIKnowledgeAssetRoutes } from './routes/ai-knowledge-assets.js';
+import { registerAIQualificationRoutes } from './routes/ai-qualification.js';
 import { registerAISharedUseRoutes } from './routes/ai-shared-use.js';
 
 export async function buildApp(db: Database, options: { logger?: boolean; emailAdapter?: IdentityEmailAdapter;
@@ -144,6 +145,7 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   registerAIConnectionRoutes(app,db,options.aiConnectionAdapters);
   registerAIKnowledgeRoutes(app,db);
   registerAIKnowledgeAssetRoutes(app,db,options.mediaStorage);
+  registerAIQualificationRoutes(app,db);
   registerAISharedUseRoutes(app,db);
   return app;
 }

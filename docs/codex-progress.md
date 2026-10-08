@@ -1,5 +1,19 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: Campaign Qualification configuration — 2026-10-09
+
+بدأت من `75c5bf0` المحفوظة والمرفوعة. إعداد أسئلة مرتبة وrequired/optional وoptional Platform Field mapping، شروط completion/handoff صريحة، وtyped write-free Preview منفذة في Backend/DB/UI. Manager ضمن فرعه وSuper Admin ضمن Organization؛ لا Agent management أوforeign Campaign read. Current active MANUAL/usable_by_ai fields/bindings/types/options/validation تُفحص قبل الحفظ والمعاينة؛ required answers تبقى لازمة مع custom conditions، وfalse/0 إجابات صحيحة وليستا missing.
+
+Native 096–098 تفرض strict definition/version/current session/scope وimmutable history/Audit ذرية. Exact disable-only يحفظ تعريفًا سابقًا عند سحب Field binding، ولا يسمح بتغيير المعايير أوإعادة التفعيل دون صلاحية حالية. UI ar/en/fr تدعم ordering/mapping/typed conditions/preview/reason/version history وعرض unavailable field. المعاينة لا تحفظ Lead answer أوField أوMessage ولا تفعّل AI.
+
+**البوابة ناجحة:** development/test migrations 001–098، **157/157 unit، 64/64 full Docker PostgreSQL integration، 32/32 full Edge Browser E2E** (3.6m)، focused Qualification Browser 1/1، Backend/Web build/typecheck. Native valid/invalid definition/session/scope/version/history/Audit rollback، four-way concurrent save، typed negative values/required conditions، Field revocation/disable/reenable وpagination، no Preview writes. Browser فعلية للحفظ والترتيب والشروط والمعاينة/history/revocation/disable/Agent denial/XSS/French/RTL390px؛ الصورة العربية فُحصت. أُصلحت PL/pgSQL alias ambiguity في098، واسم جدول assertion وbranchId في fixture؛ Browser كشف اسمًا غير واضح للحقل فأضيف aria-label للقيم typed، ثم focused/full Browser نجحتا. Vite661.40KB/gzip189.78KB warning ضمن backlog.
+
+**الحالة:** Qualification configuration prerequisite **Implemented وPostgreSQL/Local Browser Verified**؛ actual Lead qualification answers/results/source/history وapproved tools/runtime/AI assistants/evaluations غير منفذة بعد. لا inference أوLive AI call، وAI **Live Verification Pending External Credential/Approval**. لا ادعاء اكتمال AI أوالمنصة.
+
+**الحفظ:** البوابة مثبتة؛ يجري حفظ implementation checkpoint ورفعها فقط إلى `codex/full-platform-build`. لا reset/discard/main merge أوdeployment.
+
+**قيد التنفيذ/التالي الدقيق:** deterministic immutable Global guardrails → versioned scoped Branch defaults → Campaign configuration/effective preview/trace، مع current task Profile/Connection/shared grant وPublished Knowledge/approved manifests وQualification/Field versions، وCampaign context isolation. لا catalog أوconfiguration تعني inference readiness. ثم approved tools وactual qualification answer/result history، runtime/jobs/customer assistant/copilot/Operations assistant/evaluations؛ بعدها Automation/Notifications/Analytics وبقية النطاق، دون optional provider refinements.
+
 ## آخر حالة مستقرة: Campaign Knowledge assets — 2026-10-09
 
 بدأت من `a574f3c` النظيفة. Campaign-scoped private quarantine upload/content type-size-UTF8 validation، durable ClamAV worker وlease/retry/completion fences، explicit scoped approval/rejection وsafe authorized download/history منفذة. Manager ضمن فرعه وSuper Admin ضمن Organization؛ Agent/foreign Campaign/Branch/session denial في Backend وnative guards. لا Messaging scope reuse؛ storage/scanner primitives فقط.
@@ -12,7 +26,7 @@ Draft اختيارية asset UUIDs مع approved same-Campaign validation؛ immu
 
 **الحفظ:** implementation checkpoint `19c154d` محفوظة ومرفوعة إلى `codex/full-platform-build`؛ آخر مرجع سابق `a574f3c`. لا reset/discard/main merge أوdeployment.
 
-**قيد التنفيذ:** assets stable، لا Qualification code بعد. `ai-knowledge-assets.md` وarchitecture/runbook يحددان storage/scan/reference/manifest boundaries، الأنواع وحدود extraction/history.
+**قيد التنفيذ — 2026-10-09:** assets stable محفوظة ومرفوعة؛ Qualification configuration Backend/DB/UI/tests منفذة وتحت البوابة: 001–097 و157 unit/build/typecheck ناجحة؛ full integration كشفت qualification saves500؛098 أصلحت ambiguous PL/pgSQL q alias؛native valid definition وconcurrent save/typed preview نجحت بعدها،ثمassertion استعملت اسم message بدل conversation_message فصُححت. Focused كاملة نجحت على001–098؛157unit/64full integration/001–098/build/typecheck ناجحة؛focused Browser كشف fixture Field creation ناقصة branchId المطلوبة في API القائمة،فصُححت دونتعديلField service. focused/full Browser تعاد قبلcheckpoint. Required answers تُفرض أيضًا مع custom conditions،ولا truthiness لتجاهل false/0. Ordered questions/required/optional/current Field mapping وexplicit completion/handoff/write-free preview/native history/Audit وsafe exact disable-only؛لا AI activation أوactual Lead result writes. `ai-knowledge-assets.md` وarchitecture/runbook يحددان storage/scan/reference/manifest boundaries، الأنواع وحدود extraction/history.
 
 **التالي الدقيق:** Campaign Qualification definitions/order/required-optional وoptional Platform Field mapping/current binding permissions؛ completion/handoff criteria واضحة وقابلة للمعاينة دون تخمين AI، native version/history/Audit/current session وscoped UI/tests. بعد configuration prerequisite: effective Global/Branch/Campaign config وapproved tools/qualification results/runtime/jobs/assistants/evaluations؛ لا optional provider refinements.
 

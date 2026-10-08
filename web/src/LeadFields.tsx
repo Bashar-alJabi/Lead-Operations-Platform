@@ -22,24 +22,24 @@ function formatValue(value: unknown): string {
   return String(value);
 }
 
-export function FieldInput({ field, value, onChange }: { field: FieldRow; value: unknown; onChange: (value: unknown) => void }) {
+export function FieldInput({ field, value, onChange,ariaLabel }: { field: FieldRow; value: unknown; onChange: (value: unknown) => void;ariaLabel?:string }) {
   const type = field.field_type;
   if (type === 'CALCULATED') return <strong>{formatValue(value)}</strong>;
-  if (['SINGLE_SELECT','STATUS','INTEREST','BOOLEAN'].includes(type)) return <select value={value === null || value === undefined ? '' : String(value)} onChange={(event) => onChange(event.target.value === '' ? null : type === 'BOOLEAN' ? event.target.value === 'true' : event.target.value)}>
+  if (['SINGLE_SELECT','STATUS','INTEREST','BOOLEAN'].includes(type)) return <select aria-label={ariaLabel} value={value === null || value === undefined ? '' : String(value)} onChange={(event) => onChange(event.target.value === '' ? null : type === 'BOOLEAN' ? event.target.value === 'true' : event.target.value)}>
     <option value="">—</option>{type === 'BOOLEAN' ? <><option value="true">Yes</option><option value="false">No</option></>
       : field.options.filter((option) => option.active || option.value === value).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select>;
-  if (type === 'MULTI_SELECT') return <select multiple value={Array.isArray(value) ? value.map(String) : []} onChange={(event) => onChange(Array.from(event.target.selectedOptions, (option) => option.value))}>
+  if (type === 'MULTI_SELECT') return <select aria-label={ariaLabel} multiple value={Array.isArray(value) ? value.map(String) : []} onChange={(event) => onChange(Array.from(event.target.selectedOptions, (option) => option.value))}>
     {field.options.filter((option) => option.active || Array.isArray(value) && value.includes(option.value)).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select>;
-  if (type === 'TAGS') return <input value={Array.isArray(value) ? value.join(', ') : ''} onChange={(event) => onChange(event.target.value.split(',').map((tag) => tag.trim()).filter(Boolean))} />;
-  if (type === 'CURRENCY') return <div className="currency-field"><input type="number" step="any" value={value && typeof value === 'object' && 'amount' in value ? String(value.amount) : ''}
+  if (type === 'TAGS') return <input aria-label={ariaLabel} value={Array.isArray(value) ? value.join(', ') : ''} onChange={(event) => onChange(event.target.value.split(',').map((tag) => tag.trim()).filter(Boolean))} />;
+  if (type === 'CURRENCY') return <div className="currency-field"><input aria-label={ariaLabel} type="number" step="any" value={value && typeof value === 'object' && 'amount' in value ? String(value.amount) : ''}
     onChange={(event) => onChange(event.target.value === '' ? null : { amount: Number(event.target.value), currency: field.validation.currency })} /><span>{field.validation.currency}</span></div>;
-  if (type === 'LONG_TEXT') return <textarea value={value === null || value === undefined ? '' : String(value)} onChange={(event) => onChange(event.target.value || null)} />;
+  if (type === 'LONG_TEXT') return <textarea aria-label={ariaLabel} value={value === null || value === undefined ? '' : String(value)} onChange={(event) => onChange(event.target.value || null)} />;
   const htmlType = ['NUMBER','PERCENTAGE','DURATION'].includes(type) ? 'number' : type === 'PHONE' ? 'tel' : type === 'EMAIL' ? 'email' :
     type === 'DATE' ? 'date' : type === 'TIME' ? 'time' : type === 'DATETIME' ? 'datetime-local' : type === 'URL' ? 'url' : 'text';
   const display = type === 'DATETIME' && typeof value === 'string'
     ? Number.isNaN(new Date(value).getTime()) ? value : new Date(new Date(value).getTime() - new Date(value).getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
     : value === null || value === undefined ? '' : String(value);
-  return <input type={htmlType} step={htmlType === 'number' ? 'any' : undefined} value={display} onChange={(event) => {
+  return <input aria-label={ariaLabel} type={htmlType} step={htmlType === 'number' ? 'any' : undefined} value={display} onChange={(event) => {
     const raw = event.target.value;
     onChange(raw === '' ? null : htmlType === 'number' ? Number(raw) : raw);
   }} />;
