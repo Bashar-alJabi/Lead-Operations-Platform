@@ -14,11 +14,13 @@ test('Alma actual merchant probe preserves encrypted scoped lifecycle, immutable
   const merchant='merchant_IntegrationSynthetic123';const rotatedMerchant='merchant_RotatedSynthetic456';
   let behavior:'OK'|'AUTH'|'WAIT'='OK';let calls=0;const pending:(()=>void)[]=[];
   t.mock.method(globalThis,'fetch',async(target:string,options:RequestInit)=> {
-    calls++;assert.equal(target,'https://api.sandbox.getalma.eu/v1/me/extended-data');assert.equal(options.method,'GET');
+    calls++;assert.ok(['https://api.sandbox.getalma.eu/v1/me/extended-data','https://api.sandbox.getalma.eu/v1/me/fee-plans?kind=general&only=all&deferred=true'].includes(target));assert.equal(options.method,'GET');
     assert.equal(options.redirect,'error');assert.ok(options.signal);assert.equal(options.body,undefined);
     const header=(options.headers as Record<string,string>).authorization;
     assert.ok([credentials,replacement].some((c)=>header==='Alma-Auth '+c.apiKey));const mode=behavior;
     if(mode==='WAIT')await new Promise<void>((resolve)=>pending.push(resolve));if(mode==='AUTH')return new Response(credentials.apiKey,{ status:401 });
+    if(target.includes('/fee-plans'))return new Response(JSON.stringify([{ kind:'general',installments_count:3,deferred_months:0,deferred_days:0,allowed:true,min_purchase_amount:10000,max_purchase_amount:300000,private:'private bank account' },
+      { kind:'general',installments_count:1,deferred_months:0,deferred_days:30,allowed:false,min_purchase_amount:5000,max_purchase_amount:100000 }]));
     return new Response(JSON.stringify({ id:header==='Alma-Auth '+replacement.apiKey ? rotatedMerchant : merchant,
       name:'private business name',bank_account:'private bank account',email:'private@alma.test',can_create_payments:true,
       fee_plans:[{ installments_count:3,allowed:true }],payment_status:'pretend captured' }));
@@ -49,6 +51,7 @@ test('Alma actual merchant probe preserves encrypted scoped lifecycle, immutable
     assert.equal((await api('GET',path,undefined,actor)).statusCode,actor==='agent' ? 403 : 404);
     assert.equal((await api('GET',path+'/history',undefined,actor)).statusCode,actor==='agent' ? 403 : 404);
     assert.equal((await api('POST',path+'/test',{ version:1 },actor)).statusCode,actor==='agent' ? 403 : 404);
+    assert.equal((await api('POST',path+'/test',{ version:1,inspectOffers:true },actor)).statusCode,actor==='agent' ? 403 : 404);
   }
   const secret=async()=>(await db`SELECT * FROM connection_secret WHERE connection_id=${id}`)[0]!;
   const initial=await secret();assert.equal(initial.ciphertext.toString().includes(credentials.apiKey),false);
@@ -62,6 +65,15 @@ test('Alma actual merchant probe preserves encrypted scoped lifecycle, immutable
   assert.equal(proof.actor_session_id,users.manager!.session);assert.deepEqual(proof.authentication_snapshot,snapshot);
   await assert.rejects(db`UPDATE payment_connection_probe SET authentication_snapshot=${db.json({ ...snapshot,accountRef:rotatedMerchant })} WHERE id=${proof.id}`,/PAYMENT_PROBE_IMMUTABLE/);
   await assert.rejects(db`DELETE FROM payment_connection_probe WHERE id=${proof.id}`,/PAYMENT_PROBE_HISTORY_RETAINED/);
+  assert.equal((await api('POST',path+'/test',{ version:1,inspectOffers:true,inspectOptions:true })).statusCode,400);
+  const inspected=await api('POST',path+'/test',{ version:1,inspectOffers:true });assert.equal(inspected.statusCode,200,inspected.body);
+  const currentOffers=(await row()).capabilities.merchantOffers;assert.equal(currentOffers.profile,'ALMA_FEE_PLANS_V1');assert.equal(currentOffers.accountRef,merchant);
+  assert.deepEqual(currentOffers.plans.map((p:any)=>p.installments),[1,3]);assert.equal(currentOffers.plans[0].allowed,false);assert.equal((await row()).capabilities.merchantOffersVersion,1);
+  assert.equal((await row()).capabilities.paymentLinksReady,false);assert.equal(currentOffers.currencies,undefined);
+  const offersProof=(await db`SELECT * FROM payment_connection_probe WHERE id=${inspected.json().probeId}`)[0]!;
+  assert.equal(offersProof.purpose,'OFFERS');assert.deepEqual(offersProof.offers_snapshot,currentOffers);assert.deepEqual(offersProof.authentication_snapshot,snapshot);
+  await assert.rejects(db`UPDATE payment_connection_probe SET offers_snapshot=${db.json({ ...currentOffers,plans:[] })} WHERE id=${offersProof.id}`,/PAYMENT_PROBE_IMMUTABLE/);
+  assert.equal((await api('POST',path+'/test',{ version:1 })).statusCode,200);assert.deepEqual((await row()).capabilities.merchantOffers,currentOffers,'same-current-merchant authentication retains offers');
   await assert.rejects(db`UPDATE integration_connection SET provider='PAYPAL' WHERE id=${id}`,/PAYMENT_CONNECTION_IDENTITY_IMMUTABLE/);
   await assert.rejects(db`INSERT INTO integration_connection(organization_id,kind,provider,name,config) VALUES (${org},'PAYMENT','ALMA','bad config','{"mode":"TEST","url":"https://foreign.test"}')`,/alma_connection_config_valid/);
   await assert.rejects(db`INSERT INTO payment_connection_probe(connection_id,connection_version,actor_user_id,actor_role,actor_branch_id)
@@ -73,6 +85,10 @@ test('Alma actual merchant probe preserves encrypted scoped lifecycle, immutable
   for(const value of [null,{ ...snapshot,mode:'LIVE' },{ ...snapshot,secret:credentials.apiKey },{ ...snapshot,accountRef:'../foreign' }])
     await assert.rejects(db`UPDATE payment_connection_probe SET state='VERIFIED',authentication_snapshot=${value ? db.json(value) : null},finished_at=clock_timestamp() WHERE id=${native}`,/PAYMENT_AUTHENTICATION_PROFILE_INVALID|payment_authentication_snapshot_valid/);
   await assert.rejects(db`UPDATE payment_connection_probe SET actor_session_id=${users.admin!.session},state='FAILED',error_code='TEST',finished_at=clock_timestamp() WHERE id=${native}`,/PAYMENT_PROBE_SESSION_IMMUTABLE/);
+  const nativeOffers=(await db`INSERT INTO payment_connection_probe(connection_id,connection_version,actor_user_id,actor_role,actor_branch_id,actor_session_id,purpose)
+    VALUES (${id},1,${users.manager!.id},'MANAGER',${branch},${users.manager!.session},'OFFERS') RETURNING id`)[0]!.id;
+  for(const value of [null,{ ...currentOffers,accountRef:rotatedMerchant },{ ...currentOffers,plans:[currentOffers.plans[0],currentOffers.plans[0]] },{ ...currentOffers,currency:'EUR' }])
+    await assert.rejects(db`UPDATE payment_connection_probe SET state='VERIFIED',authentication_snapshot=${db.json(snapshot)},offers_snapshot=${value ? db.json(value) : null},finished_at=clock_timestamp() WHERE id=${nativeOffers}`,/payment_merchant_offers_valid/);
   // Four read-only requests finish together; only the latest admitted probe may publish current identity.
   behavior='WAIT';const probes=Array.from({ length:4 },()=>api('POST',path+'/test',{ version:1 }));
   for(let n=0;n<100 && pending.length<4;n++)await delay(5);assert.equal(pending.length,4);pending.splice(0).forEach((release)=>release());
@@ -112,7 +128,7 @@ test('Alma actual merchant probe preserves encrypted scoped lifecycle, immutable
     IF NEW.action='PAYMENT_CONNECTION_TEST_FINISHED' THEN RAISE EXCEPTION 'TEST_AUDIT_FAIL'; END IF;RETURN NEW;END $$`;
   await db`CREATE TRIGGER test_fail_alma_audit BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION test_fail_alma_audit()`;
   try {
-    const failed=await api('POST',path+'/test',{ version:6 });assert.equal(failed.statusCode,500);
+    const failed=await api('POST',path+'/test',{ version:6,inspectOffers:true });assert.equal(failed.statusCode,500);
     assert.deepEqual((await row()).capabilities,current.capabilities,'published identity rolls back with audit');
     const latest=(await db`SELECT state,authentication_snapshot FROM payment_connection_probe WHERE connection_id=${id} ORDER BY probe_number DESC LIMIT 1`)[0]!;
     assert.equal(latest.state,'RUNNING');assert.equal(latest.authentication_snapshot,null);

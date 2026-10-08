@@ -1,5 +1,9 @@
 # المعمارية التقنية
 
+## Alma Merchant offers — 2026-10-08
+
+`PaymentConnectionAdapter.inspectOffers` امتداد اختياري عام دون تغيير financial registries. Alma تقرأ current Merchant ثم general fee plans؛ normalization تحفظ profile `ALMA_FEE_PLANS_V1` schema1 وaccount/mode وخططًا bounded ومرتبة/fail closed دون raw fees أو PII أو currencies مختلقة. Migration079 تفرض native schema/identity/unique ordered tuples/exact integer money وOFFERS purpose مع current authorization/config/latest/TTL وimmutable history. current offers مربوطة بconfig version والهوية؛ auth لنفس الهوية تحفظها، بينما الفشل/rotation تبطل current snapshot دون محو التاريخ. UI تستخدمها معلومات عرض فقط، لا customer eligibility أو financial proof. تفاصيل العقد والتحقق في [Alma integration](alma-integration.md).
+
 ## Alma Authentication identity — 2026-10-08
 
 تفاصيلالإعدادوالحدود في [Alma integration](alma-integration.md): actual read-only adapter وfixed environments/server-only encrypted opaque key،safe versioned merchant identity snapshot دونfake Stripe options،native current session/config/latest/TTL/history guards في078 وatomic Audit،UI ar/en/fr. نجاحprobe ليستfinancial readiness؛Checkout/IPN/Payment/Enrollment تبقىخارجregistry حتىاكتمالالمرحلةالمالية واختباراتend-to-end. لاLive claim.

@@ -37,11 +37,13 @@ const connectionUrl = requireLocalE2ETarget(process.env.TEST_DATABASE_URL,proces
 const paypalTransport=syntheticPayPalFinancialTransport();
 globalThis.fetch=async(target,init)=> { if(String(target)===testPayPalCertUrl)return new Response(testPayPalCertificate);
   if(String(target).startsWith('https://api-m.sandbox.paypal.com/'))return paypalTransport.fetch(target,init);
-  if(String(target)==='https://api.sandbox.getalma.eu/v1/me/extended-data') {
+  if(['https://api.sandbox.getalma.eu/v1/me/extended-data','https://api.sandbox.getalma.eu/v1/me/fee-plans?kind=general&only=all&deferred=true'].includes(String(target))) {
     paymentCalls++;if(init?.method!=='GET' || init.redirect!=='error')throw new Error('UNEXPECTED_ALMA_TEST_REQUEST');
     if(paymentFailure)return new Response('synthetic private provider error',{ status:401 });
     const key=new Headers(init.headers).get('authorization');
     if(!key || !key.startsWith('Alma-Auth '))return new Response('invalid auth',{ status:401 });
+    if(String(target).includes('/fee-plans'))return new Response(JSON.stringify([{ kind:'general',installments_count:3,deferred_months:0,deferred_days:0,allowed:true,min_purchase_amount:10000,max_purchase_amount:300000,private:'private Alma bank data' },
+      { kind:'general',installments_count:1,deferred_months:0,deferred_days:30,allowed:false,min_purchase_amount:5000,max_purchase_amount:100000 }]));
     return new Response(JSON.stringify({ id:key.includes('Rotated') ? 'merchant_BrowserRotated456' : 'merchant_BrowserSynthetic123',
       name:'private Alma business data',bank_account:'private Alma bank data',email:'private@alma.browser.test',can_create_payments:true }));
   }

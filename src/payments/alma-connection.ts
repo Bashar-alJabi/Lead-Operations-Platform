@@ -2,6 +2,7 @@ import { HttpError } from '../security.js';
 import { boundedResponse } from '../media/meta-provider.js';
 import { PaymentProviderError } from './provider-errors.js';
 import type { PaymentConfig,PaymentCredentials,AlmaPaymentCredentials,PaymentConnectionAdapter,PaymentAuthenticationSnapshot } from './providers.js';
+import { normalizePaymentMerchantOffers } from './merchant-offers.js';
 
 export function validateAlmaCredentials(config:PaymentConfig,credentials:PaymentCredentials):asserts credentials is AlmaPaymentCredentials {
   if(!config || !['TEST','LIVE'].includes(config.mode) || Object.keys(config).join(',')!=='mode')throw new HttpError(400,'PAYMENT_CONFIG_INVALID');
@@ -15,9 +16,9 @@ export function almaOrigin(mode:PaymentConfig['mode']):string {
   if(mode==='LIVE')return 'https://api.getalma.eu';
   throw new HttpError(400,'PAYMENT_CONFIG_INVALID');
 }
-export const almaConnectionAdapter:PaymentConnectionAdapter={ async verify(config,credentials) {
+async function almaRead(config:PaymentConfig,credentials:PaymentCredentials,path:'/v1/me/extended-data'|'/v1/me/fee-plans?kind=general&only=all&deferred=true'):Promise<unknown> {
   validateAlmaCredentials(config,credentials);let response:Response;
-  try { response=await fetch(almaOrigin(config.mode)+'/v1/me/extended-data',{
+  try { response=await fetch(almaOrigin(config.mode)+path,{
     method:'GET',redirect:'error',signal:AbortSignal.timeout(8000),headers:{
       authorization:'Alma-Auth '+credentials.apiKey,accept:'application/json','content-type':'application/json' } }); }
   catch { throw new PaymentProviderError('PAYMENT_PROVIDER_UNAVAILABLE'); }
@@ -27,9 +28,28 @@ export const almaConnectionAdapter:PaymentConnectionAdapter={ async verify(confi
   let data:unknown;
   try { data=JSON.parse(new TextDecoder('utf-8',{ fatal:true }).decode(await boundedResponse(response,262144))); }
   catch { throw new PaymentProviderError('PAYMENT_PROVIDER_RESPONSE_INVALID'); }
+  return data;
+}
+export const almaConnectionAdapter:PaymentConnectionAdapter={ async verify(config,credentials) {
+  const data=await almaRead(config,credentials,'/v1/me/extended-data');
   const id=data && typeof data==='object' && !Array.isArray(data) ? (data as Record<string,unknown>).id : null;
   // Technical safe identifier bounds; no guessed provider prefix, fake country or business capability.
   if(typeof id!=='string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(id))throw new PaymentProviderError('PAYMENT_PROVIDER_RESPONSE_INVALID');
   const authentication:PaymentAuthenticationSnapshot={ schemaVersion:1,profile:'ALMA_ME_V1',accountRef:id,mode:config.mode };
   return { mode:config.mode,authentication };
+},async inspectOffers(config,credentials) {
+  const identity=await almaConnectionAdapter.verify(config,credentials);
+  const raw=await almaRead(config,credentials,'/v1/me/fee-plans?kind=general&only=all&deferred=true');
+  if(!Array.isArray(raw) || raw.length>256)throw new PaymentProviderError('PAYMENT_PROVIDER_RESPONSE_INVALID');
+  const plans=raw.map((p:unknown)=> {
+    const value=p as Record<string,unknown>|null;
+    if(!value || typeof value!=='object' || Array.isArray(value) || value.kind!=='general'
+      || ![true,false,0,1].includes(value.allowed as boolean|number)
+      || typeof value.min_purchase_amount!=='number' || !Number.isSafeInteger(value.min_purchase_amount)
+      || typeof value.max_purchase_amount!=='number' || !Number.isSafeInteger(value.max_purchase_amount))throw new PaymentProviderError('PAYMENT_PROVIDER_RESPONSE_INVALID');
+    return { installments:value.installments_count,deferredMonths:value.deferred_months,deferredDays:value.deferred_days,
+      allowed:value.allowed===true || value.allowed===1,minMinor:String(value.min_purchase_amount),maxMinor:String(value.max_purchase_amount) };
+  });
+  const offers=normalizePaymentMerchantOffers({ schemaVersion:1,profile:'ALMA_FEE_PLANS_V1',accountRef:identity.authentication!.accountRef,mode:config.mode,plans });
+  return { mode:config.mode,authentication:identity.authentication!,offers };
 } };

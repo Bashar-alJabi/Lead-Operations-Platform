@@ -1,5 +1,17 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: Alma Merchant offers prerequisite — 2026-10-08
+
+بعد حفظ ورفع Authentication في `92e7d29` أُكملت قراءة عروض Alma الفعلية: current Merchant ثم `GET /v1/me/fee-plans?kind=general&only=all&deferred=true` على fixed TEST/LIVE origins، وعقد عامة optional inspection تحفظ safe schema1 offers دون raw fees/PII أو fake currencies. الخطط تحفظ installment count والتأجيل وallowed وحدود purchase amount فقط؛ duplicate tuples أو malformed/out-of-range money مرفوضة والترتيب deterministic. Empty offers صالحة ولا تعني توفر خطة.
+
+Migration079 مطبقة دون تعديل migrations السابقة: native exact shape/ordered unique plans/amount bounds، OFFERS مرتبطة بهوية Authentication والبيئة، immutable history/current session/role/Branch/version/latest/TTL/Audit. القراءة لا تفعّل checkout/IPN ولا تنشئ Payment/Enrollment. UI ar/en/fr تعرض current/historical plans والحدود والرفض؛ rotation/failed probe تُبطل current offers وتحتفظ بالتاريخ. Same-account current authentication تحتفظ بالعروض لنفس config version فقط. Merchant offers ليست customer eligibility أو confirmation.
+
+بوابة checkpoint ناجحة: **126/126 unit،54/54 full PostgreSQL integration،24/24 Edge Browser E2E** (47.8s)،Backend/Web build/typecheck وmigrations001–079 على development/test. وحدتان جديدتان تختبران العقد وactual HTTP adapter/bounds/no writes/PII omission؛اختبارات PostgreSQL وBrowser Alma توسعت للعروض/current identity/native shape/duplicate/account mismatch/ACL/rotation/history/Audit rollback/French/RTL390px. صورة `.local/e2e/alma-authentication-ar.png` فُحصت بصريًا دون overflow. Vite567.08KB/gzip164.60KB warning ضمن code splitting/performance backlog.
+
+**التصنيف:** Authentication وMerchant offers prerequisite **Implemented وMock/Sandbox Verified محليًا** (actual adapters وHTTP mocks وDocker PostgreSQL/Edge؛لا حساب Sandbox خارجي). Alma financial end-to-end غير مكتملة؛ **Live Verification Pending External Credential/Approval**.
+
+**الحالة الجارية:** توثيق وحفظ/رفع هذه checkpoint قبل البدء المالي. **التالي الدقيق:** مراجعة current V2 eligibility ثم selectable eligible hosted plan/configuration من UI وimmutable merchant/EUR minor money/intent/plan، durable hosted creation دون اختراع provider idempotency guarantee؛ UNKNOWN تحتاج trusted reconciliation دون automatic second write. بعدها unsigned IPN notification → independent authenticated Payment retrieval/merchant/exact money/intent/processing_status=captured → native Payment/separate Enrollment/Audit/history/read-only repair/UI واختبارات Integration/Browser كاملة، ثم Bank Transfer مستقلة مع trusted reconciliation. لا optional provider refinements أو main merge/deployment.
+
 ## آخر حالة مستقرة: Alma Authentication وmerchant identity — 2026-10-08
 
 بعد حفظ ورفعPayPal financial baseline `f777831` نُفّذتAlma prerequisite بالكامل: encrypted scoped Connection lifecycle وactual read-only merchant adapter وfixed environments وsafe schema1 identity دونPII/fake capabilities،current session/config/latest-result وnative immutable snapshot/history078 وatomic Audit،وsetup/status/recovery/rotation/history UI ar/en/fr. لاfinancial registry activation أوPayment/Enrollment لـAlma.

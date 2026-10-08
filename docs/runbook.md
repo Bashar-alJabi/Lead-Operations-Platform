@@ -1,5 +1,9 @@
 # دليل التشغيل والتطوير
 
+## فحص عروض Alma — 2026-10-08
+
+شغّل migrations حتى079. من Payment setup → Alma احفظ الاتصال ثم **فحص عروض Alma**؛ العملية قراءة current Merchant وfee plans فقط. راجع allowed والخطط والتأجيل وحدود purchase amount بالسنتات، والهوية/config version وhistory. العروض ليست أهلية العميل النهائية؛ لا default plan مختلقة ولا currency capability مستنتجة منها. Failure/rotation تزيل current offers ويحتاج الاتصال فحصًا جديدًا؛ التاريخ باقٍ. `PAYMENT_FLOW_NOT_READY` تظل صحيحة حتى تفعيل financial baseline؛ لا DB/CLI override. الاختبارات المحلية126unit/54PostgreSQL/24Edge ناجحة؛ Live Verification Pending External Credential/Approval.
+
 ## إعداد Alma Authentication — 2026-10-08
 
 شغّلmigrations حتى078 علىDocker PostgreSQL. منPayment setup اخترAlma وConnection scope المسموحة وTEST،واتبعتعليماتالمزود للحصول علىمفتاحSandbox مخصص؛الحفظ مشفّر وTest authentication قراءةMerchant فقط. راجعcurrent identity/version/history والfinite error،ودوّرالمفتاح/disable/reconnect منUI. `PAYMENT_FLOW_NOT_READY` مقصودةفيهذهprerequisite ولا تعنيPayment confirmed؛لاCheckout/IPN ماليةمفعّلةبعد. المصدر والتفاصيل في[Alma integration](alma-integration.md)،والتحققبHTTP mocks فقطوالLive pending.
