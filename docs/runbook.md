@@ -390,3 +390,9 @@ UNKNOWN أو PREPARED/accepted outcome لا تستخدم هذا الإجراء،
 التحقق الآلي: لا Bank API مفترضة. جهّز connector مستقلًا مصرحًا له بقراءة سجلات البنك، وراجعه ثم أعد source HMAC من واجهة الحساب وفق `bank-transfer-integration.md`. لا تمنح signing key للعميل/Agent أوAI. اختبر في TEST بمصدر مخصص؛ اختبار feed الاصطناعية لا يثبت external bank أوLIVE. المصدر الجديد يعطل القديمة دون حذف الأدلة المقبولة. مصدر/حساب معطل يمنع inbound جديدة؛ worker تستكمل evidence المقبولة تاريخيًا.
 
 `payment-worker` تشغّل bank reconciliation مع بقية providers. راقب Inbox state/error/attempts، وعالج السبب قبل retry ذات reason/version. Wrong money/reference أوunmatched request لا تُصلح بتعديل DB/receipt؛ تبقى Needs Attention. Budget خمس attempts؛ exhausted records محفوظة، ولا يوجد replay لعملية مالية خارجية لأن feed read-only. Audit failure لا يسمح بحفظ proof/Payment/Enrollment جزئية. Backup/restore تشمل account/source secrets/requests/receipts/jobs/proofs وcredential encryption key كما في بقية Connections.
+
+## AI Provider/Profile setup
+
+من AI setup ينشئ Manager اتصالًا لفرعه أوSuper Admin اتصالًا مشتركًا/لفرع، ويدخل credential مخصصة للمؤسسة والمشروع من مزودها. الاختبار يفحص authentication/model catalog فقط؛ لا يرسل Lead data ولايثبت inference. اختر task/model صراحة من catalog الحالية. Credential لا تُعرض بعد الحفظ؛ rotation/reconnect/disable/history متاحة داخل المنتج. بعد rotation أوتعطيل الاتصال/الفرع تصبح profiles غير متاحة حتى تحقق حالي صالح؛ التاريخ يبقى.
+
+عند AUTH_EXPIRED/ERROR راجع credential لدى المزود، عدّلها من UI، ثم أعد test. Late response بعد rotation/revocation لا تعيد CONNECTED أوcatalog قديمة. لا تستخدم CLI/DB لإجبار الجاهزية أوتفعيل Campaign AI؛ knowledge/effective config/tools/runtime لم تكتمل بعد. التحقق المحلي actual HTTP mocks فقط: 151 unit/60 integration/28 Browser، 001–091/build/typecheck. Live Verification Pending External Credential/Approval. تفاصيل القرارات في `ai-provider-foundations.md`.

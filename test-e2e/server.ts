@@ -40,6 +40,12 @@ const paypalTransport=syntheticPayPalFinancialTransport();
 const almaPayments=new Map<string,{ intentId:string;merchant:string;amount:number;plan:{ installments_count:number;deferred_months:number;deferred_days:number };captured:boolean }>();
 let almaLoseResponse=false;let almaReadFailure=false;let almaWrites=0;
 globalThis.fetch=async(target,init)=> { if(String(target)===testPayPalCertUrl)return new Response(testPayPalCertificate);
+  if(String(target)==='https://api.openai.com/v1/models') {
+    if(init?.method!=='GET' || init.redirect!=='error' || init.body)throw new Error('UNEXPECTED_AI_CATALOG_REQUEST');
+    const authorization=new Headers(init.headers).get('authorization');
+    if(!authorization?.startsWith('Bearer BrowserSyntheticAI_'))return new Response('synthetic auth failure',{ status:401 });
+    return new Response(JSON.stringify({ object:'list',data:[{ id:'Browser-synthetic-model-a',object:'model',owned_by:'private synthetic metadata' },{ id:'Browser-synthetic-model-b',object:'model' }] }));
+  }
   if(String(target).startsWith('https://api-m.sandbox.paypal.com/'))return paypalTransport.fetch(target,init);
   if(/^https:\/\/api\.sandbox\.getalma\.eu\/v1\/payments(?:\/payment_[A-Za-z0-9]+)?$/.test(String(target))) {
     if(init?.redirect!=='error')throw new Error('UNEXPECTED_ALMA_FINANCIAL_REQUEST');paymentCalls++;

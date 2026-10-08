@@ -1,5 +1,18 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: AI Provider/Profile foundations — 2026-10-08
+
+بدأت من Bank Transfer `9ae90de` المحفوظة والمرفوعة. أُنجزت managed AI connections وtask profiles في Backend/DB/UI: encrypted credential، scoped Manager/Super Admin setup/rotation/disable/reconnect، actual OpenAI catalog adapter مع fixed host/no redirects/8s timeout/bounded response، model selection بلا model افتراضية، profiles للمهام الأربع وcurrent catalog/version/session/Branch checks، history وAudit. Agent لا يدير هذه الإعدادات ولا يحصل على credential.
+
+**البوابة ناجحة:** migrations 001–091 على development/test، **151/151 unit، 60/60 full Docker PostgreSQL integration، 28/28 full Edge Browser E2E** (1.3m)، focused AI setup **1/1**، Backend/Web build/typecheck. اختبارات actual HTTP mocks تثبت encryption/scope/current session، profile edit concurrency، rotation وlate response fences، auth failure/recovery، disable/reconnect، native immutable history وAudit rollback وpagination. Browser تثبت setup/catalog/profile/edit/history/rotation/failure/recovery/disable وAgent denial وsecret omission/XSS escaping وFrench/RTL 390px؛ الصورة العربية فُحصت. تداخل AI identity trigger مع guard الدفع كُشف ثم أُصلح في 091 وأُعيدت البوابة كاملة. Vite 623.16KB/gzip 179.39KB warning ضمن backlog.
+
+**حدود الحالة:** prerequisite هذه **Implemented وMock/Sandbox Verified محليًا** بـactual adapter مع HTTP mocks فقط. Catalog يثبت authentication/model availability ولا يثبت inference أوtool compatibility أوassistant readiness. **Live Verification Pending External Credential/Approval**؛ لا credential شخصية/Production أوexternal account. Campaign AI activation وknowledge وeffective configuration وtools/runtime/assistants/evaluations غير منفذة بعد. المنصة جزئية.
+
+**الحفظ الجاري:** توثيق checkpoint هذه ثم commit وpush فقط إلى `codex/full-platform-build` قبل المرحلة التالية.
+
+**التالي الدقيق:** Campaign Knowledge structured Draft/Preview/Published versions وhistory/scope/Audit أولًا؛ ثم scanned approved assets وqualification mappings، وبعدها deterministic Global guardrails → Branch defaults → Campaign effective configuration. لا runtime/AI auto-send قبل اكتمال الاعتماديات والاختبارات.
+
+
 ## آخر حالة مستقرة: Bank Transfer baseline — 2026-10-08
 
 بدأت من HEAD c5286bf النظيفة بعد Alma9d8b80a المرفوعة. Bank Transfer مستقلة عن hosted checkout: managed account/Branch Method من الواجهة، immutable beneficiary/account/mode/currencies، تحرير الاسم والتعليمات وتعطيل/تفعيل مع version/history/Audit؛ scoped Lead request/reference/exact money/Agent-Campaign availability/idempotency وتعليمات أصلية قابلة للنسخ.
@@ -12,7 +25,7 @@ Native087–089 تمنع تغيير الأصل/reuse transaction/request/proof/m
 
 **التصنيف:** Bank Transfer required baseline **Implemented وMock/Sandbox Verified محليًا** باستخدام synthetic bank records/signed feed/Docker PG/Edge فقط؛ لا actual Bank API أوexternal sandbox/account أوLive Verification. **Live Verification Pending External Credential/Approval**. Stripe/PayPal/Alma regression سليمة؛ Payments والمنصة جزئيتان بسبب Notifications/Analytics/AI/Automation وبقية acceptance.
 
-**الحفظ الجاري:** progress/coverage/runbook/architecture ثم commit/push حصريًا إلى codex/full-platform-build. لا main merge/deployment.
+**الحفظ:** checkpoint9ae90de محفوظة ومرفوعة إلى codex/full-platform-build؛ الشجرة كانت نظيفة بعدها. لا main merge/deployment.
 
 **التالي الدقيق:** AI foundations حسب04/05/06: managed provider Connection وmodel/task profiles واختبار auth/model الحالي ضمن scope مع encrypted credentials/history/disable وUI؛ ثم Campaign draft/published/versioned Knowledge/qualification/claims/assets وdeterministic Global guardrails→Branch defaults→Campaign effective config؛ بعدها approved tools/runtime/jobs/Lead assistant/Operations assistant/handoff/evaluations. لا provider refinements اختيارية أو Bank ledger/refunds/partial-payment accounting.
 

@@ -47,6 +47,8 @@ import { registerPaymentNotificationRoutes } from './routes/payment-notification
 import type { PaymentAdapterRegistry } from './payments/providers.js';
 import { registerPaymentLinkRoutes } from './routes/payment-links.js';
 import { registerBankTransferRoutes } from './routes/bank-transfers.js';
+import { registerAIConnectionRoutes } from './routes/ai-connections.js';
+import type { AIAdapterRegistry } from './ai/providers.js';
 
 export async function buildApp(db: Database, options: { logger?: boolean; emailAdapter?: IdentityEmailAdapter;
   messagingAdapter?: MessagingProviderAdapter; messagingTemplateAdapter?: MessagingTemplateAdapter;
@@ -54,6 +56,7 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   leadSourceCatalogAdapter?: LeadSourceCatalogAdapter;
   leadSourceSubscriptionAdapter?: LeadSourceSubscriptionAdapter;
   paymentConnectionAdapters?:PaymentAdapterRegistry;
+  aiConnectionAdapters?:AIAdapterRegistry;
   mediaStorage?: MediaStorage;
   mediaScanner?: MediaScanner;
   globalRateLimitMax?: number;
@@ -135,5 +138,6 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   registerPaymentNotificationRoutes(app,db);
   registerPaymentLinkRoutes(app,db);
   registerBankTransferRoutes(app,db);
+  registerAIConnectionRoutes(app,db,options.aiConnectionAdapters);
   return app;
 }
