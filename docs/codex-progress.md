@@ -1,5 +1,17 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: actual independent Alma read worker — 2026-10-08
+
+Proof/Payment boundary محفوظة ومرفوعة في `4325ed8`؛ بدأت هذه المرحلة من شجرة نظيفة. Migration084 تحفظ immutable credential anchor لكل endpoint، تشير إلى أول intent وcredential snapshot الأصلية دون نسخ أسرار إلى inbox. Seed/backfill وAudit ذرية، والحماية تمنع تغيير المرجع أو إعادة كتابة التاريخ. Native finalization fence تمنع إنهاء read job من proof بحالة OPEN.
+
+`retrieveReferenced` تنفذ actual Merchant وPayment GET على البيئة الأصلية، وتعيد candidate محدودة بلا raw PII. لا تتطلب ACK أوhint من العميل؛ تطابق الأصل لاحقًا مع immutable intent/Connection/Merchant/Mode/exact money/plan وone-write admission. Generic `processOneIndependentPaymentRead` تستخدم original credential anchor وshared Merchant lease، وتنفذ reads خارج transaction؛تحفظ native proof/Payment/Enrollment داخل transaction. UNKNOWN/lost ACK تُسوّى دونsecond create. خمسة attempts محدودة تشمل transport failures وOPEN polling؛ interruption تحفظ التاريخ، وlate result لا تتجاوز lease recovery. Pending/authorization لاEnrollment،وrefund/identity mismatch تحتاجNeeds Attention.
+
+البوابة ناجحة: **147/147 unit،57/57 full PostgreSQL integration،25/25 Edge Browser E2E** (2.1m)،Backend/Web build/typecheck وmigrations001–084 علىdevelopment/test. اثنتانunit جديدتان للcandidate GET-only/authenticated Merchant/safe bounds/GUID/no PII/no creation. Integration الحالية توسعتactual default read adapter و8-worker concurrency→one read attempt؛UNKNOWN بلاACK→Confirmed/one Enrollment،disabled Connection/revoked requester،actual API rotation إلىsynthetic unrelated mode/key مع استمرارoriginal TEST/key،503 retry وbounded5budget/OPEN→Pending فقط،interrupted read/late Paid rejection،native anchor/history/finalization guards،ولاsecond POST. Full Stripe/PayPal/Browser regression ثابتة؛Browser ليستAlma financial UI end-to-end بعد.
+
+**التصنيف:** actual read worker/UNKNOWN reconciliation **Implemented وMock/Sandbox Verified محليًا**؛actual adapters/HTTP mocks/Docker PG فقط،لاexternal Sandbox account أوLive Verification. Function تُشغّل صراحة فيintegration؛لم تُربط بعدبالـproduction worker entrypoint أوCheckout registry،ولاLead issuance/recovery UI. المنصةوPayments جزئيتان؛Vite582.52KB/gzip168.65KB warning ضمنbacklog.
+
+**التالي الدقيق:** native read-only credential recovery approval/window/history/current Manager-Super Admin session وoriginal Merchant/Mode منmanaged Connection،ربطworker بالrepair snapshot دونsecond write،setup inbox/repair UI؛ثمLead request API/explicit selected-plan UI/notification readiness/safe independently recovered Link عندالحاجة/worker entrypoint وAlma registry activation بعدfull financial Integration/Browser. لاoptional provider refinements أوBank Transfer قبلAlma baseline؛Live Verification Pending External Credential/Approval.
+
 ## آخر حالة مستقرة: independent-read financial proof boundary — 2026-10-08
 
 Native durable issuance محفوظة ومرفوعة في `f63a669`،working tree كانتنظيفة وHEAD=origin. Migration083 تضيفgeneric independent-read jobs/attempts/immutable financial proofs منفصلةعنsigned receipts،bounded5read attempts وlease/history/native proof-before-completion. Proof تثبتoriginal admitted intent/Connection/Mode/Merchant/resource/exact EUR/selected plan/automatic capture/refund-safe captured status وDBclock؛IPN تظلUNVERIFIED. Payment مشتركة تقبلone-of signed confirmation أوindependent proof،معmonotonic state وseparate Enrollment؛لاsigned event مصطنعة.

@@ -1,5 +1,11 @@
 # دليل التشغيل والتطوير
 
+## Actual independent read worker — checkpoint084
+
+Migrations001–084 و147unit/57PostgreSQL/25Edge regression ناجحة. Original credential anchor وread worker/UNKNOWN reconciliation مثبتةباستخدامactual HTTP mocks؛function تعملصراحةفيintegration،ولاproduction read tick أوAlma Checkout/Lead financial UI بعد. Read retry/poll budget5 وmerchant lease60s قيمtechnical قابلةللمراجعةبقياساتالبيئة،ليستbusiness capacity أوLive Verification.
+
+UNKNOWN لاsecond create؛read تستعملoriginal TEST/LIVE context والkey snapshot حتىبعدcurrent connection rotation. OPEN أو503 قدتعيدreadonly retry ضمنbudget؛interruption تحفظattempt ويُرفضlate result. نفادbudget أورفضالهوية/المفتاح يحتاجNeeds Attention. لاreset budget/anchor أوتعديلhistory فيDB؛المرحلةالتاليةتوفرexplicit scoped readonly recovery منUI. Live Verification Pending External Credential/Approval،لاexternal Sandbox account أوproduction deployment.
+
 ## Independent financial proof boundary — checkpoint083
 
 Migrations001–083 و145unit/57PostgreSQL/25Edge regression ناجحة. unsigned notifications تُحفظمعindependent read jobs،لكنAlma read worker/financial registry/UI لمتُفعّل بعد؛لاmanual DB claim أوPayment insertion كتشغيلمنتج. claim native فيintegration fixture فقط. IPN/status=authorized/return page/ACK ليستإثباتًا؛original exact-money captured read هيالسلطةقبلPayment/Enrollment.

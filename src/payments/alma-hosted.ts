@@ -1,7 +1,7 @@
 import { HttpError } from '../security.js';
 import { boundedResponse } from '../media/meta-provider.js';
 import { almaConnectionAdapter,almaOrigin,validateAlmaCredentials } from './alma-connection.js';
-import { normalizeEligibilityRequest,type PaymentPlanSelection } from './eligibility.js';
+import { almaEligibilityMoney,normalizeEligibilityRequest,type PaymentPlanSelection } from './eligibility.js';
 import { PaymentCheckoutError,PaymentProviderError } from './provider-errors.js';
 import type { CheckoutIntent } from './checkout-provider.js';
 import type { PaymentConfig,PaymentCredentials } from './providers.js';
@@ -44,19 +44,20 @@ async function readOrWrite(config:PaymentConfig,credentials:PaymentCredentials,p
   try { return JSON.parse(new TextDecoder('utf-8',{ fatal:true }).decode(await boundedResponse(response,262144))); }
   catch { throw invalid(write); }
 }
-function snapshot(raw:unknown,config:PaymentConfig,intent:AlmaHostedIntent,expectedId?:string,write=false):AlmaHostedSnapshot {
+function referencedSnapshot(raw:unknown,config:PaymentConfig,account:string,expectedId?:string,write=false):AlmaHostedSnapshot {
   const data=raw as Record<string,unknown>|null;const fail=()=>invalid(write);
   if(!data || typeof data!=='object' || Array.isArray(data) || typeof data.id!=='string' || !paymentId.test(data.id) || (expectedId && data.id!==expectedId)
-    || data.merchant_id!==intent.accountRef || typeof data.purchase_amount!=='number' || !Number.isSafeInteger(data.purchase_amount) || String(data.purchase_amount)!==intent.money.minor
+    || data.merchant_id!==account || typeof data.purchase_amount!=='number' || !Number.isSafeInteger(data.purchase_amount) || data.purchase_amount<=0 || data.purchase_amount>2147483647
     || (data.currency!==undefined && data.currency!=='EUR') || !['awaiting_authorization','authorized','captured','canceled'].includes(data.processing_status as string)
-    || !data.custom_data || typeof data.custom_data!=='object' || Array.isArray(data.custom_data) || (data.custom_data as Record<string,unknown>).intentId!==intent.id
+    || !data.custom_data || typeof data.custom_data!=='object' || Array.isArray(data.custom_data)
+    || typeof (data.custom_data as Record<string,unknown>).intentId!=='string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test((data.custom_data as Record<string,unknown>).intentId as string)
     || (data.capture_method!==undefined && data.capture_method!=='automatic') || data.is_deferred_capture!==false
     || typeof data.amount_already_refunded!=='number' || !Number.isSafeInteger(data.amount_already_refunded) || data.amount_already_refunded<0 || data.amount_already_refunded>data.purchase_amount
     || typeof data.is_completely_refunded!=='boolean' || data.is_completely_refunded!==(data.amount_already_refunded===data.purchase_amount))throw fail();
   let plan:PaymentPlanSelection;
-  try { plan=normalizeEligibilityRequest({ money:intent.money,plan:{ installments:data.installments_count,deferredMonths:data.deferred_months,deferredDays:data.deferred_days } }).plan; }
+  const minor=BigInt(data.purchase_amount);const money=almaEligibilityMoney((minor/100n).toString()+'.'+(minor%100n).toString().padStart(2,'0'),'EUR');
+  try { plan=normalizeEligibilityRequest({ money,plan:{ installments:data.installments_count,deferredMonths:data.deferred_months,deferredDays:data.deferred_days } }).plan; }
   catch { throw fail(); }
-  if(plan.installments!==intent.plan.installments || plan.deferredMonths!==intent.plan.deferredMonths || plan.deferredDays!==intent.plan.deferredDays)throw fail();
   let customerUrl:string|null=null;
   if(['awaiting_authorization','authorized'].includes(data.processing_status as string)) {
     if(typeof data.url!=='string' || data.url.length>2048 || /[\x00-\x1f\x7f]/.test(data.url))throw fail();
@@ -65,8 +66,13 @@ function snapshot(raw:unknown,config:PaymentConfig,intent:AlmaHostedIntent,expec
     catch { throw fail(); }
   }
   // Old installment state, future expiry, customer fees and payer metadata never establish merchant money.
-  return { paymentId:data.id,intentId:intent.id,merchantId:intent.accountRef,mode:config.mode,currency:'EUR',minor:intent.money.minor,plan,
+  return { paymentId:data.id,intentId:(data.custom_data as Record<string,string>).intentId!,merchantId:account,mode:config.mode,currency:'EUR',minor:money.minor,plan,
     processingStatus:data.processing_status as AlmaProcessingStatus,customerUrl,expiresAt:null,refundMinor:String(data.amount_already_refunded),completelyRefunded:data.is_completely_refunded };
+}
+function checkedSnapshot(payment:AlmaHostedSnapshot,intent:AlmaHostedIntent,write=false):AlmaHostedSnapshot {
+  if(payment.intentId!==intent.id || payment.merchantId!==intent.accountRef || payment.minor!==intent.money.minor || payment.currency!==intent.money.currency
+    || payment.plan.installments!==intent.plan.installments || payment.plan.deferredMonths!==intent.plan.deferredMonths || payment.plan.deferredDays!==intent.plan.deferredDays)throw invalid(write);
+  return payment;
 }
 export const almaHostedAdapter={ writeReplay:'NEVER' as const,dispatchBudgetMs:30000,
   async create(config:PaymentConfig,credentials:PaymentCredentials,intent:AlmaHostedIntent,admit:AlmaCreateAdmission):Promise<AlmaHostedSnapshot> {
@@ -90,16 +96,23 @@ export const almaHostedAdapter={ writeReplay:'NEVER' as const,dispatchBudgetMs:3
     const raw=await readOrWrite(config,credentials,'/v1/payments',{ origin:'online',payment:{ purchase_amount:Number(intent.money.minor),installments_count:intent.plan.installments,
       deferred_months:intent.plan.deferredMonths,deferred_days:intent.plan.deferredDays,capture_method:'automatic',return_url:intent.successUrl,
       customer_cancel_url:intent.cancelUrl,failure_return_url:intent.cancelUrl,ipn_callback_url:intent.ipnUrl,custom_data:{ intentId:intent.id } } });
-    return snapshot(raw,config,intent,undefined,true);
+    return checkedSnapshot(referencedSnapshot(raw,config,intent.accountRef,undefined,true),intent,true);
   },
   async retrieve(config:PaymentConfig,credentials:PaymentCredentials,intent:AlmaHostedIntent,id:string):Promise<AlmaHostedSnapshot> {
-    input(intent);validateAlmaCredentials(config,credentials);if(!paymentId.test(id))throw new HttpError(400,'PAYMENT_SESSION_INVALID');
+    input(intent);
+    // The original intent is matched after reading independently; a reference alone cannot grant financial authority.
+    return checkedSnapshot(await almaHostedAdapter.retrieveReferenced(config,credentials,intent.accountRef,id),intent);
+  },
+  async retrieveReferenced(config:PaymentConfig,credentials:PaymentCredentials,account:string,id:string):Promise<AlmaHostedSnapshot> {
+    validateAlmaCredentials(config,credentials);
+    if(typeof account!=='string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(account) || typeof id!=='string' || !paymentId.test(id))throw new HttpError(400,'PAYMENT_SESSION_INVALID');
+    config=Object.freeze({ ...config });credentials=Object.freeze({ ...credentials });
     const identity=await almaConnectionAdapter.verify(config,credentials).catch((error)=> { if(error instanceof PaymentProviderError) {
         const code=error.code==='PAYMENT_PROVIDER_AUTH_FAILED' ? 'PAYMENT_PROVIDER_AUTH_FAILED' : error.code==='PAYMENT_PROVIDER_RATE_LIMITED' ? 'PAYMENT_PROVIDER_RATE_LIMITED'
           : error.code==='PAYMENT_PROVIDER_RESPONSE_INVALID' ? 'PAYMENT_PROVIDER_RESPONSE_INVALID' : 'PAYMENT_PROVIDER_UNAVAILABLE';
         throw new PaymentCheckoutError(code,code==='PAYMENT_PROVIDER_AUTH_FAILED' || code==='PAYMENT_PROVIDER_RESPONSE_INVALID' ? 'REJECTED' : 'RETRYABLE'); }throw error; });
-    if(identity.authentication?.accountRef!==intent.accountRef)throw new PaymentCheckoutError('PAYMENT_ACCOUNT_MISMATCH','REJECTED');
-    return snapshot(await readOrWrite(config,credentials,'/v1/payments/'+id),config,intent,id);
+    if(identity.authentication?.accountRef!==account)throw new PaymentCheckoutError('PAYMENT_ACCOUNT_MISMATCH','REJECTED');
+    return referencedSnapshot(await readOrWrite(config,credentials,'/v1/payments/'+id),config,account,id);
   },
   async retrievePayment(config:PaymentConfig,credentials:PaymentCredentials,intent:AlmaHostedIntent,id:string):Promise<AlmaPaymentEvidence> {
     const payment=await almaHostedAdapter.retrieve(config,credentials,intent,id);

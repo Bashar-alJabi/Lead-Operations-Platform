@@ -1,5 +1,13 @@
 # تكامل Alma
 
+## Actual independent read worker — checkpoint مثبتة 2026-10-08
+
+بعد084،original endpoint credential anchor تشير إلى immutable intent snapshot وتبقى ثابتةبعدConnection rotation/disable. Actual Merchant+Payment GET تعيدsafe candidate ذاتGUID/money/plan/status/refund فقط؛لاraw PII أوcustomer hint. Worker تحسمoriginal intent/Connection/account-mode/money-plan/known resource وnative one-write proof،ثمnative confirmation→shared Payment/separate Enrollment؛حتىUNKNOWN بلاACK يمكنتسويتها،ولاsecond create أوfake receipt.
+
+Shared Merchant lease وindexed queues وbounded5read attempts/polling/recovery تحفظالتزامنوالتاريخ. Network خارجtransaction؛late result بعدlease recovery لا تعطيfinancial authority. Authorized/OPEN→Pending دونEnrollment،وبعدنفادbudget→Needs Attention،لاautomatic budget reset. Native guard تمنعprocessed منOPEN proof؛credential repair وتفعيلentrypoint/Lead UI هماالمرحلةالتالية.
+
+147unit/57PostgreSQL/25Edge regression/build/typecheck و001–084 ناجحة. Unit candidate/auth/bounds/PII omission،وintegration actual default adapter/8 readers/UNKNOWN no ACK→paid،503/poll budget/interruption/late Paid،disabled requester/Connection،actual managed API rotation إلىsynthetic different mode/key معoriginal TEST/key؛لاlive HTTP أوproduction key. **Mock/Sandbox Verified محليًا دونexternal Sandbox account**؛Alma Checkout registry/production read tick/financial Lead UI/repair/financial Browser باقية،Live Verification Pending External Credential/Approval.
+
 ## Independent native confirmation/Payment boundary — checkpoint مثبتة 2026-10-08
 
 بعد083،unsigned IPN تنشئdurable independent-read job منفصلةوتبقىUNVERIFIED؛worker التلقائية لمتُربطبعد. Claim/attempt/lease/history وproof boundaries native،ولاverified job/attempt بلاproof. Actual independent adapter snapshot تحتويschema1/source/captureMode AUTOMATIC/original merchant-intent-money-plan/processingStatus/refund-safe status؛authorized أوold state=paid أوcustomer claim لاPaid. Proof المقبولةترتبطبسجلone-write admission والمصدرالأصلي؛الوقتDBclock وAudit ذرية.

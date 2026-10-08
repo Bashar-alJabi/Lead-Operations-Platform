@@ -1,5 +1,13 @@
 # المعمارية التقنية
 
+## Original credentials وUNKNOWN independent resolution — 2026-10-08
+
+084 تحفظ `payment_notification_credential_anchor` immutable لكل endpoint، تشير إلى أول original intent/credential snapshot المطابقة لنفس Connection/config/Merchant/Mode. Seed/backfill وAudit native؛لاplaintext copy أوcredential reference للعميل. هذا يحل lost ACK بعدrotation/disable دوناختيارkey منcurrent unrelated Connection. لا يتغير التاريخ أوالـbusiness permissions؛الأصل كانمصرحًا عندintent creation،والقراءة اللاحقة لا تنشئدفعة.
+
+Actual referenced GET تتحقق منMerchant علىfixed original environment،وتقرأPayment opaque reference،وتعيدsafe candidate بلاraw PII. Generic independent-read worker تطابقcandidate معoriginal admitted intent/Merchant/money/plan وknown session قبلnative proof؛لاcustomer hint أوsigned receipt مصطنعة. Shared Merchant lease تمنعparallel provider I/O معissuance عبرConnections لنفسaccount/mode،وdue queries تتجاوزالمشغول بدلحجبmerchants الأخرى. Network خارجtransactions؛claims/history وbounded5read budget وlate-token fences وnative final-status guard تمنعOPEN→processed أوlate Paid بعدrecovery. Historical financial confirmation لا تعتمدعلىcurrent requester أوconnection state.
+
+147/57/25 و001–084 gates مثبتة محليًا؛actual worker function شُغّلتفيintegration باستخدامHTTP mocks،ولاproduction entrypoint/registry/financial Lead UI بعد. التاليread-only credential repair ذاتcurrent scoped approval ونوافذread إضافية محدودة دونreset history،ثمAPI/UI والـfinancial Browser قبلالتفعيل. No provider idempotency guarantee أوsecond create عندUNKNOWN.
+
 ## مصدر financial confirmation المستقلة — 2026-10-08
 
 083 تفصل `payment_independent_read_job/attempt/confirmation` عنsigned webhook event/receipt. Untrusted notification تحفظهويتهاUNVERIFIED؛هيreference للقراءةفقط. Native proof تتطلبrunning unexpired read lease/attempt وoriginal one-write admitted intent/Connection/Merchant/Mode/resource/exact money/selected plan/automatic capture/refund-safe captured state،وتحفظDB timestamp وAudit ذرية. History immutable،budget5read attempts/indexed due/lease queues؛no job success أوverified attempt بلاproof.

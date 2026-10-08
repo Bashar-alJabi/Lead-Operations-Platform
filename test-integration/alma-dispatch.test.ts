@@ -11,6 +11,7 @@ import { checkoutInput,historicalPaymentCredentials,processOnePaymentDispatch } 
 import { paymentIssuanceOptions } from '../src/payments/issuance-profile.js';
 import { persistIndependentPaymentConfirmation } from '../src/payments/independent-confirmation.js';
 import { persistPaymentState } from '../src/payments/payment-state.js';
+import { processOneIndependentPaymentRead } from '../src/payments/independent-read-worker.js';
 const url=process.env.TEST_DATABASE_URL;if(!url || new URL(url).pathname!=='/lead_operations_test')throw new Error('Isolated TEST_DATABASE_URL required');
 
 test('Alma durable one-write and independent native proof enforce concurrency, current issuance authorization, historical financial integrity and atomic Enrollment without authority from IPN or creation ACK',async(t)=> {
@@ -33,10 +34,10 @@ test('Alma durable one-write and independent native proof enforce concurrency, c
   const lead=(await db`INSERT INTO lead(organization_id,branch_id,campaign_id,assigned_agent_id,source_kind)
     VALUES (${org},${branch},${campaign},${users.agent!.id},'MANUAL') RETURNING id`)[0]!.id;
   const merchant='merchant_DurableSynthetic123';const credentials={ apiKey:'AlmaDurableSyntheticKeyOnly_123456789' };
-  let ip=1;const api=(method:'GET'|'POST',path:string,payload?:object)=>app.inject({ method,url:path,payload,
+  let ip=1;const api=(method:'GET'|'POST'|'PUT',path:string,payload?:object)=>app.inject({ method,url:path,payload,
     headers:{ origin:process.env.APP_ORIGIN!,cookie:users.manager!.cookie },remoteAddress:`127.0.41.${ip++}` });
-  const calls:string[]=[];let eligible=true;let lost=false;let captured=false;let afterPreflight:(()=>Promise<void>)|null=null;
-  let afterWrite:(()=>Promise<void>)|null=null;
+  const calls:string[]=[];const payments=new Map<string,string>();let eligible=true;let lost=false;let captured=false;let readFailure=false;let afterPreflight:(()=>Promise<void>)|null=null;
+  let afterWrite:(()=>Promise<void>)|null=null;let afterRead:(()=>Promise<void>)|null=null;
   t.mock.method(globalThis,'fetch',async(target:string,init:RequestInit)=> {
     calls.push(target);assert.equal(init.redirect,'error');assert.equal(new Headers(init.headers).get('authorization'),'Alma-Auth '+credentials.apiKey);
     if(target.endsWith('/extended-data'))return new Response(JSON.stringify({ id:merchant }));
@@ -48,12 +49,15 @@ test('Alma durable one-write and independent native proof enforce concurrency, c
     if(init.method==='POST') {
       assert.equal(target,'https://api.sandbox.getalma.eu/v1/payments');assert.equal(new Headers(init.headers).has('idempotency-key'),false);
       const payload=JSON.parse(init.body as string).payment;intent=payload.custom_data.intentId;paymentId='payment_'+intent.replaceAll('-','');
+      payments.set(paymentId,intent);
       assert.equal(payload.purchase_amount,10000);assert.equal(payload.installments_count,3);assert.equal(payload.capture_method,'automatic');
       const proof=(await db`SELECT a.intent_id,l.action FROM payment_write_admission a JOIN audit_log l ON l.target_id=a.intent_id::text
         WHERE a.intent_id=${intent} AND l.action='PAYMENT_WRITE_ADMITTED'`)[0];assert.ok(proof,'marker and audit must commit before actual POST');
       if(afterWrite)await afterWrite();if(lost)throw new Error('lost response '+credentials.apiKey);
     }else {
-      paymentId=target.slice(target.lastIndexOf('/')+1);intent=(await db`SELECT intent_id FROM payment_checkout_ack WHERE session_id=${paymentId}`)[0]!.intent_id;
+      if(readFailure)return new Response('{}',{ status:503 });
+      paymentId=target.slice(target.lastIndexOf('/')+1);intent=payments.get(paymentId)!;assert.ok(intent,'provider retains the independently readable payment even when ACK was lost');
+      if(afterRead)await afterRead();
     }
     return new Response(JSON.stringify({ id:paymentId,merchant_id:merchant,purchase_amount:10000,installments_count:3,deferred_months:0,deferred_days:0,
       processing_status:captured ? 'captured' : 'awaiting_authorization',state:'paid',is_deferred_capture:false,capture_method:'automatic',
@@ -89,6 +93,9 @@ test('Alma durable one-write and independent native proof enforce concurrency, c
   const accepted=await create();const results=await Promise.all(Array.from({ length:8 },dispatch));assert.ok(results.some(Boolean));assert.equal(writes(),1);
   assert.equal((await state(accepted)).state,'ACCEPTED');assert.equal((await db`SELECT count(*)::int n FROM payment_dispatch_attempt WHERE intent_id=${accepted}`)[0]!.n,1);
   const admitted=(await db`SELECT * FROM payment_write_admission WHERE intent_id=${accepted}`)[0]!;
+  const credentialAnchor=(await db`SELECT * FROM payment_notification_credential_anchor WHERE endpoint_id=${endpoint.id}`)[0]!;assert.equal(credentialAnchor.intent_id,accepted);
+  await assert.rejects(db`UPDATE payment_notification_credential_anchor SET intent_id=${accepted} WHERE endpoint_id=${endpoint.id}`,/PAYMENT_NOTIFICATION_CREDENTIAL_ANCHOR_IMMUTABLE/);
+  await assert.rejects(db`DELETE FROM payment_notification_credential_anchor WHERE endpoint_id=${endpoint.id}`,/PAYMENT_NOTIFICATION_CREDENTIAL_ANCHOR_IMMUTABLE/);
   await assert.rejects(db`UPDATE payment_write_admission SET admitted_at=clock_timestamp() WHERE intent_id=${accepted}`,/PAYMENT_WRITE_ADMISSION_IMMUTABLE/);
   await assert.rejects(db`DELETE FROM payment_write_admission WHERE intent_id=${accepted}`,/PAYMENT_WRITE_ADMISSION_IMMUTABLE/);
   await assert.rejects(db`INSERT INTO payment_write_admission(intent_id,attempt_id) VALUES (${accepted},${admitted.attempt_id})`,/PAYMENT_WRITE_ADMISSION_CURRENT_FENCE_REQUIRED/);
@@ -127,6 +134,7 @@ test('Alma durable one-write and independent native proof enforce concurrency, c
     assert.equal((await db`SELECT count(*)::int n FROM payment_independent_read_confirmation`)[0]!.n,0);assert.equal((await db`SELECT count(*)::int n FROM payment_record`)[0]!.n,0);
   }finally { await db`DROP TRIGGER synthetic_alma_proof_failure ON audit_log`;await db`DROP FUNCTION synthetic_alma_proof_failure()`; }
   const pendingProof=await db.begin((tx)=>persistIndependentPaymentConfirmation(tx,stored,firstRead,pendingSnapshot));assert.equal(pendingProof.state,'PENDING');
+  await assert.rejects(db`UPDATE payment_independent_read_job SET state='PROCESSED',lease_token=NULL,lease_until=NULL WHERE notification_id=${notification.id}`,/PAYMENT_INDEPENDENT_READ_FINAL_STATUS_REQUIRED/);
   const pendingPayment=(await db`SELECT * FROM payment_record WHERE intent_id=${accepted}`)[0]!;
   assert.equal(pendingPayment.confirmation_event_id,null);assert.equal(pendingPayment.independent_confirmation_id,pendingProof.proofId);assert.equal(pendingPayment.confirmed_at,null);
   await assert.rejects(db`INSERT INTO enrollment(lead_id,payment_id) VALUES (${lead},${pendingPayment.id})`,/ENROLLMENT_TRUSTED_PAYMENT_REQUIRED/);
@@ -192,6 +200,49 @@ test('Alma durable one-write and independent native proof enforce concurrency, c
   assert.equal((await db`SELECT count(*)::int n FROM payment_write_admission WHERE intent_id=${unknown}`)[0]!.n,1);
   for(let n=0;n<3;n++)assert.equal(await dispatch(),false);assert.equal(writes(),beforeLost+1);
   await assert.rejects(db`UPDATE payment_dispatch SET state='RETRY' WHERE intent_id=${unknown}`,/PAYMENT_DISPATCH_TRANSITION_INVALID/);
+  // Autonomous actual read resolves UNKNOWN through provider custom_data, original anchor credentials and exact native proof, never a second create.
+  const unknownResource='payment_'+unknown.replaceAll('-','');
+  assert.equal((await app.inject({ method:'GET',url:'/api/webhooks/payments/alma/'+endpoint.id+'?pid='+unknownResource,remoteAddress:'127.0.42.3' })).statusCode,200);
+  const unknownNotification=(await db`SELECT id FROM payment_untrusted_notification WHERE resource_id=${unknownResource}`)[0]!.id;
+  captured=true;await db`UPDATE integration_connection SET status='DISABLED' WHERE id=${connection}`;
+  await db`UPDATE user_session SET revoked_at=clock_timestamp() WHERE id=${users.agent!.session}`;
+  try {
+    const concurrentReads=await Promise.all(Array.from({ length:8 },()=>processOneIndependentPaymentRead(db)));assert.ok(concurrentReads.some(Boolean));
+    assert.equal((await db`SELECT state FROM payment_independent_read_job WHERE notification_id=${unknownNotification}`)[0]!.state,'PROCESSED');
+    assert.equal((await db`SELECT state FROM payment_record WHERE intent_id=${unknown}`)[0]!.state,'CONFIRMED');
+    assert.equal((await db`SELECT count(*)::int n FROM payment_independent_read_attempt WHERE notification_id=${unknownNotification}`)[0]!.n,1);
+    assert.equal((await db`SELECT count(*)::int n FROM enrollment e JOIN payment_record p ON p.id=e.payment_id WHERE p.intent_id=${unknown}`)[0]!.n,1);
+    assert.equal((await db`SELECT count(*)::int n FROM payment_checkout_ack WHERE intent_id=${unknown}`)[0]!.n,0);assert.equal((await state(unknown)).state,'NEEDS_ATTENTION');
+    assert.equal(writes(),beforeLost+1);assert.equal(await processOneIndependentPaymentRead(db),false);
+  }finally { captured=false;await db`UPDATE integration_connection SET status='CONNECTED' WHERE id=${connection}`;await db`UPDATE user_session SET revoked_at=NULL WHERE id=${users.agent!.session}`; }
+  // Read failures and OPEN observations share a bounded budget; an interrupted late Paid snapshot cannot bypass its lease.
+  const waiting=await plan();assert.equal(await dispatch(),true);const waitingResource='payment_'+waiting.replaceAll('-','');
+  assert.equal((await app.inject({ method:'GET',url:'/api/webhooks/payments/alma/'+endpoint.id+'?pid='+waitingResource,remoteAddress:'127.0.42.4' })).statusCode,200);
+  const waitingNotification=(await db`SELECT id FROM payment_untrusted_notification WHERE resource_id=${waitingResource}`)[0]!.id;
+  const makeReadDue=()=>db.begin(async(tx)=> {
+    await tx`ALTER TABLE payment_independent_read_job DISABLE TRIGGER payment_independent_read_job_guard`;
+    await tx`UPDATE payment_independent_read_job SET run_after=clock_timestamp() WHERE notification_id=${waitingNotification}`;
+    await tx`ALTER TABLE payment_independent_read_job ENABLE TRIGGER payment_independent_read_job_guard`;
+  });
+  readFailure=true;assert.equal(await processOneIndependentPaymentRead(db),true);readFailure=false;
+  assert.equal((await db`SELECT state,error_code FROM payment_independent_read_job WHERE notification_id=${waitingNotification}`)[0]!.state,'RETRY');
+  await makeReadDue();let readRelease!:()=>void;let readEntered!:()=>void;const readStarted=new Promise<void>((r)=>{ readEntered=r; });
+  afterRead=async()=>{ readEntered();await new Promise<void>((r)=>{ readRelease=r; }); };const slowRead=processOneIndependentPaymentRead(db);await readStarted;
+  await db.begin(async(tx)=> {
+    await tx`ALTER TABLE payment_independent_read_job DISABLE TRIGGER payment_independent_read_job_guard`;
+    await tx`UPDATE payment_independent_read_job SET lease_until=clock_timestamp()-interval '1 second' WHERE notification_id=${waitingNotification}`;
+    await tx`ALTER TABLE payment_independent_read_job ENABLE TRIGGER payment_independent_read_job_guard`;
+  });
+  try { assert.equal(await processOneIndependentPaymentRead(db),true);captured=true; }
+  finally { readRelease();await slowRead;afterRead=null;captured=false; }
+  assert.equal((await db`SELECT state FROM payment_independent_read_attempt WHERE notification_id=${waitingNotification} AND number=2`)[0]!.state,'INTERRUPTED');
+  assert.equal((await db`SELECT count(*)::int n FROM payment_record WHERE intent_id=${waiting}`)[0]!.n,0,'late paid observation after lease recovery has no authority');
+  const waitingWrites=writes();for(let n=3;n<=5;n++) { await makeReadDue();assert.equal(await processOneIndependentPaymentRead(db),true); }
+  const exhausted=(await db`SELECT * FROM payment_independent_read_job WHERE notification_id=${waitingNotification}`)[0]!;
+  assert.equal(exhausted.state,'NEEDS_ATTENTION');assert.equal(exhausted.attempts,5);assert.equal(exhausted.error_code,'PAYMENT_READ_WAITING_FINALIZATION');
+  assert.equal((await db`SELECT state FROM payment_record WHERE intent_id=${waiting}`)[0]!.state,'PENDING');
+  assert.equal((await db`SELECT count(*)::int n FROM enrollment e JOIN payment_record p ON p.id=e.payment_id WHERE p.intent_id=${waiting}`)[0]!.n,0);
+  captured=true;assert.equal(await processOneIndependentPaymentRead(db),false);captured=false;assert.equal(writes(),waitingWrites);
   // A claimed worker can die after the write. A late response cannot undo recovery or authorize another POST.
   const interrupted=await plan();let release!:()=>void;let entered!:()=>void;const started=new Promise<void>((r)=>{ entered=r; });
   afterWrite=async()=>{ entered();await new Promise<void>((r)=>{ release=r; }); };const pending=dispatch();await started;
@@ -205,6 +256,8 @@ test('Alma durable one-write and independent native proof enforce concurrency, c
   finally { release();await pending;afterWrite=null; }
   assert.equal((await db`SELECT state FROM payment_dispatch_attempt WHERE intent_id=${interrupted}`)[0]!.state,'INTERRUPTED');
   assert.equal((await db`SELECT count(*)::int n FROM payment_checkout_ack WHERE intent_id=${interrupted}`)[0]!.n,0);assert.equal(await dispatch(),false);
+  const historical=await plan();assert.equal(await dispatch(),true);const historicalResource='payment_'+historical.replaceAll('-','');
+  assert.equal((await app.inject({ method:'GET',url:'/api/webhooks/payments/alma/'+endpoint.id+'?pid='+historicalResource,remoteAddress:'127.0.42.5' })).statusCode,200);
   // Policy/profile corruption and marker claims without a matching live attempt/merchant lease fail natively.
   const fresh=await plan();const now=Number((await db`SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint ms`)[0]!.ms);const token=randomUUID();
   const policy={ writeReplay:'NEVER',maxAttempts:1,retentionMs:null,dispatchBudgetMs:30000,retryBaseMs:2000,retryMaxMs:60000 };
@@ -236,9 +289,15 @@ test('Alma durable one-write and independent native proof enforce concurrency, c
   assert.ok(duplicateNative.every((r)=>r.status==='rejected'));
   assert.equal((await db`SELECT count(*)::int n FROM audit_log WHERE action='PAYMENT_WRITE_ADMITTED' AND target_id=${direct}`)[0]!.n,1);
   // The prepared source and encrypted historical inputs cannot migrate to a different merchant or mode.
-  await db`UPDATE integration_connection SET version=version+1,capabilities='{}' WHERE id=${connection}`;
+  // Rotate through the actual managed API to unrelated synthetic credentials/mode. The read must retain TEST and the original key.
+  const rotation=await api('PUT',root,{ name:'Unrelated synthetic current environment',provider:'ALMA',version:1,config:{ mode:'LIVE' },credentials:{ apiKey:'SyntheticRotatedKeyMustNeverBeUsed_12345678' } });
+  assert.equal(rotation.statusCode,200,rotation.body);
   assert.equal((await db`SELECT payment_dispatch_authorized(${fresh}) allowed`)[0]!.allowed,false);
   await assert.rejects(create(),/PAYMENT_LINK_CONNECTION_NOT_READY/);
+  await db`UPDATE payment_merchant_lease SET token=NULL,expires_at=NULL WHERE provider='ALMA' AND account_ref=${merchant} AND mode='TEST'`;
+  const beforeHistorical=writes();captured=true;assert.equal(await processOneIndependentPaymentRead(db),true);captured=false;assert.equal(writes(),beforeHistorical);
+  assert.equal((await db`SELECT state,mode FROM payment_record WHERE intent_id=${historical}`)[0]!.state,'CONFIRMED');
+  assert.equal((await db`SELECT mode FROM payment_record WHERE intent_id=${historical}`)[0]!.mode,'TEST');
   assert.equal((await db`SELECT count(*)::int n FROM payment_confirmation`)[0]!.n,0);
-  assert.equal((await db`SELECT count(*)::int n FROM payment_record`)[0]!.n,1);assert.equal((await db`SELECT count(*)::int n FROM enrollment`)[0]!.n,1);
+  assert.equal((await db`SELECT count(*)::int n FROM payment_record`)[0]!.n,4);assert.equal((await db`SELECT count(*)::int n FROM enrollment`)[0]!.n,3);
 });

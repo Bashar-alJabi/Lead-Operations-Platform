@@ -1,5 +1,11 @@
 # مصفوفة تغطية المتطلبات
 
+> أحدث checkpoint2026-10-08: **147unit/57 full PostgreSQL integration/25 Edge Browser E2E** وmigrations001–084 وBackend/Web build/typecheck ناجحة. Actual independent read worker/UNKNOWN reconciliation مثبتتان محليًا معHTTP mocks،بدونexternal Sandbox account. Production entrypoint/Alma Checkout registry وfinancial Lead UI/Browser/recovery باقية؛Live Verification Pending External Credential/Approval. الأعداد التالية تاريخية.
+
+| إضافة checkpoint | التنفيذ المثبت | الاختبارات وحدود الحالة |
+|---|---|---|
+| Actual independent read worker/UNKNOWN reconciliation،02 §§61–63،03 §§36–37،06 §14،AGENTS §§8/15/16/27/28/32/38–40 | 084 immutable original credential anchor/Audit،actual authenticated safe Merchant+Payment candidate GET/strict original intent resolution،generic durable read worker/shared Merchant lease/bounded5retries/polling/interruption/late-result fence→native proof/Payment/Enrollment؛historical disable/rotation،UNKNOWN دونACK أوsecond create؛native OPEN finalization denial | 2unit جديدتان للGET-only candidate/bounds/auth/PII omission؛Alma PostgreSQL توسعت8 concurrent readers/UNKNOWN paid without ACK/503/5-budget pending/no enrollment/interrupted late Paid/native anchor/current API rotation with original TEST/key؛147/57/25 gates ناجحة. Implemented وMock/Sandbox Verified محليًا؛production entrypoint/registry/readonly repair/Lead financial UI وBrowser باقية،لاLive claim |
+
 > أحدث checkpoint2026-10-08: **145unit/57 full PostgreSQL integration/25 Edge Browser E2E** وmigrations001–083 وBackend/Web build/typecheck ناجحة. Independent native proof→shared Payment/Enrollment مثبتة بـactual HTTP mocks وread claim fixture صريحة،لاautonomous Alma read worker أوfinancial Lead UI/Browser/registry activation. Live Verification Pending External Credential/Approval؛الأعداد التالية تاريخية.
 
 | إضافة checkpoint | التنفيذ المثبت | الاختبارات وحدود الحالة |

@@ -12,6 +12,10 @@ function accepted(payment:AlmaHostedSnapshot):CheckoutSnapshot {
   return { sessionId:payment.paymentId,url:payment.customerUrl,expiresAt:null,mode:payment.mode,currency:payment.currency,minor:payment.minor,intentId:payment.intentId,
     status:payment.processingStatus==='canceled' ? 'EXPIRED' : payment.customerUrl ? 'OPEN' : 'COMPLETE',paymentStatus:'UNPAID',paymentRef:null };
 }
+export function almaIndependentCheckoutSnapshot(payment:AlmaHostedSnapshot):CheckoutSnapshot {
+  const evidence=almaReadEvidence(payment);
+  return { ...accepted(payment),paymentStatus:evidence.paymentStatus,paymentRef:evidence.paymentStatus==='PAID' ? evidence.paymentId : null,providerEvidence:evidence };
+}
 // Not activated in the production registry until native confirmation and the Lead flow are complete.
 export const almaCheckoutAdapter:PaymentCheckoutAdapter={ writeReplay:'NEVER',idempotencyRetentionMs:null,dispatchBudgetMs:30000,
   currencyPrecision(currency) { almaEligibilityMoney('1',currency);return { scale:2,quantum:'1' }; },
@@ -20,7 +24,6 @@ export const almaCheckoutAdapter:PaymentCheckoutAdapter={ writeReplay:'NEVER',id
   },
   async retrieve(config,credentials,intent,sessionId) {
     const payment=await almaHostedAdapter.retrieve(config,credentials,hostedIntent(intent),sessionId);
-    const result=accepted(payment);const evidence=almaReadEvidence(payment);
-    return { ...result,paymentStatus:evidence.paymentStatus,paymentRef:evidence.paymentStatus==='PAID' ? evidence.paymentId : null,providerEvidence:evidence };
+    return almaIndependentCheckoutSnapshot(payment);
   },
 };

@@ -128,3 +128,21 @@ test('Alma creation freezes original intent, plan, money, return targets, mode a
     assert.equal(original.accountRef,merchant);assert.equal(original.money.minor,'10000');assert.equal(original.plan.installments,3);admitted=true;await Promise.resolve();return true;
   });assert.equal(result.merchantId,merchant);assert.equal(result.minor,'10000');assert.equal(result.plan.installments,3);
 });
+test('Alma referenced Payment read discovers only a safe independently authenticated candidate for UNKNOWN intent resolution, without creation or raw PII',async(t)=> {
+  const transport=fixture(t);transport.set({ raw:{ ...payment(),processing_status:'captured',customer:{ email:'private@candidate.test' } } });
+  const candidate=await almaHostedAdapter.retrieveReferenced(config,credentials,merchant,id);
+  assert.equal(candidate.intentId,intent.id);assert.equal(candidate.paymentId,id);assert.equal(candidate.minor,'10000');assert.equal(candidate.plan.installments,3);
+  assert.equal(JSON.stringify(candidate).includes('private'),false);assert.deepEqual(transport.calls.map((c)=>c.method),['GET','GET']);
+  assert.equal(Object.hasOwn(candidate,'paymentStatus'),false,'candidate still needs original intent resolution/native proof');
+});
+test('Alma referenced read rejects malformed references before I/O and authenticates the original Merchant before accepting bounded exact candidate data',async(t)=> {
+  const transport=fixture(t);
+  for(const ref of ['../other','payment_','https://foreign.test/payment_reference'])await assert.rejects(almaHostedAdapter.retrieveReferenced(config,credentials,merchant,ref),/PAYMENT_SESSION_INVALID/);
+  assert.equal(transport.calls.length,0);
+  transport.set({ account:'merchant_Foreign' });await assert.rejects(almaHostedAdapter.retrieveReferenced(config,credentials,merchant,id),/PAYMENT_ACCOUNT_MISMATCH/);assert.equal(transport.calls.length,1);
+  transport.set({ account:merchant });
+  for(const patch of [{ purchase_amount:0 },{ purchase_amount:2147483648 },{ purchase_amount:10000.01 },{ custom_data:{ intentId:'customer claim' } },{ merchant_id:'merchant_Foreign' }]) {
+    transport.set({ raw:{ ...payment(),...patch } });await assert.rejects(almaHostedAdapter.retrieveReferenced(config,credentials,merchant,id),/PAYMENT_PROVIDER_RESPONSE_INVALID/);
+  }
+  assert.ok(transport.calls.every((c)=>c.method==='GET'));
+});
