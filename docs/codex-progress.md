@@ -12,7 +12,9 @@ Alma مفعّلة في Checkout registry، و`payment-worker` يشغّل indepen
 
 **الحالة:** required Alma baseline **Implemented وMock/Sandbox Verified محليًا** باستخدام actual adapters/HTTP mocks وDocker PG وEdge؛ لا external Sandbox account أوLive verification أوdeployment. **Live Verification Pending External Credential/Approval**. Payments والمنصة جزئيتان بسبب Bank Transfer ووحدات Notifications/Analytics/AI وبقية acceptance؛ لا ادعاء Production-ready شامل.
 
-**التالي الدقيق:** حفظ هذه checkpoint ورفعها إلى الفرع الحالي؛ ثم Bank Transfer كطريقة مستقلة ذات trusted verification/reconciliation، exact beneficiary/reference/money، idempotency/history/Audit وscope/UI/Integration/Browser. لا customer claim أوuploaded receipt وحدها → Confirmed. ابدأ managed account/method وtrusted-source boundary قبل request/reconciliation/native Payment/Enrollment. لا تحسينات Alma أوprovider-specific beta اختيارية قبل Bank Transfer؛ لا main merge أوproduction deployment.
+**الحفظ:** implementation checkpoint `9d8b80a` محفوظة ومرفوعة إلى `codex/full-platform-build`؛ working tree كانت نظيفة بعد push. لا عمل برمجي Bank Transfer بدأ بعد؛ المرحلة الحالية Alma مستقرة ومختبرة.
+
+**التالي الدقيق:** Bank Transfer كطريقة مستقلة ذات trusted verification/reconciliation، exact beneficiary/reference/money، idempotency/history/Audit وscope/UI/Integration/Browser. لا customer claim أوuploaded receipt وحدها → Confirmed. ابدأ managed account/method وtrusted-source boundary قبل request/reconciliation/native Payment/Enrollment. لا تختلق hosted ACK أوsignatures كبديل لمصدر التحقق. لا تحسينات Alma أوprovider-specific beta اختيارية قبل Bank Transfer؛ لا main merge أوproduction deployment.
 
 ## آخر حالة مستقرة: Alma read-only credential recovery — 2026-10-08
 
