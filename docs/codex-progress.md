@@ -10,7 +10,7 @@ Draft اختيارية asset UUIDs مع approved same-Campaign validation؛ immu
 
 **الحالة:** Knowledge assets prerequisite **Implemented وPostgreSQL/Local Browser Verified**، scanner في هذه integration/Browser synthetic injection؛ production path يستخدم configured ClamAV/storage primitives. لا inference أوLive AI call أوAI evaluations. AI **Live Verification Pending External Credential/Approval**؛ qualification/effective configuration/tools/runtime/assistants/evaluations ثم Automation/Notifications/Analytics وبقية النطاق باقية. لا ادعاء اكتمال المنصة.
 
-**الحفظ:** checkpoint هذه ستُحفظ وترفع إلى `codex/full-platform-build` بعد توثيق البوابة؛ آخر مرجع سابق `a574f3c`. لا reset/discard/main merge أوdeployment.
+**الحفظ:** implementation checkpoint `19c154d` محفوظة ومرفوعة إلى `codex/full-platform-build`؛ آخر مرجع سابق `a574f3c`. لا reset/discard/main merge أوdeployment.
 
 **قيد التنفيذ:** assets stable، لا Qualification code بعد. `ai-knowledge-assets.md` وarchitecture/runbook يحددان storage/scan/reference/manifest boundaries، الأنواع وحدود extraction/history.
 
