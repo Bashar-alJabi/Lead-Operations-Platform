@@ -10,7 +10,7 @@ Migration 093 تفرض immutable identity/version/current scoped Super Admin/ses
 
 **الحالة:** shared-use prerequisite **Implemented وPostgreSQL/Local Browser Verified**؛ catalog verification في هذه focused integration تستخدم injected synthetic adapter، وفي Browser actual OpenAI HTTP adapter مع mock transport. لا external account/inference/Live Provider Verified؛ **Live Verification Pending External Credential/Approval**. AI/Knowledge والمنصة جزئية: scanned assets/qualification/effective configuration/tools/runtime/assistants/evaluations ثم Automation/Notifications/Analytics وبقية النطاق مطلوبة.
 
-**الحفظ الجاري:** توثيق checkpoint الحالية ثم commit وpush فقط إلى `codex/full-platform-build`.
+**الحفظ:** implementation checkpoint `a73bc8f` محفوظة ومرفوعة إلى `codex/full-platform-build`؛ قبلها `cb33288` للمعرفة المنظمة و`011f715` لإعداد AI و`9ae90de` لـBank Transfer. بوابة implementation الحالية مثبتة بـ153 unit/62 integration/30 Browser و001–093/build/typecheck؛ هذا تحديث مرجع استكمال فقط، دون تعديل code بعد الاختبارات.
 
 **قيد التنفيذ:** لا Knowledge assets code بعد. آخر مراحل مستقرة: Bank Transfer، AI Provider/Profile setup، structured Knowledge، explicit shared profile use. لا worktrees جديدة أوreset/discard أوmain merge/deployment.
 
