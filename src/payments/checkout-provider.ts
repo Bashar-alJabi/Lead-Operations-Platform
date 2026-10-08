@@ -4,6 +4,7 @@ import { validatePaymentCredentials,type PaymentConfig,type PaymentCredentials,t
 import { paymentMoney,type CurrencyPrecision,type PaymentMoney } from './money.js';
 import { PaymentCheckoutError } from './provider-errors.js';
 import { paypalCheckoutAdapter } from './paypal-checkout.js';
+import { almaCheckoutAdapter } from './alma-checkout.js';
 import type { PaymentPlanSelection } from './eligibility.js';
 export { PaymentCheckoutError } from './provider-errors.js';
 
@@ -98,4 +99,4 @@ export const stripeCheckoutAdapter:PaymentCheckoutAdapter={ currencyPrecision:st
     if(result.sessionId!==sessionId)throw new PaymentCheckoutError('PAYMENT_SESSION_MISMATCH','REJECTED');return result;
   },
 };
-export const paymentCheckoutAdapters:Readonly<Record<string,PaymentCheckoutAdapter>>={ STRIPE:stripeCheckoutAdapter,PAYPAL:paypalCheckoutAdapter };
+export const paymentCheckoutAdapters:Readonly<Record<string,PaymentCheckoutAdapter>>={ STRIPE:stripeCheckoutAdapter,PAYPAL:paypalCheckoutAdapter,ALMA:almaCheckoutAdapter };

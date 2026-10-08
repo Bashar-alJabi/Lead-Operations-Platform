@@ -45,7 +45,7 @@ test('Alma unsigned IPN setup and bounded immutable inbox enforce current scopes
   const concurrent=await Promise.all(Array.from({ length:8 },()=>api('POST',endpoints,input)));
   assert.equal(concurrent.filter((r)=>r.statusCode===201).length,1);assert.equal(concurrent.filter((r)=>r.json().duplicate).length,7);
   const e=concurrent[0]!.json();assert.ok(concurrent.every((r)=>r.json().id===e.id));const endpointPath=endpoints+'/'+e.id;
-  assert.equal(e.current,true);assert.equal(e.account_ref,merchant);assert.equal(e.signedDeliveryVerified,false);assert.equal(e.financialProcessingReady,false);assert.equal(e.publicHttps,false);
+  assert.equal(e.current,true);assert.equal(e.account_ref,merchant);assert.equal(e.signedDeliveryVerified,false);assert.equal(e.financialProcessingReady,true);assert.equal(e.publicHttps,false);
   assert.equal(e.callback_url,process.env.APP_ORIGIN+'/api/webhooks/payments/alma/'+e.id);
   assert.equal((await db`SELECT count(*)::integer n FROM payment_notification_endpoint_history WHERE endpoint_id=${e.id}`)[0]!.n,1);
   assert.equal((await db`SELECT count(*)::integer n FROM audit_log WHERE action='PAYMENT_NOTIFICATION_ENDPOINT_CREATED'`)[0]!.n,1);

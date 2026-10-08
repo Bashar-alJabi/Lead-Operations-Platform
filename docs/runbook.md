@@ -1,5 +1,13 @@
 # دليل التشغيل والتطوير
 
+## Alma financial baseline — checkpoint086
+
+طبّق migrations001–086 وشغّل payment worker كعملية infrastructure المعتادة؛ أصبحت تشمل independent read cycle. من Payment setup → Alma اختبر Merchant وافحص offers ثم جهّز callback، ومن Payment Methods أنشئ Method بEUR وBranch/Agent/Campaign availability. من Lead اختر الخطة صراحة والمبلغ وفق provider limits، واحفظ request؛ راقب issuance وLink وverification/Payment/Enrollment/history. لا server code/DB override من الإدارة.
+
+Unsigned IPN وreturn وACK ليست proof. عند UNKNOWN لا تنشئ request بديلة لنفس محاولة الدفع ولاreset/POST replay؛ independent read تسوي الأصل، وقد تستعيد OPEN Link دون ACK. بعد Confirmed/terminal proof يختفي الرابط؛ تاريخ UNKNOWN باقٍ. عند read Needs Attention أصلح current key لنفس original Merchant/Mode واختبره ثم استخدم **السماح بإعادة الفحص المستقل** مع السبب. لا تطلب review جديدة إذا سُوّي المال وprocessed read، ولا تعدّل التاريخ عبر SQL.
+
+147/57/26 وfocused3/3 و001–086/build/typecheck ناجحة محليًا فقط. **Mock/Sandbox Verified** = actual adapters معHTTP mocks/Local Browser؛ لا حساب Sandbox خارجي. **Live Verification Pending External Credential/Approval** يتطلب merchant test account/key/HTTPS callback والتفويض الخارجي المقصود قبل ادعاء وصول Alma أوfinancial verification حيّة. لا Production credentials/deployment لهذه checkpoint. Bank Transfer التالية.
+
 ## Alma read-only recovery — checkpoint085
 
 بعد migrations001–085، من Payment setup → Alma، أصلح key من داخل المنصة وافحص Authentication لنفس original Merchant/Mode. في الإشعارات غير المتحققة اختر **تاريخ الفحص المستقل**، وراجع state/error/attempts ثم أدخل **سبب إعادة الفحص المالي** واضغط **السماح بإعادة الفحص المستقل** عندما تكون Needs Attention. هذه موافقة reads محدودة، وليست تأكيد دفع. لا تستخدم DB/CLI لإعادة تهيئة budget أوintent أوPOST. عند الاستنفاد تضيف الموافقة خمس reads مع إبقاء التاريخ؛ المفتاح لا يظهر بعد الحفظ.

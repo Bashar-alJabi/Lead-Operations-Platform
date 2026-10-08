@@ -1,5 +1,19 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: Alma financial end-to-end baseline — 2026-10-08
+
+بدأت المرحلة من checkpoint `cd88550` النظيفة والمرفوعة. أصبح إصدار Alma متاحًا عبر public scoped Lead API/UI: current authenticated Merchant، offers الحالية وخطة مختارة صراحة، exact EUR amount/limits، unsigned endpoint الأصلية الجاهزة، immutable intent وrequest idempotency تشمل الخطة. Worker تعيد fresh Merchant/eligibility وnative current scope/session/one-write admission قبل POST؛ لا second create عند UNKNOWN.
+
+Migration086 تحفظ encrypted immutable checkout snapshot مرتبطة بالـindependent proof والـactive read lease، مع native Audit ذرية. يمكن استعادة رابط OPEN بعد فقد ACK من trusted read دون اختلاق creation ACK أوتغيير تاريخ الإصدار. Lead DTO تمنع إعادة إظهار الرابط بعد terminal proof/Confirmed، وتعرض selected plan/verification state/error/Payment/Enrollment وscoped paginated trusted financial history بلا credential أوraw evidence. UI ar/en/fr تفصل historical UNKNOWN عن financial confirmation؛ لا تطلب مراجعة مالية جديدة بعد Confirmed وprocessed read.
+
+Alma مفعّلة في Checkout registry، و`payment-worker` يشغّل independent reads مع dispatch/receipt/capture cycles. Signed Stripe/PayPal تبقى على مصادرها؛ Alma IPN تظل UNVERIFIED ومجرد read trigger. Pending/authorization/return/claim/creation ACK لا تؤكد Payment؛ captured original-account exact-money/plan/refund-safe proof وحدها تطبق shared Payment/separate Enrollment، مع no replay/history retention/credential recovery.
+
+**البوابة النهائية ناجحة:** migrations001–086 على development/test، **147/147 unit،57/57 full Docker PostgreSQL integration،26/26 full Edge Browser E2E** (1.8m)، focused Alma **3/3**، وBackend/Web build/typecheck. Integration الحالية توسعت actual public Agent request/plan/amount/claim negatives و4-way idempotency، immutable snapshot/current proof guards وAudit rollback لكل proof/Payment/snapshot، safe history pagination/ACL، UNKNOWN OPEN-link recovery دون ACK أوsecond POST ثم paid confirmation. Browser26 جديدة: explicit plan/no default → issuance/link → claim rejection/return no authority → Pending → captured/one Enrollment، duplicate no extra Enrollment، lost ACK→no replay→safe recovered link، 401 read failure→scoped UI recovery→Confirmed/Enrollment، foreign Agent denial وhistory/French/Arabic390px/React keys. صُحّحت رسالة مراجعة الواجهة بعد financial reconciliation وأُعيدت البوابة؛ الصورة العربية فُحصت. Vite592.01KB/gzip171.05KB warning في backlog.
+
+**الحالة:** required Alma baseline **Implemented وMock/Sandbox Verified محليًا** باستخدام actual adapters/HTTP mocks وDocker PG وEdge؛ لا external Sandbox account أوLive verification أوdeployment. **Live Verification Pending External Credential/Approval**. Payments والمنصة جزئيتان بسبب Bank Transfer ووحدات Notifications/Analytics/AI وبقية acceptance؛ لا ادعاء Production-ready شامل.
+
+**التالي الدقيق:** حفظ هذه checkpoint ورفعها إلى الفرع الحالي؛ ثم Bank Transfer كطريقة مستقلة ذات trusted verification/reconciliation، exact beneficiary/reference/money، idempotency/history/Audit وscope/UI/Integration/Browser. لا customer claim أوuploaded receipt وحدها → Confirmed. ابدأ managed account/method وtrusted-source boundary قبل request/reconciliation/native Payment/Enrollment. لا تحسينات Alma أوprovider-specific beta اختيارية قبل Bank Transfer؛ لا main merge أوproduction deployment.
+
 ## آخر حالة مستقرة: Alma read-only credential recovery — 2026-10-08
 
 بدأت المرحلة من checkpoint `cf0c340`. Migration085 تحفظ موافقة Manager/Super Admin الحالية ونفس original Merchant/Mode، مع credential snapshot مشفّرة وimmutable history وAudit ذرية. Recovery تسمح بإعادة القراءة ضمن budget الحالية، أو تمددها بخمس reads عند الاستنفاد فقط؛ لا تصفّر attempts ولا تغيّر financial intent أو تعيد POST. Worker تستخدم snapshot المعتمدة وتسجل مرجعها لكل attempt، وتبقي IPN بحالة UNVERIFIED.

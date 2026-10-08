@@ -36,8 +36,27 @@ import { processOneIndependentPaymentRead } from '../src/payments/independent-re
 const connectionUrl = requireLocalE2ETarget(process.env.TEST_DATABASE_URL,process.env.E2E_RESET_TEST_DATABASE,process.env.NODE_ENV);
 // The browser exercises the production RSA verifier; only its fixed certificate HTTP response is mocked.
 const paypalTransport=syntheticPayPalFinancialTransport();
+const almaPayments=new Map<string,{ intentId:string;merchant:string;amount:number;plan:{ installments_count:number;deferred_months:number;deferred_days:number };captured:boolean }>();
+let almaLoseResponse=false;let almaReadFailure=false;let almaWrites=0;
 globalThis.fetch=async(target,init)=> { if(String(target)===testPayPalCertUrl)return new Response(testPayPalCertificate);
   if(String(target).startsWith('https://api-m.sandbox.paypal.com/'))return paypalTransport.fetch(target,init);
+  if(/^https:\/\/api\.sandbox\.getalma\.eu\/v1\/payments(?:\/payment_[A-Za-z0-9]+)?$/.test(String(target))) {
+    if(init?.redirect!=='error')throw new Error('UNEXPECTED_ALMA_FINANCIAL_REQUEST');paymentCalls++;
+    const authorization=new Headers(init.headers).get('authorization');if(!authorization?.startsWith('Alma-Auth '))return new Response('{}',{ status:401 });
+    const merchant=authorization.includes('Rotated') ? 'merchant_BrowserRotated456' : 'merchant_BrowserSynthetic123';
+    let resource:string;
+    if(init.method==='POST' && String(target).endsWith('/v1/payments')) {
+      const body=JSON.parse(init.body as string).payment;if(body.capture_method!=='automatic' || !body.ipn_callback_url || !body.custom_data.intentId || new Headers(init.headers).has('idempotency-key'))throw new Error('UNEXPECTED_ALMA_FINANCIAL_WRITE');
+      resource='payment_'+body.custom_data.intentId.replaceAll('-','');almaWrites++;
+      almaPayments.set(resource,{ intentId:body.custom_data.intentId,merchant,amount:body.purchase_amount,plan:{ installments_count:body.installments_count,deferred_months:body.deferred_months,deferred_days:body.deferred_days },captured:false });
+      if(almaLoseResponse)throw new Error('synthetic lost response after accepted Alma write');
+    }else if(init.method==='GET') { if(almaReadFailure)return new Response('{}',{ status:401 });resource=String(target).slice(String(target).lastIndexOf('/')+1); }
+    else throw new Error('UNEXPECTED_ALMA_FINANCIAL_METHOD');
+    const p=almaPayments.get(resource);if(!p)return new Response('{}',{ status:404 });
+    return new Response(JSON.stringify({ id:resource,merchant_id:p.merchant,purchase_amount:p.amount,...p.plan,processing_status:p.captured ? 'captured' : 'awaiting_authorization',
+      state:'paid',capture_method:'automatic',is_deferred_capture:false,amount_already_refunded:0,is_completely_refunded:false,
+      custom_data:{ intentId:p.intentId },url:p.captured ? null : 'https://pay.sandbox.getalma.eu/'+resource }));
+  }
   if(['https://api.sandbox.getalma.eu/v1/me/extended-data','https://api.sandbox.getalma.eu/v1/me/fee-plans?kind=general&only=all&deferred=true','https://api.sandbox.getalma.eu/v2/payments/eligibility'].includes(String(target))) {
     const assessing=String(target).endsWith('/eligibility');paymentCalls++;if(init?.method!==(assessing ? 'POST' : 'GET') || init.redirect!=='error')throw new Error('UNEXPECTED_ALMA_TEST_REQUEST');
     if(paymentFailure)return new Response('synthetic private provider error',{ status:401 });
@@ -203,7 +222,7 @@ app.get<{ Params:{ name:string } }>('/assets/:name',async (request,reply)=> {
   const type = request.params.name.endsWith('.js') ? 'text/javascript' : 'text/css';
   return reply.type(type).send(await readFile(resolve('dist-web/assets',request.params.name)));
 });
-app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:boolean; assigned?:'agent'|'second'; approveTemplates?:boolean;replyTo?:string;replyIndex?:number;processSample?:boolean;rejectSample?:boolean;sourceFailure?:boolean;sourceSubscriptionFailure?:boolean;sourceNotification?:string;retrieveSource?:boolean;sourceRetrievalFailure?:boolean;historicalPreview?:boolean;historicalImport?:boolean;historicalFailure?:boolean;sourceReferenceFixture?:boolean;sourceReferral?:'KNOWN'|'UNKNOWN'|'INVALID';paymentFailure?:boolean;paymentChargesEnabled?:boolean;paymentDispatch?:boolean;paymentReceipts?:boolean;paymentIndependentReads?:boolean;paymentPaid?:string;paymentReceiptAuthFailure?:boolean;paypalApprove?:string;paypalCapture?:boolean;paypalPending?:string;paypalComplete?:string;paypalReadFailure?:boolean } }>(
+app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:boolean; assigned?:'agent'|'second'; approveTemplates?:boolean;replyTo?:string;replyIndex?:number;processSample?:boolean;rejectSample?:boolean;sourceFailure?:boolean;sourceSubscriptionFailure?:boolean;sourceNotification?:string;retrieveSource?:boolean;sourceRetrievalFailure?:boolean;historicalPreview?:boolean;historicalImport?:boolean;historicalFailure?:boolean;sourceReferenceFixture?:boolean;sourceReferral?:'KNOWN'|'UNKNOWN'|'INVALID';paymentFailure?:boolean;paymentChargesEnabled?:boolean;paymentDispatch?:boolean;paymentReceipts?:boolean;paymentIndependentReads?:boolean;paymentPaid?:string;paymentReceiptAuthFailure?:boolean;paypalApprove?:string;paypalCapture?:boolean;paypalPending?:string;paypalComplete?:string;paypalReadFailure?:boolean;almaLoseResponse?:boolean;almaReadFailure?:boolean;almaCaptured?:string } }>(
   '/__test__/control', { schema: { body:{ type:'object',additionalProperties:false,properties: {
     process:{ type:'boolean' },mode:{ type:'string',enum:['accept','reject','unknown'] },
     dnc:{ type:'boolean' },assigned:{ type:'string',enum:['agent','second'] },
@@ -216,7 +235,7 @@ app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:bool
     sourceReferenceFixture:{ type:'boolean' },sourceReferral:{ type:'string',enum:['KNOWN','UNKNOWN','INVALID'] },
     paymentFailure:{ type:'boolean' },
     paymentChargesEnabled:{ type:'boolean' },paymentDispatch:{ type:'boolean' },paymentReceipts:{ type:'boolean' },paymentIndependentReads:{ type:'boolean' },paymentPaid:{ type:'string',format:'uuid' },paymentReceiptAuthFailure:{ type:'boolean' },
-    paypalReadFailure:{ type:'boolean' },paypalApprove:{ type:'string',format:'uuid' },paypalCapture:{ type:'boolean' },paypalPending:{ type:'string',format:'uuid' },paypalComplete:{ type:'string',format:'uuid' },
+    almaLoseResponse:{ type:'boolean' },almaReadFailure:{ type:'boolean' },almaCaptured:{ type:'string',format:'uuid' },paypalReadFailure:{ type:'boolean' },paypalApprove:{ type:'string',format:'uuid' },paypalCapture:{ type:'boolean' },paypalPending:{ type:'string',format:'uuid' },paypalComplete:{ type:'string',format:'uuid' },
     replyTo:{ type:'string',format:'uuid' },replyIndex:{ type:'integer',minimum:0,maximum:2 },
   } } } },async (request)=> {
     const header = request.headers.authorization;
@@ -230,7 +249,10 @@ app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:bool
     if(request.body.paypalPending)paypalTransport.orders.get(request.body.paypalPending)!.captureStatus='PENDING';
     if(request.body.paypalComplete)paypalTransport.orders.get(request.body.paypalComplete)!.captureStatus='COMPLETED';
     if(request.body.paypalCapture)await processOnePaymentCapture(db);
-    if(request.body.paymentDispatch)await processOnePaymentDispatch(db,{ STRIPE:checkoutAdapter,PAYPAL:paymentCheckoutAdapters.PAYPAL! });
+    if(typeof request.body.almaLoseResponse==='boolean')almaLoseResponse=request.body.almaLoseResponse;
+    if(typeof request.body.almaReadFailure==='boolean')almaReadFailure=request.body.almaReadFailure;
+    if(request.body.almaCaptured) { const p=almaPayments.get('payment_'+request.body.almaCaptured.replaceAll('-',''));if(!p)throw new HttpError(400,'TEST_PAYMENT_NOT_ISSUED');p.captured=true; }
+    if(request.body.paymentDispatch)await processOnePaymentDispatch(db,{ STRIPE:checkoutAdapter,PAYPAL:paymentCheckoutAdapters.PAYPAL!,ALMA:paymentCheckoutAdapters.ALMA! });
     if(request.body.paymentPaid) {
       const id=request.body.paymentPaid;const snapshot=paymentSessions.get(id);if(!snapshot)throw new HttpError(400,'TEST_PAYMENT_NOT_ISSUED');
       snapshot.status='COMPLETE';snapshot.paymentStatus='PAID';snapshot.url=null;snapshot.paymentRef='pi_'+id.replaceAll('-','');
@@ -338,7 +360,7 @@ app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:bool
     const sourceSubmissions=(await db`SELECT count(*)::integer AS n FROM source_submission WHERE source_kind='META'`)[0]!.n;
     const sourceReferenceEvents=await db`SELECT id,state,failure_code,lead_id,conversation_id,payload->'message'->>'id' AS provider_id
       FROM integration_event WHERE connection_id=${mediaConnection} AND payload->'message'->>'id' LIKE 'wamid.browser-source-%'`;
-    return { providerCalls,mediaUploads,sampleUploads,sourceCatalogCalls,sourceRetrievalCalls,sourceSubmissions,messages,recoveries,replies,sourceReferenceEvents,paymentCalls };
+    return { providerCalls,mediaUploads,sampleUploads,sourceCatalogCalls,sourceRetrievalCalls,sourceSubmissions,messages,recoveries,replies,sourceReferenceEvents,paymentCalls,almaWrites };
   });
 await mkdir(resolve('.local/e2e'),{ recursive:true });
 await writeFile(resolve('.local/e2e/fixture.json'),JSON.stringify({ password,testToken,leadId:lead,conversationId:cv,untrusted,mediaLeadId:mediaLead,mediaConversationId:mediaCv,sourceCampaignId:sourceCampaign,noContactLeadId:noContactLead }),{ mode:0o600 });

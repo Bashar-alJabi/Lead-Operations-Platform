@@ -12,7 +12,9 @@ import { validatePaymentCredentials, type PaymentConfig, type PaymentCredentials
 import { paymentIssuanceOptions } from '../payments/issuance-profile.js';
 import { captureActorIntent } from '../payments/capture-worker.js';
 import { dispatchIssue } from '../payments/dispatch-worker.js';
-import { linkIntentDto, linkIntentRows, normalizedLinkRequest, paymentReturnTargets, preparationIssues, type PaymentLinkRequest } from '../payments/link-intent.js';
+import { availablePaymentPlans,linkIntentDto, linkIntentRows, normalizedLinkRequest, paymentReturnTargets, preparationIssues, type PaymentLinkRequest } from '../payments/link-intent.js';
+import { paymentMethodReadinessSql } from '../payments/readiness.js';
+import { almaEligibilityMoney,normalizePaymentPlan } from '../payments/eligibility.js';
 
 const params={ type:'object',additionalProperties:false,required:['id'],properties:{ id:{ type:'string',format:'uuid' } } } as const;
 const pageSchema={ type:'object',additionalProperties:false,properties:{ limit:{ type:'integer',minimum:1,maximum:100 },cursor:{ type:'string',maxLength:256 } } } as const;
@@ -32,6 +34,20 @@ function pageResult(rows:postgres.Row[],limit:number,mapper:(row:postgres.Row)=>
 
 export function registerPaymentLinkRoutes(app:FastifyInstance,db:Database,adapters:Adapters=paymentCheckoutAdapters) {
   const captureParams={ ...params,required:['id','intentId'],properties:{ ...params.properties,intentId:{ type:'string',format:'uuid' } } } as const;
+  app.get<{ Params:{ id:string;intentId:string };Querystring:Page }>('/api/leads/:id/payment-link-requests/:intentId/financial-history',{
+    schema:{ params:captureParams,querystring:pageSchema },
+  },async(request)=> {
+    const actor=await principalFromRequest(request,db);const cursor=decodeCursor(request.query.cursor);const limit=request.query.limit ?? 20;
+    return db.begin(async(tx)=> {
+      await visibleLead(tx,actor,request,request.params.id);
+      if(!(await tx`SELECT id FROM payment_link_intent WHERE id=${request.params.intentId} AND lead_id=${request.params.id}`).length)throw new HttpError(404,'PAYMENT_REQUEST_NOT_FOUND');
+      const rows=await tx`SELECT id,session_id,session_status,payment_status,verified_at,verified_at::text AS cursor_timestamp FROM payment_independent_read_confirmation
+        WHERE intent_id=${request.params.intentId} AND (${cursor?.timestamp ?? null}::timestamptz IS NULL OR (verified_at,id)<(${cursor?.timestamp ?? null}::timestamptz,${cursor?.id ?? null}::uuid))
+        ORDER BY verified_at DESC,id DESC LIMIT ${limit+1}`;
+      const items=rows.slice(0,limit);const last=items.at(-1);
+      return { items:items.map(({ cursor_timestamp,...r })=>r),nextCursor:rows.length>limit && last ? encodeCursor({ timestamp:last.cursor_timestamp,id:last.id }) : null };
+    });
+  });
   app.post<{ Params:{ id:string;intentId:string } }>('/api/leads/:id/payment-link-requests/:intentId/capture',{
     schema:{ params:captureParams,body:{ type:'object',additionalProperties:false,properties:{} } },config:{ rateLimit:{ max:30,timeWindow:'15 minutes' } },
   },async(request,reply)=> {
@@ -100,9 +116,7 @@ export function registerPaymentLinkRoutes(app:FastifyInstance,db:Database,adapte
     return db.begin(async(tx)=> {
       const l=await visibleLead(tx,actor,request,request.params.id);
       const rows=await tx`SELECT m.id,m.name,m.version,m.currencies,m.active,m.created_at,b.active AS branch_active,c.status AS connection_status,
-        c.capabilities,c.config,c.version AS connection_version,c.provider,EXISTS(SELECT 1 FROM payment_webhook w
-          WHERE w.connection_id=c.id AND w.connection_version=c.version AND w.mode=c.config->>'mode' AND w.state='CONFIGURED' AND w.last_signed_at IS NOT NULL
-          AND (SELECT p.state FROM payment_webhook_probe p WHERE p.webhook_id=w.id ORDER BY p.probe_number DESC LIMIT 1)='VERIFIED') AS webhook_ready
+        c.capabilities,c.config,c.provider,${paymentMethodReadinessSql(tx)}
         FROM payment_method m JOIN integration_connection c ON c.id=m.connection_id JOIN branch b ON b.id=m.branch_id
         WHERE m.organization_id=${actor.organizationId} AND m.branch_id=${l.branch_id} AND m.active AND c.kind='PAYMENT'
           AND c.organization_id=m.organization_id AND (c.branch_id IS NULL OR c.branch_id=m.branch_id)
@@ -113,7 +127,7 @@ export function registerPaymentLinkRoutes(app:FastifyInstance,db:Database,adapte
       if(!await currentPaymentActor(tx,actor,request))throw new HttpError(403,'PAYMENT_ACCESS_REVOKED');
       return pageResult(rows,limit,(row)=> {
         const issues=preparationIssues(row);if(!adapters[row.provider])issues.push('PAYMENT_CHECKOUT_UNSUPPORTED');
-        return { id:row.id,name:row.name,version:row.version,currencies:row.currencies,preparationAvailable:issues.length===0,issues };
+        return { id:row.id,name:row.name,version:row.version,currencies:row.currencies,provider:row.provider,plans:availablePaymentPlans(row),preparationAvailable:issues.length===0,issues };
       });
     });
   });
@@ -129,7 +143,8 @@ export function registerPaymentLinkRoutes(app:FastifyInstance,db:Database,adapte
   app.post<{ Params:{ id:string };Body:PaymentLinkRequest }>('/api/leads/:id/payment-link-requests',{
     schema:{ params,body:{ type:'object',additionalProperties:false,required:['requestId','methodId','methodVersion','amount','currency'],properties:{
       requestId:{ type:'string',format:'uuid' },methodId:{ type:'string',format:'uuid' },methodVersion:{ type:'integer',minimum:1 },
-      amount:{ type:'string',minLength:1,maxLength:32 },currency:{ type:'string',pattern:'^[A-Z]{3}$' } } } },
+      amount:{ type:'string',minLength:1,maxLength:32 },currency:{ type:'string',pattern:'^[A-Z]{3}$' },
+      plan:{ type:'object',additionalProperties:false,required:['installments','deferredMonths','deferredDays'],properties:{ installments:{ type:'integer',minimum:1,maximum:65535 },deferredMonths:{ type:'integer',minimum:0,maximum:65535 },deferredDays:{ type:'integer',minimum:0,maximum:65535 } } } } } },
     config:{ rateLimit:{ max:30,timeWindow:'15 minutes' } },
   },async(request,reply)=> {
     const actor=await principalFromRequest(request,db);const input=request.body;const leadId=request.params.id.toLowerCase();
@@ -141,9 +156,9 @@ export function registerPaymentLinkRoutes(app:FastifyInstance,db:Database,adapte
         await visibleLead(tx,actor,request,leadId);
         const normalized=normalizedLinkRequest(input,{ scale:previous.scale,quantum:previous.quantum });
         if(previous.requester_id!==actor.id || previous.method_id!==normalized.methodId || previous.method_version!==normalized.methodVersion
-          || previous.amount!==normalized.money.amount || previous.currency!==normalized.money.currency)throw new HttpError(409,'PAYMENT_REQUEST_IDEMPOTENCY_CONFLICT');
-        const row=(await tx`SELECT i.*,d.state AS dispatch_state,d.error_code AS dispatch_error FROM payment_link_intent i
-          JOIN payment_dispatch d ON d.intent_id=i.id WHERE i.id=${previous.id}`)[0]!;
+          || previous.amount!==normalized.money.amount || previous.currency!==normalized.money.currency
+          || JSON.stringify(previous.selected_plan ? normalizePaymentPlan(previous.selected_plan) : null)!==JSON.stringify(normalized.plan))throw new HttpError(409,'PAYMENT_REQUEST_IDEMPOTENCY_CONFLICT');
+        const row=(await linkIntentRows(tx,leadId,1,null,null,previous.id))[0]!;
         return { ...linkIntentDto(row),duplicate:true };
       }
       // Connection -> Branch -> Method -> Endpoint -> Lead -> current User/Session. Provider I/O is never performed here.
@@ -158,6 +173,8 @@ export function registerPaymentLinkRoutes(app:FastifyInstance,db:Database,adapte
         AND w.mode=${c.config.mode} AND w.state='CONFIGURED' AND w.last_signed_at IS NOT NULL
         AND (SELECT p.state FROM payment_webhook_probe p WHERE p.webhook_id=w.id ORDER BY p.probe_number DESC LIMIT 1)='VERIFIED'
         ORDER BY w.created_at DESC,w.id DESC LIMIT 1 FOR SHARE OF w`)[0];
+      const n=c.provider==='ALMA' ? (await tx`SELECT * FROM payment_notification_endpoint WHERE connection_id=${c.id} AND connection_version=${c.version} AND mode=${c.config.mode}
+        AND state='ENABLED' AND account_ref=${c.capabilities.authentication?.accountRef ?? null} ORDER BY created_at DESC,id DESC LIMIT 1 FOR SHARE`)[0] : null;
       const l=await visibleLead(tx,actor,request,leadId);
       if(m.branch_id!==l.branch_id || m.connection_id!==c.id || (c.branch_id && c.branch_id!==l.branch_id)
         || (m.campaign_mode==='SELECTED' && !m.campaign_ids.includes(l.campaign_id))
@@ -165,7 +182,8 @@ export function registerPaymentLinkRoutes(app:FastifyInstance,db:Database,adapte
       if(m.version!==input.methodVersion)throw new HttpError(409,'PAYMENT_METHOD_VERSION_CONFLICT');
       // The endpoint lock can wait behind a newer probe; use a fresh SQL snapshot after all waits.
       const latest=w ? (await tx`SELECT state FROM payment_webhook_probe WHERE webhook_id=${w.id} ORDER BY probe_number DESC LIMIT 1`)[0] : null;
-      const issues=preparationIssues({ ...m,branch_active:branch?.active,connection_status:c.status,capabilities:c.capabilities,provider:c.provider,config:c.config,connection_version:c.version,webhook_ready:!!w && latest?.state==='VERIFIED' });
+      const readiness={ ...m,branch_active:branch?.active,connection_status:c.status,capabilities:c.capabilities,provider:c.provider,config:c.config,connection_version:c.version,webhook_ready:!!w && latest?.state==='VERIFIED',notification_ready:!!n };
+      const issues=preparationIssues(readiness);
       if(issues.length)throw new HttpError(409,issues[0]!);
       const adapter=adapters[c.provider];if(!adapter)throw new HttpError(409,'PAYMENT_CHECKOUT_UNSUPPORTED');
       const config:PaymentConfig=c.provider==='PAYPAL' ? { mode:c.config.mode,expectedMerchantId:c.config.expectedMerchantId } : { mode:c.config.mode };
@@ -173,6 +191,13 @@ export function registerPaymentLinkRoutes(app:FastifyInstance,db:Database,adapte
       if(!['TEST','LIVE'].includes(config.mode))throw new HttpError(409,'PAYMENT_CONFIG_INVALID');
       if(!m.currencies.includes(input.currency) || !options.currencies.includes(input.currency))throw new HttpError(400,'PAYMENT_CURRENCY_NOT_OFFERED');
       const normalized=normalizedLinkRequest(input,adapter.currencyPrecision(input.currency));
+      if(c.provider==='ALMA') {
+        if(!normalized.plan)throw new HttpError(400,'PAYMENT_PLAN_REQUIRED');
+        almaEligibilityMoney(input.amount,input.currency);
+        const offer=availablePaymentPlans(readiness).find((p)=>p.installments===normalized.plan!.installments && p.deferredMonths===normalized.plan!.deferredMonths && p.deferredDays===normalized.plan!.deferredDays);
+        if(!offer)throw new HttpError(400,'PAYMENT_PLAN_NOT_OFFERED');
+        if(BigInt(normalized.money.minor)<BigInt(offer.minMinor) || BigInt(normalized.money.minor)>BigInt(offer.maxMinor))throw new HttpError(400,'PAYMENT_AMOUNT_NOT_OFFERED');
+      }else if(normalized.plan)throw new HttpError(400,'PAYMENT_PLAN_UNSUPPORTED');
       const currentSecret=(await tx`SELECT * FROM connection_secret WHERE connection_id=${c.id} FOR SHARE`)[0];
       if(!currentSecret)throw new HttpError(409,'PAYMENT_CREDENTIALS_REQUIRED');
       const credentials=JSON.parse(openSecret(c.id,{ ciphertext:currentSecret.ciphertext,nonce:currentSecret.nonce,authTag:currentSecret.auth_tag,keyVersion:currentSecret.key_version })) as PaymentCredentials;
@@ -182,10 +207,11 @@ export function registerPaymentLinkRoutes(app:FastifyInstance,db:Database,adapte
         AND revoked_at IS NULL AND expires_at>clock_timestamp() FOR SHARE`)[0];
       if(!session || !await currentPaymentActor(tx,actor,request))throw new HttpError(403,'PAYMENT_ACCESS_REVOKED');
       const row=(await tx`INSERT INTO payment_link_intent(id,organization_id,branch_id,lead_id,campaign_id,assigned_agent_id,request_id,
-        method_id,method_version,method_name,connection_id,connection_version,provider,config_snapshot,mode,account_ref,options_snapshot,webhook_id,webhook_version,
+        method_id,method_version,method_name,connection_id,connection_version,provider,config_snapshot,mode,account_ref,options_snapshot,webhook_id,webhook_version,selected_plan,notification_endpoint_id,notification_endpoint_version,notification_url,
         amount,currency,minor,scale,quantum,success_url,cancel_url,ciphertext,nonce,auth_tag,key_version,requester_id,requester_session_id,requester_role,requester_branch_id)
         VALUES (${id},${actor.organizationId},${l.branch_id},${l.id},${l.campaign_id},${l.assigned_agent_id},${normalized.requestId},
-          ${m.id},${m.version},${m.name},${c.id},${c.version},${c.provider},${tx.json(config)},${config.mode},${options.accountRef},${tx.json(options)},${w!.id},${w!.version},
+          ${m.id},${m.version},${m.name},${c.id},${c.version},${c.provider},${tx.json(config)},${config.mode},${options.accountRef},${tx.json(options)},${c.provider==='ALMA' ? null : w!.id},${c.provider==='ALMA' ? null : w!.version},
+          ${normalized.plan ? tx.json(normalized.plan) : null},${n?.id ?? null},${n?.version ?? null},${n?.callback_url ?? null},
           ${normalized.money.amount},${normalized.money.currency},${normalized.money.minor},${normalized.money.scale},${normalized.money.quantum},${returns.successUrl},${returns.cancelUrl},
           ${sealed.ciphertext},${sealed.nonce},${sealed.authTag},${sealed.keyVersion},${actor.id},${session.id},${actor.role},${actor.branchId}) RETURNING *`)[0]!;
       await tx`INSERT INTO lead_activity(lead_id,actor_user_id,event_type,detail) VALUES (${l.id},${actor.id},'PAYMENT_LINK_REQUESTED',

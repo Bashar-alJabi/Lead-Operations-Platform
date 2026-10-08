@@ -26,11 +26,11 @@ test('Alma generic checkout keeps creation acknowledgement UNPAID and uses one i
   captured=false;const approved=await almaCheckoutAdapter.retrieve(config,credentials,intent,paymentId);
   assert.equal(approved.paymentStatus,'UNPAID');assert.equal(approved.status,'OPEN');assert.equal(approved.paymentRef,null);assert.equal(approved.providerEvidence!.processingStatus,'authorized');
 });
-test('Alma generic checkout requires explicit plan and admission, has no retention guarantee and remains outside the financial registry until the full flow exists',async(t)=> {
+test('Registered Alma checkout requires explicit plan and admission and never assumes a provider write retention guarantee',async(t)=> {
   let calls=0;t.mock.method(globalThis,'fetch',async()=>{ calls++;throw new Error('unexpected financial I/O'); });
   const config={ mode:'TEST' as const };const credentials={ apiKey:'AlmaCheckoutSyntheticKeyOnly_123456' };
   await assert.rejects(almaCheckoutAdapter.create(config,credentials,{ ...intent,plan:undefined },async()=>true),/PAYMENT_INTENT_INVALID/);
   await assert.rejects(almaCheckoutAdapter.create(config,credentials,intent),/PAYMENT_WRITE_ADMISSION_REQUIRED/);assert.equal(calls,0);
-  assert.equal(almaCheckoutAdapter.writeReplay,'NEVER');assert.equal(almaCheckoutAdapter.idempotencyRetentionMs,null);assert.equal(paymentCheckoutAdapters.ALMA,undefined);
+  assert.equal(almaCheckoutAdapter.writeReplay,'NEVER');assert.equal(almaCheckoutAdapter.idempotencyRetentionMs,null);assert.equal(paymentCheckoutAdapters.ALMA,almaCheckoutAdapter);
   assert.deepEqual(almaCheckoutAdapter.currencyPrecision('EUR'),{ scale:2,quantum:'1' });assert.throws(()=>almaCheckoutAdapter.currencyPrecision('USD'));
 });

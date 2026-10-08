@@ -16,7 +16,7 @@ export function almaIndependentCheckoutSnapshot(payment:AlmaHostedSnapshot):Chec
   const evidence=almaReadEvidence(payment);
   return { ...accepted(payment),paymentStatus:evidence.paymentStatus,paymentRef:evidence.paymentStatus==='PAID' ? evidence.paymentId : null,providerEvidence:evidence };
 }
-// Not activated in the production registry until native confirmation and the Lead flow are complete.
+// Native post-preflight admission and independent proofs enforce the one-write financial boundary.
 export const almaCheckoutAdapter:PaymentCheckoutAdapter={ writeReplay:'NEVER',idempotencyRetentionMs:null,dispatchBudgetMs:30000,
   currencyPrecision(currency) { almaEligibilityMoney('1',currency);return { scale:2,quantum:'1' }; },
   async create(config,credentials,intent,admit) {

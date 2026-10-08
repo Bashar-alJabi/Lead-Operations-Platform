@@ -1422,7 +1422,7 @@ test('browser manages Alma unsigned IPN callbacks and unverified history without
     await panel.getByLabel('Payment provider',{ exact:true }).selectOption('ALMA');const name='Alma IPN browser <script literal>';
     await panel.getByLabel('Payment connection name',{ exact:true }).fill(name);await panel.getByLabel('Alma API key',{ exact:true }).fill('AlmaBrowserNotificationsKey_123456');
     await panel.getByRole('button',{ name:'Save payment connection',exact:true }).click();const notifications=panel.locator('.payment-notifications');
-    await expect(notifications).toContainText('unsigned GET');await expect(notifications).toContainText('not activated yet');
+    await expect(notifications).toContainText('unsigned GET');await expect(notifications).toContainText('Financial confirmation requires an independent read');
     await notifications.getByLabel('Alma notification change reason',{ exact:true }).fill('Prepare tested callback <img literal>');
     await expect(notifications.getByRole('button',{ name:'Prepare Alma callback',exact:true })).toBeDisabled();
     await panel.getByRole('button',{ name:'Test authentication',exact:true }).click();await expect(notifications.getByRole('button',{ name:'Prepare Alma callback',exact:true })).toBeEnabled();
@@ -1430,7 +1430,7 @@ test('browser manages Alma unsigned IPN callbacks and unverified history without
     await expect(detailPanel).toContainText('merchant_BrowserSynthetic123');await expect(detailPanel).toContainText('local HTTP');await expect(detailPanel.locator('img')).toHaveCount(0);
     const callback=await notifications.getByLabel('Alma callback URL',{ exact:true }).inputValue();const items=(await (await page.request.get('/api/payments/connections')).json()).items;
     const id=items.find((i:{ name:string })=>i.name===name).id;const path='/api/payments/connections/'+id;
-    const original=(await (await page.request.get(path+'/notification-endpoints')).json()).items[0];expect(callback).toBe(original.callback_url);expect(original.signedDeliveryVerified).toBe(false);expect(original.financialProcessingReady).toBe(false);
+    const original=(await (await page.request.get(path+'/notification-endpoints')).json()).items[0];expect(callback).toBe(original.callback_url);expect(original.signedDeliveryVerified).toBe(false);expect(original.financialProcessingReady).toBe(true);
     await context.grantPermissions(['clipboard-read','clipboard-write']);await detailPanel.getByRole('button',{ name:'Copy Alma callback',exact:true }).click();await expect(notifications.getByRole('status')).toContainText('Alma callback copied');
     expect(await page.evaluate(()=>navigator.clipboard.readText())).toBe(callback);
     const before=await control(page);expect((await page.request.get(callback+'?pid=payment_BrowserNotification&paid=true')).status()).toBe(400);
@@ -1481,4 +1481,57 @@ test('browser manages Alma unsigned IPN callbacks and unverified history without
     await expect(notifications).toContainText('إشعارات غير متحققة');await expect(notifications).toContainText('دون إثبات مالي');await page.screenshot({ path:'.local/e2e/alma-notifications-ar.png' });
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);expect(errors).toEqual([]);
   }finally { await control(page,{ paymentFailure:false });await context.close(); }
+});
+
+test('browser issues Alma with an explicit plan and independently confirms enrollment, reconciles lost ACK without replay and recovers failed reads',async({ browser })=> {
+  const context=await browser.newContext({ storageState:managerStorageState,extraHTTPHeaders:{ 'x-e2e-rate-scope':randomUUID() } });const page=await context.newPage();const errors:string[]=[];
+  page.on('pageerror',(error)=>errors.push(error.message));page.on('console',(message)=>{ if(/Encountered two children|unique.*key/.test(message.text()))errors.push(message.text()); });
+  try {
+    if(!managerStorageState)await login(page,'manager');else await page.goto('/');await page.getByRole('combobox',{ name:'Language' }).selectOption('en');
+    await control(page,{ paymentFailure:false,almaLoseResponse:false,almaReadFailure:false });const origin={ origin:'http://127.0.0.1:4100' };
+    const post=async(path:string,data:object)=>{ const response=await page.request.post(path,{ data,headers:origin });expect(response.ok(),await response.text()).toBe(true);return response.json(); };
+    const { lead }=await (await page.request.get('/api/leads/'+fixture.mediaLeadId)).json();
+    const connection=await post('/api/payments/connections',{ name:'Browser Alma financial <img literal>',provider:'ALMA',config:{ mode:'TEST' },credentials:{ apiKey:'AlmaBrowserFinancialKey_123456' } });
+    const root='/api/payments/connections/'+connection.id;await post(root+'/test',{ version:1,inspectOffers:true });
+    const endpoint=await post(root+'/notification-endpoints',{ connectionVersion:1,reason:'Original financial browser callback' });
+    const method=await post('/api/payments/methods',{ name:'Browser Alma tuition <img literal>',branchId:lead.branch_id,connectionId:connection.id,currencies:['EUR'],active:true,
+      agents:{ mode:'ALL',ids:[] },campaigns:{ mode:'SELECTED',ids:[lead.campaign_id] },reason:'Explicit Alma browser availability' });
+    const requests='/api/leads/'+fixture.mediaLeadId+'/payment-link-requests';const plan={ installments:3,deferredMonths:0,deferredDays:0 };
+    const open=async()=>{ await page.goto('/');await page.getByRole('combobox',{ name:'Language' }).selectOption('en');await page.getByRole('row').filter({ hasText:'Browser Media Customer' }).getByRole('button',{ name:'Details',exact:true }).click(); };
+    await open();const panel=page.locator('.lead-payment-requests');
+    const save=async()=> {
+      await panel.getByLabel('Payment request method',{ exact:true }).selectOption(method.id);await panel.getByLabel('Payment request amount',{ exact:true }).fill('100');
+      await expect(panel.getByRole('button',{ name:'Save payment link request',exact:true })).toBeDisabled();await expect(panel.getByLabel('Alma request plan',{ exact:true })).toHaveValue('');
+      await panel.getByLabel('Alma request plan',{ exact:true }).selectOption(JSON.stringify(plan));
+      const submitted=page.waitForRequest((request)=>request.method()==='POST' && request.url().endsWith(requests));
+      await panel.getByRole('button',{ name:'Save payment link request',exact:true }).click();const body=(await submitted).postDataJSON();
+      await expect(panel.getByRole('status')).toContainText('Request saved once');const replay=await post(requests,body);expect(replay.duplicate).toBe(true);return replay.id as string;
+    };
+    const before=await control(page);const normal=await save();const normalRow=panel.locator(`[data-payment-request="${normal}"]`);
+    await expect.poll(async()=>{ await control(page,{ paymentDispatch:true });return (await (await page.request.get(requests+'/'+normal)).json()).state; }).toBe('ACCEPTED');
+    await panel.getByRole('button',{ name:'Refresh payment requests',exact:true }).click();await expect(normalRow.getByRole('link',{ name:'Open payment link',exact:true })).toHaveAttribute('href','https://pay.sandbox.getalma.eu/payment_'+normal.replaceAll('-',''));
+    expect((await (await page.request.get(requests+'/'+normal)).json()).enrollmentId).toBeNull();await expect(normalRow.locator('img')).toHaveCount(0);
+    await page.goto('/?paymentReturn=success&paid=true');expect((await (await page.request.get(requests+'/'+normal)).json()).paymentState).toBeNull();await open();
+    const notify=async(id:string)=>{ const response=await page.request.get(endpoint.callback_url+'?pid=payment_'+id.replaceAll('-',''));expect(response.ok()).toBe(true); };
+    expect((await page.request.get(endpoint.callback_url+'?pid=payment_'+normal.replaceAll('-','')+'&paid=true')).status()).toBe(400);await notify(normal);await notify(normal);
+    await control(page,{ paymentIndependentReads:true });await panel.getByRole('button',{ name:'Refresh payment requests',exact:true }).click();await expect(normalRow).toContainText('Payment pending');expect((await (await page.request.get(requests+'/'+normal)).json()).enrollmentId).toBeNull();
+    await control(page,{ almaCaptured:normal });await expect.poll(async()=>{ await control(page,{ paymentIndependentReads:true });return (await (await page.request.get(requests+'/'+normal)).json()).paymentState; },{ timeout:12000 }).toBe('CONFIRMED');
+    await panel.getByRole('button',{ name:'Refresh payment requests',exact:true }).click();await expect(normalRow).toContainText('Enrollment confirmed');await expect(normalRow.getByRole('link',{ name:'Open payment link',exact:true })).toHaveCount(0);
+    const enrollment=(await (await page.request.get(requests+'/'+normal)).json()).enrollmentId;await notify(normal);await control(page,{ paymentIndependentReads:true });expect((await (await page.request.get(requests+'/'+normal)).json()).enrollmentId).toBe(enrollment);
+    await normalRow.getByRole('button',{ name:'Trusted financial read history',exact:true }).click();await expect(panel.locator('.lead-financial-history')).toContainText('COMPLETE · PAID');await expect(panel.locator('.lead-financial-history')).toContainText('OPEN · UNPAID');
+    await panel.getByLabel('Payment request method',{ exact:true }).selectOption('');await control(page,{ almaLoseResponse:true });const unknown=await save();const unknownRow=panel.locator(`[data-payment-request="${unknown}"]`);
+    await expect.poll(async()=>{ await control(page,{ paymentDispatch:true });return (await (await page.request.get(requests+'/'+unknown)).json()).state; }).toBe('NEEDS_ATTENTION');await control(page,{ almaLoseResponse:false });
+    const lostWrites=(await control(page)).almaWrites;expect(lostWrites).toBe(before.almaWrites+2);await control(page,{ paymentDispatch:true });expect((await control(page)).almaWrites).toBe(lostWrites);
+    await notify(unknown);await control(page,{ paymentIndependentReads:true });await panel.getByRole('button',{ name:'Refresh payment requests',exact:true }).click();await expect(unknownRow).toContainText('Link recovered from an independent read');await expect(unknownRow).toContainText('Payment pending');await expect(unknownRow.getByRole('link',{ name:'Open payment link',exact:true })).toBeVisible();
+    await control(page,{ almaReadFailure:true,almaCaptured:unknown });await expect.poll(async()=>{ await control(page,{ paymentIndependentReads:true });return (await (await page.request.get(requests+'/'+unknown)).json()).verificationState; },{ timeout:12000 }).toBe('NEEDS_ATTENTION');
+    expect((await (await page.request.get(requests+'/'+unknown)).json()).enrollmentId).toBeNull();await panel.getByRole('button',{ name:'Refresh payment requests',exact:true }).click();await expect(unknownRow).toContainText('PAYMENT_PROVIDER_AUTH_FAILED');
+    await page.getByRole('button',{ name:'Payment setup',exact:true }).click();const setup=page.locator('.payment-setup');await setup.getByRole('row').filter({ hasText:'Browser Alma financial <img literal>' }).getByRole('button',{ name:'Edit payment connection',exact:true }).click();
+    const notifications=setup.locator('.payment-notifications');const reviewRow=notifications.locator('.payment-untrusted-notifications li').filter({ hasText:'payment_'+unknown.replaceAll('-','') });
+    await reviewRow.getByRole('button',{ name:'Independent read history',exact:true }).click();const review=notifications.locator('.payment-independent-review');await review.getByLabel('Independent review recovery reason',{ exact:true }).fill('Resume trusted original Alma read after provider recovery');
+    await control(page,{ almaReadFailure:false });await review.getByRole('button',{ name:'Approve independent read recovery',exact:true }).click();await expect(notifications.getByRole('status')).toContainText('no payment was confirmed');
+    await control(page,{ paymentIndependentReads:true });await open();await expect(unknownRow).toContainText('Payment confirmed');await expect(unknownRow).toContainText('Enrollment confirmed');await expect(unknownRow).not.toContainText('must review payment setup');await expect(unknownRow.getByRole('link',{ name:'Open payment link',exact:true })).toHaveCount(0);expect((await control(page)).almaWrites).toBe(lostWrites);
+    const other=await browser.newContext({ extraHTTPHeaders:{ 'x-e2e-rate-scope':randomUUID() } });try { const unauthorized=await other.newPage();await login(unauthorized,'second');for(const suffix of ['', '/financial-history','/attempts'])expect((await unauthorized.request.get(requests+'/'+unknown+suffix)).status()).toBe(404); }finally { await other.close(); }
+    await page.getByRole('combobox',{ name:'Language' }).selectOption('fr');await expect(unknownRow).toContainText('Inscription confirmée');await page.setViewportSize({ width:390,height:844 });await page.getByRole('combobox',{ name:'Language' }).selectOption('ar');await unknownRow.scrollIntoViewIfNeeded();await expect(unknownRow).toContainText('اشتراك مؤكد');await page.screenshot({ path:'.local/e2e/alma-financial-ar.png' });
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);expect(errors).toEqual([]);
+  }finally { await control(page,{ almaLoseResponse:false,almaReadFailure:false,paymentFailure:false });await context.close(); }
 });

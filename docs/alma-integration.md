@@ -1,5 +1,13 @@
 # تكامل Alma
 
+## Financial baseline مفعّلة — checkpoint086،2026-10-08
+
+Alma موجودة في Checkout registry، وpayment worker تشمل independent read tick. من Payment setup جهّز current Authentication/Offers وunsigned callback، ثم Method بEUR وavailability المناسبة. من Lead اختر Method والخطة صراحة وأدخل المبلغ؛ Backend يراجع current offers/limits/source/scope وimmutable idempotency تشمل الخطة. Worker تعيد Merchant/eligibility ثم native durable current admission قبل one POST. Eligibility هنا ليست credit approval نهائية؛ actual bank/provider customer journey خارج local mock verification.
+
+IPN تبقى UNVERIFIED، ثم original Merchant/Payment GET تطابق intent/beneficiary/exact money/plan/automatic capture/refund. Pending لاEnrollment؛ captured proof تطبق shared Payment/separate Enrollment. 086 تحفظ encrypted read snapshot مرتبطة بالـnative proof/active lease/Audit؛ UNKNOWN بلا ACK يمكن أن تحصل على رابط OPEN من read فقط، ولا fake ACK أوsecond create. Latest/any terminal proof وConfirmed تحجب Link؛ original dispatch history لا يُعاد كتابتها. Current scoped readonly repair/history من setup، وLead financial state/history ar/en/fr وصلاحيات assignment، دون أسرار.
+
+البوابة النهائية147 unit/57 full Docker PostgreSQL/26 Edge وfocused3/3 و001–086/build/typecheck ناجحة. Actual HTTP mock Integration/public Agent plan API/concurrency/Audit rollback/native snapshot guards/pagination/UNKNOWN no ACK→safe Pending link→paid، وBrowser financial issuance/return-claim rejection/Pending→captured/Enrollment/duplicate/lost response no replay/401→UI repair/history/foreign Agent/French/Arabic390px مثبتة. **Required baseline Implemented وMock/Sandbox Verified محليًا فقط**؛ لا external Sandbox account أوLive verification. **Live Verification Pending External Credential/Approval**. Beta signed Alma webhooks/provider refinements غير حرجة في backlog؛ التالي Bank Transfer، وليس توسيع Alma اختياريًا.
+
 ## Read-only credential recovery — checkpoint085 مثبتة 2026-10-08
 
 Manager/Super Admin من نفس Connection scope يختار notification بحالة Needs Attention، ويقدم سببًا بعد اختبار authentication الحالية. Backend وnative DB يثبتان current session/config version ونفس Merchant/Mode الأصليين؛ لا إصلاح إلى حساب أوبيئة مختلفة. Credential snapshot مشفّرة وimmutable، مع Audit وموافقة تاريخية؛ تُستخدم للقراءة فقط ويُحفظ مرجعها في attempt. لا تغيير للأصل ولا second POST أوreset للتاريخ. عند استنفاد budget تمنح الموافقة خمس reads إضافية؛ خلاف ذلك تستأنف ضمن budget الباقية.

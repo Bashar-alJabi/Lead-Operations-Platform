@@ -1,5 +1,13 @@
 # المعمارية التقنية
 
+## Alma financial baseline وproof-backed checkout links — 2026-10-08
+
+Lead issuance API تعمم source readiness حسب profile: signed webhook لـStripe/PayPal، وcurrent original Merchant/unsigned notification endpoint لـAlma. Alma expose current allowed offers/limits فقط إلى authorized Lead بدون Connection secrets؛ selected plan صريحة وcanonical money/idempotency، ثم immutable intent. Fresh actual provider eligibility عند worker تبقى authority قبل native one-write admission؛ cached offers hints وليست payment proof.
+
+086 تحفظ `payment_independent_checkout_snapshot` مشفّرة بـproof-specific AAD وFK(proof,intent)، مع native current read lease/immutable history/Audit. المصدر read مثبتة أصلًا بالـnative money/identity/status proof؛ لا creation ACK مصطنعة. Lead DTO تستخدم newest proof-backed snapshot عند وجودها، وتحجب كل Link بعد terminal financial evidence/Confirmed أوcapture، بما يحفظ out-of-order/no resurrection. Financial history مقسمة بالـDB timestamp النصية الدقيقة وUUID دون فقد microseconds أوكشف raw provider evidence/credentials.
+
+Checkout registry وproduction payment worker تشمل Alma وindependent reads بعد البوابة؛ shared Merchant leases وتحديد budgets وproof→shared Payment/Enrollment/Audit بذريتها محفوظة. Original dispatch UNKNOWN تبقى historical record لا تُرقّى إلىACK؛ financial reconciliation مستقلة ولا second POST. Native المصدر المالية دون provider-specific logic في shared financial service، وSetup/Lead UI scoped ar/en/fr.147/57/26 وfocused3/3 و001–086 gates مثبتة محليًا؛ Live Verification Pending External Credential/Approval. لا optional provider refinements قبل Bank Transfer.
+
 ## Immutable read-only credential recovery — 2026-10-08
 
 085 تضيف `payment_independent_read_credential` منفصلة عن financial intent وsigned receipt repairs. Snapshot مشفّرة بـAAD خاص بالـrecovery ID، ومربوطة بالمصدر الأصلي ونفس Connection/Merchant/Mode وcurrent authenticated config/current scoped Manager-Super Admin session. Native immutable guards وAudit ذرية؛ approval وjob transition داخل transaction واحدة بقفل Connection ثم job. Worker تختار أحدث approved snapshot مطابقة وتحفظ FK في attempt، ولا تستخدم current key بلا موافقة أوتغيّر original financial context.

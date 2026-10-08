@@ -35,7 +35,7 @@ function current(c:postgres.Row,e:postgres.Row) {
 function visible(c:postgres.Row,e:postgres.Row,branchActive:boolean) {
   return { id:e.id,connection_version:e.connection_version,profile:e.profile,account_ref:e.account_ref,mode:e.mode,callback_url:e.callback_url,
     state:e.state,version:e.version,created_at:e.created_at,updated_at:e.updated_at,current:branchActive && current(c,e),
-    publicHttps:e.callback_url.startsWith('https:'),signedDeliveryVerified:false,financialProcessingReady:false };
+    publicHttps:e.callback_url.startsWith('https:'),signedDeliveryVerified:false,financialProcessingReady:branchActive && current(c,e) && e.state==='ENABLED' };
 }
 async function endpoint(tx:postgres.TransactionSql,c:postgres.Row,id:string,lock=false) {
   const row=(await tx`SELECT * FROM payment_notification_endpoint WHERE id=${id} AND connection_id=${c.id} ${lock ? tx`FOR UPDATE` : tx``}`)[0];
