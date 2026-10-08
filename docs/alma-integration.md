@@ -1,5 +1,13 @@
 # تكامل Alma
 
+## Independent native confirmation/Payment boundary — checkpoint مثبتة 2026-10-08
+
+بعد083،unsigned IPN تنشئdurable independent-read job منفصلةوتبقىUNVERIFIED؛worker التلقائية لمتُربطبعد. Claim/attempt/lease/history وproof boundaries native،ولاverified job/attempt بلاproof. Actual independent adapter snapshot تحتويschema1/source/captureMode AUTOMATIC/original merchant-intent-money-plan/processingStatus/refund-safe status؛authorized أوold state=paid أوcustomer claim لاPaid. Proof المقبولةترتبطبسجلone-write admission والمصدرالأصلي؛الوقتDBclock وAudit ذرية.
+
+Shared Payment/Enrollment service تقبلtagged native proof reference،معmonotonic state/separate enrollment/Activities وexact SQL confirmed_at؛Alma لا تُحوّلإلىsigned event أوdomain ماليةموازية. اختباراتPostgreSQL تستدعيexplicit test read claim معactual HTTP read→Pending→captured Confirmed→Enrollment،وتثبتidentity/money/plan/refund/shape/lease-history guards،2-way confirmation concurrency،Audit rollback،historical disable/session revoke،timestamp precision/dedup/no downgrade. Full145/57/25/build/typecheck و001–083 ناجحة،Stripe/PayPal regression ثابتة.
+
+**Mock/Sandbox Verified محليًا فقط**؛لاexternal Sandbox account أوLive Verification أوAlma financial Browser end-to-end. الأصل الماليةلم تُفعّل بالregistry،وautonomous read worker/UNKNOWN candidate resolution/read-only credential repair وLead API/UI باقية. التاليoriginal endpoint credential anchor ثمsafe authenticated Payment read/resolution/worker دونsecond create،قبلrepair/UI/end-to-end activation.
+
 ## Native durable issuance — checkpoint مثبتة 2026-10-08
 
 Migration082 تحفظ immutable selected plan/merchant/exact EUR/notification context دونsigned webhook مصطنعة. Generic worker تدعمNEVER/maxAttempts1/retention=null؛بعدfresh preflight تحفظadmission native ذاتone intent/attempt معcurrent requester/session/assignment/Method/config/endpoint version،lease-token وshared Merchant lease وremainingHTTP budget بساعةDB،وAudit native ذريةقبلPOST. Missing/refused/failed admission تمنعwrite؛lost response أوworker interruption تنتقلNeeds Attention ولاsecond create. Late ACK بعدrecovery لا تعيدdispatch accepted. الأصلencrypted ومحفوظ،ولاfallback لحسابآخر.

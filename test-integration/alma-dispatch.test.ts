@@ -9,9 +9,11 @@ import { almaCheckoutAdapter } from '../src/payments/alma-checkout.js';
 import { paymentCheckoutAdapters } from '../src/payments/checkout-provider.js';
 import { checkoutInput,historicalPaymentCredentials,processOnePaymentDispatch } from '../src/payments/dispatch-worker.js';
 import { paymentIssuanceOptions } from '../src/payments/issuance-profile.js';
+import { persistIndependentPaymentConfirmation } from '../src/payments/independent-confirmation.js';
+import { persistPaymentState } from '../src/payments/payment-state.js';
 const url=process.env.TEST_DATABASE_URL;if(!url || new URL(url).pathname!=='/lead_operations_test')throw new Error('Isolated TEST_DATABASE_URL required');
 
-test('Alma durable one-write dispatch commits native current authorization and audit after preflight, fences concurrency, lost replies, interrupted workers and historical identity without financial authority',async(t)=> {
+test('Alma durable one-write and independent native proof enforce concurrency, current issuance authorization, historical financial integrity and atomic Enrollment without authority from IPN or creation ACK',async(t)=> {
   process.env.APP_ORIGIN='http://127.0.0.1:5173';process.env.CREDENTIAL_ENCRYPTION_KEY=randomBytes(32).toString('hex');
   const db=createDatabase(url);const app=await buildApp(db,{ logger:false,globalRateLimitMax:10000 });
   t.after(async()=>{ await app.close();await db.end(); });
@@ -97,6 +99,72 @@ test('Alma durable one-write dispatch commits native current authorization and a
   captured=true;const read=await almaCheckoutAdapter.retrieve(stored.config_snapshot,historicalPaymentCredentials(stored),checkoutInput(stored),ack.session_id);
   assert.equal(read.paymentStatus,'PAID');assert.equal(read.providerEvidence!.source,'INDEPENDENT_ALMA_PAYMENT_READ');captured=false;
   assert.equal((await db`SELECT count(*)::int n FROM payment_record`)[0]!.n,0);assert.equal((await db`SELECT count(*)::int n FROM enrollment`)[0]!.n,0);
+  // Native financial boundary is exercised explicitly; no production read worker or financial registry is activated yet.
+  const ipn=await app.inject({ method:'GET',url:'/api/webhooks/payments/alma/'+endpoint.id+'?pid='+ack.session_id,remoteAddress:'127.0.42.1' });
+  assert.equal(ipn.statusCode,200);assert.equal(ipn.json().trust,'UNVERIFIED');
+  const duplicate=await app.inject({ method:'GET',url:'/api/webhooks/payments/alma/'+endpoint.id+'?pid='+ack.session_id,remoteAddress:'127.0.42.2' });assert.equal(duplicate.json().duplicate,true);
+  const notification=(await db`SELECT * FROM payment_untrusted_notification WHERE resource_id=${ack.session_id}`)[0]!;
+  assert.equal((await db`SELECT count(*)::int n FROM payment_independent_read_job WHERE notification_id=${notification.id}`)[0]!.n,1);
+  assert.equal((await db`SELECT count(*)::int n FROM payment_record`)[0]!.n,0,'IPN never establishes Payment');
+  const claimRead=async(number:number)=> {
+    const token=randomUUID();await db`UPDATE payment_independent_read_job SET state='RUNNING',attempts=${number},lease_token=${token},lease_until=clock_timestamp()+interval '60 seconds' WHERE notification_id=${notification.id}`;
+    await db`INSERT INTO payment_independent_read_attempt(id,notification_id,number) VALUES (${token},${notification.id},${number})`;return token;
+  };
+  await assert.rejects(db`INSERT INTO payment_independent_read_attempt(id,notification_id,number) VALUES (${randomUUID()},${notification.id},1)`,/PAYMENT_INDEPENDENT_READ_CLAIM_REQUIRED/);
+  const firstRead=await claimRead(1);const pendingSnapshot=await almaCheckoutAdapter.retrieve(stored.config_snapshot,historicalPaymentCredentials(stored),checkoutInput(stored),ack.session_id);
+  await assert.rejects(db`UPDATE payment_independent_read_job SET state='PROCESSED',lease_token=NULL,lease_until=NULL WHERE notification_id=${notification.id}`,/PAYMENT_INDEPENDENT_READ_PROOF_REQUIRED/);
+  await assert.rejects(db`UPDATE payment_independent_read_attempt SET state='VERIFIED',finished_at=clock_timestamp() WHERE id=${firstRead}`,/PAYMENT_INDEPENDENT_READ_PROOF_REQUIRED/);
+  await assert.rejects(db`DELETE FROM payment_independent_read_job WHERE notification_id=${notification.id}`,/PAYMENT_INDEPENDENT_READ_HISTORY_RETAINED/);
+  await assert.rejects(db`DELETE FROM payment_independent_read_attempt WHERE id=${firstRead}`,/PAYMENT_INDEPENDENT_READ_ATTEMPT_IMMUTABLE/);
+  await assert.rejects(db.begin((tx)=>persistPaymentState(tx,stored,read,'RESOURCE_UPDATED',{ source:'INDEPENDENT_READ',id:randomUUID() })),/PAYMENT_TRUSTED_PROOF_REQUIRED|PAYMENT_STATE_PROOF_INVALID/);
+  const invalidEvidence:Record<string,string|number>[]=[{ source:'CUSTOMER_CLAIM' },{ captureMode:'DEFERRED' },{ processingStatus:'authorized',paymentStatus:'PAID' },
+    { installments:4 },{ merchantId:'merchant_Foreign' },{ minor:'99999' },{ refundMinor:'1',refundState:'PARTIAL',paymentStatus:'PAID' },{ privateCustomerData:'must not persist' }];
+  for(const patch of invalidEvidence)
+    await assert.rejects(db.begin((tx)=>persistIndependentPaymentConfirmation(tx,stored,firstRead,{ ...pendingSnapshot,providerEvidence:{ ...pendingSnapshot.providerEvidence!,...patch } })));
+  await db`CREATE FUNCTION synthetic_alma_proof_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='PAYMENT_INDEPENDENT_READ_VERIFIED' THEN RAISE EXCEPTION 'synthetic proof audit rollback'; END IF;RETURN NEW;END $$`;
+  await db`CREATE TRIGGER synthetic_alma_proof_failure BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION synthetic_alma_proof_failure()`;
+  try { await assert.rejects(db.begin((tx)=>persistIndependentPaymentConfirmation(tx,stored,firstRead,pendingSnapshot)),/synthetic proof audit rollback/);
+    assert.equal((await db`SELECT count(*)::int n FROM payment_independent_read_confirmation`)[0]!.n,0);assert.equal((await db`SELECT count(*)::int n FROM payment_record`)[0]!.n,0);
+  }finally { await db`DROP TRIGGER synthetic_alma_proof_failure ON audit_log`;await db`DROP FUNCTION synthetic_alma_proof_failure()`; }
+  const pendingProof=await db.begin((tx)=>persistIndependentPaymentConfirmation(tx,stored,firstRead,pendingSnapshot));assert.equal(pendingProof.state,'PENDING');
+  const pendingPayment=(await db`SELECT * FROM payment_record WHERE intent_id=${accepted}`)[0]!;
+  assert.equal(pendingPayment.confirmation_event_id,null);assert.equal(pendingPayment.independent_confirmation_id,pendingProof.proofId);assert.equal(pendingPayment.confirmed_at,null);
+  await assert.rejects(db`INSERT INTO enrollment(lead_id,payment_id) VALUES (${lead},${pendingPayment.id})`,/ENROLLMENT_TRUSTED_PAYMENT_REQUIRED/);
+  await db`UPDATE payment_independent_read_attempt SET state='VERIFIED',finished_at=clock_timestamp() WHERE id=${firstRead}`;
+  await db`UPDATE payment_independent_read_job SET state='RETRY',lease_token=NULL,lease_until=NULL WHERE notification_id=${notification.id}`;
+  const secondRead=await claimRead(2);captured=true;
+  const paidSnapshot=await almaCheckoutAdapter.retrieve(stored.config_snapshot,historicalPaymentCredentials(stored),checkoutInput(stored),ack.session_id);captured=false;
+  // Confirmation remains valid historically after requester revocation and disabled Connection/Branch.
+  await db`UPDATE user_session SET revoked_at=clock_timestamp() WHERE id=${users.agent!.session}`;
+  await db`UPDATE integration_connection SET status='DISABLED' WHERE id=${connection}`;await db`UPDATE branch SET active=false WHERE id=${branch}`;
+  let paidProof:Awaited<ReturnType<typeof persistIndependentPaymentConfirmation>>;
+  try {
+    const confirmations=await Promise.allSettled(Array.from({ length:2 },()=>db.begin((tx)=>persistIndependentPaymentConfirmation(tx,stored,secondRead,paidSnapshot))));
+    const success=confirmations.find((r)=>r.status==='fulfilled');assert.ok(success && success.status==='fulfilled');
+    assert.equal(confirmations.filter((r)=>r.status==='fulfilled').length,1);assert.equal(confirmations.filter((r)=>r.status==='rejected').length,1);
+    paidProof=success.value;
+  }
+  finally { await db`UPDATE branch SET active=true WHERE id=${branch}`;await db`UPDATE integration_connection SET status='CONNECTED' WHERE id=${connection}`;
+    await db`UPDATE user_session SET revoked_at=NULL WHERE id=${users.agent!.session}`; }
+  assert.equal(paidProof!.state,'CONFIRMED');assert.equal(paidProof!.change,true);
+  const paidPayment=(await db`SELECT p.*,p.confirmed_at=proof.verified_at AS exact_timestamp FROM payment_record p
+    JOIN payment_independent_read_confirmation proof ON proof.id=p.independent_confirmation_id WHERE p.id=${pendingPayment.id}`)[0]!;
+  assert.equal(paidPayment.state,'CONFIRMED');assert.equal(paidPayment.exact_timestamp,true,'native timestamp precision is never lost through application Date');
+  assert.equal(paidPayment.payment_ref,ack.session_id);assert.equal((await db`SELECT count(*)::int n FROM enrollment WHERE payment_id=${paidPayment.id}`)[0]!.n,1);
+  await assert.rejects(db`INSERT INTO enrollment(lead_id,payment_id) VALUES (${lead},${paidPayment.id})`);
+  await assert.rejects(db`UPDATE payment_record SET state='PENDING',confirmed_at=NULL,payment_ref=NULL,independent_confirmation_id=${pendingProof.proofId} WHERE id=${paidPayment.id}`,/PAYMENT_STATE_MONOTONIC/);
+  const unchanged=await db.begin((tx)=>persistPaymentState(tx,stored,pendingSnapshot,'RESOURCE_UPDATED',{ source:'INDEPENDENT_READ',id:pendingProof.proofId }));assert.equal(unchanged.change,false);
+  await db`UPDATE payment_independent_read_attempt SET state='VERIFIED',finished_at=clock_timestamp() WHERE id=${secondRead}`;
+  await db`UPDATE payment_independent_read_job SET state='PROCESSED',lease_token=NULL,lease_until=NULL WHERE notification_id=${notification.id}`;
+  await assert.rejects(db`UPDATE payment_independent_read_confirmation SET payment_status='UNPAID' WHERE id=${paidProof!.proofId}`,/PAYMENT_INDEPENDENT_READ_PROOF_IMMUTABLE/);
+  await assert.rejects(db`DELETE FROM payment_independent_read_confirmation WHERE id=${paidProof!.proofId}`,/PAYMENT_INDEPENDENT_READ_PROOF_IMMUTABLE/);
+  await assert.rejects(db`UPDATE payment_independent_read_attempt SET state='REJECTED' WHERE id=${secondRead}`,/PAYMENT_INDEPENDENT_READ_ATTEMPT_IMMUTABLE/);
+  await assert.rejects(db`UPDATE payment_independent_read_job SET state='RETRY' WHERE notification_id=${notification.id}`,/PAYMENT_INDEPENDENT_READ_TRANSITION_INVALID/);
+  await assert.rejects(db.begin((tx)=>persistIndependentPaymentConfirmation(tx,stored,secondRead,paidSnapshot)),/PAYMENT_INDEPENDENT_READ_ORIGINAL_CONTEXT_REQUIRED/);
+  assert.equal((await db`SELECT trust FROM payment_untrusted_notification WHERE id=${notification.id}`)[0]!.trust,'UNVERIFIED');
+  assert.equal((await db`SELECT count(*)::int n FROM payment_webhook_event`)[0]!.n,0);assert.equal((await db`SELECT count(*)::int n FROM payment_confirmation`)[0]!.n,0);
+  assert.equal((await db`SELECT count(*)::int n FROM audit_log WHERE action='PAYMENT_INDEPENDENT_READ_VERIFIED' AND target_id=${accepted}`)[0]!.n,2);
+  assert.equal((await db`SELECT count(*)::int n FROM lead_activity WHERE lead_id=${lead} AND event_type='ENROLLMENT_CONFIRMED'`)[0]!.n,1);
   // Authorization can change during external reads. Every denial occurs before the financial write/marker.
   for(const [change,restore] of [
     [()=>db`UPDATE user_session SET revoked_at=clock_timestamp() WHERE id=${users.agent!.session}`,()=>db`UPDATE user_session SET revoked_at=NULL WHERE id=${users.agent!.session}`],
@@ -172,5 +240,5 @@ test('Alma durable one-write dispatch commits native current authorization and a
   assert.equal((await db`SELECT payment_dispatch_authorized(${fresh}) allowed`)[0]!.allowed,false);
   await assert.rejects(create(),/PAYMENT_LINK_CONNECTION_NOT_READY/);
   assert.equal((await db`SELECT count(*)::int n FROM payment_confirmation`)[0]!.n,0);
-  assert.equal((await db`SELECT count(*)::int n FROM payment_record`)[0]!.n,0);assert.equal((await db`SELECT count(*)::int n FROM enrollment`)[0]!.n,0);
+  assert.equal((await db`SELECT count(*)::int n FROM payment_record`)[0]!.n,1);assert.equal((await db`SELECT count(*)::int n FROM enrollment`)[0]!.n,1);
 });

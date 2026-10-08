@@ -1,5 +1,11 @@
 # دليل التشغيل والتطوير
 
+## Independent financial proof boundary — checkpoint083
+
+Migrations001–083 و145unit/57PostgreSQL/25Edge regression ناجحة. unsigned notifications تُحفظمعindependent read jobs،لكنAlma read worker/financial registry/UI لمتُفعّل بعد؛لاmanual DB claim أوPayment insertion كتشغيلمنتج. claim native فيintegration fixture فقط. IPN/status=authorized/return page/ACK ليستإثباتًا؛original exact-money captured read هيالسلطةقبلPayment/Enrollment.
+
+Proof/history لا تُعدل،وPending/Confirmed وEnrollment تحافظعلىmonotonicity وAudit/Activities الذرية. UNKNOWN بلاreplay أوreset؛الخطوةالتاليةoriginal credential anchor وactual bounded read worker/Needs Attention/recovery وUI. Live Verification Pending External Credential/Approval،ولاexternal Sandbox account أوproduction credentials لهذهالبوابة.
+
 ## Alma durable issuance boundary — checkpoint 2026-10-08
 
 طبّق migration082 معالبقيةعلىبيئةمحددة؛لاعدل081 أوintent/history بعدالتطبيق. One-write marker وnative Audit/current authorization بعدpreflight مثبتةباختباراتlocal mocks/PostgreSQL،لكنAlma ليستفيproduction financial registry أوLead issuance UI حتىاكتمالconfirmation/Enrollment/repair. لاتستخدمcredentials حقيقيةلهذهالبوابة.

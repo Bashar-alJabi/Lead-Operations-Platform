@@ -1,5 +1,11 @@
 # مصفوفة تغطية المتطلبات
 
+> أحدث checkpoint2026-10-08: **145unit/57 full PostgreSQL integration/25 Edge Browser E2E** وmigrations001–083 وBackend/Web build/typecheck ناجحة. Independent native proof→shared Payment/Enrollment مثبتة بـactual HTTP mocks وread claim fixture صريحة،لاautonomous Alma read worker أوfinancial Lead UI/Browser/registry activation. Live Verification Pending External Credential/Approval؛الأعداد التالية تاريخية.
+
+| إضافة checkpoint | التنفيذ المثبت | الاختبارات وحدود الحالة |
+|---|---|---|
+| Independent financial proof boundary،02 §§61–63،03 §§36–37،06 §14،AGENTS §§8/15/16/27/28/32/38–40 | 083 generic bounded read job/attempt/immutable proof مستقلةعنsigned receipts؛native original admitted intent/account-mode-resource/money-plan/automatic captured/refund validation/DBclock/Audit؛one-of proof فيPayment مشتركة،provider-independent shared Payment/Enrollment/Activities service/native monotonic history؛IPN UNVERIFIED ثابتة | Alma PostgreSQL integration توسعتactual independent HTTP snapshot معexplicit test read claim→Pending→Confirmed→Enrollment؛concurrent2 confirmations/claim-prooffences/identity-money-plan-refund/malformed claim/Audit rollback/historical disabled scopes/timestamp precision/dedup/downgrade؛145/57/25 regression ناجحةبمافيهاStripe/PayPal. Implemented وMock/Sandbox Verified محليًا فقط؛autonomous read worker/UNKNOWN resolution/credential repair/Lead API-UI وfinancial Browser باقية؛لاLive claim |
+
 > أحدث checkpoint2026-10-08: **145unit/57 full PostgreSQL integration/25 Edge Browser E2E** وmigrations001–082 وBackend/Web build/typecheck ناجحة. Alma durable one-write/worker مثبتة محليًا بحقنactual adapter،ولاproduction registry activation أوAlma financial UI/confirmation/Enrollment من هذه المرحلة. Browser regression للمسارات القائمة؛Live Verification Pending External Credential/Approval. الأعداد التالية سياقات تاريخية.
 
 | إضافة checkpoint | التنفيذ المثبت | الاختبارات وحدود الحالة |

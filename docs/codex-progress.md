@@ -1,5 +1,17 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: independent-read financial proof boundary — 2026-10-08
+
+Native durable issuance محفوظة ومرفوعة في `f63a669`،working tree كانتنظيفة وHEAD=origin. Migration083 تضيفgeneric independent-read jobs/attempts/immutable financial proofs منفصلةعنsigned receipts،bounded5read attempts وlease/history/native proof-before-completion. Proof تثبتoriginal admitted intent/Connection/Mode/Merchant/resource/exact EUR/selected plan/automatic capture/refund-safe captured status وDBclock؛IPN تظلUNVERIFIED. Payment مشتركة تقبلone-of signed confirmation أوindependent proof،معmonotonic state وseparate Enrollment؛لاsigned event مصطنعة.
+
+Application Service `persistPaymentState` مشتركةلStripe/PayPal/independent read،تحفظPayment/Enrollment/Activities دونprovider logic؛`persistIndependentPaymentConfirmation` تحفظnative proof+Audit+domain transition داخلtransaction واحدة. confirmed_at تُنسخمنDB proof مباشرةلحفظmicrosecond precision. native proof وenrollment history immutable،والconfirmation التاريخية تستمر بعدdisable/expiry/rotation وفقoriginal context.
+
+البوابة ناجحة: **145/145 unit،57/57 full PostgreSQL integration،25/25 Edge Browser E2E** (1.7m)،Backend/Web build/typecheck وmigrations001–083 علىdevelopment/test. Integration Alma توسعتactual independent HTTP read داخلread claim صريحةفيالاختبار→native Pending→captured Confirmed→one Enrollment/Activities/Audit،2-way confirmation concurrency،wrong source/capture/money/plan/merchant/refund/extra payload rejection،no proof completion/native history guards،Audit rollback/no partial Payment،historical session/Connection/Branch disable،duplicate/downgrade denial،native timestamp precision،ولاauthority منIPN أوACK. أصلحtype inference للfixtures السلبية؛production guards لمتُخفّف. Full Stripe/PayPal regression ناجحةبعدتوحيدservice.
+
+**التصنيف:** native proof/Payment/Enrollment boundary **Implemented وMock/Sandbox Verified محليًا**؛claim هناtest fixture صريحة،**لاactual autonomous Alma read worker/resolution/repair/Lead UI أوproduction registry activation أوAlma financial Browser end-to-end بعد**. لاexternal Sandbox account أوLive Verification؛المنصةوPayments جزئيتان. Vite582.52KB/gzip168.65KB warning ضمنbacklog.
+
+**التالي الدقيق:** original endpoint credential anchor منimmutable intent snapshot لتسويةUNKNOWN بلاACK حتىبعدConnection disable/rotation،actual independent Merchant+Payment candidate read→safe original intent resolution→durable read worker/bounded retries/late lease recovery/monotonic proof،then read-only credential repair وLead API/UI/explicit plan/financial Integration/Browser قبلregistry activation. لاsecond create أوunsigned claim confirmation؛ثمBank Transfer.
+
 ## آخر حالة مستقرة: native Alma durable issuance — 2026-10-08
 
 عقد admission محفوظة ومرفوعة في `32df395`. استُكملت migration082 مستقلة لسياق immutable intent/explicit plan/unsigned notification endpoint مقابل signed source؛native NEVER policy بmaxAttempts1/null retention،unique immutable one-write marker بعدfresh preflight معcurrent session/config/assignment/leases/budget وAudit native ذرية. Worker تقبل Alma adapter صريحة،وتعيدcurrent authorization بعدI/O قبلPOST؛UNKNOWN/INTERRUPTED→Needs Attention بلاsecond create،ولاoverride terminal dispatch أوlate ACK بعدrecovery. Original encrypted credentials/merchant/mode/money/plan تبقى ثابتة. Generic wrapper تفصل creation ACK UNPAID عنindependent captured read،وتستخدمsnapshot واحدةللقراءةوالproof.

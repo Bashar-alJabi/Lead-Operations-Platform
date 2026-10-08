@@ -1,5 +1,13 @@
 # المعمارية التقنية
 
+## مصدر financial confirmation المستقلة — 2026-10-08
+
+083 تفصل `payment_independent_read_job/attempt/confirmation` عنsigned webhook event/receipt. Untrusted notification تحفظهويتهاUNVERIFIED؛هيreference للقراءةفقط. Native proof تتطلبrunning unexpired read lease/attempt وoriginal one-write admitted intent/Connection/Merchant/Mode/resource/exact money/selected plan/automatic capture/refund-safe captured state،وتحفظDB timestamp وAudit ذرية. History immutable،budget5read attempts/indexed due/lease queues؛no job success أوverified attempt بلاproof.
+
+`payment_record` تستخدمone-of signed confirmation FK أوindependent proof FK؛لاfake signature/source event ولاAlma payment domain منفصلة. `persistPaymentState` مشتركةللproviders وتنفذmonotonic Payment/separate Enrollment/Activities؛مصدرproof tagged reference،والnative constraints تحسمالسلطةالمالية. الوقتينconfirmed_at/verified_at يُنسخان SQL منDB دونloss of precision عبرJS Date. Independent service تبدأnative proof وdomain transition فيtransaction واحدة،ولاpublic API تقبلfinancial claim. Signed Stripe/PayPal contracts محفوظةواختباراتهما ناجحةبعدrefactor.
+
+145/57/25 و001–083 gates ناجحة؛Alma native proof integration تستخدمexplicit read claim fixture وactual HTTP mocks،ولاautonomous read worker/financial UI بعد. التاليcredential anchor تشيرإلىoriginal immutable intent/key snapshot لكلendpoint،حتىيمكنتسويةlost ACK بعدrotation/disable دونcurrent arbitrary account؛ثمactual safe candidate read/resolution/worker/repair/UI قبلregistry activation. هذاtechnical credential reference وليسكائنBusiness/Role جديدًا؛لاcredential exposure أوsecond write.
+
 ## Alma durable one-write/native context — 2026-10-08
 
 Migration082 تضيف selected_plan/notification context إلىgeneric immutable intent؛one-of source constraint تفرض signed webhook لـStripe/PayPal أوunsigned endpoint لـAlma دونتزييفsignature. خطةAlma tuple تقنيةلـhosted API ولا تضيفinstallment accounting. تحفظoriginal authenticated Merchant/EUR exact money/plan/endpoint URL-version وcredential snapshot؛scope/session/availability/config/identity native guards،وتبقىlegacy signed-provider constraints/functions محفوظة.

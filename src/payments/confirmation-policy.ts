@@ -1,7 +1,7 @@
 import type { CheckoutSnapshot } from './checkout-provider.js';
 import type { PaymentReceiptKind } from './receipt-provider.js';
 export type PaymentState='PENDING'|'FAILED'|'EXPIRED'|'CONFIRMED';
-// Only a verified receipt plus independent Session retrieval may call this transition.
+// Only independent provider proof, reached through a verified receipt or a guarded read job, may call this transition.
 export function paymentConfirmationTransition(snapshot:CheckoutSnapshot,eventKind:PaymentReceiptKind,current:PaymentState|null) {
   if(eventKind==='UNSUPPORTED')throw new Error('PAYMENT_EVENT_UNSUPPORTED');
   if(eventKind==='APPROVAL_REQUIRED')throw new Error('PAYMENT_CAPTURE_CONFIRMATION_REQUIRED');

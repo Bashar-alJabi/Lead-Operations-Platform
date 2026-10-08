@@ -12,10 +12,10 @@ export type AlmaCreateAdmission=(intent:Readonly<AlmaHostedIntent>)=>Promise<boo
 export type AlmaProcessingStatus='awaiting_authorization'|'authorized'|'captured'|'canceled';
 export type AlmaHostedSnapshot={ paymentId:string;intentId:string;merchantId:string;mode:'TEST'|'LIVE';currency:'EUR';minor:string;plan:PaymentPlanSelection;
   processingStatus:AlmaProcessingStatus;customerUrl:string|null;expiresAt:null;refundMinor:string;completelyRefunded:boolean };
-export type AlmaPaymentEvidence={ schemaVersion:1;source:'INDEPENDENT_ALMA_PAYMENT_READ';paymentId:string;intentId:string;merchantId:string;mode:'TEST'|'LIVE';currency:'EUR';minor:string;
+export type AlmaPaymentEvidence={ schemaVersion:1;source:'INDEPENDENT_ALMA_PAYMENT_READ';captureMode:'AUTOMATIC';paymentId:string;intentId:string;merchantId:string;mode:'TEST'|'LIVE';currency:'EUR';minor:string;
   installments:number;deferredMonths:number;deferredDays:number;processingStatus:AlmaProcessingStatus;refundMinor:string;refundState:'NONE'|'PARTIAL'|'FULL';paymentStatus:'PAID'|'UNPAID' };
 export function almaReadEvidence(payment:AlmaHostedSnapshot):AlmaPaymentEvidence {
-  return { schemaVersion:1,source:'INDEPENDENT_ALMA_PAYMENT_READ',paymentId:payment.paymentId,intentId:payment.intentId,merchantId:payment.merchantId,mode:payment.mode,currency:payment.currency,minor:payment.minor,
+  return { schemaVersion:1,source:'INDEPENDENT_ALMA_PAYMENT_READ',captureMode:'AUTOMATIC',paymentId:payment.paymentId,intentId:payment.intentId,merchantId:payment.merchantId,mode:payment.mode,currency:payment.currency,minor:payment.minor,
     ...payment.plan,processingStatus:payment.processingStatus,refundMinor:payment.refundMinor,refundState:payment.completelyRefunded ? 'FULL' : payment.refundMinor==='0' ? 'NONE' : 'PARTIAL',
     paymentStatus:payment.processingStatus==='captured' && payment.refundMinor==='0' ? 'PAID' : 'UNPAID' };
 }

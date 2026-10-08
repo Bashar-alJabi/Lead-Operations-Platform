@@ -4,7 +4,7 @@ import type { Database } from '../db.js';
 import { openOpaque } from '../credentials.js';
 import { paymentCheckoutAdapters,PaymentCheckoutError,type CheckoutSnapshot } from './checkout-provider.js';
 import { checkoutInput,historicalPaymentCredentials,type CheckoutAdapters } from './dispatch-worker.js';
-import { paymentConfirmationTransition,type PaymentState } from './confirmation-policy.js';
+import { persistPaymentState } from './payment-state.js';
 import { paymentReceiptIntent } from './receipt-context.js';
 import { paymentReceiptAdapters } from './receipt-adapters.js';
 import type { PaymentReceiptAdapters } from './receipt-provider.js';
@@ -62,22 +62,7 @@ export async function processOnePaymentReceipt(db:Database,adapters:CheckoutAdap
     }
     await tx`INSERT INTO payment_confirmation(event_id,intent_id,attempt_id,session_id,provider,account_ref,mode,minor,currency,session_status,payment_status,payment_ref,provider_evidence)
       VALUES (${claim.e.id},${claim.i.id},${claim.token},${snapshot.sessionId},${claim.i.provider},${claim.i.account_ref},${claim.i.mode},${snapshot.minor},${snapshot.currency},${snapshot.status},${snapshot.paymentStatus},${snapshot.paymentRef},${snapshot.providerEvidence ? tx.json(snapshot.providerEvidence) : null})`;
-    const old=(await tx`SELECT * FROM payment_record WHERE intent_id=${claim.i.id} FOR UPDATE`)[0];
-    const { observed:state,apply:change }=paymentConfirmationTransition(snapshot,claim.receipt.kind,(old?.state ?? null) as PaymentState|null);
-    // Current provider proof can confirm an earlier failure, but an older/unpaid callback cannot erase confirmed money.
-    if(change) {
-      const row=old ? (await tx`UPDATE payment_record SET state=${state},payment_ref=${state==='CONFIRMED' ? snapshot.paymentRef : null},confirmation_event_id=${claim.e.id},
-        confirmed_at=CASE WHEN ${state==='CONFIRMED'} THEN (SELECT verified_at FROM payment_confirmation WHERE event_id=${claim.e.id}) ELSE NULL END,
-        updated_at=clock_timestamp() WHERE id=${old.id} RETURNING *`)[0]!
-        : (await tx`INSERT INTO payment_record(intent_id,provider,account_ref,mode,session_id,state,payment_ref,confirmation_event_id,confirmed_at)
-          VALUES (${claim.i.id},${claim.i.provider},${claim.i.account_ref},${claim.i.mode},${snapshot.sessionId},${state},${state==='CONFIRMED' ? snapshot.paymentRef : null},${claim.e.id},
-            CASE WHEN ${state==='CONFIRMED'} THEN (SELECT verified_at FROM payment_confirmation WHERE event_id=${claim.e.id}) ELSE NULL END) RETURNING *`)[0]!;
-      await tx`INSERT INTO lead_activity(lead_id,actor_user_id,event_type,detail) VALUES (${claim.i.lead_id},NULL,'PAYMENT_STATE_CHANGED',${tx.json({ intentId:claim.i.id,paymentId:row.id,state,amount:claim.i.amount,currency:claim.i.currency })})`;
-      if(state==='CONFIRMED') {
-        const enrollment=(await tx`INSERT INTO enrollment(lead_id,payment_id) VALUES (${claim.i.lead_id},${row.id}) RETURNING id`)[0]!;
-        await tx`INSERT INTO lead_activity(lead_id,actor_user_id,event_type,detail) VALUES (${claim.i.lead_id},NULL,'ENROLLMENT_CONFIRMED',${tx.json({ enrollmentId:enrollment.id,paymentId:row.id })})`;
-      }
-    }
+    const { state,change }=await persistPaymentState(tx,claim.i,snapshot,claim.receipt.kind,{ source:'SIGNED_RECEIPT',id:claim.e.id });
     await tx`UPDATE payment_receipt_attempt SET state='VERIFIED',finished_at=clock_timestamp() WHERE id=${claim.token}`;
     await completeJob(tx,claim.e.id,'PROCESSED',null);
     await tx`INSERT INTO audit_log(organization_id,branch_id,actor_user_id,action,target_type,target_id,detail)

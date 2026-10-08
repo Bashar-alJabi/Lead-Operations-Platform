@@ -22,6 +22,7 @@ test('Alma generic checkout keeps creation acknowledgement UNPAID and uses one i
   const before=calls;const verified=await almaCheckoutAdapter.retrieve(config,credentials,intent,paymentId);
   assert.equal(calls,before+2,'one Merchant and one Payment read, no inconsistent double snapshot');
   assert.equal(verified.paymentStatus,'PAID');assert.equal(verified.providerEvidence!.source,'INDEPENDENT_ALMA_PAYMENT_READ');assert.equal(verified.providerEvidence!.processingStatus,'captured');
+  assert.equal(verified.providerEvidence!.captureMode,'AUTOMATIC');
   captured=false;const approved=await almaCheckoutAdapter.retrieve(config,credentials,intent,paymentId);
   assert.equal(approved.paymentStatus,'UNPAID');assert.equal(approved.status,'OPEN');assert.equal(approved.paymentRef,null);assert.equal(approved.providerEvidence!.processingStatus,'authorized');
 });
