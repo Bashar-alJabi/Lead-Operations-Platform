@@ -5,10 +5,11 @@ type Api=<T>(path:string,options?:RequestInit)=>Promise<T>;
 type Locale='ar'|'en'|'fr';
 type Connection={ id:string;name:string;provider:string;branch_id:string|null;config:{ mode:'TEST'|'LIVE';expectedMerchantId?:string };version:number;status:string;
   last_error_code:string|null;last_success_at:string|null;last_failure_at:string|null;secret_configured:boolean;
-  capabilities:{ authenticationVerified?:boolean;authentication?:Authentication;authenticationVersion?:number;authenticationAt?:string;paymentOptions?:ProviderOptions;paymentOptionsVersion?:number;paymentOptionsAt?:string } };
+  capabilities:{ authenticationVerified?:boolean;authentication?:Authentication;authenticationVersion?:number;authenticationAt?:string;merchantOffers?:MerchantOffers;merchantOffersVersion?:number;merchantOffersAt?:string;paymentOptions?:ProviderOptions;paymentOptionsVersion?:number;paymentOptionsAt?:string } };
 type Authentication={ schemaVersion:1;profile:'ALMA_ME_V1';accountRef:string;mode:'TEST'|'LIVE' };
+type MerchantOffers={ schemaVersion:1;profile:'ALMA_FEE_PLANS_V1';accountRef:string;mode:'TEST'|'LIVE';plans:{ installments:number;deferredMonths:number;deferredDays:number;allowed:boolean;minMinor:string;maxMinor:string }[] };
 type ProviderOptions={ accountRef:string;country:string;defaultCurrency:string;currencies:string[];paymentMethods:string[];chargesEnabled:boolean;cardPayments:string };
-type Probe={ id:string;connection_version:number;state:string;error_code:string|null;created_at:string;finished_at:string|null;purpose:string;options_snapshot:ProviderOptions|null;authentication_snapshot:Authentication|null };
+type Probe={ id:string;connection_version:number;state:string;error_code:string|null;created_at:string;finished_at:string|null;purpose:string;options_snapshot:ProviderOptions|null;authentication_snapshot:Authentication|null;offers_snapshot:MerchantOffers|null };
 type BeneficiaryConfiguration={ id:string;connection_version:number;mode:string;expected_merchant_id:string|null;actor_role:string;created_at:string };
 const beneficiaryLabels={
   ar:{ merchant:'PayPal Merchant ID المتوقع',guide:'انسخ PayPal Merchant ID من Account Settings → Business information للحساب Business المقصود. في TEST استخدم حساب Sandbox Business المرتبط بالتطبيق. يمكن تركه فارغًا لإعداد Authentication فقط.',
@@ -40,6 +41,14 @@ const almaLabels={
     note:'Ce contrôle en lecture seule identifie le marchand authentifié par la clé. Il ne prouve ni éligibilité, ni Checkout, IPN, capture oupaiement. L’identité conserve sa version de configuration ; les données privées sont omises. Page de succès ou déclaration client ne prouvent pas le paiement.',
     merchant:'Identité Alma vérifiée',at:'Identité Alma contrôlée le',key:'Clé API Alma',help:'Configuration API Alma' },
 };
+const offerLabels={
+  ar:{ inspect:'فحص عروض Alma',title:'عروض Alma للحساب',guide:'قراءة خيارات الحساب فقط؛ السماح بالخطة وحدودها لا يثبتان أهلية هذا العميل أوالدفع. لم يُحدد عدد أقساط افتراضي. العملات المقبولة لم تُثبت بهذا الفحص.',
+    installments:'عدد الأقساط',months:'تأجيل بالشهور',days:'تأجيل بالأيام',allowed:'السماح لدى المزود',min:'أقل مبلغ شراء (سنت)',max:'أقصى مبلغ شراء (سنت)',yes:'مسموحة',no:'غير مسموحة',empty:'لا عروض أعادها المزود.',history:'عروض تاريخية',at:'وقت فحص العروض' },
+  en:{ inspect:'Inspect Alma offers',title:'Alma merchant offers',guide:'Read-only merchant options. An allowed plan and its limits do not establish customer eligibility or paid money. No default installment count is selected. This inspection does not verify accepted currencies.',
+    installments:'Installments',months:'Deferred months',days:'Deferred days',allowed:'Provider allowance',min:'Minimum purchase (cents)',max:'Maximum purchase (cents)',yes:'Allowed',no:'Not allowed',empty:'The provider returned no offers.',history:'Historical offers',at:'Offers checked at' },
+  fr:{ inspect:'Inspecter les offres Alma',title:'Offres du marchand Alma',guide:'Options du marchand en lecture seule. Plan autorisé et limites ne prouvent ni éligibilité du client ni paiement. Aucun nombre d’échéances par défaut n’est choisi. Ce contrôle ne valide pas les devises acceptées.',
+    installments:'Échéances',months:'Mois différés',days:'Jours différés',allowed:'Autorisation fournisseur',min:'Achat minimum (centimes)',max:'Achat maximum (centimes)',yes:'Autorisé',no:'Non autorisé',empty:'Le fournisseur n’a renvoyé aucune offre.',history:'Offres historiques',at:'Offres contrôlées le' },
+};
 const labels={
   ar:{ title:'اتصالات الدفع',guide:'أنشئ حسابًا أو Sandbox لدى Stripe. من API keys أنشئ Restricted Key بصلاحية قراءة Balance لاختبار الاتصال، واختر TEST أو LIVE المطابقة. استخدم مفاتيح اختبار مخصصة أثناء التطوير.',
     note:'هذا الفحص يثبت Authentication فقط. يلزم فحص خيارات الحساب وWebhook قبل إصدار الروابط. تحتاج Checkout Sessions لصلاحيات create/read وAccount read. يؤكد Worker الدفع بعد التحقق من إيصال وجلسة المزود؛ Customer claim أوsuccess page لا تؤكد الدفع.',
@@ -66,7 +75,7 @@ const optionLabels={
     guide:'Ce contrôle en lecture seule nécessite aussi l’accès en lecture au compte et à Country Specs. Les options du pays ne prouvent ni l’activation du compte, ni les droits de création Checkout, ni la disponibilité du webhook.' },
 };
 export function PaymentSetup({ locale,role,branches,api }: { locale:Locale;role:'SUPER_ADMIN'|'MANAGER';branches:{ id:string;name:string }[];api:Api }) {
-  const t=labels[locale];const ot=optionLabels[locale];const [items,setItems]=useState<Connection[]>([]);const [cursor,setCursor]=useState<string|null>(null);
+  const t=labels[locale];const ot=optionLabels[locale];const ft=offerLabels[locale];const [items,setItems]=useState<Connection[]>([]);const [cursor,setCursor]=useState<string|null>(null);
   const [selected,setSelected]=useState<Connection|null>(null);const selectedRef=useRef<string|null>(null);
   const [name,setName]=useState('');const [branchId,setBranchId]=useState('');const [mode,setMode]=useState<'TEST'|'LIVE'>('TEST');
   const [provider,setProvider]=useState<'STRIPE'|'PAYPAL'|'ALMA'>('STRIPE');const [clientId,setClientId]=useState('');const [clientSecret,setClientSecret]=useState('');const pt=paypalLabels[locale];const at=almaLabels[locale];
@@ -95,9 +104,9 @@ export function PaymentSetup({ locale,role,branches,api }: { locale:Locale;role:
     setKey('');setEditVersion(result.version);const id=selected?.id ?? result.id!;selectedRef.current=id;await load();await history(id);
     if(provider==='PAYPAL')await beneficiaryHistory(id);setNotice(result.status);
   } catch(e) { setError(String(e)); } finally { setKey('');setClientId('');setClientSecret('');setBusy(false); } }
-  async function action(kind:'test'|'options'|'disable'|'reconnect') { if(!selected)return;setBusy(true);setError('');setNotice('');const id=selected.id;
-    try { const result=await api<{ state?:string;status?:string;errorCode?:string|null;version?:number }>(`/api/payments/connections/${id}/${kind==='options' ? 'test' : kind}`,{
-      method:'POST',body:JSON.stringify({ version:selected.version,...(kind==='options' ? { inspectOptions:true } : kind==='test' ? {} : { reason }) }) });
+  async function action(kind:'test'|'options'|'offers'|'disable'|'reconnect') { if(!selected)return;setBusy(true);setError('');setNotice('');const id=selected.id;
+    try { const result=await api<{ state?:string;status?:string;errorCode?:string|null;version?:number }>(`/api/payments/connections/${id}/${kind==='options' || kind==='offers' ? 'test' : kind}`,{
+      method:'POST',body:JSON.stringify({ version:selected.version,...(kind==='options' ? { inspectOptions:true } : kind==='offers' ? { inspectOffers:true } : kind==='test' ? {} : { reason }) }) });
       if(result.version!==undefined && editVersion===selected.version)setEditVersion(result.version);setNotice(result.state ?? result.status ?? ''); }
     catch(e) { setError(String(e)); } finally { await load().catch((e)=>setError(String(e)));await history(id).catch((e)=>setError(String(e)));setBusy(false); } }
   return <section className="payment-setup"><h2>{t.title}</h2><p>{provider==='STRIPE' ? t.guide : provider==='PAYPAL' ? pt.guide : at.guide}{' '}
@@ -131,6 +140,12 @@ export function PaymentSetup({ locale,role,branches,api }: { locale:Locale;role:
       {selected.provider==='ALMA' && selected.capabilities.authentication && selected.capabilities.authenticationVersion===selected.version && <section className="payment-authentication-identity">
         <h4>{at.merchant}</h4><dl className="inbound-target-summary"><div><dt>{at.merchant}</dt><dd><bdi>{selected.capabilities.authentication.accountRef}</bdi></dd></div>
           <div><dt>{t.mode}</dt><dd><bdi>{selected.capabilities.authentication.mode}</bdi></dd></div><div><dt>{at.at}</dt><dd>{selected.capabilities.authenticationAt ? new Date(selected.capabilities.authenticationAt).toLocaleString(locale) : '—'}</dd></div></dl></section>}
+      {selected.provider==='ALMA' && <><p>{ft.guide}</p><button disabled={busy || selected.status==='DISABLED'} onClick={()=>void action('offers')}>{ft.inspect}</button></>}
+      {selected.provider==='ALMA' && selected.capabilities.merchantOffers && selected.capabilities.merchantOffersVersion===selected.version && <section className="payment-merchant-offers">
+        <h4>{ft.title}</h4><p>{ft.at}: {selected.capabilities.merchantOffersAt ? new Date(selected.capabilities.merchantOffersAt).toLocaleString(locale) : '—'}</p>
+        {!selected.capabilities.merchantOffers.plans.length && <p>{ft.empty}</p>}<ul>{selected.capabilities.merchantOffers.plans.map((p)=><li key={[p.installments,p.deferredMonths,p.deferredDays].join(':')}>
+          <dl className="inbound-target-summary"><div><dt>{ft.installments}</dt><dd>{p.installments}</dd></div><div><dt>{ft.months}</dt><dd>{p.deferredMonths}</dd></div><div><dt>{ft.days}</dt><dd>{p.deferredDays}</dd></div>
+            <div><dt>{ft.allowed}</dt><dd>{p.allowed ? ft.yes : ft.no}</dd></div><div><dt>{ft.min}</dt><dd><bdi>{p.minMinor}</bdi></dd></div><div><dt>{ft.max}</dt><dd><bdi>{p.maxMinor}</bdi></dd></div></dl></li>)}</ul></section>}
       {selected.provider==='STRIPE' && <><p>{ot.guide}</p><button disabled={busy || selected.status==='DISABLED'} onClick={()=>void action('options')}>{ot.inspect}</button></>}
       {selected.capabilities.paymentOptions && selected.capabilities.paymentOptionsVersion===selected.version && <section className="payment-provider-options"><h4>{ot.title}</h4>
         <dl className="inbound-target-summary"><div><dt>{ot.country}</dt><dd><bdi>{selected.capabilities.paymentOptions.country}</bdi></dd></div>
@@ -144,6 +159,7 @@ export function PaymentSetup({ locale,role,branches,api }: { locale:Locale;role:
       <button disabled={busy || reason.trim().length<3} className="secondary" onClick={()=>void action(selected.status==='DISABLED' ? 'reconnect' : 'disable')}>{selected.status==='DISABLED' ? t.reconnect : t.disable}</button>
       <h4>{t.history}</h4><ul>{probes.map((probe)=><li key={probe.id}><time>{new Date(probe.created_at).toLocaleString(locale)}</time> · <bdi>{probe.purpose}</bdi> · <bdi>{probe.state}</bdi> · {t.version} {probe.connection_version}{probe.error_code && <> · <bdi>{probe.error_code}</bdi></>}
         {probe.authentication_snapshot && <p>{at.merchant}: <bdi>{probe.authentication_snapshot.accountRef}</bdi> · <bdi>{probe.authentication_snapshot.mode}</bdi></p>}
+        {probe.offers_snapshot && <p>{ft.history}: <bdi>{probe.offers_snapshot.plans.map((p)=>`${p.installments} (${p.deferredMonths}/${p.deferredDays}) · ${p.allowed ? ft.yes : ft.no} · ${p.minMinor}–${p.maxMinor}`).join(' ; ') || ft.empty}</bdi></p>}
         {probe.options_snapshot && <p>{ot.country}: <bdi>{probe.options_snapshot.country}</bdi> · {ot.currencies}: <bdi>{probe.options_snapshot.currencies.join(', ')}</bdi></p>}</li>)}</ul>
       {probeCursor && <button disabled={busy} className="secondary" onClick={()=>void history(selected.id,probeCursor).catch((e)=>setError(String(e)))}>{t.moreHistory}</button>}
       {selected.provider==='PAYPAL' && <section className="payment-beneficiary-history"><h4>{bt.history}</h4><p>{bt.configured}</p>
