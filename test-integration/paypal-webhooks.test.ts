@@ -114,7 +114,7 @@ test('PayPal actual OAuth webhook inspection and RSA receiver preserve scope, cu
   const approvalSend=await signed(a,approved);assert.equal((await approvalSend.send()).statusCode,200);
   const approvalStored=(await db`SELECT * FROM payment_webhook_event WHERE external_event_id=${approved.id}`)[0]!;
   const approvalContext=await db.begin((tx)=>paymentReceiptIntent(tx,approvalStored,{ PAYPAL:paypalReceiptAdapter }));
-  assert.equal(approvalContext.receipt?.kind,'APPROVAL_REQUIRED');assert.equal(approvalContext.issue,'PAYMENT_CAPTURE_FLOW_NOT_READY');assert.equal(approvalContext.intent,null);
+  assert.equal(approvalContext.receipt?.kind,'APPROVAL_REQUIRED');assert.equal(approvalContext.issue,'PAYMENT_CAPTURE_REQUIRED');assert.equal(approvalContext.intent,null);
   const { supplementary_data:ignoredOrder,...missingResource }=event.resource;
   const missingOrder={ ...event,id:'WH-INTEGRATION-MISSINGORDER123',resource:{ ...missingResource,custom_id:'72066d41-c5d6-423a-87ea-d56a10a6a67a' } };
   assert.equal((await (await signed(a,missingOrder)).send()).statusCode,200);
@@ -122,7 +122,8 @@ test('PayPal actual OAuth webhook inspection and RSA receiver preserve scope, cu
   const missingContext=await db.begin((tx)=>paymentReceiptIntent(tx,missingStored,{ PAYPAL:paypalReceiptAdapter }));
   assert.equal(missingContext.issue,'PAYMENT_RECEIPT_UNMATCHED');assert.equal(missingContext.receipt?.lookupResourceId,null);assert.equal(missingContext.receipt?.intentHint,null);
   while(await processOnePaymentReceipt(db)) {};
-  assert.ok((await db`SELECT state,error_code,attempts FROM payment_receipt_job`).every((j)=>j.state==='NEEDS_ATTENTION' && j.error_code==='PAYMENT_RECEIPT_PROFILE_UNSUPPORTED' && j.attempts===0));
+  assert.ok((await db`SELECT state,error_code,attempts FROM payment_receipt_job`).every((j)=>j.state==='NEEDS_ATTENTION'
+    && ['PAYMENT_RECEIPT_UNMATCHED','PAYMENT_CAPTURE_REQUIRED'].includes(j.error_code) && j.attempts===0));
   assert.equal((await db`SELECT count(*)::integer AS n FROM payment_record`)[0]!.n,0);assert.equal((await db`SELECT count(*)::integer AS n FROM enrollment`)[0]!.n,0);
   const safe=JSON.stringify([(await api('GET',a.path)).json(),(await api('GET',a.path+'/history')).json(),(await api('GET',root+'/webhook-events')).json(),await db`SELECT detail FROM audit_log WHERE action LIKE 'PAYMENT_%'`]);
   for(const secret of [pair.clientSecret,'SyntheticWebhookAccessToken123','private-buyer@fixture.test'])assert.equal(safe.includes(secret),false);

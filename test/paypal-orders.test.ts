@@ -18,7 +18,7 @@ test('PayPal money profile differs from Stripe and preserves exact provider deci
   for(const currency of ['USD','EUR','BRL','CNY'])assert.equal(paymentMoney('25.01',currency,paypalCurrencyPrecision(currency)).minor,'2501');
   for(const currency of ['KWD','ISK','AFN','XYZ'])assert.throws(()=>paypalCurrencyPrecision(currency));
   assert.equal(paymentMoney('90071992547409.91','USD',paypalCurrencyPrecision('USD')).minor,'9007199254740991');
-  assert.equal(paymentCheckoutAdapters.PAYPAL,undefined);assert.equal(paypalOrdersAdapter.idempotencyRetentionMs,21600000);
+  assert.equal(paymentCheckoutAdapters.PAYPAL!.idempotencyRetentionMs,21600000);assert.equal(paypalOrdersAdapter.idempotencyRetentionMs,21600000);
 });
 test('PayPal configured merchant expectation matches intent before any provider I/O and never replaces independently retrieved evidence',async(t)=> {
   let calls=0;t.mock.method(globalThis,'fetch',async(target:string)=>{ calls++;return target.endsWith('/v1/oauth2/token') ? oauth() : Response.json(order()); });

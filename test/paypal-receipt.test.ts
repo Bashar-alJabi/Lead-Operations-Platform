@@ -18,7 +18,7 @@ test('PayPal capture normalization keeps original capture identity and a separat
     for(const claim of ['99999.99','XYZ','private-buyer','SYNTHETICMERCHANT','grant payment permissions','amount','payment_status'])assert.equal(JSON.stringify(decoded).includes(claim),false);
     assert.equal('paymentStatus' in decoded,false);
   }
-  assert.equal(paymentReceiptAdapters.PAYPAL,undefined,'normalization cannot activate financial processing');
+  assert.equal(paymentReceiptAdapters.PAYPAL,paypalReceiptAdapter,'financial registry uses checked normalization without taking money from the receipt');
 });
 test('PayPal order approval requests a separate capture flow and cannot drive a paid transition even with a forged paid snapshot',()=> {
   const event={ ...testPayPalEvent(),event_type:'CHECKOUT.ORDER.APPROVED',resource_type:'checkout-order',resource:{ id:'SYNTHETICORDER123',status:'COMPLETED',

@@ -8,7 +8,10 @@ import { HttpError, principalFromRequest, sha256, type Principal } from '../secu
 import { decodeCursor, encodeCursor } from '../pagination.js';
 import { currentPaymentActor } from '../payments/access.js';
 import { paymentCheckoutAdapters, type PaymentCheckoutAdapter } from '../payments/checkout-provider.js';
-import { normalizePaymentProviderOptions, validatePaymentCredentials, type PaymentConfig, type PaymentCredentials } from '../payments/providers.js';
+import { validatePaymentCredentials, type PaymentConfig, type PaymentCredentials } from '../payments/providers.js';
+import { paymentIssuanceOptions } from '../payments/issuance-profile.js';
+import { captureActorIntent } from '../payments/capture-worker.js';
+import { dispatchIssue } from '../payments/dispatch-worker.js';
 import { linkIntentDto, linkIntentRows, normalizedLinkRequest, paymentReturnTargets, preparationIssues, type PaymentLinkRequest } from '../payments/link-intent.js';
 
 const params={ type:'object',additionalProperties:false,required:['id'],properties:{ id:{ type:'string',format:'uuid' } } } as const;
@@ -28,6 +31,47 @@ function pageResult(rows:postgres.Row[],limit:number,mapper:(row:postgres.Row)=>
 }
 
 export function registerPaymentLinkRoutes(app:FastifyInstance,db:Database,adapters:Adapters=paymentCheckoutAdapters) {
+  const captureParams={ ...params,required:['id','intentId'],properties:{ ...params.properties,intentId:{ type:'string',format:'uuid' } } } as const;
+  app.post<{ Params:{ id:string;intentId:string } }>('/api/leads/:id/payment-link-requests/:intentId/capture',{
+    schema:{ params:captureParams,body:{ type:'object',additionalProperties:false,properties:{} } },config:{ rateLimit:{ max:30,timeWindow:'15 minutes' } },
+  },async(request,reply)=> {
+    const actor=await principalFromRequest(request,db);
+    const result=await db.begin(async(tx)=> {
+      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${'payment-capture:'+request.params.intentId},0))`;
+      const l=await visibleLead(tx,actor,request,request.params.id);
+      const i=(await tx`SELECT * FROM payment_link_intent WHERE id=${request.params.intentId} AND lead_id=${l.id}`)[0];
+      if(!i)throw new HttpError(404,'PAYMENT_REQUEST_NOT_FOUND');
+      if(i.provider!=='PAYPAL')throw new HttpError(409,'PAYMENT_CAPTURE_UNSUPPORTED');
+      const old=(await tx`SELECT * FROM payment_capture_job WHERE intent_id=${i.id} FOR UPDATE`)[0];
+      if(old && old.state!=='BLOCKED')return { duplicate:true,state:old.state };
+      if((await tx`SELECT id FROM payment_record WHERE intent_id=${i.id} AND state='CONFIRMED'`).length)throw new HttpError(409,'PAYMENT_ALREADY_CONFIRMED');
+      const k=(await tx`SELECT k.* FROM payment_checkout_ack k JOIN payment_dispatch d ON d.intent_id=k.intent_id
+        WHERE k.intent_id=${i.id} AND d.state='ACCEPTED'`)[0];
+      if(!k)throw new HttpError(409,'PAYMENT_CHECKOUT_ACK_REQUIRED');
+      const s=(await tx`SELECT id FROM user_session WHERE user_id=${actor.id} AND token_hash=${sha256(request.cookies[sessionCookie]!)}
+        AND revoked_at IS NULL AND expires_at>clock_timestamp() FOR SHARE`)[0];
+      if(!s)throw new HttpError(403,'PAYMENT_ACCESS_REVOKED');
+      const authorization={ actor_user_id:actor.id,actor_session_id:s.id,actor_role:actor.role,actor_branch_id:actor.branchId,assigned_agent_id:l.assigned_agent_id };
+      const issue=await dispatchIssue(tx,captureActorIntent(i,authorization));if(issue)throw new HttpError(409,issue);
+      const id=randomUUID();
+      await tx`INSERT INTO payment_capture_authorization(id,intent_id,actor_user_id,actor_session_id,actor_role,actor_branch_id,assigned_agent_id)
+        VALUES (${id},${i.id},${actor.id},${s.id},${actor.role},${actor.branchId},${l.assigned_agent_id})`;
+      if(old)await tx`UPDATE payment_capture_job SET authorization_id=${id},state='RETRY',error_code=NULL,run_after=clock_timestamp(),updated_at=clock_timestamp() WHERE intent_id=${i.id}`;
+      else await tx`INSERT INTO payment_capture_job(intent_id,authorization_id,order_id,request_key) VALUES (${i.id},${id},${k.session_id},${'lop-capture:'+i.id})`;
+      await tx`INSERT INTO audit_log(organization_id,branch_id,actor_user_id,action,target_type,target_id,detail)
+        VALUES (${i.organization_id},${i.branch_id},${actor.id},'PAYMENT_CAPTURE_REQUESTED','PAYMENT_LINK',${i.id},${tx.json({ authorizationId:id,recovery:!!old })})`;
+      return { duplicate:false,state:old ? 'RETRY' : 'QUEUED' };
+    });reply.code(result.duplicate ? 200 : 202);return result;
+  });
+  app.get<{ Params:{ id:string;intentId:string } }>('/api/leads/:id/payment-link-requests/:intentId/capture-attempts',{
+    schema:{ params:captureParams },
+  },async(request)=> {
+    const actor=await principalFromRequest(request,db);return db.begin(async(tx)=> {
+      await visibleLead(tx,actor,request,request.params.id);
+      if(!(await tx`SELECT id FROM payment_link_intent WHERE id=${request.params.intentId} AND lead_id=${request.params.id}`).length)throw new HttpError(404,'PAYMENT_REQUEST_NOT_FOUND');
+      return { items:await tx`SELECT number,state,error_code,started_at,finished_at FROM payment_capture_attempt WHERE intent_id=${request.params.intentId} ORDER BY number LIMIT 100` };
+    });
+  });
   app.get<{ Params:{ id:string;intentId:string } }>('/api/leads/:id/payment-link-requests/:intentId',{
     schema:{ params:{ ...params,required:['id','intentId'],properties:{ ...params.properties,intentId:{ type:'string',format:'uuid' } } } },
   },async(request)=> {
@@ -56,7 +100,7 @@ export function registerPaymentLinkRoutes(app:FastifyInstance,db:Database,adapte
     return db.begin(async(tx)=> {
       const l=await visibleLead(tx,actor,request,request.params.id);
       const rows=await tx`SELECT m.id,m.name,m.version,m.currencies,m.active,m.created_at,b.active AS branch_active,c.status AS connection_status,
-        c.capabilities,c.version AS connection_version,c.provider,EXISTS(SELECT 1 FROM payment_webhook w
+        c.capabilities,c.config,c.version AS connection_version,c.provider,EXISTS(SELECT 1 FROM payment_webhook w
           WHERE w.connection_id=c.id AND w.connection_version=c.version AND w.mode=c.config->>'mode' AND w.state='CONFIGURED' AND w.last_signed_at IS NOT NULL
           AND (SELECT p.state FROM payment_webhook_probe p WHERE p.webhook_id=w.id ORDER BY p.probe_number DESC LIMIT 1)='VERIFIED') AS webhook_ready
         FROM payment_method m JOIN integration_connection c ON c.id=m.connection_id JOIN branch b ON b.id=m.branch_id
@@ -121,10 +165,11 @@ export function registerPaymentLinkRoutes(app:FastifyInstance,db:Database,adapte
       if(m.version!==input.methodVersion)throw new HttpError(409,'PAYMENT_METHOD_VERSION_CONFLICT');
       // The endpoint lock can wait behind a newer probe; use a fresh SQL snapshot after all waits.
       const latest=w ? (await tx`SELECT state FROM payment_webhook_probe WHERE webhook_id=${w.id} ORDER BY probe_number DESC LIMIT 1`)[0] : null;
-      const issues=preparationIssues({ ...m,branch_active:branch?.active,connection_status:c.status,capabilities:c.capabilities,connection_version:c.version,webhook_ready:!!w && latest?.state==='VERIFIED' });
+      const issues=preparationIssues({ ...m,branch_active:branch?.active,connection_status:c.status,capabilities:c.capabilities,provider:c.provider,config:c.config,connection_version:c.version,webhook_ready:!!w && latest?.state==='VERIFIED' });
       if(issues.length)throw new HttpError(409,issues[0]!);
       const adapter=adapters[c.provider];if(!adapter)throw new HttpError(409,'PAYMENT_CHECKOUT_UNSUPPORTED');
-      const config:PaymentConfig={ mode:c.config.mode };const options=normalizePaymentProviderOptions(c.capabilities.paymentOptions);
+      const config:PaymentConfig=c.provider==='PAYPAL' ? { mode:c.config.mode,expectedMerchantId:c.config.expectedMerchantId } : { mode:c.config.mode };
+      const options=paymentIssuanceOptions(c.provider,config,c.capabilities,c.version);
       if(!['TEST','LIVE'].includes(config.mode))throw new HttpError(409,'PAYMENT_CONFIG_INVALID');
       if(!m.currencies.includes(input.currency) || !options.currencies.includes(input.currency))throw new HttpError(400,'PAYMENT_CURRENCY_NOT_OFFERED');
       const normalized=normalizedLinkRequest(input,adapter.currencyPrecision(input.currency));

@@ -4,8 +4,7 @@ const resourceId=/^[A-Z0-9]{1,36}$/;
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const kinds=new Map<string,PaymentReceiptKind>([['CHECKOUT.ORDER.APPROVED','APPROVAL_REQUIRED'],['PAYMENT.CAPTURE.COMPLETED','RESOURCE_UPDATED'],
   ['PAYMENT.CAPTURE.PENDING','RESOURCE_UPDATED'],['PAYMENT.CAPTURE.DECLINED','PAYMENT_FAILED']]);
-// Standalone normalization only. Never grants authenticity, payee/money authority or capture permission.
-// Financial registry remains disabled until durable capture and native independent-confirmation proofs are integrated.
+// Normalization grants no authenticity, payee/money authority or capture permission.
 export const paypalReceiptAdapter:PaymentReceiptAdapter={ decode(raw,mode) {
   const e=parsePayPalPaymentReceipt(raw,mode);const kind=kinds.get(e.type) ?? 'UNSUPPORTED';const resource=JSON.parse(e.raw).resource;
   let lookupResourceId:string|null=null;let intentHint:string|null=null;

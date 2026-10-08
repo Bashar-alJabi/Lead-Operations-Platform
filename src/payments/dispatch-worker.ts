@@ -5,6 +5,7 @@ import { openOpaque,sealOpaque } from '../credentials.js';
 import { PaymentCheckoutError,paymentCheckoutAdapters,type CheckoutIntent,type CheckoutSnapshot,type PaymentCheckoutAdapter } from './checkout-provider.js';
 import { paymentAttemptUncertain,paymentDispatchWindow,resolvePaymentAttempt,type PaymentAttemptEvidence,type PaymentDispatchPolicy } from './dispatch-policy.js';
 import { validatePaymentCredentials,type PaymentConfig,type PaymentCredentials } from './providers.js';
+import { paymentIssuanceOptions } from './issuance-profile.js';
 
 export type CheckoutAdapters=Readonly<Record<string,PaymentCheckoutAdapter>>;
 export function checkoutInput(i:postgres.Row):CheckoutIntent {
@@ -22,7 +23,7 @@ async function history(tx:postgres.TransactionSql,id:string):Promise<PaymentAtte
   return (await tx`SELECT number,state FROM payment_dispatch_attempt WHERE intent_id=${id} ORDER BY number`) as unknown as PaymentAttemptEvidence[];
 }
 // Same resource order as request creation. Original authorization is required for every new provider write.
-async function dispatchIssue(tx:postgres.TransactionSql,i:postgres.Row):Promise<string|null> {
+export async function dispatchIssue(tx:postgres.TransactionSql,i:postgres.Row):Promise<string|null> {
   const c=(await tx`SELECT * FROM integration_connection WHERE id=${i.connection_id} FOR SHARE`)[0];
   const b=(await tx`SELECT active FROM branch WHERE id=${i.branch_id} FOR SHARE`)[0];
   const m=(await tx`SELECT * FROM payment_method WHERE id=${i.method_id} FOR SHARE`)[0];
@@ -41,9 +42,10 @@ async function dispatchIssue(tx:postgres.TransactionSql,i:postgres.Row):Promise<
     || (u.role==='AGENT' && m.agent_mode==='SELECTED' && !m.agent_ids.includes(u.id)))return 'PAYMENT_METHOD_CHANGED';
   if(!c || c.kind!=='PAYMENT' || c.organization_id!==i.organization_id || (c.branch_id && c.branch_id!==i.branch_id)
     || c.version!==i.connection_version || c.provider!==i.provider || c.config.mode!==i.mode || !['CONNECTED','WARNING'].includes(c.status)
-    || c.capabilities.authenticationVerified!==true || c.capabilities.paymentOptionsVersion!==i.connection_version
-    || c.capabilities.paymentOptions?.accountRef!==i.account_ref || c.capabilities.paymentOptions?.chargesEnabled!==true
-    || !c.capabilities.paymentOptions?.currencies.includes(i.currency))return 'PAYMENT_CONNECTION_CHANGED';
+    || c.capabilities.authenticationVerified!==true)return 'PAYMENT_CONNECTION_CHANGED';
+  try { const offered=paymentIssuanceOptions(c.provider,c.config,c.capabilities,c.version);
+    if(offered.accountRef!==i.account_ref || !offered.currencies.includes(i.currency) || ('chargesEnabled' in offered && !offered.chargesEnabled))return 'PAYMENT_CONNECTION_CHANGED';
+  }catch { return 'PAYMENT_CONNECTION_CHANGED'; }
   const probe=w ? (await tx`SELECT state FROM payment_webhook_probe WHERE webhook_id=${w.id} ORDER BY probe_number DESC LIMIT 1`)[0] : null;
   if(!w || w.state!=='CONFIGURED' || w.version!==i.webhook_version || w.connection_version!==i.connection_version
     || !w.last_signed_at || probe?.state!=='VERIFIED')return 'PAYMENT_WEBHOOK_CHANGED';
@@ -90,7 +92,7 @@ export async function processOnePaymentDispatch(db:Database,adapters:CheckoutAda
     }
     if(issue) { await finishState(tx,i,paymentAttemptUncertain(evidence) ? 'NEEDS_ATTENTION' : 'BLOCKED',issue);return { recovered:true as const }; }
     const adapter=adapters[i.provider];if(!adapter) { await finishState(tx,i,'BLOCKED','PAYMENT_CHECKOUT_UNSUPPORTED');return { recovered:true as const }; }
-    const policy:PaymentDispatchPolicy=d.policy ?? { maxAttempts:5,retentionMs:adapter.idempotencyRetentionMs,dispatchBudgetMs:20000,retryBaseMs:2000,retryMaxMs:60000 };
+    const policy:PaymentDispatchPolicy=d.policy ?? { maxAttempts:5,retentionMs:adapter.idempotencyRetentionMs,dispatchBudgetMs:adapter.dispatchBudgetMs ?? 20000,retryBaseMs:2000,retryMaxMs:60000 };
     const now=await paymentDbClock(tx);const window=paymentDispatchWindow({ nowMs:now,firstDispatchMs:d.first_dispatch_ms===null ? null : Number(d.first_dispatch_ms),history:evidence,policy });
     if(!window.allowed) { await finishState(tx,i,paymentAttemptUncertain(evidence) ? 'NEEDS_ATTENTION' : 'FAILED',window.reason);return { recovered:true as const }; }
     // A blocked merchant is skipped without consuming an attempt or an idempotency window.

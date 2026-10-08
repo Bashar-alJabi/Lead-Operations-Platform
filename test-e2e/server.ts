@@ -27,10 +27,15 @@ import { processOnePaymentReceipt } from '../src/payments/confirmation-worker.js
 import { stripeCurrencyPrecision,PaymentCheckoutError,type CheckoutSnapshot,type PaymentCheckoutAdapter } from '../src/payments/checkout-provider.js';
 import { paypalPaymentEvents } from '../src/payments/webhook-profile.js';
 import { testPayPalCertificate,testPayPalCertUrl } from '../test/paypal-test-support.js';
+import { syntheticPayPalFinancialTransport } from '../test/paypal-financial-fixture.js';
+import { paymentCheckoutAdapters } from '../src/payments/checkout-provider.js';
+import { processOnePaymentCapture } from '../src/payments/capture-worker.js';
 
 const connectionUrl = requireLocalE2ETarget(process.env.TEST_DATABASE_URL,process.env.E2E_RESET_TEST_DATABASE,process.env.NODE_ENV);
 // The browser exercises the production RSA verifier; only its fixed certificate HTTP response is mocked.
-globalThis.fetch=async(target)=> { if(String(target)===testPayPalCertUrl)return new Response(testPayPalCertificate);
+const paypalTransport=syntheticPayPalFinancialTransport();
+globalThis.fetch=async(target,init)=> { if(String(target)===testPayPalCertUrl)return new Response(testPayPalCertificate);
+  if(String(target).startsWith('https://api-m.sandbox.paypal.com/'))return paypalTransport.fetch(target,init);
   throw new Error('UNEXPECTED_EXTERNAL_HTTP_IN_LOCAL_E2E'); };
 
 process.env.APP_ORIGIN = 'http://127.0.0.1:4100';
@@ -183,7 +188,7 @@ app.get<{ Params:{ name:string } }>('/assets/:name',async (request,reply)=> {
   const type = request.params.name.endsWith('.js') ? 'text/javascript' : 'text/css';
   return reply.type(type).send(await readFile(resolve('dist-web/assets',request.params.name)));
 });
-app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:boolean; assigned?:'agent'|'second'; approveTemplates?:boolean;replyTo?:string;replyIndex?:number;processSample?:boolean;rejectSample?:boolean;sourceFailure?:boolean;sourceSubscriptionFailure?:boolean;sourceNotification?:string;retrieveSource?:boolean;sourceRetrievalFailure?:boolean;historicalPreview?:boolean;historicalImport?:boolean;historicalFailure?:boolean;sourceReferenceFixture?:boolean;sourceReferral?:'KNOWN'|'UNKNOWN'|'INVALID';paymentFailure?:boolean;paymentChargesEnabled?:boolean;paymentDispatch?:boolean;paymentReceipts?:boolean;paymentPaid?:string;paymentReceiptAuthFailure?:boolean } }>(
+app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:boolean; assigned?:'agent'|'second'; approveTemplates?:boolean;replyTo?:string;replyIndex?:number;processSample?:boolean;rejectSample?:boolean;sourceFailure?:boolean;sourceSubscriptionFailure?:boolean;sourceNotification?:string;retrieveSource?:boolean;sourceRetrievalFailure?:boolean;historicalPreview?:boolean;historicalImport?:boolean;historicalFailure?:boolean;sourceReferenceFixture?:boolean;sourceReferral?:'KNOWN'|'UNKNOWN'|'INVALID';paymentFailure?:boolean;paymentChargesEnabled?:boolean;paymentDispatch?:boolean;paymentReceipts?:boolean;paymentPaid?:string;paymentReceiptAuthFailure?:boolean;paypalApprove?:string;paypalCapture?:boolean;paypalPending?:string;paypalComplete?:string;paypalReadFailure?:boolean } }>(
   '/__test__/control', { schema: { body:{ type:'object',additionalProperties:false,properties: {
     process:{ type:'boolean' },mode:{ type:'string',enum:['accept','reject','unknown'] },
     dnc:{ type:'boolean' },assigned:{ type:'string',enum:['agent','second'] },
@@ -196,6 +201,7 @@ app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:bool
     sourceReferenceFixture:{ type:'boolean' },sourceReferral:{ type:'string',enum:['KNOWN','UNKNOWN','INVALID'] },
     paymentFailure:{ type:'boolean' },
     paymentChargesEnabled:{ type:'boolean' },paymentDispatch:{ type:'boolean' },paymentReceipts:{ type:'boolean' },paymentPaid:{ type:'string',format:'uuid' },paymentReceiptAuthFailure:{ type:'boolean' },
+    paypalReadFailure:{ type:'boolean' },paypalApprove:{ type:'string',format:'uuid' },paypalCapture:{ type:'boolean' },paypalPending:{ type:'string',format:'uuid' },paypalComplete:{ type:'string',format:'uuid' },
     replyTo:{ type:'string',format:'uuid' },replyIndex:{ type:'integer',minimum:0,maximum:2 },
   } } } },async (request)=> {
     const header = request.headers.authorization;
@@ -204,7 +210,12 @@ app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:bool
     if(typeof request.body.paymentFailure==='boolean')paymentFailure=request.body.paymentFailure;
     if(typeof request.body.paymentChargesEnabled==='boolean')paymentChargesEnabled=request.body.paymentChargesEnabled;
     if(typeof request.body.paymentReceiptAuthFailure==='boolean')paymentReceiptAuthFailure=request.body.paymentReceiptAuthFailure;
-    if(request.body.paymentDispatch)await processOnePaymentDispatch(db,{ STRIPE:checkoutAdapter });
+    if(typeof request.body.paypalReadFailure==='boolean')paypalTransport.setReadFailure(request.body.paypalReadFailure);
+    if(request.body.paypalApprove)paypalTransport.orders.get(request.body.paypalApprove)!.status='APPROVED';
+    if(request.body.paypalPending)paypalTransport.orders.get(request.body.paypalPending)!.captureStatus='PENDING';
+    if(request.body.paypalComplete)paypalTransport.orders.get(request.body.paypalComplete)!.captureStatus='COMPLETED';
+    if(request.body.paypalCapture)await processOnePaymentCapture(db);
+    if(request.body.paymentDispatch)await processOnePaymentDispatch(db,{ STRIPE:checkoutAdapter,PAYPAL:paymentCheckoutAdapters.PAYPAL! });
     if(request.body.paymentPaid) {
       const id=request.body.paymentPaid;const snapshot=paymentSessions.get(id);if(!snapshot)throw new HttpError(400,'TEST_PAYMENT_NOT_ISSUED');
       snapshot.status='COMPLETE';snapshot.paymentStatus='PAID';snapshot.url=null;snapshot.paymentRef='pi_'+id.replaceAll('-','');
@@ -216,7 +227,7 @@ app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:bool
         'stripe-signature':`t=${now},v1=${createHmac('sha256',signingSecret).update(now+'.').update(payload).digest('hex')}` } });
       if(response.statusCode!==200)throw new HttpError(500,'TEST_PAYMENT_RECEIPT_FAILED');
     }
-    if(request.body.paymentReceipts)for(let n=0;n<25 && await processOnePaymentReceipt(db,{ STRIPE:checkoutAdapter });n++) { /* bounded test drain */ }
+    if(request.body.paymentReceipts)for(let n=0;n<25 && await processOnePaymentReceipt(db,{ STRIPE:checkoutAdapter,PAYPAL:paymentCheckoutAdapters.PAYPAL! });n++) { /* bounded test drain */ }
     if (typeof request.body.sourceFailure==='boolean') sourceFailure=request.body.sourceFailure;
     if (typeof request.body.sourceSubscriptionFailure==='boolean') sourceSubscriptionFailure=request.body.sourceSubscriptionFailure;
     if (typeof request.body.sourceRetrievalFailure==='boolean') sourceRetrievalFailure=request.body.sourceRetrievalFailure;

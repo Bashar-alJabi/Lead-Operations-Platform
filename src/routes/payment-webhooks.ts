@@ -68,7 +68,8 @@ async function visible(tx:postgres.TransactionSql,c:postgres.Row,w:postgres.Row)
     version:w.version,created_at:w.created_at,last_signed_at:w.last_signed_at,secret_configured:!!w.ciphertext,current,
     endpointVerified:current && w.state==='CONFIGURED' && probe?.state==='VERIFIED',signedDeliveryVerified:!!w.last_signed_at,
     webhookReady:current && w.state==='CONFIGURED' && probe?.state==='VERIFIED' && !!w.last_signed_at,
-    financialProcessingReady:current && w.state==='CONFIGURED' && probe?.state==='VERIFIED' && !!w.last_signed_at && !!paymentCheckoutAdapters[c.provider] && !!paymentReceiptAdapters[c.provider],
+    financialProcessingReady:current && w.state==='CONFIGURED' && probe?.state==='VERIFIED' && !!w.last_signed_at && !!paymentCheckoutAdapters[c.provider] && !!paymentReceiptAdapters[c.provider]
+      && (c.provider!=='PAYPAL' || !!c.config.expectedMerchantId),
     publicHttps:w.callback_url.startsWith('https:'),requiredEvents:paymentWebhookProfile(c.provider).events,
     latestProbe:probe ? { id:probe.id,state:probe.state==='RUNNING' && probe.expired ? 'INTERRUPTED' : probe.state,
       error_code:probe.state==='RUNNING' && probe.expired ? 'PAYMENT_TEST_INTERRUPTED' : probe.error_code,snapshot:probe.snapshot,created_at:probe.created_at,finished_at:probe.finished_at } : null };
@@ -212,8 +213,8 @@ export function registerPaymentWebhookRoutes(app:FastifyInstance,db:Database,ada
         const e=(await tx`SELECT * FROM payment_webhook_event WHERE id=${j.event_id}`)[0]!;const context=await paymentReceiptIntent(tx,e);
         if(!context.intent)throw new HttpError(409,context.issue!);const i=context.intent;
         if(!['CONNECTED','WARNING'].includes(c.status) || c.capabilities.authenticationVerified!==true
-          || c.capabilities.paymentOptionsVersion!==c.version)throw new HttpError(409,'PAYMENT_OPTIONS_REQUIRED');
-        if(c.provider!==i.provider || c.config.mode!==i.mode || c.capabilities.paymentOptions?.accountRef!==i.account_ref)
+          || (c.provider==='STRIPE' && c.capabilities.paymentOptionsVersion!==c.version))throw new HttpError(409,'PAYMENT_OPTIONS_REQUIRED');
+        if(c.provider!==i.provider || c.config.mode!==i.mode || (c.provider==='PAYPAL' ? c.config.expectedMerchantId : c.capabilities.paymentOptions?.accountRef)!==i.account_ref)
           throw new HttpError(409,'PAYMENT_RECOVERY_ACCOUNT_MISMATCH');
         const sealed=(await tx`SELECT * FROM connection_secret WHERE connection_id=${c.id} FOR SHARE`)[0];if(!sealed)throw new HttpError(409,'PAYMENT_CREDENTIAL_MISSING');
         const credentials=JSON.parse(openSecret(c.id,{ ciphertext:sealed.ciphertext,nonce:sealed.nonce,authTag:sealed.auth_tag,keyVersion:sealed.key_version })) as PaymentCredentials;

@@ -37,7 +37,7 @@ Mollie ليست Requirement حالية. الكود الخاص بها لم يُف
 | المسار | الحالة |
 |---|---|
 | Stripe core issuance/receipt/confirmation/Enrollment/repair/share | Mock/PostgreSQL/Local Browser Verified؛ 99unit/40integration/19Browser في50820cf؛ ليست Payments module Complete أوLive Verified |
-| PayPal | Authentication/encrypted lifecycle وWebhook actual OAuth-GET/RSA receipt/history وexpected merchant configuration/scoped multilingual UI/immutable history: Mock/PostgreSQL/Local Browser Verified؛Orders/capture standalone Unit/HTTP Mock Verified وreceipt identity/order lookup Unit/Mock/PostgreSQL Verified غيرمفعّلتينماليًا؛أحدثregression119unit/43integration/22Browser؛لاdurable capture/native trusted financial confirmation/issuance بعد؛financialProcessingReady=false وreceipt Needs Attention؛Live Verification Pending External Credential/Approval؛ليستProvider Complete |
+| PayPal | required financial baseline end-to-end: Authentication/expected merchant/Webhook/issuance/durable capture/signed receipt→independent financial proof/native Payment/separate Enrollment/read-only repair/history/scoped UI؛121unit/53PostgreSQL/23Browser وmigrations001–077؛Implemented وMock/Sandbox Verified محليًا (HTTP mocks،لاSandbox account خارجي)؛Live Verification Pending External Credential/Approval |
 | Alma | مطلوب؛ غير منفذ |
 | Bank Transfer | مطلوب؛ غير منفذ كطريقة مستقلة معtrusted reconciliation |
 | Mollie | خارج القائمة الحالية؛ مسودة محفوظة محليًا وغير مفعلة، بلاVerification claim |

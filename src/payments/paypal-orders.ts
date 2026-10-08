@@ -2,7 +2,8 @@ import { HttpError } from '../security.js';
 import { boundedResponse } from '../media/meta-provider.js';
 import { paypalAccessToken,paypalOrigin } from './paypal-connection.js';
 import { PaymentProviderError } from './provider-errors.js';
-import { PaymentCheckoutError,type CheckoutIntent } from './checkout-provider.js';
+import type { CheckoutIntent } from './checkout-provider.js';
+import { PaymentCheckoutError } from './provider-errors.js';
 import { paymentMoney,type CurrencyPrecision } from './money.js';
 import type { PaymentConfig,PaymentCredentials } from './providers.js';
 const currencies=new Set(['AUD','BRL','CAD','CNY','CZK','DKK','EUR','HKD','HUF','ILS','JPY','MYR','MXN','TWD','NZD','NOK','PHP','PLN','GBP','RUB','SGD','SEK','CHF','THB','USD']);
@@ -124,4 +125,3 @@ export const paypalOrdersAdapter={ currencyPrecision:paypalCurrencyPrecision,ide
       mode:config.mode,currency:intent.money.currency,minor:intent.money.minor,captureStatus:data.status,paymentStatus:data.status==='COMPLETED' ? 'PAID' : 'UNPAID' };
   },
 };
-// Not registered for customer issuance until durable capture, native confirmation guards and scoped UI are integrated.

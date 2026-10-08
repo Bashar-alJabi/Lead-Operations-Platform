@@ -2,19 +2,16 @@ import { boundedResponse } from '../media/meta-provider.js';
 import { HttpError } from '../security.js';
 import { validatePaymentCredentials,type PaymentConfig,type PaymentCredentials,type StripePaymentCredentials } from './providers.js';
 import { paymentMoney,type CurrencyPrecision,type PaymentMoney } from './money.js';
+import { PaymentCheckoutError } from './provider-errors.js';
+import { paypalCheckoutAdapter } from './paypal-checkout.js';
+export { PaymentCheckoutError } from './provider-errors.js';
 
 export type CheckoutIntent={ id:string;accountRef:string;money:PaymentMoney;name:string;successUrl:string;cancelUrl:string };
-export type CheckoutSnapshot={ sessionId:string;url:string|null;expiresAt:string;mode:'TEST'|'LIVE';currency:string;minor:string;
-  intentId:string;status:'OPEN'|'COMPLETE'|'EXPIRED';paymentStatus:'PAID'|'UNPAID';paymentRef:string|null };
-export class PaymentCheckoutError extends Error {
-  constructor(public code:'PAYMENT_PROVIDER_AUTH_FAILED'|'PAYMENT_PROVIDER_RATE_LIMITED'|'PAYMENT_PROVIDER_UNAVAILABLE'|'PAYMENT_PROVIDER_RESPONSE_INVALID'
-    |'PAYMENT_PROVIDER_REJECTED'|'PAYMENT_IDEMPOTENCY_CONFLICT'|'PAYMENT_ACCOUNT_MISMATCH'|'PAYMENT_ACCOUNT_NOT_READY'|'PAYMENT_SESSION_MISMATCH'
-    |'PAYMENT_APPROVAL_REQUIRED'|'PAYMENT_CAPTURE_MISMATCH',
-    public certainty:'REJECTED'|'RETRYABLE'|'UNKNOWN',public retryAfterSeconds:number|null=null) { super(code); }
-}
-export type PaymentCheckoutAdapter={ currencyPrecision(currency:string):CurrencyPrecision;idempotencyRetentionMs:number;
+export type CheckoutSnapshot={ sessionId:string;url:string|null;expiresAt:string|null;mode:'TEST'|'LIVE';currency:string;minor:string;
+  intentId:string;status:'OPEN'|'COMPLETE'|'EXPIRED';paymentStatus:'PAID'|'UNPAID';paymentRef:string|null;providerEvidence?:Record<string,string|number> };
+export type PaymentCheckoutAdapter={ currencyPrecision(currency:string):CurrencyPrecision;idempotencyRetentionMs:number;dispatchBudgetMs?:number;
   create(config:PaymentConfig,credentials:PaymentCredentials,intent:CheckoutIntent):Promise<CheckoutSnapshot>;
-  retrieve(config:PaymentConfig,credentials:PaymentCredentials,intent:CheckoutIntent,sessionId:string):Promise<CheckoutSnapshot> };
+  retrieve(config:PaymentConfig,credentials:PaymentCredentials,intent:CheckoutIntent,sessionId:string,receiptResourceId?:string):Promise<CheckoutSnapshot> };
 const zero=new Set(['BIF','CLP','DJF','GNF','JPY','KMF','KRW','MGA','PYG','RWF','VND','VUV','XAF','XOF','XPF']);
 export function stripeCurrencyPrecision(currency:string):CurrencyPrecision {
   if(!Intl.supportedValuesOf('currency').includes(currency))throw new HttpError(400,'PAYMENT_CURRENCY_INVALID');
@@ -100,4 +97,4 @@ export const stripeCheckoutAdapter:PaymentCheckoutAdapter={ currencyPrecision:st
     if(result.sessionId!==sessionId)throw new PaymentCheckoutError('PAYMENT_SESSION_MISMATCH','REJECTED');return result;
   },
 };
-export const paymentCheckoutAdapters:Readonly<Record<string,PaymentCheckoutAdapter>>={ STRIPE:stripeCheckoutAdapter };
+export const paymentCheckoutAdapters:Readonly<Record<string,PaymentCheckoutAdapter>>={ STRIPE:stripeCheckoutAdapter,PAYPAL:paypalCheckoutAdapter };

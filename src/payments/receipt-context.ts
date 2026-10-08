@@ -12,7 +12,7 @@ export async function paymentReceiptIntent(tx:postgres.TransactionSql,e:postgres
   }catch(error) { return { intent:null,issue:error instanceof PaymentReceiptError ? error.code : 'PAYMENT_RECEIPT_CONTENT_INVALID',receipt:null,ignored:false }; }
   if(receipt.kind==='UNSUPPORTED')return { intent:null,issue:'PAYMENT_EVENT_UNSUPPORTED',receipt,ignored:true };
   // Approval is a request for a separately authorized durable capture action, never financial confirmation.
-  if(receipt.kind==='APPROVAL_REQUIRED')return { intent:null,issue:'PAYMENT_CAPTURE_FLOW_NOT_READY',receipt,ignored:false };
+  if(receipt.kind==='APPROVAL_REQUIRED')return { intent:null,issue:'PAYMENT_CAPTURE_REQUIRED',receipt,ignored:false };
   const resourceLookup=receipt.lookupResourceId===undefined ? receipt.resourceId : receipt.lookupResourceId;
   if(resourceLookup===null)return { intent:null,issue:'PAYMENT_RECEIPT_UNMATCHED',receipt,ignored:false };
   // This lookup grants no financial authority. Provider retrieval must still prove account/session/intent/money.

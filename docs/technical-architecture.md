@@ -1,5 +1,9 @@
 # المعمارية التقنية
 
+## PayPal financial activation — 2026-10-08
+
+التصميم والتنفيذ الحاليان في [PayPal financial flow](paypal-financial-flow.md): provider-aware immutable issuance دون fake account capabilities، unknown expiry مع حفظ Stripe guard، durable capture بفعل صريح/current authorization/key/retention/merchant lease منفصلة، ثم signed receipt وindependent order+capture/payee/exact-money proof قبل native Payment/Enrollment transition. migrations 074–077 توسع الحماية دون تعديل migrations السابقة؛ credential repair للقراءة فقط تحفظ تاريخ الميزانية المالية. نتائج التحقق وحدوده في progress وcoverage؛ لا Live claim. الأقسام القديمة التي تصف PayPal بأنها غيرمفعّلة هي تاريخ checkpoints السابقة.
+
 ## فصل receipt resource عن hosted order lookup
 
 امتداد schema1 إلى `lookupResourceId?:string|null` يحافظ على شكل legacy envelopes: غياب الحقل يستخدم original resource ID، وnull تعني غياب lookup آمنة. checked contract لا تسمح بتغييرexternal event/resource identity المحفوظة، أوinvalid/oversized lookup، أوintent hint معnull lookup، أوlookup فيUNSUPPORTED؛تسقطأيmetadata غيرمعلنة. هذا امتداد اختياري للخدمة، وليس تغييرًا للأصل المشفر أوDB object_id/semantic hash. Stripe decoder/financial constraints الأصلية محفوظة.

@@ -2,13 +2,17 @@ import { useEffect, useRef, useState } from 'react';
 type Locale='ar'|'en'|'fr';type Api=<T>(path:string,options?:RequestInit)=>Promise<T>;
 type Method={ id:string;name:string;version:number;currencies:string[];preparationAvailable:boolean;issues:string[] };
 type Intent={ id:string;methodName:string;methodVersion:number;amount:string;currency:string;createdAt:string;state:string;customerUrl:string|null;
-  errorCode:string|null;expiresAt:string|null;paymentState:string|null;paymentReference:string|null;confirmedAt:string|null;enrollmentId:string|null;enrolledAt:string|null };
+  errorCode:string|null;expiresAt:string|null;paymentState:string|null;paymentReference:string|null;confirmedAt:string|null;enrollmentId:string|null;enrolledAt:string|null;
+  provider:string;captureState:string|null;captureError:string|null;captureAvailable:boolean };
 const states={ ar:{ QUEUED:'بانتظار الإصدار',RUNNING:'جارٍ إصدار الرابط',RETRY:'إعادة محاولة مجدولة',ACCEPTED:'صدر الرابط',FAILED:'فشل الإصدار',BLOCKED:'الإصدار محجوب',NEEDS_ATTENTION:'يحتاج مراجعة — لا تفترض فشل الدفع',PENDING:'بانتظار الدفع',EXPIRED:'منتهي',CONFIRMED:'دفع مؤكد' },
   en:{ QUEUED:'Waiting for issuance',RUNNING:'Issuing link',RETRY:'Scheduled retry',ACCEPTED:'Link issued',FAILED:'Failed',BLOCKED:'Issuance blocked',NEEDS_ATTENTION:'Needs attention — do not assume payment failed',PENDING:'Payment pending',EXPIRED:'Expired',CONFIRMED:'Payment confirmed' },
   fr:{ QUEUED:'Émission en attente',RUNNING:'Émission en cours',RETRY:'Nouvelle tentative prévue',ACCEPTED:'Lien émis',FAILED:'Échec',BLOCKED:'Émission bloquée',NEEDS_ATTENTION:'À examiner — paiement non déterminé',PENDING:'Paiement en attente',EXPIRED:'Expiré',CONFIRMED:'Paiement confirmé' } };
 const financeLabels={ ar:{ open:'فتح رابط الدفع',copy:'نسخ رابط الدفع',copied:'نُسخ الرابط.',expires:'انتهاء الرابط',payment:'حالة الدفع',enrolled:'اشتراك مؤكد',reference:'مرجع الدفع',history:'محاولات الإصدار' },
   en:{ open:'Open payment link',copy:'Copy payment link',copied:'Link copied.',expires:'Link expiry',payment:'Payment status',enrolled:'Enrollment confirmed',reference:'Payment reference',history:'Issuance attempts' },
   fr:{ open:'Ouvrir le lien de paiement',copy:'Copier le lien de paiement',copied:'Lien copié.',expires:'Expiration du lien',payment:'État du paiement',enrolled:'Inscription confirmée',reference:'Référence du paiement',history:'Tentatives d’émission' } };
+const captureLabels={ ar:{ action:'طلب تنفيذ PayPal capture',history:'محاولات PayPal capture',state:'حالة تنفيذ capture',note:'يقرأ Worker موافقة العميل من PayPal قبل التنفيذ. قبول capture لا يؤكد الدفع؛ التأكيد يحتاج إيصالًا موقّعًا وقراءة مالية مستقلة.',accepted:'قبِل المزود التنفيذ — بانتظار التأكيد المالي',expiry:'المزود لم يحدد انتهاء الرابط؛ لا تفترض بقاءه صالحًا.' },
+  en:{ action:'Request PayPal capture',history:'PayPal capture attempts',state:'Capture execution status',note:'The worker reads buyer approval from PayPal before execution. Capture acceptance does not confirm payment; a signed receipt and independent financial reads are required.',accepted:'Provider accepted capture — awaiting financial confirmation',expiry:'The provider did not specify link expiry; continued validity is not guaranteed.' },
+  fr:{ action:'Demander la capture PayPal',history:'Tentatives de capture PayPal',state:'État de la capture',note:'Le worker vérifie l’approbation auprès de PayPal avant exécution. La capture acceptée ne confirme pas le paiement ; un événement signé et une lecture financière indépendante sont requis.',accepted:'Capture acceptée — confirmation financière attendue',expiry:'Le fournisseur n’a pas indiqué d’expiration ; la validité du lien n’est pas garantie.' } };
 const labels={
   ar:{ title:'طلبات روابط الدفع',note:'يصدر Worker الرابط بعد إعادة التحقق من الصلاحيات والطريقة والحساب وWebhook. فتح الرابط أو صفحة النجاح لا يؤكد الدفع. يؤكد الاشتراك فقط بعد إيصال موثوق والتحقق من الدفع لدى المزود.',
     method:'طريقة طلب الدفع',amount:'مبلغ طلب الدفع',currency:'عملة طلب الدفع',prepare:'حفظ طلب رابط الدفع',refresh:'تحديث طلبات الدفع',more:'طلبات دفع إضافية',moreMethods:'طرق طلب إضافية',choose:'اختر طريقة',
@@ -61,10 +65,19 @@ export function LeadPaymentRequests({ locale,leadId,api,onPrepareMessage }: { lo
       {item.methodName} · <bdi>{item.amount} {item.currency}</bdi> · {states[locale][item.state as keyof typeof states.en] ?? item.state} · <span>{t.date}: {new Date(item.createdAt).toLocaleString(locale)}</span>
       {item.errorCode && <p><bdi>{item.errorCode}</bdi></p>}
       {item.expiresAt && <p>{financeLabels[locale].expires}: {new Date(item.expiresAt).toLocaleString(locale)}</p>}
+      {item.provider==='PAYPAL' && item.customerUrl && !item.expiresAt && <p>{captureLabels[locale].expiry}</p>}
       {item.customerUrl && <p><a href={item.customerUrl} target="_blank" rel="noopener noreferrer">{financeLabels[locale].open}</a>{' '}
         <button className="secondary" disabled={busy} onClick={()=>void action(async()=>{ await navigator.clipboard.writeText(item.customerUrl!);setCopied(true); })}>{financeLabels[locale].copy}</button>{' '}
         <button className="secondary" disabled={busy} onClick={()=>onPrepareMessage(item.id)}>{locale==='ar' ? 'تجهيز رسالة برابط الدفع' : locale==='fr' ? 'Préparer un message de paiement' : 'Prepare payment message'}</button></p>}
       {item.paymentState && <p>{financeLabels[locale].payment}: {states[locale][item.paymentState as keyof typeof states.en] ?? item.paymentState}</p>}
+      {item.provider==='PAYPAL' && <p>{captureLabels[locale].note}</p>}
+      {item.captureState && <p>{captureLabels[locale].state}: {item.captureState==='ACCEPTED' && item.paymentState!=='CONFIRMED' ? captureLabels[locale].accepted : item.captureState} <bdi>{item.captureError}</bdi></p>}
+      {item.captureAvailable && <button disabled={busy} onClick={()=>void action(async()=>{
+        await api(root+'/payment-link-requests/'+item.id+'/capture',{ method:'POST',body:'{}' });await loadRequests();
+      })}>{captureLabels[locale].action}</button>}
+      {item.captureState && <button className="secondary" disabled={busy} onClick={()=>void action(async()=>{
+        setAttempts((await api<{ items:typeof attempts }>(root+'/payment-link-requests/'+item.id+'/capture-attempts')).items);
+      })}>{captureLabels[locale].history}</button>}
       {item.paymentReference && <p>{financeLabels[locale].reference}: <bdi>{item.paymentReference}</bdi></p>}
       {item.enrollmentId && item.enrolledAt && <p>{financeLabels[locale].enrolled}: {new Date(item.enrolledAt).toLocaleString(locale)}</p>}
       <button className="secondary" disabled={busy} onClick={()=>void action(async()=>{ setAttempts((await api<{ items:typeof attempts }>(root+'/payment-link-requests/'+item.id+'/attempts')).items); })}>{financeLabels[locale].history}</button>

@@ -1270,7 +1270,7 @@ test('browser configures PayPal Webhook ID, verifies RSA receipt and duplicate/f
     const dto=await (await page.request.get(path)).json();expect(dto.webhookReady).toBe(true);expect(dto.financialProcessingReady).toBe(false);expect(dto.secret_configured).toBe(false);
     const safe=await panel.textContent();expect(safe).not.toContain('private-buyer');expect(safe).not.toContain('25.00');expect(safe).not.toContain('BrowserWebhookSecret');
     await control(page,{ paymentReceipts:true });await panel.getByRole('button',{ name:'Refresh payment webhooks',exact:true }).click();
-    await expect(panel.locator('.payment-webhook-events')).toContainText('NEEDS_ATTENTION');await expect(panel.locator('.payment-webhook-events')).toContainText('PAYMENT_RECEIPT_PROFILE_UNSUPPORTED');
+    await expect(panel.locator('.payment-webhook-events')).toContainText('NEEDS_ATTENTION');await expect(panel.locator('.payment-webhook-events')).toContainText('PAYMENT_RECEIPT_UNMATCHED');
     await expect(panel.getByRole('checkbox',{ name:'Use verified current connection credentials for this receipt',exact:true })).toHaveCount(0);
     const agent=await browser.newContext({ storageState:agentStorageState });try { expect((await agent.request.get(path)).status()).toBe(403);expect((await agent.request.get(root+'/webhook-events')).status()).toBe(403); }finally{ await agent.close(); }
     await control(page,{ paymentFailure:true });await panel.getByRole('button',{ name:'Test payment endpoint',exact:true }).click();await expect(panel.getByRole('alert')).toContainText('PAYMENT_PROVIDER_AUTH_FAILED');
@@ -1282,4 +1282,67 @@ test('browser configures PayPal Webhook ID, verifies RSA receipt and duplicate/f
     await page.getByRole('combobox',{ name:'Language' }).selectOption('en');await panel.getByRole('button',{ name:'Disable payment webhook',exact:true }).click();await expect(panel.locator('.payment-webhook-detail')).toContainText('DISABLED');expect((await send()).status()).toBe(409);
     await expect(panel.locator('.payment-webhook-events')).toContainText('WH-BROWSER-CAPTURE123');
   }finally { await control(page,{ paymentFailure:false });await context.close(); }
+});
+
+test('browser issues PayPal link, explicitly queues capture and separates acceptance from signed independent confirmation and enrollment',async({ browser })=> {
+  const context=await browser.newContext({ storageState:managerStorageState,extraHTTPHeaders:{ 'x-e2e-rate-scope':randomUUID() } });const page=await context.newPage();const errors:string[]=[];
+  page.on('pageerror',(error)=>errors.push(error.message));
+  try {
+    await control(page,{ paymentFailure:false });if(!managerStorageState)await login(page,'manager');await page.goto('/');await page.getByRole('combobox',{ name:'Language' }).selectOption('en');
+    const origin={ origin:'http://127.0.0.1:4100' };
+    const post=async(path:string,data:object)=> { const r=await page.request.post(path,{ data,headers:origin });expect(r.ok(),await r.text()).toBe(true);return r.json(); };
+    const { lead }=await (await page.request.get('/api/leads/'+fixture.mediaLeadId)).json();
+    const c=await post('/api/payments/connections',{ name:'Browser PayPal financial <img literal>',provider:'PAYPAL',branchId:lead.branch_id,
+      config:{ mode:'TEST',expectedMerchantId:'ABCD234EFGH56' },credentials:{ clientId:'BrowserFinancialClient_123456',clientSecret:'BrowserFinancialSecret_123456' } });
+    const root='/api/payments/connections/'+c.id;await post(root+'/test',{ version:1 });
+    const w=await post(root+'/webhooks',{ connectionVersion:1,reason:'Dedicated browser financial callbacks' });const wr=root+'/webhooks/'+w.id;const endpoint='BROWSERFINANCIAL123';
+    await post(wr+'/configure',{ version:1,endpointId:endpoint,reason:'Registered application webhook' });await post(wr+'/test',{ version:2,connectionVersion:1 });
+    const probe=Buffer.from(JSON.stringify(testPayPalEvent('WH-BROWSER-FINANCIALPROBE123')));
+    const callback=new URL(w.callback_url).pathname;expect((await page.request.post(callback,{ data:probe,headers:{ ...testPayPalHeaders(probe,endpoint),...origin } })).status()).toBe(200);
+    const method=await post('/api/payments/methods',{ name:'Browser PayPal tuition <img literal>',branchId:lead.branch_id,connectionId:c.id,currencies:['USD'],active:true,
+      agents:{ mode:'ALL',ids:[] },campaigns:{ mode:'SELECTED',ids:[lead.campaign_id] },reason:'Scoped browser PayPal method' });
+    await page.getByRole('row').filter({ hasText:'Browser Media Customer' }).getByRole('button',{ name:'Details',exact:true }).click();
+    const panel=page.locator('.lead-payment-requests');await panel.getByLabel('Payment request method',{ exact:true }).selectOption(method.id);
+    await panel.getByLabel('Payment request amount',{ exact:true }).fill('25');await panel.getByRole('button',{ name:'Save payment link request',exact:true }).click();
+    await expect(panel.getByRole('status')).toContainText('Request saved once');const requests='/api/leads/'+fixture.mediaLeadId+'/payment-link-requests';
+    const intent=(await (await page.request.get(requests)).json()).items.find((i:{ methodName:string })=>i.methodName==='Browser PayPal tuition <img literal>');
+    await control(page,{ paymentDispatch:true });await panel.getByRole('button',{ name:'Refresh payment requests',exact:true }).click();
+    const row=panel.locator('.payment-request-history > li').filter({ hasText:'Browser PayPal tuition <img literal>' });
+    await expect(row.getByRole('link',{ name:'Open payment link',exact:true })).toHaveAttribute('href',/^https:\/\/www\.sandbox\.paypal\.com\/checkoutnow\?token=O/);
+    await expect(row).toContainText('did not specify link expiry');expect((await (await page.request.get(requests+'/'+intent.id)).json()).enrollmentId).toBeNull();
+    const orderId='O'+intent.id.replaceAll('-','').toUpperCase();const captureId='C'+intent.id.replaceAll('-','').toUpperCase();
+    // A browser return/customer claim supplies no financial authority and cannot enqueue capture.
+    await page.goto('/?paymentReturn=success&token='+orderId);expect((await (await page.request.get(requests+'/'+intent.id)).json()).captureState).toBeNull();
+    await page.getByRole('row').filter({ hasText:'Browser Media Customer' }).getByRole('button',{ name:'Details',exact:true }).click();
+    await control(page,{ paypalApprove:intent.id,paypalPending:intent.id });await row.getByRole('button',{ name:'Request PayPal capture',exact:true }).click();
+    await expect(row).toContainText('Capture execution status: QUEUED');await control(page,{ paypalCapture:true });await panel.getByRole('button',{ name:'Refresh payment requests',exact:true }).click();
+    await expect(row).toContainText('Provider accepted capture');await expect(row.getByRole('link',{ name:'Open payment link',exact:true })).toHaveCount(0);
+    await row.getByRole('button',{ name:'PayPal capture attempts',exact:true }).click();await expect(panel.locator('ol')).toContainText('ACKNOWLEDGED');
+    const receipt=()=>Buffer.from(JSON.stringify({ ...testPayPalEvent('WH-'+randomUUID().replaceAll('-','').toUpperCase()),resource:{ id:captureId,status:'COMPLETED',
+      custom_id:intent.id,amount:{ value:'99999.00',currency_code:'USD' },payee:{ merchant_id:'WRONGCLAIMONLY' },supplementary_data:{ related_ids:{ order_id:orderId } } } }));
+    let raw=receipt();expect((await page.request.post(callback,{ data:raw,headers:{ 'content-type':'application/json',...origin } })).status()).toBe(403);
+    const send=async(raw:Buffer)=>page.request.post(callback,{ data:raw,headers:{ ...testPayPalHeaders(raw,endpoint),...origin } });
+    expect((await send(raw)).status()).toBe(200);expect((await send(raw)).status()).toBe(200);await control(page,{ paymentReceipts:true });
+    await panel.getByRole('button',{ name:'Refresh payment requests',exact:true }).click();await expect(row).toContainText('Payment pending');
+    expect((await (await page.request.get(requests+'/'+intent.id)).json()).enrollmentId).toBeNull();
+    await control(page,{ paypalComplete:intent.id,paypalReadFailure:true });raw=receipt();expect((await send(raw)).status()).toBe(200);await control(page,{ paymentReceipts:true });
+    expect((await (await page.request.get(requests+'/'+intent.id)).json()).enrollmentId).toBeNull();
+    await page.getByRole('button',{ name:'Payment setup',exact:true }).click();const setup=page.locator('.payment-setup');
+    await setup.getByRole('row').filter({ hasText:'Browser PayPal financial <img literal>' }).getByRole('button',{ name:'Edit payment connection',exact:true }).click();
+    const webhookPanel=page.locator('.payment-webhooks');await expect(webhookPanel.locator('.payment-webhook-events')).toContainText('PAYMENT_PROVIDER_AUTH_FAILED');
+    await webhookPanel.getByLabel('Webhook change reason',{ exact:true }).fill('Explicit read-only PayPal verification recovery');
+    await webhookPanel.getByRole('checkbox',{ name:'Use verified current connection credentials for this receipt',exact:true }).check();await control(page,{ paypalReadFailure:false });
+    const recoveryResponse=page.waitForResponse((response)=>response.url().includes('/webhook-events/') && response.url().endsWith('/retry') && response.request().method()==='POST');
+    await webhookPanel.getByRole('button',{ name:'Retry receipt verification',exact:true }).click();expect((await recoveryResponse).ok()).toBe(true);
+    await control(page,{ paymentReceipts:true });
+    await page.goto('/');await page.getByRole('row').filter({ hasText:'Browser Media Customer' }).getByRole('button',{ name:'Details',exact:true }).click();
+    await expect(row).toContainText('Payment confirmed');await expect(row).toContainText('Enrollment confirmed');
+    await expect(row).not.toContainText('awaiting financial confirmation');
+    await expect(row).toContainText('25.00 USD');await expect(row).not.toContainText('99999.00');await expect(row).toContainText(captureId);
+    const second=await browser.newContext({ extraHTTPHeaders:{ 'x-e2e-rate-scope':randomUUID() } });try { const secondPage=await second.newPage();await login(secondPage,'second');expect((await secondPage.request.get(requests+'/'+intent.id)).status()).toBe(404);
+      expect((await secondPage.request.post(requests+'/'+intent.id+'/capture',{ data:{},headers:origin })).status()).toBe(404); }finally { await second.close(); }
+    await page.getByRole('combobox',{ name:'Language' }).selectOption('fr');await expect(row).toContainText('Inscription confirmée');
+    await page.setViewportSize({ width:390,height:844 });await page.getByRole('combobox',{ name:'Language' }).selectOption('ar');await row.scrollIntoViewIfNeeded();
+    await expect(row).toContainText('اشتراك مؤكد');await page.screenshot({ path:'.local/e2e/paypal-financial-ar.png' });expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);expect(errors).toEqual([]);
+  }finally { await control(page,{ paypalReadFailure:false });await context.close(); }
 });

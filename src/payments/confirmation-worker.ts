@@ -39,8 +39,9 @@ export async function processOnePaymentReceipt(db:Database,adapters:CheckoutAdap
   try {
     const credentials=claim.repair ? JSON.parse(openOpaque('payment-receipt-repair:'+claim.repair.id,{ ciphertext:claim.repair.ciphertext,nonce:claim.repair.nonce,
       authTag:claim.repair.auth_tag,keyVersion:claim.repair.key_version })) : historicalPaymentCredentials(claim.i);
-    snapshot=await claim.adapter.retrieve(claim.i.config_snapshot,credentials,checkoutInput(claim.i),claim.e.object_id);
-    if(snapshot.sessionId!==claim.e.object_id || snapshot.intentId!==claim.i.id || snapshot.mode!==claim.i.mode || snapshot.minor!==claim.i.minor
+    const orderId=claim.receipt.lookupResourceId ?? claim.receipt.resourceId;
+    snapshot=await claim.adapter.retrieve(claim.i.config_snapshot,credentials,checkoutInput(claim.i),orderId,claim.receipt.resourceId);
+    if(snapshot.sessionId!==orderId || snapshot.intentId!==claim.i.id || snapshot.mode!==claim.i.mode || snapshot.minor!==claim.i.minor
       || snapshot.currency!==claim.i.currency || (snapshot.paymentStatus==='PAID' && (snapshot.status!=='COMPLETE' || !snapshot.paymentRef)))
       throw new PaymentCheckoutError('PAYMENT_SESSION_MISMATCH','REJECTED');
   }catch(e) { snapshot=null;error=e instanceof PaymentCheckoutError ? e : new PaymentCheckoutError('PAYMENT_PROVIDER_UNAVAILABLE','RETRYABLE'); }
@@ -59,8 +60,8 @@ export async function processOnePaymentReceipt(db:Database,adapters:CheckoutAdap
       await tx`UPDATE payment_receipt_attempt SET state='REJECTED',error_code='PAYMENT_SESSION_MISMATCH',finished_at=clock_timestamp() WHERE id=${claim.token}`;
       await completeJob(tx,claim.e.id,'NEEDS_ATTENTION','PAYMENT_SESSION_MISMATCH');return;
     }
-    await tx`INSERT INTO payment_confirmation(event_id,intent_id,attempt_id,session_id,provider,account_ref,mode,minor,currency,session_status,payment_status,payment_ref)
-      VALUES (${claim.e.id},${claim.i.id},${claim.token},${snapshot.sessionId},${claim.i.provider},${claim.i.account_ref},${claim.i.mode},${snapshot.minor},${snapshot.currency},${snapshot.status},${snapshot.paymentStatus},${snapshot.paymentRef})`;
+    await tx`INSERT INTO payment_confirmation(event_id,intent_id,attempt_id,session_id,provider,account_ref,mode,minor,currency,session_status,payment_status,payment_ref,provider_evidence)
+      VALUES (${claim.e.id},${claim.i.id},${claim.token},${snapshot.sessionId},${claim.i.provider},${claim.i.account_ref},${claim.i.mode},${snapshot.minor},${snapshot.currency},${snapshot.status},${snapshot.paymentStatus},${snapshot.paymentRef},${snapshot.providerEvidence ? tx.json(snapshot.providerEvidence) : null})`;
     const old=(await tx`SELECT * FROM payment_record WHERE intent_id=${claim.i.id} FOR UPDATE`)[0];
     const { observed:state,apply:change }=paymentConfirmationTransition(snapshot,claim.receipt.kind,(old?.state ?? null) as PaymentState|null);
     // Current provider proof can confirm an earlier failure, but an older/unpaid callback cannot erase confirmed money.

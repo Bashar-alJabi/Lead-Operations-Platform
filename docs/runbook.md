@@ -1,5 +1,9 @@
 # دليل التشغيل والتطوير
 
+## تشغيل PayPal المالي — 2026-10-08
+
+راجع [PayPal financial flow](paypal-financial-flow.md) لإعداد credentials/Merchant ID/Webhook/Branch Method من UI، ثم إصدار Link وطلب capture وتتبع attempts/financial confirmation/separate Enrollment. `PAYMENT_APPROVAL_REQUIRED` تحجب capture حتى موافقة PayPal وطلب جديد بصلاحية حالية؛ UNKNOWN أوexhausted window لا تعني فشل الدفع ولا تبرر مفتاحًا جديدًا تلقائيًا. historical receipt recovery للقراءة فقط من Payment webhooks مع Provider/Merchant ID/mode ثابتة. شغّل migrations حتى077 وpayment worker الحالي؛ التطوير والاختبارات تعتمد Docker PostgreSQL لاembedded-postgres. التحقق الخارجي pending، والتفاصيل والأعداد الحالية في progress/coverage؛ النصوص السابقة تاريخية عند تعارضها مع هذا المسار.
+
 ## هوية PayPal receipt وorder أثناء التحقق
 
 Capture ID فيالإيصال التاريخي ليستOrder ID المستخدمةلـhosted checkout. الأصل المشفر وresource ID لا يتغيران؛related order تستخدمlookup فقط. غيابها لا يعالج باختيارLead أوorder عشوائية أوcustom_id وحدها،ويبقىNeeds Attention عندتفعيلالتدفق. CHECKOUT.ORDER.APPROVED ليستإيصالcapture؛تحتاجdurable capture مستقلة ثمtrusted independent read قبلPayment/Enrollment.

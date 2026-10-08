@@ -107,12 +107,16 @@ export function PaymentWebhooks({ connectionId,connectionVersion,disabled,locale
         {p.snapshot && <p><bdi>{p.snapshot.enabledEvents.join(', ')}</bdi></p>}</li>)}</ul>
       {historyCursor && <button className="secondary" disabled={busy} onClick={()=>void inspect(selected.id,historyCursor).catch((e)=>setError(String(e)))}>{t.moreHistory}</button>}
     </section>}
-    <h5>{t.received}</h5><p>{t.noPaid}</p>{provider==='STRIPE' && <><p>{recoveryLabels[locale].note}</p>
+    <h5>{t.received}</h5><p>{t.noPaid}</p>{(provider==='STRIPE' || events.some((e)=>e.attempts>0)) && <><p>{provider==='STRIPE' ? recoveryLabels[locale].note :
+      locale==='ar' ? 'افحص Authentication للبيانات الحالية أولًا. يجب أن يبقى Merchant ID المتوقع والمزود والبيئة مطابقين للطلب الأصلي. الاسترداد قراءة فقط، ولا يعيد capture أويغيّر مفتاحها أوعدد محاولاتها.' :
+      locale==='fr' ? 'Vérifiez d’abord l’authentification actuelle. Merchant ID attendu, fournisseur et environnement doivent correspondre à la demande historique. La récupération ne fait que lire ; elle ne relance ni capture ni budget financier.' :
+      'Test current authentication first. Expected Merchant ID, provider and mode must match the original request. Recovery is read-only; it never repeats capture or resets its financial key or budget.'}</p>
     <label><input type="checkbox" checked={useCurrentCredentials} disabled={busy || disabled} onChange={(e)=>setUseCurrentCredentials(e.target.checked)} />{recoveryLabels[locale].repair}</label></>}
     {events.length===0 && <p>{t.emptyEvents}</p>}<ul className="payment-webhook-events">{events.map((e)=><li key={e.id}><bdi>{e.external_event_id}</bdi> · <bdi>{e.event_type}</bdi> · <bdi>{e.mode}</bdi> · <bdi>{e.state}</bdi>
       <p>{t.created}: <time>{new Date(e.provider_created_at).toLocaleString(locale)}</time> · {t.receivedAt}: <time>{new Date(e.received_at).toLocaleString(locale)}</time></p><p><bdi>{e.error_code}</bdi></p>
       <button className="secondary" disabled={busy} onClick={()=>void inspectReceipt(e.id)}>{recoveryLabels[locale].history}</button>
-      {provider==='STRIPE' && e.state==='NEEDS_ATTENTION' && <button disabled={busy || reason.trim().length<3 || (e.attempts>=e.attempt_limit && !useCurrentCredentials)} onClick={()=> {
+      {e.event_type==='CHECKOUT.ORDER.APPROVED' && <p>{locale==='ar' ? 'افتح Lead المصرح بها واطلب capture؛ إعادة هذا الإيصال لا تنفذ الدفع.' : locale==='fr' ? 'Ouvrez le Lead autorisé et demandez la capture ; cet événement ne confirme pas le paiement.' : 'Open the authorized Lead and request capture; retrying this receipt does not execute payment.'}</p>}
+      {(provider==='STRIPE' || e.attempts>0) && e.event_type!=='CHECKOUT.ORDER.APPROVED' && e.state==='NEEDS_ATTENTION' && <button disabled={busy || reason.trim().length<3 || (e.attempts>=e.attempt_limit && !useCurrentCredentials)} onClick={()=> {
         setBusy(true);setError('');void api(root+'/webhook-events/'+e.id+'/retry',{ method:'POST',body:JSON.stringify({ attempts:e.attempts,reason,
           ...(useCurrentCredentials ? { useCurrentCredentials:true,connectionVersion } : {}) }) })
           .then(()=>eventPage()).catch((error)=>setError(String(error))).finally(()=>setBusy(false));
