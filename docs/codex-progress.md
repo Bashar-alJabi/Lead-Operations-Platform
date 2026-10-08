@@ -1,5 +1,17 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: Alma read-only credential recovery — 2026-10-08
+
+بدأت المرحلة من checkpoint `cf0c340`. Migration085 تحفظ موافقة Manager/Super Admin الحالية ونفس original Merchant/Mode، مع credential snapshot مشفّرة وimmutable history وAudit ذرية. Recovery تسمح بإعادة القراءة ضمن budget الحالية، أو تمددها بخمس reads عند الاستنفاد فقط؛ لا تصفّر attempts ولا تغيّر financial intent أو تعيد POST. Worker تستخدم snapshot المعتمدة وتسجل مرجعها لكل attempt، وتبقي IPN بحالة UNVERIFIED.
+
+Backend يفرض current session/role/Branch/Connection version/authentication/original account، ويرفض customer claims وحقول budget/write الإضافية. Setup inbox تعرض read state/error/budget، وتوفر reason/approval وتاريخ attempts/recoveries بصفحات محدودة دون أسرار. الواجهة بالعربية والفرنسية والإنجليزية؛ الموافقة لا تعني Payment confirmed.
+
+**البوابة ناجحة:** migrations001–085 على development/test، **147/147 unit،57/57 full Docker PostgreSQL integration،25/25 full Edge Browser E2E** (2.3m)، focused Alma Browser **1/1**، وBackend/Web build/typecheck. Integration توسعت لتثبت current key بعد rotation، native expired/revoked session وaccount/mode/version/attempt denial، أربعة approvals متزامنة → واحدة، Audit rollback، immutable encrypted recovery، pagination، attempt6 → Confirmed/Enrollment دون second POST. Browser تختبر missing-anchor review → explicit approval → RETRY/history، reason escaping/secret omission وAgent denial وFrench/Arabic390px. أُصلح TypeScript inference في fixture. Vite587.56KB/gzip169.78KB warning باقية ضمن backlog.
+
+**الحالة:** هذه recovery **Implemented وMock/Sandbox Verified محليًا** باستخدام actual adapters وHTTP mocks وDocker PG وEdge، دون external Sandbox account أوLive verification. Alma financial baseline والمنصة جزئيتان: production Checkout registry/read entrypoint وLead issuance/financial UI وfinancial Browser لم تُفعّل بعد. **Live Verification Pending External Credential/Approval**.
+
+**قيد التنفيذ/التالي الدقيق:** حفظ هذه checkpoint ورفعها إلى الفرع الحالي؛ ثم Lead request API ذات selected plan صريحة وcurrent unsigned endpoint readiness، scoped Lead UI/history/safe links وactual financial Integration/Browser، ثم Alma Checkout registry وread worker entrypoint ضمن نفس بوابة activation. UNKNOWN تبقى no-replay؛ بعد Alma المطلوبة انتقل إلى Bank Transfer trusted reconciliation. لا تحسينات provider اختيارية أوmain merge/deployment.
+
 ## آخر حالة مستقرة: actual independent Alma read worker — 2026-10-08
 
 Proof/Payment boundary محفوظة ومرفوعة في `4325ed8`؛ بدأت هذه المرحلة من شجرة نظيفة. Migration084 تحفظ immutable credential anchor لكل endpoint، تشير إلى أول intent وcredential snapshot الأصلية دون نسخ أسرار إلى inbox. Seed/backfill وAudit ذرية، والحماية تمنع تغيير المرجع أو إعادة كتابة التاريخ. Native finalization fence تمنع إنهاء read job من proof بحالة OPEN.

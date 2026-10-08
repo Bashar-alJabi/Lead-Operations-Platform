@@ -1,5 +1,11 @@
 # المعمارية التقنية
 
+## Immutable read-only credential recovery — 2026-10-08
+
+085 تضيف `payment_independent_read_credential` منفصلة عن financial intent وsigned receipt repairs. Snapshot مشفّرة بـAAD خاص بالـrecovery ID، ومربوطة بالمصدر الأصلي ونفس Connection/Merchant/Mode وcurrent authenticated config/current scoped Manager-Super Admin session. Native immutable guards وAudit ذرية؛ approval وjob transition داخل transaction واحدة بقفل Connection ثم job. Worker تختار أحدث approved snapshot مطابقة وتحفظ FK في attempt، ولا تستخدم current key بلا موافقة أوتغيّر original financial context.
+
+Read attempt_limit يبدأ5؛ approval تمدده بخمس فقط عند الاستنفاد، مع attempts/history ثابتتين وnative transition fence تمنع manual reset أوextension غير معتمدة. Safe paginated API/Setup UI لا تعرض credential/session. Native financial proof وshared Payment/Enrollment ما زالا مصدر السلطة الوحيد؛ IPN وapproval غير ماليين. 147/57/25 وfocused1/1 و001–085 gates مثبتة محليًا. المرحلة التالية scoped Lead plan/issuance/financial UI وactual end-to-end tests وproduction registry/entrypoint؛ لا guarantee مفترضة تسمح بإعادة write عند UNKNOWN.
+
 ## Original credentials وUNKNOWN independent resolution — 2026-10-08
 
 084 تحفظ `payment_notification_credential_anchor` immutable لكل endpoint، تشير إلى أول original intent/credential snapshot المطابقة لنفس Connection/config/Merchant/Mode. Seed/backfill وAudit native؛لاplaintext copy أوcredential reference للعميل. هذا يحل lost ACK بعدrotation/disable دوناختيارkey منcurrent unrelated Connection. لا يتغير التاريخ أوالـbusiness permissions؛الأصل كانمصرحًا عندintent creation،والقراءة اللاحقة لا تنشئدفعة.

@@ -36,10 +36,10 @@ test('Alma durable one-write and independent native proof enforce concurrency, c
   const merchant='merchant_DurableSynthetic123';const credentials={ apiKey:'AlmaDurableSyntheticKeyOnly_123456789' };
   let ip=1;const api=(method:'GET'|'POST'|'PUT',path:string,payload?:object)=>app.inject({ method,url:path,payload,
     headers:{ origin:process.env.APP_ORIGIN!,cookie:users.manager!.cookie },remoteAddress:`127.0.41.${ip++}` });
-  const calls:string[]=[];const payments=new Map<string,string>();let eligible=true;let lost=false;let captured=false;let readFailure=false;let afterPreflight:(()=>Promise<void>)|null=null;
+  const calls:string[]=[];const payments=new Map<string,string>();let expectedKey=credentials.apiKey;let eligible=true;let lost=false;let captured=false;let readFailure=false;let afterPreflight:(()=>Promise<void>)|null=null;
   let afterWrite:(()=>Promise<void>)|null=null;let afterRead:(()=>Promise<void>)|null=null;
   t.mock.method(globalThis,'fetch',async(target:string,init:RequestInit)=> {
-    calls.push(target);assert.equal(init.redirect,'error');assert.equal(new Headers(init.headers).get('authorization'),'Alma-Auth '+credentials.apiKey);
+    calls.push(target);assert.equal(init.redirect,'error');assert.equal(new Headers(init.headers).get('authorization'),'Alma-Auth '+expectedKey);
     if(target.endsWith('/extended-data'))return new Response(JSON.stringify({ id:merchant }));
     if(target.endsWith('/eligibility')) {
       const request=JSON.parse(init.body as string);assert.equal(request.purchase_amount,10000);
@@ -298,6 +298,51 @@ test('Alma durable one-write and independent native proof enforce concurrency, c
   const beforeHistorical=writes();captured=true;assert.equal(await processOneIndependentPaymentRead(db),true);captured=false;assert.equal(writes(),beforeHistorical);
   assert.equal((await db`SELECT state,mode FROM payment_record WHERE intent_id=${historical}`)[0]!.state,'CONFIRMED');
   assert.equal((await db`SELECT mode FROM payment_record WHERE intent_id=${historical}`)[0]!.mode,'TEST');
+  // Read-only managed recovery returns to the original TEST Merchant using a newly verified key, without resetting five prior attempts or creating another Payment.
+  const recover=root+'/untrusted-notifications/'+waitingNotification+'/recover';const history=root+'/untrusted-notifications/'+waitingNotification+'/read-history';
+  assert.equal((await api('POST',recover,{ connectionVersion:2,reason:'Wrong current mode cannot repair original payment' })).statusCode,409);
+  const repairedKey='SyntheticApprovedReadOnlyRepairKey_123456789';
+  assert.equal((await api('PUT',root,{ name:'Original TEST read-only repair',provider:'ALMA',version:2,config:{ mode:'TEST' },credentials:{ apiKey:repairedKey } })).statusCode,200);
+  assert.equal((await api('POST',recover,{ connectionVersion:3,reason:'Authentication must precede approval' })).statusCode,409);
+  expectedKey=repairedKey;assert.equal((await api('POST',root+'/test',{ version:3 })).statusCode,200);
+  const repairBody={ connectionVersion:3,reason:'Approved readonly verification of original TEST merchant' };
+  for(const name of ['agent','other']) {
+    const response:{ statusCode:number }=await app.inject({ method:'POST',url:recover,payload:repairBody,headers:{ origin:process.env.APP_ORIGIN!,cookie:users[name]!.cookie },remoteAddress:'127.0.42.'+(name==='agent' ? 6 : 7) });
+    assert.equal(response.statusCode,name==='agent' ? 403 : 404);
+  }
+  for(const patch of [{ accountRef:'merchant_Claim' },{ financialWrite:true },{ attemptLimit:100 },{ reason:' ' }])assert.equal((await api('POST',recover,{ ...repairBody,...patch })).statusCode,400);
+  const expired=(await db`INSERT INTO user_session(user_id,token_hash,created_at,expires_at) VALUES (${users.manager!.id},${sha256(randomUUID())},clock_timestamp()-interval '2 hours',clock_timestamp()-interval '1 hour') RETURNING id`)[0]!.id;
+  const revoked=(await db`INSERT INTO user_session(user_id,token_hash,created_at,expires_at,revoked_at) VALUES (${users.manager!.id},${sha256(randomUUID())},clock_timestamp()-interval '1 hour',clock_timestamp()+interval '1 hour',clock_timestamp()) RETURNING id`)[0]!.id;
+  async function nativeRepair(patch:Record<string,unknown>) {
+    const id=randomUUID();const sealed=sealOpaque('payment-independent-repair:'+id,JSON.stringify({ apiKey:repairedKey }));
+    await db`INSERT INTO payment_independent_read_credential ${db({ id,notification_id:waitingNotification,connection_id:connection,connection_version:3,provider:'ALMA',account_ref:merchant,mode:'TEST',attempt_before:5,
+      actor_user_id:users.manager!.id,actor_session_id:users.manager!.session,actor_role:'MANAGER',actor_branch_id:branch,reason:'Native current scoped approval',ciphertext:sealed.ciphertext,nonce:sealed.nonce,auth_tag:sealed.authTag,key_version:sealed.keyVersion,...patch })}`;
+  }
+  for(const patch of [{ actor_session_id:expired },{ actor_session_id:revoked },{ actor_session_id:users.agent!.session },{ actor_branch_id:other },{ account_ref:'merchant_Claim' },{ mode:'LIVE' },{ connection_version:2 },{ attempt_before:4 }])await assert.rejects(nativeRepair(patch),/PAYMENT_READ_CREDENTIAL_CURRENT_SCOPE_REQUIRED/);
+  await assert.rejects(db`UPDATE payment_independent_read_job SET state='RETRY',attempt_limit=10 WHERE notification_id=${waitingNotification}`,/PAYMENT_READ_RECOVERY_APPROVAL_REQUIRED/);
+  await db`CREATE FUNCTION synthetic_alma_recovery_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='PAYMENT_READ_RECOVERY_APPROVED' THEN RAISE EXCEPTION 'synthetic recovery rollback'; END IF;RETURN NEW;END $$`;
+  await db`CREATE TRIGGER synthetic_alma_recovery_failure BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION synthetic_alma_recovery_failure()`;
+  try { assert.equal((await api('POST',recover,repairBody)).statusCode,500);
+    assert.equal((await db`SELECT count(*)::int n FROM payment_independent_read_credential WHERE notification_id=${waitingNotification}`)[0]!.n,0);
+    assert.equal((await db`SELECT state,attempt_limit FROM payment_independent_read_job WHERE notification_id=${waitingNotification}`)[0]!.attempt_limit,5);
+  }finally { await db`DROP TRIGGER synthetic_alma_recovery_failure ON audit_log`;await db`DROP FUNCTION synthetic_alma_recovery_failure()`; }
+  const approvals=await Promise.all(Array.from({ length:4 },()=>api('POST',recover,repairBody)));
+  assert.equal(approvals.filter((r)=>r.statusCode===200).length,1);assert.equal(approvals.filter((r)=>r.statusCode===409).length,3);
+  const approved=approvals.find((r)=>r.statusCode===200)!.json();assert.equal(approved.attempts,5);assert.equal(approved.attemptLimit,10);assert.equal(approved.financialWrite,false);assert.equal(approved.trust,'UNVERIFIED');
+  const repair=(await db`SELECT * FROM payment_independent_read_credential WHERE id=${approved.recoveryId}`)[0]!;
+  assert.equal(repair.attempt_before,5);assert.equal(repair.mode,'TEST');assert.equal(repair.account_ref,merchant);assert.equal(repair.actor_session_id,users.manager!.session);
+  assert.equal(repair.ciphertext.toString().includes(repairedKey),false);await assert.rejects(db`UPDATE payment_independent_read_credential SET mode='LIVE' WHERE id=${repair.id}`,/PAYMENT_READ_CREDENTIAL_IMMUTABLE/);
+  const historyResult=await api('GET',history);assert.equal(historyResult.statusCode,200);assert.equal(historyResult.json().attempts.length,5);assert.equal(historyResult.json().recoveries.length,1);
+  const firstPage=(await api('GET',history+'?limit=2')).json();assert.deepEqual(firstPage.attempts.map((a:{ number:number })=>a.number),[5,4]);assert.equal(firstPage.nextAttempt,4);assert.equal(firstPage.nextRecovery,null);
+  const secondPage=(await api('GET',history+'?limit=2&before='+firstPage.nextAttempt)).json();assert.deepEqual(secondPage.attempts.map((a:{ number:number })=>a.number),[3,2]);assert.equal(secondPage.nextAttempt,2);
+  const finalPage=(await api('GET',history+'?limit=2&before='+secondPage.nextAttempt)).json();assert.deepEqual(finalPage.attempts.map((a:{ number:number })=>a.number),[1]);assert.equal(finalPage.nextAttempt,null);
+  assert.equal((await api('GET',history+'?limit=101')).statusCode,400);assert.equal((await api('GET',root+'/untrusted-notifications/'+randomUUID()+'/read-history')).statusCode,404);
+  for(const hidden of [repairedKey,'ciphertext','nonce','auth_tag','actor_session_id'])assert.equal(historyResult.body.includes(hidden),false);
+  const beforeRepair=writes();captured=true;assert.equal(await processOneIndependentPaymentRead(db),true);captured=false;assert.equal(writes(),beforeRepair);
+  const afterRepair=(await db`SELECT * FROM payment_independent_read_job WHERE notification_id=${waitingNotification}`)[0]!;
+  assert.equal(afterRepair.state,'PROCESSED');assert.equal(afterRepair.attempts,6);assert.equal(afterRepair.attempt_limit,10);
+  assert.equal((await db`SELECT credential_repair_id FROM payment_independent_read_attempt WHERE notification_id=${waitingNotification} AND number=6`)[0]!.credential_repair_id,repair.id);
+  assert.equal((await db`SELECT state FROM payment_record WHERE intent_id=${waiting}`)[0]!.state,'CONFIRMED');assert.equal((await api('POST',recover,repairBody)).statusCode,409);
   assert.equal((await db`SELECT count(*)::int n FROM payment_confirmation`)[0]!.n,0);
-  assert.equal((await db`SELECT count(*)::int n FROM payment_record`)[0]!.n,4);assert.equal((await db`SELECT count(*)::int n FROM enrollment`)[0]!.n,3);
+  assert.equal((await db`SELECT count(*)::int n FROM payment_record`)[0]!.n,4);assert.equal((await db`SELECT count(*)::int n FROM enrollment`)[0]!.n,4);
 });

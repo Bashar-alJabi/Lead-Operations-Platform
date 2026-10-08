@@ -1439,6 +1439,19 @@ test('browser manages Alma unsigned IPN callbacks and unverified history without
     await notifications.getByRole('button',{ name:'Refresh Alma notifications',exact:true }).click();await expect(notifications.locator('.payment-untrusted-notifications')).toContainText('payment_BrowserNotification');
     await expect(notifications.locator('.payment-untrusted-notifications li')).toHaveCount(1);await expect(notifications).toContainText('receipt only, no financial proof');
     const after=await control(page);expect(after.paymentCalls).toBe(before.paymentCalls);
+    // Missing original credential anchor is reviewable. Explicit approval stores the tested same-Merchant key, without inventing a financial proof.
+    await control(page,{ paymentIndependentReads:true });await notifications.getByRole('button',{ name:'Refresh Alma notifications',exact:true }).click();
+    await expect(notifications.locator('.payment-untrusted-notifications')).toContainText('NEEDS_ATTENTION');
+    await notifications.getByRole('button',{ name:'Independent read history',exact:true }).click();const readReview=notifications.locator('.payment-independent-review');
+    await expect(readReview).toContainText('never creates a new payment');await expect(readReview.getByRole('button',{ name:'Approve independent read recovery',exact:true })).toBeDisabled();
+    const recoveryNote='Approved current key for original account <img literal>';
+    await readReview.getByLabel('Independent review recovery reason',{ exact:true }).fill(recoveryNote);await readReview.getByRole('button',{ name:'Approve independent read recovery',exact:true }).click();
+    await expect(notifications.getByRole('status')).toContainText('no payment was confirmed');await expect(readReview).toContainText(recoveryNote);await expect(readReview.locator('img')).toHaveCount(0);
+    await expect(notifications.locator('.payment-untrusted-notifications')).toContainText('RETRY');await expect(readReview.getByRole('button',{ name:'Approve independent read recovery',exact:true })).toBeDisabled();
+    const source=(await (await page.request.get(path+'/untrusted-notifications')).json()).items[0];const readHistoryPath=path+'/untrusted-notifications/'+source.id+'/read-history';
+    const safeHistory=await page.request.get(readHistoryPath);expect((await safeHistory.json()).recoveries).toHaveLength(1);
+    for(const hidden of ['AlmaBrowserNotificationsKey','ciphertext','nonce','auth_tag','actor_session_id'])expect(await safeHistory.text()).not.toContain(hidden);
+    expect((await control(page)).paymentCalls).toBe(after.paymentCalls);
     await detailPanel.getByRole('button',{ name:'Disable Alma callback',exact:true }).click();await expect(detailPanel.getByRole('button',{ name:'Reconnect Alma callback',exact:true })).toBeEnabled();
     expect((await page.request.get(callback+'?pid=payment_BrowserNotification')).status()).toBe(410);
     await notifications.getByRole('button',{ name:'Prepare Alma callback',exact:true }).click();await expect(detailPanel.getByRole('button',{ name:'Reconnect Alma callback',exact:true })).toBeEnabled();
@@ -1459,6 +1472,8 @@ test('browser manages Alma unsigned IPN callbacks and unverified history without
     const endpointRows=(await (await page.request.get(path+'/notification-endpoints')).json()).items;expect(endpointRows.length).toBe(2);expect(endpointRows.find((e:any)=>e.id===original.id).current).toBe(false);
     const second=await browser.newContext({ extraHTTPHeaders:{ 'x-e2e-rate-scope':randomUUID() } });try { const unauthorized=await second.newPage();await login(unauthorized,'second');
       for(const suffix of ['/notification-endpoints','/untrusted-notifications','/notification-endpoints/'+original.id+'/history'])expect((await unauthorized.request.get(path+suffix)).status()).toBe(403);
+      expect((await unauthorized.request.get(readHistoryPath)).status()).toBe(403);
+      expect((await unauthorized.request.post(path+'/untrusted-notifications/'+source.id+'/recover',{ data:{ connectionVersion:4,reason:'Unauthorized read recovery' },headers:{ origin:'http://127.0.0.1:4100' } })).status()).toBe(403);
       expect((await unauthorized.request.post(path+'/notification-endpoints',{ data:{ connectionVersion:4,reason:'Unauthorized configuration' },headers:{ origin:'http://127.0.0.1:4100' } })).status()).toBe(403);
     }finally { await second.close(); }
     await page.getByRole('combobox',{ name:'Language' }).selectOption('fr');await expect(notifications).toContainText('Notifications non vérifiées');await expect(notifications).toContainText('sans preuve financière');

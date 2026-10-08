@@ -1,5 +1,11 @@
 # دليل التشغيل والتطوير
 
+## Alma read-only recovery — checkpoint085
+
+بعد migrations001–085، من Payment setup → Alma، أصلح key من داخل المنصة وافحص Authentication لنفس original Merchant/Mode. في الإشعارات غير المتحققة اختر **تاريخ الفحص المستقل**، وراجع state/error/attempts ثم أدخل **سبب إعادة الفحص المالي** واضغط **السماح بإعادة الفحص المستقل** عندما تكون Needs Attention. هذه موافقة reads محدودة، وليست تأكيد دفع. لا تستخدم DB/CLI لإعادة تهيئة budget أوintent أوPOST. عند الاستنفاد تضيف الموافقة خمس reads مع إبقاء التاريخ؛ المفتاح لا يظهر بعد الحفظ.
+
+Wrong account/mode/current version/auth/session تُرفض؛ صحّح الاتصال واختبره قبل الموافقة. تابع history من الواجهة، والموافقة المتزامنة لا تتكرر. 147/57/25 وfocused1/1 و001–085/build/typecheck ناجحة محليًا؛ production read tick/Alma Checkout وLead مالية لم تُفعّل بعد، ولا financial Browser end-to-end أوLive verification. **Live Verification Pending External Credential/Approval**.
+
 ## Actual independent read worker — checkpoint084
 
 Migrations001–084 و147unit/57PostgreSQL/25Edge regression ناجحة. Original credential anchor وread worker/UNKNOWN reconciliation مثبتةباستخدامactual HTTP mocks؛function تعملصراحةفيintegration،ولاproduction read tick أوAlma Checkout/Lead financial UI بعد. Read retry/poll budget5 وmerchant lease60s قيمtechnical قابلةللمراجعةبقياساتالبيئة،ليستbusiness capacity أوLive Verification.

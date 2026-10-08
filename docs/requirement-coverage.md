@@ -1,5 +1,11 @@
 # مصفوفة تغطية المتطلبات
 
+> أحدث checkpoint2026-10-08: **147 unit /57 full PostgreSQL integration /25 Edge Browser E2E** وfocused Alma Browser1/1، migrations001–085 وBackend/Web build/typecheck ناجحة. Read-only credential recovery من Backend/DB/Setup UI مثبتة محليًا؛ Alma financial Lead API/UI وproduction registry/entrypoint والـfinancial Browser باقية. **Live Verification Pending External Credential/Approval**؛ لا external Sandbox account أوLive claim. الأعداد والمراحل التالية تاريخية.
+
+| إضافة checkpoint | التنفيذ المثبت | الاختبارات وحدود الحالة |
+|---|---|---|
+| Alma read-only credential recovery،02 §§61–63/73–76،03 §§36–37/81،06 §14،AGENTS §§8/14–16/27/28/32/38–40 | 085 native current Manager/Super Admin session/scope/auth/original Merchant-Mode، immutable encrypted recovery snapshot/atomic Audit، five-read extension عند الاستنفاد فقط، retained attempts/per-attempt credential reference، scoped API وpaginated safe history وsetup inbox ar/en/fr؛ IPN UNVERIFIED ولا second financial POST | PostgreSQL actual new key بعد rotation، expired/revoked native session/foreign identity-version-attempt/Agent/Branch/claim denial، 4-way approval concurrency، Audit rollback/immutable encrypted history/pagination، attempt6 → Confirmed/one Enrollment؛ Browser review→explicit approval→RETRY/safe history/XSS escaping/Agent denial/French/Arabic390px. 147/57/25 وfocused1/1 و001–085/build/typecheck ناجحة. Implemented وMock/Sandbox Verified محليًا لهذه recovery فقط؛ financial Lead API/UI/Browser وproduction activation باقية |
+
 > أحدث checkpoint2026-10-08: **147unit/57 full PostgreSQL integration/25 Edge Browser E2E** وmigrations001–084 وBackend/Web build/typecheck ناجحة. Actual independent read worker/UNKNOWN reconciliation مثبتتان محليًا معHTTP mocks،بدونexternal Sandbox account. Production entrypoint/Alma Checkout registry وfinancial Lead UI/Browser/recovery باقية؛Live Verification Pending External Credential/Approval. الأعداد التالية تاريخية.
 
 | إضافة checkpoint | التنفيذ المثبت | الاختبارات وحدود الحالة |

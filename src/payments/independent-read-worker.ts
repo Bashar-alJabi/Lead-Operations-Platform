@@ -1,12 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import type postgres from 'postgres';
 import type { Database } from '../db.js';
+import { openOpaque } from '../credentials.js';
 import { PaymentCheckoutError,type CheckoutIntent,type CheckoutSnapshot } from './checkout-provider.js';
 import { checkoutInput,historicalPaymentCredentials } from './dispatch-worker.js';
 import { almaHostedAdapter } from './alma-hosted.js';
 import { almaIndependentCheckoutSnapshot } from './alma-checkout.js';
 import { persistIndependentPaymentConfirmation } from './independent-confirmation.js';
-import type { PaymentConfig,PaymentCredentials } from './providers.js';
+import { validatePaymentCredentials,type PaymentConfig,type PaymentCredentials } from './providers.js';
 
 export type PaymentIndependentReadAdapter={
   retrieve(config:PaymentConfig,credentials:PaymentCredentials,account:string,resource:string):Promise<CheckoutSnapshot>;
@@ -43,14 +44,20 @@ export async function processOneIndependentPaymentRead(db:Database,adapters=inde
       WHERE n.id=${j.notification_id}`)[0]! as ReadContext;
     if(j.state==='RUNNING') {
       await tx`UPDATE payment_independent_read_attempt SET state='INTERRUPTED',finished_at=clock_timestamp(),error_code='PAYMENT_WORKER_INTERRUPTED' WHERE id=${j.lease_token} AND state='RUNNING'`;
-      await finish(tx,n,j.attempts<5 ? 'RETRY' : 'NEEDS_ATTENTION','PAYMENT_WORKER_INTERRUPTED',2000);await releaseMerchant(tx,n,j.lease_token);return { recovered:true as const };
+      await finish(tx,n,j.attempts<j.attempt_limit ? 'RETRY' : 'NEEDS_ATTENTION','PAYMENT_WORKER_INTERRUPTED',2000);await releaseMerchant(tx,n,j.lease_token);return { recovered:true as const };
     }
     const anchor=(await tx`SELECT i.* FROM payment_notification_credential_anchor a JOIN payment_link_intent i ON i.id=a.intent_id WHERE a.endpoint_id=${n.endpoint_id}`)[0];
+    const repair=(await tx`SELECT * FROM payment_independent_read_credential WHERE notification_id=${n.id} AND provider=${n.provider}
+      AND account_ref=${n.account_ref} AND mode=${n.mode} AND attempt_before<=${j.attempts} ORDER BY attempt_before DESC LIMIT 1`)[0];
     const adapter=adapters[n.provider];
-    if(!anchor || !adapter || j.attempts>=5) {
-      await finish(tx,n,'NEEDS_ATTENTION',!anchor ? 'PAYMENT_READ_ORIGINAL_CREDENTIAL_REQUIRED' : !adapter ? 'PAYMENT_READ_UNSUPPORTED' : 'PAYMENT_READ_ATTEMPTS_EXHAUSTED');return { recovered:true as const };
+    if((!anchor && !repair) || !adapter || j.attempts>=j.attempt_limit) {
+      await finish(tx,n,'NEEDS_ATTENTION',!anchor && !repair ? 'PAYMENT_READ_ORIGINAL_CREDENTIAL_REQUIRED' : !adapter ? 'PAYMENT_READ_UNSUPPORTED' : 'PAYMENT_READ_ATTEMPTS_EXHAUSTED');return { recovered:true as const };
     }
-    let credentials:PaymentCredentials;try { credentials=historicalPaymentCredentials(anchor); }
+    const config:PaymentConfig=repair ? { mode:repair.mode } : anchor!.config_snapshot;
+    let credentials:PaymentCredentials;try {
+      credentials=repair ? JSON.parse(openOpaque('payment-independent-repair:'+repair.id,{ ciphertext:repair.ciphertext,nonce:repair.nonce,authTag:repair.auth_tag,keyVersion:repair.key_version })) : historicalPaymentCredentials(anchor!);
+      validatePaymentCredentials(config,credentials,n.provider);
+    }
     catch { await finish(tx,n,'NEEDS_ATTENTION','PAYMENT_CREDENTIALS_INVALID');return { recovered:true as const }; }
     await tx`INSERT INTO payment_merchant_lease(provider,account_ref,mode) VALUES (${n.provider},${n.account_ref},${n.mode}) ON CONFLICT DO NOTHING`;
     const merchant=(await tx`SELECT token FROM payment_merchant_lease WHERE provider=${n.provider} AND account_ref=${n.account_ref} AND mode=${n.mode}
@@ -58,8 +65,8 @@ export async function processOneIndependentPaymentRead(db:Database,adapters=inde
     const token=randomUUID();await tx`UPDATE payment_merchant_lease SET token=${token},expires_at=clock_timestamp()+interval '60 seconds'
       WHERE provider=${n.provider} AND account_ref=${n.account_ref} AND mode=${n.mode}`;
     await tx`UPDATE payment_independent_read_job SET state='RUNNING',attempts=attempts+1,lease_token=${token},lease_until=clock_timestamp()+interval '60 seconds',error_code=NULL WHERE notification_id=${n.id}`;
-    await tx`INSERT INTO payment_independent_read_attempt(id,notification_id,number) VALUES (${token},${n.id},${j.attempts+1})`;
-    return { recovered:false as const,n,token,number:j.attempts+1,credentials,config:anchor.config_snapshot as PaymentConfig,adapter };
+    await tx`INSERT INTO payment_independent_read_attempt(id,notification_id,number,credential_repair_id) VALUES (${token},${n.id},${j.attempts+1},${repair?.id ?? null})`;
+    return { recovered:false as const,n,token,number:j.attempts+1,limit:j.attempt_limit,credentials,config,adapter };
   });
   if(!claim)return false;if(claim.recovered)return true;
   let snapshot:CheckoutSnapshot|null=null;let error:PaymentCheckoutError|null=null;
@@ -70,7 +77,7 @@ export async function processOneIndependentPaymentRead(db:Database,adapters=inde
     const j=(await tx`SELECT * FROM payment_independent_read_job WHERE notification_id=${claim.n.id} FOR UPDATE`)[0]!;
     if(j.state!=='RUNNING' || j.lease_token!==claim.token)return;
     if(!snapshot) {
-      const retry=error!.certainty!=='REJECTED' && claim.number<5;
+      const retry=error!.certainty!=='REJECTED' && claim.number<claim.limit;
       await tx`UPDATE payment_independent_read_attempt SET state=${retry ? 'RETRYABLE' : 'REJECTED'},error_code=${error!.code},finished_at=clock_timestamp() WHERE id=${claim.token}`;
       await finish(tx,claim.n,retry ? 'RETRY' : 'NEEDS_ATTENTION',error!.code,Math.min(60000,2000*2**(claim.number-1)));await releaseMerchant(tx,claim.n,claim.token);return;
     }
@@ -86,7 +93,7 @@ export async function processOneIndependentPaymentRead(db:Database,adapters=inde
     await persistIndependentPaymentConfirmation(tx,i,claim.token,snapshot);
     await tx`UPDATE payment_independent_read_attempt SET state='VERIFIED',finished_at=clock_timestamp() WHERE id=${claim.token}`;
     const pending=snapshot.status==='OPEN';const review=snapshot.status==='COMPLETE' && snapshot.paymentStatus!=='PAID';
-    await finish(tx,claim.n,pending ? claim.number<5 ? 'RETRY' : 'NEEDS_ATTENTION' : review ? 'NEEDS_ATTENTION' : 'PROCESSED',
+    await finish(tx,claim.n,pending ? claim.number<claim.limit ? 'RETRY' : 'NEEDS_ATTENTION' : review ? 'NEEDS_ATTENTION' : 'PROCESSED',
       pending ? 'PAYMENT_READ_WAITING_FINALIZATION' : review ? 'PAYMENT_CAPTURE_MISMATCH' : null,pending ? Math.min(60000,2000*2**(claim.number-1)) : 0);
     await releaseMerchant(tx,claim.n,claim.token);
   });return true;

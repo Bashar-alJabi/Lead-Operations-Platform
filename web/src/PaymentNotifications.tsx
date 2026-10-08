@@ -1,7 +1,10 @@
 import { useEffect,useRef,useState } from 'react';
 type Locale='ar'|'en'|'fr';type Api=<T>(path:string,options?:RequestInit)=>Promise<T>;
 type Endpoint={ id:string;version:number;connection_version:number;account_ref:string;mode:string;state:string;callback_url:string;current:boolean;publicHttps:boolean };
-type Notification={ id:string;resource_id:string;mode:string;trust:'UNVERIFIED';received_at:string };
+type Notification={ id:string;resource_id:string;mode:string;trust:'UNVERIFIED';received_at:string;read_state:string;read_error:string|null;read_attempts:number;read_attempt_limit:number };
+type ReadAttempt={ number:number;state:string;error_code:string|null;started_at:string };
+type Recovery={ id:string;connection_version:number;mode:string;account_ref:string;attempt_before:number;reason:string;created_at:string };
+type ReadHistory={ attempts:ReadAttempt[];recoveries:Recovery[];nextAttempt:number|null;nextRecovery:number|null };
 type History={ version:number;state:string;reason:string;created_at:string };
 const labels={
   ar:{ title:'إشعارات Alma',guide:'Alma ترسل GET غير موقّعة مع pid إلى callback المرفقة بطلب الدفع. جهّز العنوان هنا؛ ستُرفق عند إصدار الدفع من المنصة. لا يوجد سر توقيع أوفحص مزوّر لهوية المرسل. الإشعار وعودة العميل وادعاؤه ليست إثبات دفع؛ يلزم فحص مالي مستقل من المزود.',
@@ -23,6 +26,11 @@ const labels={
     reason:'Motif de changement des notifications Alma',prepare:'Préparer le callback Alma',refresh:'Actualiser les notifications Alma',review:'Examiner le callback Alma',more:'Autres callbacks Alma',disable:'Désactiver le callback Alma',reconnect:'Réactiver le callback Alma',
     url:'URL callback Alma',copy:'Copier le callback Alma',copied:'Callback Alma copié',current:'Configuration actuelle',yes:'Oui',no:'Non',version:'Version',history:'Historique du callback Alma',moreHistory:'Suite de l’historique Alma',received:'Notifications non vérifiées',moreEvents:'Autres notifications Alma',empty:'Aucun callback Alma.',emptyEvents:'Aucune notification reçue.',account:'Compte fournisseur',state:'État',status:'UNVERIFIED — réception seule, sans preuve financière' },
 };
+const recoveryLabels={
+  ar:{ title:'المراجعة المالية المستقلة',guide:'الإشعار يبقى UNVERIFIED. إعادة الفحص تستخدم مفتاح الاتصال الحالي بعد إثبات نفس حساب المزود والبيئة الأصليين. تمنح reads محدودة إضافية؛ لا تنشئ دفعًا جديدًا ولا تعيد POST أوتحذف المحاولات السابقة.',reason:'سبب إعادة الفحص المالي',recover:'السماح بإعادة الفحص المستقل',review:'تاريخ الفحص المستقل',refresh:'تحديث الفحص المستقل',more:'محاولات أقدم',moreRecovery:'موافقات أقدم',approved:'سُمح بإعادة فحص مستقلة؛ لم تُؤكّد دفعة.',attempts:'المحاولات',recoveries:'موافقات إعادة الفحص',empty:'لا تاريخ فحص بعد.' },
+  en:{ title:'Independent financial review',guide:'The notification stays UNVERIFIED. Recovery uses the current connection key only after verifying the original provider account and environment. It approves bounded additional reads; it never creates a new payment, replays POST or deletes earlier attempts.',reason:'Independent review recovery reason',recover:'Approve independent read recovery',review:'Independent read history',refresh:'Refresh independent read history',more:'Older read attempts',moreRecovery:'Older read approvals',approved:'Independent read recovery approved; no payment was confirmed.',attempts:'Attempts',recoveries:'Read recovery approvals',empty:'No read history yet.' },
+  fr:{ title:'Vérification financière indépendante',guide:'La notification reste UNVERIFIED. La reprise utilise la clé actuelle uniquement après vérification du compte et de l’environnement d’origine. Elle autorise des lectures supplémentaires limitées ; aucun nouveau paiement, aucun POST répété, aucun historique effacé.',reason:'Motif de reprise de lecture indépendante',recover:'Autoriser la reprise de lecture indépendante',review:'Historique de lecture indépendante',refresh:'Actualiser les lectures indépendantes',more:'Lectures antérieures',moreRecovery:'Autorisations antérieures',approved:'Reprise de lecture autorisée ; aucun paiement confirmé.',attempts:'Tentatives',recoveries:'Autorisations de reprise',empty:'Aucun historique de lecture.' },
+};
 export function PaymentNotifications({ connectionId,connectionVersion,canPrepare,locale,api }: {
   connectionId:string;connectionVersion:number;canPrepare:boolean;locale:Locale;api:Api
 }) {
@@ -31,6 +39,20 @@ export function PaymentNotifications({ connectionId,connectionVersion,canPrepare
   const [notifications,setNotifications]=useState<Notification[]>([]);const [notificationCursor,setNotificationCursor]=useState<string|null>(null);
   const [history,setHistory]=useState<History[]>([]);const [before,setBefore]=useState<number|null>(null);
   const [reason,setReason]=useState('');const [busy,setBusy]=useState(false);const [error,setError]=useState('');const [notice,setNotice]=useState('');
+  const r=recoveryLabels[locale];const readSelected=useRef<string|null>(null);
+  const [reviewId,setReviewId]=useState<string|null>(null);const [readHistory,setReadHistory]=useState<ReadHistory|null>(null);const [recoveryReason,setRecoveryReason]=useState('');
+  async function readReview(id:string,nextAttempt?:number|null,nextRecovery?:number|null) {
+    const g=generation.current;const query=new URLSearchParams();if(nextAttempt!=null)query.set('before',String(nextAttempt));if(nextRecovery!=null)query.set('beforeRecovery',String(nextRecovery));
+    const result=await api<ReadHistory>(root+'/untrusted-notifications/'+id+'/read-history'+(query.size ? '?'+query.toString() : ''));
+    if(g!==generation.current || readSelected.current!==id)return;
+    setReadHistory((p)=>({ attempts:nextAttempt!=null && p ? [...p.attempts,...result.attempts] : nextRecovery!=null && p ? p.attempts : result.attempts,
+      recoveries:nextRecovery!=null && p ? [...p.recoveries,...result.recoveries] : nextAttempt!=null && p ? p.recoveries : result.recoveries,
+      nextAttempt:nextRecovery!=null && p ? p.nextAttempt : result.nextAttempt,nextRecovery:nextAttempt!=null && p ? p.nextRecovery : result.nextRecovery }));
+  }
+  async function recover(id:string) {
+    try { await api(root+'/untrusted-notifications/'+id+'/recover',{ method:'POST',body:JSON.stringify({ connectionVersion,reason:recoveryReason }) });setNotice(r.approved); }
+    finally { await received();if(readSelected.current===id)await readReview(id); }
+  }
   async function load(next?:string) {
     const g=generation.current;const result=await api<{ items:Endpoint[];nextCursor:string|null }>(root+'/notification-endpoints'+(next ? '?cursor='+encodeURIComponent(next) : ''));
     if(g!==generation.current)return;setItems((p)=>next ? [...p,...result.items] : result.items);setCursor(result.nextCursor);
@@ -72,7 +94,22 @@ export function PaymentNotifications({ connectionId,connectionVersion,canPrepare
       {before && <button className="secondary" disabled={busy} onClick={()=>void run(()=>inspect(selected.id,before))}>{t.moreHistory}</button>}
     </section>}
     <h5>{t.received}</h5>{!notifications.length && <p>{t.emptyEvents}</p>}<ul className="payment-untrusted-notifications">{notifications.map((item)=><li key={item.id}><bdi>{item.resource_id}</bdi> · <bdi>{item.mode}</bdi>
-      <p>{t.status}</p><time>{new Date(item.received_at).toLocaleString(locale)}</time></li>)}</ul>
+      <p>{t.status}</p><time>{new Date(item.received_at).toLocaleString(locale)}</time>
+      <p><bdi>{item.read_state}</bdi> · {r.attempts} {item.read_attempts}/{item.read_attempt_limit} {item.read_error && <bdi>{item.read_error}</bdi>}</p>
+      <button className="secondary" disabled={busy} onClick={()=>void run(async()=>{ readSelected.current=item.id;setReviewId(item.id);setReadHistory(null);setRecoveryReason('');await readReview(item.id); })}>{r.review}</button>
+    </li>)}</ul>
     {notificationCursor && <button className="secondary" disabled={busy} onClick={()=>void run(()=>received(notificationCursor))}>{t.moreEvents}</button>}
+    {reviewId && <section className="payment-independent-review"><h5>{r.title}</h5><p>{r.guide}</p>
+      <label>{r.reason}<input aria-label={r.reason} maxLength={500} value={recoveryReason} disabled={busy} onChange={(e)=>setRecoveryReason(e.target.value)} /></label>
+      <button disabled={busy || !canPrepare || notifications.find((n)=>n.id===reviewId)?.read_state!=='NEEDS_ATTENTION' || recoveryReason.trim().length<3}
+        onClick={()=>void run(()=>recover(reviewId))}>{r.recover}</button>
+      <button className="secondary" disabled={busy} onClick={()=>void run(async()=>{ await received();await readReview(reviewId); })}>{r.refresh}</button>
+      {readHistory && <><h6>{r.attempts}</h6>{!readHistory.attempts.length && <p>{r.empty}</p>}<ul>{readHistory.attempts.map((a)=><li key={a.number}>
+        {a.number} · <bdi>{a.state}</bdi> · <bdi>{a.error_code}</bdi> · <time>{new Date(a.started_at).toLocaleString(locale)}</time></li>)}</ul>
+        {readHistory.nextAttempt!=null && <button className="secondary" disabled={busy} onClick={()=>void run(()=>readReview(reviewId,readHistory.nextAttempt))}>{r.more}</button>}
+        <h6>{r.recoveries}</h6><ul>{readHistory.recoveries.map((a)=><li key={a.id}><bdi>{a.account_ref}</bdi> · <bdi>{a.mode}</bdi> · {t.version} {a.connection_version} · {r.attempts} {a.attempt_before}<p>{a.reason}</p></li>)}</ul>
+        {readHistory.nextRecovery!=null && <button className="secondary" disabled={busy} onClick={()=>void run(()=>readReview(reviewId,null,readHistory.nextRecovery))}>{r.moreRecovery}</button>}
+      </>}
+    </section>}
   </section>;
 }

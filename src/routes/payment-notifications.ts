@@ -6,6 +6,8 @@ import { HttpError,principalFromRequest,requireRole,type Principal } from '../se
 import { currentPaymentSession } from '../payments/access.js';
 import { almaNotificationProfile,almaNotificationResource,paymentNotificationUrl,paymentNotificationAdmissionLimit } from '../payments/notifications.js';
 import { decodeCursor,encodeCursor } from '../pagination.js';
+import { openSecret,sealOpaque } from '../credentials.js';
+import { validatePaymentCredentials,type PaymentConfig,type PaymentCredentials } from '../payments/providers.js';
 
 const root='/api/payments/connections/:id';
 const params={ type:'object',additionalProperties:false,required:['id'],properties:{ id:{ type:'string',format:'uuid' } } } as const;
@@ -48,6 +50,52 @@ function pageResult(rows:postgres.Row[],limit:number,timeKey:string) {
   const items=rows.slice(0,limit);const last=items.at(-1);return { items,nextCursor:rows.length>limit && last ? encodeCursor({ timestamp:last[timeKey].toISOString(),id:last.id }) : null };
 }
 export function registerPaymentNotificationRoutes(app:FastifyInstance,db:Database):void {
+  const notificationParams={ ...params,required:['id','notificationId'],properties:{ ...params.properties,notificationId:{ type:'string',format:'uuid' } } } as const;
+  app.post<{ Params:{ id:string;notificationId:string };Body:{ connectionVersion:number;reason:string } }>(root+'/untrusted-notifications/:notificationId/recover',{
+    schema:{ params:notificationParams,body:{ type:'object',additionalProperties:false,required:['connectionVersion','reason'],properties:{ connectionVersion:version,reason } } },
+    config:{ rateLimit:{ max:20,timeWindow:'15 minutes' } },
+  },async(request)=> {
+    const actor=await principalFromRequest(request,db);const note=checkReason(request.body.reason);
+    return db.begin(async(tx)=> {
+      const { c,sessionId }=await managed(tx,actor,request,request.params.id,true);
+      if(c.version!==request.body.connectionVersion)throw new HttpError(409,'CONNECTION_VERSION_CONFLICT');
+      if(!await activeBranch(tx,c))throw new HttpError(409,'BRANCH_DISABLED');
+      const n=(await tx`SELECT n.*,e.account_ref FROM payment_untrusted_notification n JOIN payment_notification_endpoint e ON e.id=n.endpoint_id
+        WHERE n.id=${request.params.notificationId} AND n.connection_id=${c.id}`)[0];
+      if(!n)throw new HttpError(404,'PAYMENT_NOTIFICATION_NOT_FOUND');
+      const j=(await tx`SELECT * FROM payment_independent_read_job WHERE notification_id=${n.id} FOR UPDATE`)[0];
+      if(!j || j.state!=='NEEDS_ATTENTION')throw new HttpError(409,'PAYMENT_READ_RECOVERY_STATE_CONFLICT');
+      if(!['CONNECTED','WARNING'].includes(c.status) || c.config.mode!==n.mode || c.capabilities.authenticationVerified!==true
+        || c.capabilities.authenticationVersion!==c.version || c.capabilities.authentication?.accountRef!==n.account_ref
+        || c.capabilities.authentication?.mode!==n.mode)throw new HttpError(409,'PAYMENT_READ_ORIGINAL_ACCOUNT_REQUIRED');
+      const secret=(await tx`SELECT * FROM connection_secret WHERE connection_id=${c.id}`)[0];if(!secret)throw new HttpError(409,'PAYMENT_CREDENTIAL_MISSING');
+      const credentials=JSON.parse(openSecret(c.id,{ ciphertext:secret.ciphertext,nonce:secret.nonce,authTag:secret.auth_tag,keyVersion:secret.key_version })) as PaymentCredentials;
+      validatePaymentCredentials(c.config as PaymentConfig,credentials,c.provider);
+      const id=randomUUID();const sealed=sealOpaque('payment-independent-repair:'+id,JSON.stringify(credentials));
+      await tx`INSERT INTO payment_independent_read_credential(id,notification_id,connection_id,connection_version,provider,account_ref,mode,attempt_before,
+        actor_user_id,actor_session_id,actor_role,actor_branch_id,reason,ciphertext,nonce,auth_tag,key_version)
+        VALUES (${id},${n.id},${c.id},${c.version},${c.provider},${n.account_ref},${n.mode},${j.attempts},${actor.id},${sessionId},${actor.role},${actor.branchId},${note},
+          ${sealed.ciphertext},${sealed.nonce},${sealed.authTag},${sealed.keyVersion})`;
+      const limit=j.attempts===j.attempt_limit ? j.attempt_limit+5 : j.attempt_limit;
+      await tx`UPDATE payment_independent_read_job SET state='RETRY',attempt_limit=${limit},error_code=NULL,run_after=clock_timestamp() WHERE notification_id=${n.id}`;
+      return { recoveryId:id,state:'RETRY',attempts:j.attempts,attemptLimit:limit,trust:'UNVERIFIED',financialWrite:false };
+    });
+  });
+  app.get<{ Params:{ id:string;notificationId:string };Querystring:{ limit?:number;before?:number;beforeRecovery?:number } }>(root+'/untrusted-notifications/:notificationId/read-history',{
+    schema:{ params:notificationParams,querystring:{ type:'object',additionalProperties:false,properties:{ limit:{ type:'integer',minimum:1,maximum:100 },before:version,beforeRecovery:{ type:'integer',minimum:0 } } } },
+  },async(request)=> {
+    const actor=await principalFromRequest(request,db);return db.begin(async(tx)=> {
+      const { c }=await managed(tx,actor,request,request.params.id);
+      if(!(await tx`SELECT id FROM payment_untrusted_notification WHERE id=${request.params.notificationId} AND connection_id=${c.id}`).length)throw new HttpError(404,'PAYMENT_NOTIFICATION_NOT_FOUND');
+      const limit=request.query.limit ?? 20;
+      const attempts=await tx`SELECT number,state,error_code,started_at,finished_at,credential_repair_id FROM payment_independent_read_attempt
+        WHERE notification_id=${request.params.notificationId} AND (${request.query.before ?? null}::integer IS NULL OR number<${request.query.before ?? null}) ORDER BY number DESC LIMIT ${limit+1}`;
+      const recoveries=await tx`SELECT id,connection_version,account_ref,mode,attempt_before,actor_user_id,reason,created_at FROM payment_independent_read_credential
+        WHERE notification_id=${request.params.notificationId} AND (${request.query.beforeRecovery ?? null}::integer IS NULL OR attempt_before<${request.query.beforeRecovery ?? null}) ORDER BY attempt_before DESC LIMIT ${limit+1}`;
+      return { attempts:attempts.slice(0,limit),recoveries:recoveries.slice(0,limit),nextAttempt:attempts.length>limit ? attempts[limit-1]!.number : null,
+        nextRecovery:recoveries.length>limit ? recoveries[limit-1]!.attempt_before : null };
+    });
+  });
   app.get<{ Params:{ id:string };Querystring:Page }>(root+'/notification-endpoints',{ schema:{ params,querystring:pageSchema } },async(request)=> {
     const actor=await principalFromRequest(request,db);const limit=request.query.limit ?? 20;const cursor=decodeCursor(request.query.cursor);
     return db.begin(async(tx)=> { const { c }=await managed(tx,actor,request,request.params.id);const active=await activeBranch(tx,c);
@@ -111,9 +159,10 @@ export function registerPaymentNotificationRoutes(app:FastifyInstance,db:Databas
   app.get<{ Params:{ id:string };Querystring:Page }>(root+'/untrusted-notifications',{ schema:{ params,querystring:pageSchema } },async(request)=> {
     const actor=await principalFromRequest(request,db);const limit=request.query.limit ?? 20;const cursor=decodeCursor(request.query.cursor);
     return db.begin(async(tx)=> { const { c }=await managed(tx,actor,request,request.params.id);
-      const rows=await tx`SELECT id,endpoint_id,resource_id,profile,mode,trust,received_at FROM payment_untrusted_notification WHERE connection_id=${c.id}
-        AND (${cursor?.timestamp ?? null}::timestamptz IS NULL OR (received_at,id)<(${cursor?.timestamp ?? null}::timestamptz,${cursor?.id ?? null}::uuid))
-        ORDER BY received_at DESC,id DESC LIMIT ${limit+1}`;return pageResult(rows,limit,'received_at'); });
+      const rows=await tx`SELECT n.id,n.endpoint_id,n.resource_id,n.profile,n.mode,n.trust,n.received_at,j.state AS read_state,j.error_code AS read_error,
+        j.attempts AS read_attempts,j.attempt_limit AS read_attempt_limit FROM payment_untrusted_notification n LEFT JOIN payment_independent_read_job j ON j.notification_id=n.id
+        WHERE n.connection_id=${c.id} AND (${cursor?.timestamp ?? null}::timestamptz IS NULL OR (n.received_at,n.id)<(${cursor?.timestamp ?? null}::timestamptz,${cursor?.id ?? null}::uuid))
+        ORDER BY n.received_at DESC,n.id DESC LIMIT ${limit+1}`;return pageResult(rows,limit,'received_at'); });
   });
   // Alma IPN is unsigned GET. Never turn it into a signed receipt or accept monetary claims.
   app.get<{ Params:{ endpointId:string };Querystring:{ pid:string } }>('/api/webhooks/payments/alma/:endpointId',{

@@ -1,5 +1,11 @@
 # تكامل Alma
 
+## Read-only credential recovery — checkpoint085 مثبتة 2026-10-08
+
+Manager/Super Admin من نفس Connection scope يختار notification بحالة Needs Attention، ويقدم سببًا بعد اختبار authentication الحالية. Backend وnative DB يثبتان current session/config version ونفس Merchant/Mode الأصليين؛ لا إصلاح إلى حساب أوبيئة مختلفة. Credential snapshot مشفّرة وimmutable، مع Audit وموافقة تاريخية؛ تُستخدم للقراءة فقط ويُحفظ مرجعها في attempt. لا تغيير للأصل ولا second POST أوreset للتاريخ. عند استنفاد budget تمنح الموافقة خمس reads إضافية؛ خلاف ذلك تستأنف ضمن budget الباقية.
+
+Setup inbox/history وapproval ar/en/fr وصفحات attempts/recoveries محدودة، بلا keys/session references. IPN تبقى UNVERIFIED والموافقة ليست proof؛ captured independent read المطابقة وحدها تؤكد Payment/Enrollment. Gates:147 unit/57 full Docker PostgreSQL/25 Edge وfocused1/1 و001–085/build/typecheck. Tests تثبت native current-session/identity/version، concurrent single approval/Audit rollback، encrypted history/pagination/new-key attempt6 → Confirmed دون create، وBrowser approval/safe history/ACL/escaping/RTL. **Mock/Sandbox Verified محليًا دون external Sandbox account**؛ Lead issuance/financial UI/Browser وregistry/entrypoint activation التالية، وLive Verification Pending External Credential/Approval.
+
 ## Actual independent read worker — checkpoint مثبتة 2026-10-08
 
 بعد084،original endpoint credential anchor تشير إلى immutable intent snapshot وتبقى ثابتةبعدConnection rotation/disable. Actual Merchant+Payment GET تعيدsafe candidate ذاتGUID/money/plan/status/refund فقط؛لاraw PII أوcustomer hint. Worker تحسمoriginal intent/Connection/account-mode/money-plan/known resource وnative one-write proof،ثمnative confirmation→shared Payment/separate Enrollment؛حتىUNKNOWN بلاACK يمكنتسويتها،ولاsecond create أوfake receipt.
