@@ -10,7 +10,8 @@ import { paymentIssuanceOptions } from './issuance-profile.js';
 export type CheckoutAdapters=Readonly<Record<string,PaymentCheckoutAdapter>>;
 export function checkoutInput(i:postgres.Row):CheckoutIntent {
   return { id:i.id,accountRef:i.account_ref,name:i.method_name,successUrl:i.success_url,cancelUrl:i.cancel_url,
-    money:{ amount:i.amount,currency:i.currency,minor:i.minor,scale:i.scale,quantum:i.quantum } };
+    money:{ amount:i.amount,currency:i.currency,minor:i.minor,scale:i.scale,quantum:i.quantum },
+    ...(i.selected_plan ? { plan:i.selected_plan,ipnUrl:i.notification_url } : {}) };
 }
 export function historicalPaymentCredentials(i:postgres.Row):PaymentCredentials {
   const credentials=JSON.parse(openOpaque('payment-link:'+i.id,{ ciphertext:i.ciphertext,nonce:i.nonce,authTag:i.auth_tag,keyVersion:i.key_version })) as PaymentCredentials;
@@ -28,6 +29,7 @@ export async function dispatchIssue(tx:postgres.TransactionSql,i:postgres.Row):P
   const b=(await tx`SELECT active FROM branch WHERE id=${i.branch_id} FOR SHARE`)[0];
   const m=(await tx`SELECT * FROM payment_method WHERE id=${i.method_id} FOR SHARE`)[0];
   const w=(await tx`SELECT * FROM payment_webhook WHERE id=${i.webhook_id} FOR SHARE`)[0];
+  const n=i.provider==='ALMA' ? (await tx`SELECT * FROM payment_notification_endpoint WHERE id=${i.notification_endpoint_id} FOR SHARE`)[0] : null;
   const l=(await tx`SELECT * FROM lead WHERE id=${i.lead_id} FOR SHARE`)[0];
   const u=(await tx`SELECT * FROM user_account WHERE id=${i.requester_id} FOR SHARE`)[0];
   const s=(await tx`SELECT id FROM user_session WHERE id=${i.requester_session_id} AND user_id=${i.requester_id}
@@ -47,7 +49,10 @@ export async function dispatchIssue(tx:postgres.TransactionSql,i:postgres.Row):P
     if(offered.accountRef!==i.account_ref || !offered.currencies.includes(i.currency) || ('chargesEnabled' in offered && !offered.chargesEnabled))return 'PAYMENT_CONNECTION_CHANGED';
   }catch { return 'PAYMENT_CONNECTION_CHANGED'; }
   const probe=w ? (await tx`SELECT state FROM payment_webhook_probe WHERE webhook_id=${w.id} ORDER BY probe_number DESC LIMIT 1`)[0] : null;
-  if(!w || w.state!=='CONFIGURED' || w.version!==i.webhook_version || w.connection_version!==i.connection_version
+  if(i.provider==='ALMA') {
+    if(!n || n.state!=='ENABLED' || n.version!==i.notification_endpoint_version || n.connection_version!==i.connection_version
+      || n.connection_id!==i.connection_id || n.account_ref!==i.account_ref || n.mode!==i.mode || n.callback_url!==i.notification_url)return 'PAYMENT_NOTIFICATION_CHANGED';
+  }else if(!w || w.state!=='CONFIGURED' || w.version!==i.webhook_version || w.connection_version!==i.connection_version
     || !w.last_signed_at || probe?.state!=='VERIFIED')return 'PAYMENT_WEBHOOK_CHANGED';
   // Session expiration can occur while the later probe query executes.
   if(!(await tx`SELECT id FROM user_session WHERE id=${i.requester_session_id} AND revoked_at IS NULL AND expires_at>clock_timestamp()`).length)
@@ -92,7 +97,8 @@ export async function processOnePaymentDispatch(db:Database,adapters:CheckoutAda
     }
     if(issue) { await finishState(tx,i,paymentAttemptUncertain(evidence) ? 'NEEDS_ATTENTION' : 'BLOCKED',issue);return { recovered:true as const }; }
     const adapter=adapters[i.provider];if(!adapter) { await finishState(tx,i,'BLOCKED','PAYMENT_CHECKOUT_UNSUPPORTED');return { recovered:true as const }; }
-    const policy:PaymentDispatchPolicy=d.policy ?? { maxAttempts:5,retentionMs:adapter.idempotencyRetentionMs,dispatchBudgetMs:adapter.dispatchBudgetMs ?? 20000,retryBaseMs:2000,retryMaxMs:60000 };
+    const policy:PaymentDispatchPolicy=d.policy ?? { maxAttempts:adapter.writeReplay==='NEVER' ? 1 : 5,retentionMs:adapter.idempotencyRetentionMs,
+      dispatchBudgetMs:adapter.dispatchBudgetMs ?? 20000,retryBaseMs:2000,retryMaxMs:60000,...(adapter.writeReplay==='NEVER' ? { writeReplay:'NEVER' as const } : {}) };
     const now=await paymentDbClock(tx);const window=paymentDispatchWindow({ nowMs:now,firstDispatchMs:d.first_dispatch_ms===null ? null : Number(d.first_dispatch_ms),history:evidence,policy });
     if(!window.allowed) { await finishState(tx,i,paymentAttemptUncertain(evidence) ? 'NEEDS_ATTENTION' : 'FAILED',window.reason);return { recovered:true as const }; }
     // A blocked merchant is skipped without consuming an attempt or an idempotency window.
@@ -117,7 +123,16 @@ export async function processOnePaymentDispatch(db:Database,adapters:CheckoutAda
   if(!claim)return false;if(claim.recovered)return true;
   let result:CheckoutSnapshot|null=null;let error:PaymentCheckoutError|null=null;
   // No database transaction or locks survive across network I/O.
-  try { result=await claim.adapter.create(claim.i.config_snapshot,claim.credentials,checkoutInput(claim.i)); }
+  try { result=await claim.adapter.create(claim.i.config_snapshot,claim.credentials,checkoutInput(claim.i),
+    claim.i.provider==='ALMA' ? async()=>db.begin(async(tx)=> {
+      const d=(await tx`SELECT * FROM payment_dispatch WHERE intent_id=${claim.i.id} FOR UPDATE`)[0];
+      if(!d || d.state!=='RUNNING' || d.lease_token!==claim.token || (await dispatchIssue(tx,claim.i)))return false;
+      if((await tx`SELECT intent_id FROM payment_write_admission WHERE intent_id=${claim.i.id}`).length)return false;
+      // The trigger rechecks current native authorization, both leases, budget and immutable policy.
+      // Its audit is in this transaction. Any failure rolls back the admission before provider POST.
+      await tx`INSERT INTO payment_write_admission(intent_id,attempt_id) VALUES (${claim.i.id},${claim.token})`;
+      return true;
+    }) : undefined); }
   catch(e) { error=e instanceof PaymentCheckoutError ? e : new PaymentCheckoutError('PAYMENT_PROVIDER_UNAVAILABLE','UNKNOWN'); }
   await db.begin(async(tx)=> {
     const d=(await tx`SELECT * FROM payment_dispatch WHERE intent_id=${claim.i.id} FOR UPDATE`)[0]!;

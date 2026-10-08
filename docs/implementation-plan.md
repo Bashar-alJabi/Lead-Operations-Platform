@@ -1,5 +1,7 @@
 # خطة التنفيذ
 
+**أحدث checkpoint2026-10-08: Alma native durable issuance** ثابتةب145unit/57PostgreSQL/25Edge regression وmigrations001–082/build/typecheck. Immutable selected plan/unsigned context،NEVER max1/null retention،native one-write admission/current scope-session-lease-budget/Audit وworker بعدpreflight منفذةومختبرة بحقنactual adapter؛production registry/financial Lead UI/confirmation غيرمفعلة. التاليgeneric independent-read job/attempt/proof boundary منفصلةعنsigned receipts،original Merchant/exact intent-money-plan captured→native Payment/separate Enrollment/history/read-only credential repair وLead UI/end-to-end gates. IPN تبقىUNVERIFIED وUNKNOWN دونreplay؛ثمBank Transfer،ولاoptional provider refinements. Live Verification Pending External Credential/Approval.
+
 المراحل أدناه ترتيب تقني للعمل، ولا تُسقط أي متطلب من النطاق النهائي. بعد كل مرحلة: migration، build/typecheck، اختبارات القواعد والصلاحيات والفشل، تشغيل فعلي، ثم تحديث Coverage Matrix.
 
 1. **الأساس التشغيلي والأمني:** workspace، PostgreSQL migration runner، الإعداد، health، audit، bootstrap وsessions وreset، Roles وbranch isolation.

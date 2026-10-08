@@ -1,5 +1,11 @@
 # تكامل Alma
 
+## Native durable issuance — checkpoint مثبتة 2026-10-08
+
+Migration082 تحفظ immutable selected plan/merchant/exact EUR/notification context دونsigned webhook مصطنعة. Generic worker تدعمNEVER/maxAttempts1/retention=null؛بعدfresh preflight تحفظadmission native ذاتone intent/attempt معcurrent requester/session/assignment/Method/config/endpoint version،lease-token وshared Merchant lease وremainingHTTP budget بساعةDB،وAudit native ذريةقبلPOST. Missing/refused/failed admission تمنعwrite؛lost response أوworker interruption تنتقلNeeds Attention ولاsecond create. Late ACK بعدrecovery لا تعيدdispatch accepted. الأصلencrypted ومحفوظ،ولاfallback لحسابآخر.
+
+145unit/57full PostgreSQL/25Edge regression/build/typecheck و001–082 ناجحة؛2unit وintegration جديدةactual Alma HTTP mocks تشملconcurrency/late revocation/native scope-policy-money-plan-budget-lease/session/immutable history/Audit rollback/lost ACK/interrupted worker/rotation/no Payment or Enrollment. **Mock/Sandbox Verified محليًا دونexternal Sandbox account**؛production registry وfinancial Lead UI/confirmation/Payment/Enrollment/repair لمتُفعّل. التاليindependent-read proof/job boundary منفصلةعنsigned receipt ثمcaptured→native Payment/Enrollment والUI/end-to-end gates؛Live Verification Pending External Credential/Approval.
+
 ## Post-preflight admission — عقد مثبتة 2026-10-08
 
 `almaHostedAdapter.create` تتطلب `AlmaCreateAdmission` منApplication Service؛لاdefault permissive callback. بعدsuccessful fresh Merchant/eligibility،وقبلPOST المالية مباشرة،يجب أن تعيدcallback `true` فقط بعدcurrent authorization وdurable one-write admission. Missing callback تفشل قبلI/O،false تعنيaccess denied قبلwrite،وexception أوunexpected result تفشلclosed بfinite code دونprovider/application secrets. Preflight refusal لا تستدعيcallback ولاwrite.

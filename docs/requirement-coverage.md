@@ -1,5 +1,11 @@
 # مصفوفة تغطية المتطلبات
 
+> أحدث checkpoint2026-10-08: **145unit/57 full PostgreSQL integration/25 Edge Browser E2E** وmigrations001–082 وBackend/Web build/typecheck ناجحة. Alma durable one-write/worker مثبتة محليًا بحقنactual adapter،ولاproduction registry activation أوAlma financial UI/confirmation/Enrollment من هذه المرحلة. Browser regression للمسارات القائمة؛Live Verification Pending External Credential/Approval. الأعداد التالية سياقات تاريخية.
+
+| إضافة checkpoint | التنفيذ المثبت | الاختبارات وحدود الحالة |
+|---|---|---|
+| Alma native durable issuance،02 §§60–63،03 §§35–37،06 §14،AGENTS §§8/15/16/27/28/38–40 | immutable selected-plan intent/unsigned source،082 native NEVER max1/null retention/one-write marker/current scope-session-config-leases-budget/native atomic Audit؛worker post-preflight admission/lost reply/interruption→Needs Attention بلاreplay؛creation ACK UNPAID وsingle independent read snapshot؛signed Stripe/PayPal guards محفوظة | 2unit جديدة؛PostgreSQL actual HTTP mocks و8-worker concurrency/late revocation/native fences/Audit rollback/lost ACK/interruption/no financial records؛145/57/25 regression ناجحة. Implemented وMock/Sandbox Verified محليًا،لاexternal Sandbox account. production activation/independent native financial proof/Payment/Enrollment/repair/Lead UI وfinancial Browser باقية؛Live Verification Pending External Credential/Approval |
+
 > أحدث تحقق2026-10-08: **143unit/56 full PostgreSQL integration/25 Edge Browser E2E** وmigrations001–081 وBackend/Web build/typecheck ناجحة. أضيفت حماية post-preflight admission والتثبيت عبرI/O،مثبتة Unit/HTTP Mock فقط؛full integration/Browser regression للمسارات القائمة. لا native Alma financial flow أوLive Verification من هذه المرحلة. الأعداد أدناه تحفظ سياق checkpoints التاريخية.
 
 | إضافة checkpoint | التنفيذ المثبت | الاختبارات وحدود الحالة |

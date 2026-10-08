@@ -1,5 +1,11 @@
 # دليل التشغيل والتطوير
 
+## Alma durable issuance boundary — checkpoint 2026-10-08
+
+طبّق migration082 معالبقيةعلىبيئةمحددة؛لاعدل081 أوintent/history بعدالتطبيق. One-write marker وnative Audit/current authorization بعدpreflight مثبتةباختباراتlocal mocks/PostgreSQL،لكنAlma ليستفيproduction financial registry أوLead issuance UI حتىاكتمالconfirmation/Enrollment/repair. لاتستخدمcredentials حقيقيةلهذهالبوابة.
+
+UNKNOWN أوworker interruption تعنيNeeds Attention؛لاreset job/attempt/marker أوsecond create أوinvented idempotency key. Original-account independent read هوالخطوةالتاليةللتسوية،ولم يُربطماليًا بعد. رجوع العميل/authorized/ACK/IPN UNVERIFIED لاPayment proof. اختبارات145/57/25 و001–082 ثابتة؛Browser regression فقطلاAlmafinancialE2E،Live Verification Pending External Credential/Approval.
+
 ## إعداد واستقبال إشعارات Alma غير الموقّعة — checkpoint مثبتة 2026-10-08
 
 بعد migration081 ومن Payment setup → Alma افحص Authentication، وأدخل سببًا ثم **تجهيز callback لـAlma**. العنوان server-generated من أصل التطبيق ويُرفق بطلب الدفع عند اكتمال issuance؛ لا يُطلب سر توقيع أوتعديل source/DB من الإدارة. HTTP المحلي ليس استقبالًا عامًا من Alma. نسخ URL وتفعيلها لا يثبت وصولًا حيًا أوالدفع، وAlma المالية لا تزال غير مفعّلة.

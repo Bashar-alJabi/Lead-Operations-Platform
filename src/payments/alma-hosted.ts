@@ -14,6 +14,11 @@ export type AlmaHostedSnapshot={ paymentId:string;intentId:string;merchantId:str
   processingStatus:AlmaProcessingStatus;customerUrl:string|null;expiresAt:null;refundMinor:string;completelyRefunded:boolean };
 export type AlmaPaymentEvidence={ schemaVersion:1;source:'INDEPENDENT_ALMA_PAYMENT_READ';paymentId:string;intentId:string;merchantId:string;mode:'TEST'|'LIVE';currency:'EUR';minor:string;
   installments:number;deferredMonths:number;deferredDays:number;processingStatus:AlmaProcessingStatus;refundMinor:string;refundState:'NONE'|'PARTIAL'|'FULL';paymentStatus:'PAID'|'UNPAID' };
+export function almaReadEvidence(payment:AlmaHostedSnapshot):AlmaPaymentEvidence {
+  return { schemaVersion:1,source:'INDEPENDENT_ALMA_PAYMENT_READ',paymentId:payment.paymentId,intentId:payment.intentId,merchantId:payment.merchantId,mode:payment.mode,currency:payment.currency,minor:payment.minor,
+    ...payment.plan,processingStatus:payment.processingStatus,refundMinor:payment.refundMinor,refundState:payment.completelyRefunded ? 'FULL' : payment.refundMinor==='0' ? 'NONE' : 'PARTIAL',
+    paymentStatus:payment.processingStatus==='captured' && payment.refundMinor==='0' ? 'PAID' : 'UNPAID' };
+}
 const paymentId=/^payment_[A-Za-z0-9]{1,120}$/;
 const invalid=(write=false)=>new PaymentCheckoutError('PAYMENT_PROVIDER_RESPONSE_INVALID',write ? 'UNKNOWN' : 'REJECTED');
 function input(intent:AlmaHostedIntent):void {
@@ -98,8 +103,6 @@ export const almaHostedAdapter={ writeReplay:'NEVER' as const,dispatchBudgetMs:3
   },
   async retrievePayment(config:PaymentConfig,credentials:PaymentCredentials,intent:AlmaHostedIntent,id:string):Promise<AlmaPaymentEvidence> {
     const payment=await almaHostedAdapter.retrieve(config,credentials,intent,id);
-    return { schemaVersion:1,source:'INDEPENDENT_ALMA_PAYMENT_READ',paymentId:payment.paymentId,intentId:payment.intentId,merchantId:payment.merchantId,mode:payment.mode,currency:payment.currency,minor:payment.minor,
-      ...payment.plan,processingStatus:payment.processingStatus,refundMinor:payment.refundMinor,refundState:payment.completelyRefunded ? 'FULL' : payment.refundMinor==='0' ? 'NONE' : 'PARTIAL',
-      paymentStatus:payment.processingStatus==='captured' && payment.refundMinor==='0' ? 'PAID' : 'UNPAID' };
+    return almaReadEvidence(payment);
   },
 };

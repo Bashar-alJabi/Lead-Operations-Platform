@@ -4,13 +4,14 @@ import { validatePaymentCredentials,type PaymentConfig,type PaymentCredentials,t
 import { paymentMoney,type CurrencyPrecision,type PaymentMoney } from './money.js';
 import { PaymentCheckoutError } from './provider-errors.js';
 import { paypalCheckoutAdapter } from './paypal-checkout.js';
+import type { PaymentPlanSelection } from './eligibility.js';
 export { PaymentCheckoutError } from './provider-errors.js';
 
-export type CheckoutIntent={ id:string;accountRef:string;money:PaymentMoney;name:string;successUrl:string;cancelUrl:string };
+export type CheckoutIntent={ id:string;accountRef:string;money:PaymentMoney;name:string;successUrl:string;cancelUrl:string;plan?:PaymentPlanSelection;ipnUrl?:string };
 export type CheckoutSnapshot={ sessionId:string;url:string|null;expiresAt:string|null;mode:'TEST'|'LIVE';currency:string;minor:string;
   intentId:string;status:'OPEN'|'COMPLETE'|'EXPIRED';paymentStatus:'PAID'|'UNPAID';paymentRef:string|null;providerEvidence?:Record<string,string|number> };
-export type PaymentCheckoutAdapter={ currencyPrecision(currency:string):CurrencyPrecision;idempotencyRetentionMs:number;dispatchBudgetMs?:number;
-  create(config:PaymentConfig,credentials:PaymentCredentials,intent:CheckoutIntent):Promise<CheckoutSnapshot>;
+export type PaymentCheckoutAdapter={ currencyPrecision(currency:string):CurrencyPrecision;idempotencyRetentionMs:number|null;dispatchBudgetMs?:number;writeReplay?:'PROVIDER_KEY'|'NEVER';
+  create(config:PaymentConfig,credentials:PaymentCredentials,intent:CheckoutIntent,admit?:(intent:Readonly<CheckoutIntent>)=>Promise<boolean>):Promise<CheckoutSnapshot>;
   retrieve(config:PaymentConfig,credentials:PaymentCredentials,intent:CheckoutIntent,sessionId:string,receiptResourceId?:string):Promise<CheckoutSnapshot> };
 const zero=new Set(['BIF','CLP','DJF','GNF','JPY','KMF','KRW','MGA','PYG','RWF','VND','VUV','XAF','XOF','XPF']);
 export function stripeCurrencyPrecision(currency:string):CurrencyPrecision {

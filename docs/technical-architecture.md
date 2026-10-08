@@ -1,5 +1,13 @@
 # المعمارية التقنية
 
+## Alma durable one-write/native context — 2026-10-08
+
+Migration082 تضيف selected_plan/notification context إلىgeneric immutable intent؛one-of source constraint تفرض signed webhook لـStripe/PayPal أوunsigned endpoint لـAlma دونتزييفsignature. خطةAlma tuple تقنيةلـhosted API ولا تضيفinstallment accounting. تحفظoriginal authenticated Merchant/EUR exact money/plan/endpoint URL-version وcredential snapshot؛scope/session/availability/config/identity native guards،وتبقىlegacy signed-provider constraints/functions محفوظة.
+
+Generic policy تقبلnull retention فقطمعNEVER/max1/profilebudget30s؛provider profile fence يمنعNEVER لStripe/PayPal ويمنعprovider-key replay لـAlma. Worker claim/attempt تسبقfresh network preflight؛بعدهاcallback تعيدcurrent locks وnative checks ثمتحفظpayment_write_admission ذاتPK intent وunique attempt،معnative Audit trigger داخلtransaction. كلاlease-token والmerchant lease وDBclock وremaining8s HTTP budget يجبأنتكونصالحة. أيrollback يمنعPOST. لاDB locks عبرprovider I/O،ولاapplication clock أوcaller timestamp لإثباتadmission. UNKNOWN/INTERRUPTED محفوظتانNeeds Attention؛late response لا تغيرlease recovery أوترسلثانية.
+
+Standalone generic Alma wrapper تستخدمsingle independent Payment snapshot للstatus/evidence؛createACK تبقىUNPAID حتىلوrawstatus captured. Production registry لم تُفعّل قبلnative financial proof/Enrollment/Lead UI؛145unit/57PG/25Edge regression و001–082 ناجحة،لاAlma financial Browser أوLive claim.
+
 ## Current authorization بعدAlma fresh preflight — 2026-10-08
 
 قراءةMerchant وeligibility قدتستغرقوقتًا يغيّرsession/assignment/config قبلPayment POST. لذلكhosted create لا تنفّذwrite بلا`AlmaCreateAdmission` صريحة بعدpreflight،معfrozen copied intent/money/plan/config/credentials طوالI/O. callback فاشلةأوfalse لا تتحولwrite أوPaid؛exception تُخفى خلفfinite code. الcallback المقبلةفيworker يجب أن تعيدفحصnative current scope وlease/budget وتحفظunique immutable write marker ذرّيًا معAudit؛لاDB locks عبرprovider I/O. هذاعقدإلزامي للربط،ليسDB guard منفذةأوfinancial baseline. Registry activation تنتظركاملmoney/notification-independent proof/Enrollment/UI وIntegration/Browser؛لاfake provider guarantee أوautomatic second create عندUNKNOWN.

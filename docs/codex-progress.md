@@ -1,5 +1,15 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: native Alma durable issuance — 2026-10-08
+
+عقد admission محفوظة ومرفوعة في `32df395`. استُكملت migration082 مستقلة لسياق immutable intent/explicit plan/unsigned notification endpoint مقابل signed source؛native NEVER policy بmaxAttempts1/null retention،unique immutable one-write marker بعدfresh preflight معcurrent session/config/assignment/leases/budget وAudit native ذرية. Worker تقبل Alma adapter صريحة،وتعيدcurrent authorization بعدI/O قبلPOST؛UNKNOWN/INTERRUPTED→Needs Attention بلاsecond create،ولاoverride terminal dispatch أوlate ACK بعدrecovery. Original encrypted credentials/merchant/mode/money/plan تبقى ثابتة. Generic wrapper تفصل creation ACK UNPAID عنindependent captured read،وتستخدمsnapshot واحدةللقراءةوالproof.
+
+البوابة كاملة ناجحة: **145/145 unit،57/57 full PostgreSQL integration،25/25 Edge Browser E2E** (50.7s)،Backend/Web build/typecheck وmigrations001–082 علىdevelopment/test. اثنتانunit للwrapper/one independent snapshot/no fake financial ACK/required plan-admission/registry isolation؛PostgreSQL جديدة بـactual Alma HTTP mocks تختبر8workers→onePOST،marker+Audit committed قبلPOST،late session/assignment/endpoint revocation،preflight denial،Audit rollback،lost reply/no replay،interrupted lease/late ACK،native money-plan/scope/immutability/current policy/budget/merchant lease/session/dedup/DBclock/rotation،ولاPayment/Enrollment. صُحّحتfixtures Audit target text join وcrash clock داخلtest DB فقط؛production guards ثابتة. Browser هناregression للUI القائمة،وليستAlma ماليةend-to-end.
+
+**التصنيف:** durable issuance/kernel/native guards **Implemented وMock/Sandbox Verified محليًا** معactual adapters/HTTP mocks/Docker PG،ولاexternal Sandbox account أوLive Verification. **Alma غيرمفعّلةفيproduction registry،ولاLead financial UI أوconfirmation منهذهالمرحلة**؛المنصةوPayments جزئيتان. Vite582.52KB/gzip168.65KB warning ضمنbacklog.
+
+**قيد التنفيذ/التالي الدقيق:** generic independent-read job/attempt/proof boundary مستقلة عنsigned receipts،ربطAlma unsigned IPN→authenticated original-Merchant Payment GET→exact immutable intent/money/plan/automatic captured proof→native monotonic Payment/separate Enrollment/history؛read-only credential repair وscoped Lead UI/API/explicit plan وfinancial Integration/Browser قبلregistry activation. IPN تظلUNVERIFIED،وUNKNOWN لايسمحsecondcreate. ثمBank Transfer trusted reconciliation،دونoptional refinements أوmain merge/deployment.
+
 ## آخر حالة مستقرة: Alma post-preflight admission contract — 2026-10-08
 
 عقد `AlmaCreateAdmission` الإلزامية مُثبتة: لا financial POST دون موافقة التطبيق بعد fresh Merchant/eligibility. Missing callback تمنع كل I/O، ورفضها أوفشلها يمنع write؛ تُنسخ وتُجمّد config/credentials/intent/money/plan طوال الانتظار. ثلاث unit جديدة تختبر missing/false/exception، late revocation، mutation أثناء I/O، ومنع admission بعد preflight refusal. callback الاختبار test double فقط؛ لا native DB admission أوworker مالية من هذه المرحلة.
