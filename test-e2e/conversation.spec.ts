@@ -10,6 +10,7 @@ let managerStorageState:Awaited<ReturnType<BrowserContext['storageState']>>|unde
 let adminStorageState:Awaited<ReturnType<BrowserContext['storageState']>>|undefined;
 test.describe.configure({ mode:'serial' });
 test.beforeAll(async()=> { fixture=JSON.parse(await readFile(resolve('.local/e2e/fixture.json'),'utf8')); });
+
 async function login(page:Page,name='agent') {
   await page.goto('/'); await page.getByRole('combobox',{ name:'Language' }).selectOption('en');
   await page.getByLabel('Email',{ exact:true }).fill(name+'@browser.test');
@@ -1534,4 +1535,68 @@ test('browser issues Alma with an explicit plan and independently confirms enrol
     await page.getByRole('combobox',{ name:'Language' }).selectOption('fr');await expect(unknownRow).toContainText('Inscription confirmée');await page.setViewportSize({ width:390,height:844 });await page.getByRole('combobox',{ name:'Language' }).selectOption('ar');await unknownRow.scrollIntoViewIfNeeded();await expect(unknownRow).toContainText('اشتراك مؤكد');await page.screenshot({ path:'.local/e2e/alma-financial-ar.png' });
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);expect(errors).toEqual([]);
   }finally { await control(page,{ almaLoseResponse:false,almaReadFailure:false,paymentFailure:false });await context.close(); }
+});
+
+test('Bank Transfer setup, authorized manual approval and signed durable feed keep claims untrusted and Payment/Enrollment separate',async({ browser })=> {
+  const managerContext=await browser.newContext({ storageState:managerStorageState,extraHTTPHeaders:{ 'x-e2e-rate-scope':randomUUID() } }),agentContext=await browser.newContext({ storageState:agentStorageState,extraHTTPHeaders:{ 'x-e2e-rate-scope':randomUUID() } }),foreignContext=await browser.newContext({ extraHTTPHeaders:{ 'x-e2e-rate-scope':randomUUID() } });
+  const manager=await managerContext.newPage(),agent=await agentContext.newPage(),foreign=await foreignContext.newPage();const errors:string[]=[];
+  manager.on('pageerror',(e)=>errors.push(e.message));agent.on('pageerror',(e)=>errors.push(e.message));
+  manager.on('console',(m)=>{ if(m.type()==='error' && /same key|unique.*key/i.test(m.text()))errors.push(m.text()); });
+  const origin='http://127.0.0.1:4100';
+  try {
+    if(managerStorageState)await manager.goto('/');else await login(manager,'manager');if(agentStorageState)await agent.goto('/');else await login(agent,'agent');await login(foreign,'second');await control(manager,{ assigned:'agent' });
+    await manager.getByRole('combobox',{ name:'Language' }).selectOption('en');
+    const lead=(await (await manager.request.get('/api/leads/'+fixture.leadId)).json()).lead;
+    await manager.getByRole('button',{ name:'Payment setup',exact:true }).click();const setup=manager.locator('[data-bank-setup]');
+    await setup.getByLabel('Name',{ exact:true }).fill('Browser bank transfer <img literal>');await setup.getByLabel('Branch',{ exact:true }).selectOption(lead.branch_id);
+    await setup.getByLabel('Beneficiary',{ exact:true }).fill('Synthetic company');await setup.getByLabel('Bank account identifier',{ exact:true }).fill('BROWSER-SYNTHETIC-BANK');
+    await setup.getByLabel('Bank name',{ exact:true }).fill('Synthetic bank');await setup.getByLabel('Transfer instructions',{ exact:true }).fill('Exact reference <img src=x onerror=alert(1)>');
+    await setup.getByLabel('Currencies, comma separated',{ exact:true }).fill('EUR');await setup.getByLabel('Action reason',{ exact:true }).fill('Browser bank setup from independent records');
+    const created=manager.waitForResponse((r)=>r.request().method()==='POST' && r.url().endsWith('/bank-accounts'));await setup.getByRole('button',{ name:'Save transfer account',exact:true }).click();
+    const accountResponse=await created;expect(accountResponse.status(),await accountResponse.text()).toBe(201);const account=await accountResponse.json();
+    const methodResponse=await manager.request.post('/api/payments/methods',{ headers:{ origin },data:{ name:'Browser Bank Transfer method',branchId:lead.branch_id,connectionId:account.id,currencies:['EUR'],active:true,agents:{ mode:'ALL',ids:[] },campaigns:{ mode:'SELECTED',ids:[lead.campaign_id] },reason:'Enable scoped Browser bank method' } });expect(methodResponse.status(),await methodResponse.text()).toBe(201);const method=await methodResponse.json();
+    await setup.locator(`[data-bank-account="${account.id}"]`).getByRole('button',{ name:'History, source and events',exact:true }).click();const sourcePanel=setup.locator('[data-bank-source]');
+    const secret='BrowserBankSyntheticOnly'.repeat(3);await sourcePanel.getByLabel('Source description and review',{ exact:true }).fill('Approved synthetic independent bank source <img literal>');
+    await sourcePanel.getByLabel('Dedicated HMAC secret',{ exact:true }).fill(secret);await sourcePanel.getByRole('checkbox').check();
+    const sourceResponsePromise=manager.waitForResponse((r)=>r.request().method()==='POST' && r.url().endsWith('/sources'));await sourcePanel.getByRole('button',{ name:'Approve source and rotate key',exact:true }).click();
+    const sourceResponse=await sourceResponsePromise;expect(sourceResponse.status()).toBe(201);const source=await sourceResponse.json();
+    await expect(sourcePanel).toContainText('Live Verification Pending External Credential/Approval');await expect(sourcePanel.getByLabel('Dedicated HMAC secret',{ exact:true })).toHaveValue('');
+    await expect(sourcePanel.locator('img')).toHaveCount(0);expect(await sourcePanel.textContent()).not.toContain(secret);
+    await agent.goto('/');await agent.getByRole('combobox',{ name:'Language' }).selectOption('en');await agent.getByRole('row').filter({ hasText:'Browser Customer' }).getByRole('button',{ name:'Details',exact:true }).click();
+    const transfers=agent.locator('[data-bank-transfers]');await transfers.getByLabel('Transfer method',{ exact:true }).selectOption(method.id);await transfers.getByLabel('Transfer amount',{ exact:true }).fill('35.001');await transfers.getByLabel('Transfer currency',{ exact:true }).selectOption('EUR');
+    await transfers.getByRole('button',{ name:'Create transfer request',exact:true }).click();await expect(transfers.getByRole('alert')).toContainText('PAYMENT_AMOUNT_PRECISION_INVALID');
+    await transfers.getByLabel('Transfer amount',{ exact:true }).fill('35.00');
+    async function createRequest() { const promise=agent.waitForResponse((r)=>r.request().method()==='POST' && r.url().endsWith('/bank-transfers'));await transfers.getByRole('button',{ name:'Create transfer request',exact:true }).click();const response=await promise;expect(response.status()).toBe(201);return { row:await response.json(),payload:response.request().postDataJSON() }; }
+    const first=await createRequest();const r=first.row;const card=transfers.locator(`[data-bank-transfer="${r.id}"]`);
+    await expect(card).toContainText('Awaiting trusted reconciliation');await expect(card).toContainText('35.00 EUR');expect(r.payment_id).toBeNull();expect(r.enrollment_id).toBeNull();
+    await expect(card.getByRole('button',{ name:'Authorized manual reconciliation',exact:true })).toHaveCount(0);await expect(card.locator('img')).toHaveCount(0);
+    expect((await agent.request.post(`/api/leads/${fixture.leadId}/bank-transfers`,{ headers:{ origin },data:first.payload })).status()).toBe(200);
+    const approval={ transactionId:'BROWSER-MANUAL-1',accountIdentifier:r.account_identifier,reference:r.reference,amount:r.amount,currency:r.currency,settledAt:new Date(Date.now()-60_000).toISOString(),reason:'Verified directly in bank records',bankVerified:true };
+    expect((await agent.request.post(`/api/leads/${fixture.leadId}/bank-transfers/${r.id}/confirm`,{ headers:{ origin },data:approval })).status()).toBe(403);
+    expect((await manager.request.post(`/api/leads/${fixture.leadId}/bank-transfers/${r.id}/confirm`,{ headers:{ origin },data:{ ...approval,uploadedReceipt:'customer-claim' } })).status()).toBe(400);
+    expect((await foreign.request.get(`/api/leads/${fixture.leadId}/bank-transfers`)).status()).toBe(404);expect((await agent.request.get(`/api/payments/bank-accounts/${account.id}/sources`)).status()).toBe(403);
+    await setup.locator(`[data-bank-account="${account.id}"]`).getByRole('button',{ name:'Edit name and instructions',exact:true }).click();await expect(setup.getByLabel('Beneficiary',{ exact:true })).toBeDisabled();
+    await setup.getByLabel('Transfer instructions',{ exact:true }).fill('Updated future transfer instructions');await setup.getByLabel('Action reason',{ exact:true }).fill('Clarified future instructions');
+    const edited=manager.waitForResponse((x)=>x.request().method()==='PUT' && x.url().endsWith('/bank-accounts/'+account.id));await setup.getByRole('button',{ name:'Save transfer account',exact:true }).click();expect((await edited).status()).toBe(200);
+    await transfers.getByRole('button',{ name:'Refresh transfers',exact:true }).click();await expect(card).toContainText('Exact reference <img src=x onerror=alert(1)>');
+    await manager.goto('/');await manager.getByRole('combobox',{ name:'Language' }).selectOption('en');await manager.getByRole('row').filter({ hasText:'Browser Customer' }).getByRole('button',{ name:'Details',exact:true }).click();
+    const review=manager.locator('[data-bank-transfers]');await review.locator(`[data-bank-transfer="${r.id}"]`).getByRole('button',{ name:'Authorized manual reconciliation',exact:true }).click();const form=review.locator('[data-bank-approval]');
+    await expect(form.getByRole('button',{ name:'Approve after bank verification',exact:true })).toBeDisabled();await form.getByLabel('Settled bank transaction ID',{ exact:true }).fill(approval.transactionId);
+    await form.getByLabel('Bank settlement time',{ exact:true }).fill('2026-10-01T12:00');await form.getByLabel('Action reason',{ exact:true }).fill('Reviewed settled bank record <img literal>');await form.getByRole('checkbox').check();
+    await form.getByRole('button',{ name:'Approve after bank verification',exact:true }).click();await expect(review.locator(`[data-bank-transfer="${r.id}"]`)).toContainText('Payment: CONFIRMED');await expect(review.locator(`[data-bank-transfer="${r.id}"]`)).toContainText('Enrollment:');
+    await transfers.getByRole('button',{ name:'Refresh transfers',exact:true }).click();await expect(card).toContainText('Authorized manual reconciliation');await expect(card.locator('img')).toHaveCount(0);
+    const second=await createRequest();const r2=second.row;const event={ eventId:'Browser-bank-event',transactionId:'Browser-auto-1',mode:'TEST',accountIdentifier:r2.account_identifier,reference:r2.reference,amount:r2.amount,currency:r2.currency,settledAt:new Date(Date.now()-60_000).toISOString(),status:'SETTLED' };
+    const send=async(body:object,signed=true)=> { const raw=JSON.stringify(body),stamp=Math.floor(Date.now()/1000).toString();return manager.request.post(new URL(source.callbackUrl).pathname,{ headers:{ origin,'content-type':'application/json','x-bank-signature':`t=${stamp},v1=${signed ? createHmac('sha256',secret).update(stamp+'.'+raw).digest('hex') : '0'.repeat(64)}` },data:raw }); };
+    expect((await send(event,false)).status()).toBe(400);expect((await send({ ...event,status:'PENDING' })).status()).toBe(400);expect((await send(event)).status()).toBe(200);
+    await transfers.getByRole('button',{ name:'Refresh transfers',exact:true }).click();const autoCard=transfers.locator(`[data-bank-transfer="${r2.id}"]`);await expect(autoCard).toContainText('Awaiting trusted reconciliation');
+    await control(manager,{ bankSettlements:true });await transfers.getByRole('button',{ name:'Refresh transfers',exact:true }).click();await expect(autoCard).toContainText('Payment: CONFIRMED');await expect(autoCard).toContainText('Trusted bank feed confirmation');
+    const paid=(await (await agent.request.get(`/api/leads/${fixture.leadId}/bank-transfers`)).json()).items.find((x:{ id:string })=>x.id===r2.id);expect(paid.payment_id).toBeTruthy();expect(paid.enrollment_id).toBeTruthy();
+    expect((await send(event)).status()).toBe(200);await control(manager,{ bankSettlements:true });const after=(await (await agent.request.get(`/api/leads/${fixture.leadId}/bank-transfers`)).json()).items.find((x:{ id:string })=>x.id===r2.id);expect(after.enrollment_id).toBe(paid.enrollment_id);
+    const third=await createRequest();expect((await send({ ...event,eventId:'Browser-bank-mismatch',transactionId:'Browser-auto-bad',reference:third.row.reference,amount:'34.00' })).status()).toBe(200);await control(manager,{ bankSettlements:true });
+    await manager.getByRole('button',{ name:'Back',exact:true }).click();await manager.getByRole('button',{ name:'Payment setup',exact:true }).click();const fresh=manager.locator('[data-bank-setup]');await fresh.locator(`[data-bank-account="${account.id}"]`).getByRole('button',{ name:'History, source and events',exact:true }).click();
+    await expect(fresh).toContainText('BANK_CONFIRMATION_MISMATCH');await expect(fresh.getByRole('button',{ name:'Retry reconciliation after fixing the cause',exact:true })).toBeVisible();
+    await manager.getByRole('combobox',{ name:'Language' }).selectOption('fr');await expect(manager.locator('[data-bank-setup]')).toContainText('Configuration du virement');
+    await manager.getByRole('combobox',{ name:'Language' }).selectOption('ar');await manager.setViewportSize({ width:390,height:844 });await expect(manager.locator('[data-bank-setup]')).toContainText('إعداد التحويل البنكي');
+    await manager.screenshot({ path:'.local/e2e/bank-transfer-ar.png',fullPage:true });expect(await manager.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);expect(errors).toEqual([]);
+  }finally { await managerContext.close();await agentContext.close();await foreignContext.close(); }
 });

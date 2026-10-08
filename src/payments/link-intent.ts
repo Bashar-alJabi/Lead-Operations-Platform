@@ -34,6 +34,10 @@ export function preparationIssues(row:postgres.Row):string[] {
   const issues:string[]=[];
   if(!row.active)issues.push('PAYMENT_METHOD_INACTIVE');
   if(!row.branch_active)issues.push('BRANCH_DISABLED');
+  if(row.provider==='BANK_TRANSFER') {
+    if(row.connection_status!=='CONNECTED' || row.capabilities.bankAccountConfigured!==true)issues.push('BANK_ACCOUNT_NOT_READY');
+    return issues;
+  }
   if(row.connection_status==='DISABLED')issues.push('CONNECTION_DISABLED');
   else if(!['CONNECTED','WARNING'].includes(row.connection_status) || row.capabilities.authenticationVerified!==true)issues.push('PAYMENT_AUTHENTICATION_REQUIRED');
   if(row.provider==='ALMA') {

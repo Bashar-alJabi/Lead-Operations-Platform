@@ -26,6 +26,6 @@ export function normalizePaymentMethod(input:PaymentMethodInput):PaymentMethodIn
 }
 export function paymentMethodIssues(row:postgres.Row):string[] {
   const issues=preparationIssues(row);
-  if(!paymentCheckoutAdapters[row.provider])issues.push('PAYMENT_CHECKOUT_UNSUPPORTED');
+  if(row.provider!=='BANK_TRANSFER' && !paymentCheckoutAdapters[row.provider])issues.push('PAYMENT_CHECKOUT_UNSUPPORTED');
   return issues;
 }

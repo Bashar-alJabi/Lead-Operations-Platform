@@ -1,5 +1,6 @@
 import { useEffect,useRef,useState } from 'react';
 import { PaymentMethods } from './PaymentMethods.js';
+import { BankTransferSetup } from './BankTransfers.js';
 import { PaymentEligibility,EligibilityDetails,type Eligibility } from './PaymentEligibility.js';
 import { PaymentWebhooks } from './PaymentWebhooks.js';
 import { PaymentNotifications } from './PaymentNotifications.js';
@@ -86,7 +87,7 @@ export function PaymentSetup({ locale,role,branches,api }: { locale:Locale;role:
   const [key,setKey]=useState('');const [reason,setReason]=useState('');const [busy,setBusy]=useState(false);const [error,setError]=useState('');
   const [notice,setNotice]=useState('');const [probes,setProbes]=useState<Probe[]>([]);const [probeCursor,setProbeCursor]=useState<string|null>(null);
   async function load(next?:string) { const page=await api<{ items:Connection[];nextCursor:string|null }>('/api/payments/connections'+(next ? '?cursor='+encodeURIComponent(next) : ''));
-    setItems((prior)=>next ? [...prior,...page.items] : page.items);setCursor(page.nextCursor);
+    setItems((prior)=>next ? [...prior,...page.items.filter((item)=>item.provider!=='BANK_TRANSFER')] : page.items.filter((item)=>item.provider!=='BANK_TRANSFER'));setCursor(page.nextCursor);
     const id=selectedRef.current;if(id) { const updated=page.items.find((item)=>item.id===id) ?? await api<Connection>('/api/payments/connections/'+id);
       if(selectedRef.current===id)setSelected(updated); } }
   useEffect(()=>{ void load().catch((e)=>setError(String(e))); },[]);
@@ -178,6 +179,7 @@ export function PaymentSetup({ locale,role,branches,api }: { locale:Locale;role:
       {selected.provider==='ALMA' && <PaymentNotifications key={'notifications:'+selected.id} connectionId={selected.id} connectionVersion={selected.version}
         canPrepare={!busy && selected.status!=='DISABLED' && selected.capabilities.authenticationVerified===true && selected.capabilities.authenticationVersion===selected.version} locale={locale} api={api} />}
     </section>}
+    <BankTransferSetup locale={locale} branches={branches} api={api} />
     <PaymentMethods locale={locale} role={role} branches={branches} api={api} />
   </section>;
 }

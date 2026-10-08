@@ -25,6 +25,7 @@ import { PaymentProviderError } from '../src/payments/providers.js';
 import { almaConnectionAdapter } from '../src/payments/alma-connection.js';
 import { processOnePaymentDispatch } from '../src/payments/dispatch-worker.js';
 import { processOnePaymentReceipt } from '../src/payments/confirmation-worker.js';
+import { processOneBankSettlement } from '../src/payments/bank-worker.js';
 import { stripeCurrencyPrecision,PaymentCheckoutError,type CheckoutSnapshot,type PaymentCheckoutAdapter } from '../src/payments/checkout-provider.js';
 import { paypalPaymentEvents } from '../src/payments/webhook-profile.js';
 import { testPayPalCertificate,testPayPalCertUrl } from '../test/paypal-test-support.js';
@@ -222,7 +223,7 @@ app.get<{ Params:{ name:string } }>('/assets/:name',async (request,reply)=> {
   const type = request.params.name.endsWith('.js') ? 'text/javascript' : 'text/css';
   return reply.type(type).send(await readFile(resolve('dist-web/assets',request.params.name)));
 });
-app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:boolean; assigned?:'agent'|'second'; approveTemplates?:boolean;replyTo?:string;replyIndex?:number;processSample?:boolean;rejectSample?:boolean;sourceFailure?:boolean;sourceSubscriptionFailure?:boolean;sourceNotification?:string;retrieveSource?:boolean;sourceRetrievalFailure?:boolean;historicalPreview?:boolean;historicalImport?:boolean;historicalFailure?:boolean;sourceReferenceFixture?:boolean;sourceReferral?:'KNOWN'|'UNKNOWN'|'INVALID';paymentFailure?:boolean;paymentChargesEnabled?:boolean;paymentDispatch?:boolean;paymentReceipts?:boolean;paymentIndependentReads?:boolean;paymentPaid?:string;paymentReceiptAuthFailure?:boolean;paypalApprove?:string;paypalCapture?:boolean;paypalPending?:string;paypalComplete?:string;paypalReadFailure?:boolean;almaLoseResponse?:boolean;almaReadFailure?:boolean;almaCaptured?:string } }>(
+app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:boolean; assigned?:'agent'|'second'; approveTemplates?:boolean;replyTo?:string;replyIndex?:number;processSample?:boolean;rejectSample?:boolean;sourceFailure?:boolean;sourceSubscriptionFailure?:boolean;sourceNotification?:string;retrieveSource?:boolean;sourceRetrievalFailure?:boolean;historicalPreview?:boolean;historicalImport?:boolean;historicalFailure?:boolean;sourceReferenceFixture?:boolean;sourceReferral?:'KNOWN'|'UNKNOWN'|'INVALID';paymentFailure?:boolean;paymentChargesEnabled?:boolean;paymentDispatch?:boolean;paymentReceipts?:boolean;paymentIndependentReads?:boolean;bankSettlements?:boolean;paymentPaid?:string;paymentReceiptAuthFailure?:boolean;paypalApprove?:string;paypalCapture?:boolean;paypalPending?:string;paypalComplete?:string;paypalReadFailure?:boolean;almaLoseResponse?:boolean;almaReadFailure?:boolean;almaCaptured?:string } }>(
   '/__test__/control', { schema: { body:{ type:'object',additionalProperties:false,properties: {
     process:{ type:'boolean' },mode:{ type:'string',enum:['accept','reject','unknown'] },
     dnc:{ type:'boolean' },assigned:{ type:'string',enum:['agent','second'] },
@@ -234,7 +235,7 @@ app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:bool
     historicalPreview:{ type:'boolean' },historicalImport:{ type:'boolean' },historicalFailure:{ type:'boolean' },
     sourceReferenceFixture:{ type:'boolean' },sourceReferral:{ type:'string',enum:['KNOWN','UNKNOWN','INVALID'] },
     paymentFailure:{ type:'boolean' },
-    paymentChargesEnabled:{ type:'boolean' },paymentDispatch:{ type:'boolean' },paymentReceipts:{ type:'boolean' },paymentIndependentReads:{ type:'boolean' },paymentPaid:{ type:'string',format:'uuid' },paymentReceiptAuthFailure:{ type:'boolean' },
+    paymentChargesEnabled:{ type:'boolean' },paymentDispatch:{ type:'boolean' },paymentReceipts:{ type:'boolean' },paymentIndependentReads:{ type:'boolean' },bankSettlements:{ type:'boolean' },paymentPaid:{ type:'string',format:'uuid' },paymentReceiptAuthFailure:{ type:'boolean' },
     almaLoseResponse:{ type:'boolean' },almaReadFailure:{ type:'boolean' },almaCaptured:{ type:'string',format:'uuid' },paypalReadFailure:{ type:'boolean' },paypalApprove:{ type:'string',format:'uuid' },paypalCapture:{ type:'boolean' },paypalPending:{ type:'string',format:'uuid' },paypalComplete:{ type:'string',format:'uuid' },
     replyTo:{ type:'string',format:'uuid' },replyIndex:{ type:'integer',minimum:0,maximum:2 },
   } } } },async (request)=> {
@@ -265,6 +266,7 @@ app.post<{ Body:{ process?:boolean; mode?:'accept'|'reject'|'unknown'; dnc?:bool
       if(response.statusCode!==200)throw new HttpError(500,'TEST_PAYMENT_RECEIPT_FAILED');
     }
     if(request.body.paymentReceipts)for(let n=0;n<25 && await processOnePaymentReceipt(db,{ STRIPE:checkoutAdapter,PAYPAL:paymentCheckoutAdapters.PAYPAL! });n++) { /* bounded test drain */ }
+    if(request.body.bankSettlements)for(let n=0;n<25 && await processOneBankSettlement(db);n++) { /* bounded test-only signed bank reconciliation */ }
     if(request.body.paymentIndependentReads)for(let n=0;n<25 && await processOneIndependentPaymentRead(db);n++) { /* bounded test-only read drain; no financial POST */ }
     if (typeof request.body.sourceFailure==='boolean') sourceFailure=request.body.sourceFailure;
     if (typeof request.body.sourceSubscriptionFailure==='boolean') sourceSubscriptionFailure=request.body.sourceSubscriptionFailure;

@@ -381,3 +381,12 @@ UNKNOWN أو PREPARED/accepted outcome لا تستخدم هذا الإجراء،
 للتحقق المحلي من Messaging burst استخدم `npm run benchmark:messaging -- --reset-test-database` بعد ضبط `TEST_DATABASE_URL` المحلية وتطبيق migrations؛ يفرغ بيانات `lead_operations_test` ويرفض development/remote database. لا تشغله بالتوازي مع integration tests؛ التقرير في `.local/performance/messaging-latest.json`. إعدادات workload والقياسات والحدود موثقة في `messaging-performance.md`؛ المزود وهمي ولا تثبت النتائج Meta live أو سعة إنتاجية.
 
 `CREDENTIAL_ENCRYPTION_KEY` سر deployment مستقل عن Business-managed credentials؛ لا يُنشر ولا يُرسل للـAI. تغيير المفتاح يحتاج عملية تدوير تعيد تشفير الأسرار؛ لم تُنفذ واجهة التدوير بعد. لا تضف Credential حقيقية إلى التطوير الحالي. إعداد مزودي Meta وMessaging وPayment وEmail وAI من الواجهة لم يكتمل بعد، لذا لا تُستخدم Connections حقيقية أو تُعرض حالة نجاح مزيفة.
+# تشغيل Bank Transfer — 2026-10-08
+
+ابدأ من Payment setup → إعداد التحويل البنكي، ثم Branch Payment Method. أدخل حساب الشركة المقصود وعملاته وTEST/LIVE صراحة، ولا تستخدم حسابًا شخصيًا. تغيير المستفيد أوaccount identity يحتاج Connection جديدة؛ تعديل التعليمات والتعطيل يحفظان الطلبات والتاريخ. إنشاء الطلب لا يثبت دفعًا.
+
+التحقق اليدوي: Manager ضمن الفرع أوSuper Admin يراجع الحركة SETTLED في البنك نفسه ويطابق account/beneficiary/reference/exact amount/currency، ثم يسجل transaction ID ووقت التسوية والسبب والإقرار. تصريح العميل أوإيصال مصوّر لا يكفي. مصدر التأكيد AUTHORIZED_MANUAL يبقى ظاهرًا في Lead، مع Payment وEnrollment منفصلتين.
+
+التحقق الآلي: لا Bank API مفترضة. جهّز connector مستقلًا مصرحًا له بقراءة سجلات البنك، وراجعه ثم أعد source HMAC من واجهة الحساب وفق `bank-transfer-integration.md`. لا تمنح signing key للعميل/Agent أوAI. اختبر في TEST بمصدر مخصص؛ اختبار feed الاصطناعية لا يثبت external bank أوLIVE. المصدر الجديد يعطل القديمة دون حذف الأدلة المقبولة. مصدر/حساب معطل يمنع inbound جديدة؛ worker تستكمل evidence المقبولة تاريخيًا.
+
+`payment-worker` تشغّل bank reconciliation مع بقية providers. راقب Inbox state/error/attempts، وعالج السبب قبل retry ذات reason/version. Wrong money/reference أوunmatched request لا تُصلح بتعديل DB/receipt؛ تبقى Needs Attention. Budget خمس attempts؛ exhausted records محفوظة، ولا يوجد replay لعملية مالية خارجية لأن feed read-only. Audit failure لا يسمح بحفظ proof/Payment/Enrollment جزئية. Backup/restore تشمل account/source secrets/requests/receipts/jobs/proofs وcredential encryption key كما في بقية Connections.

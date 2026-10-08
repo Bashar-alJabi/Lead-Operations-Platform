@@ -42,13 +42,13 @@ export function LeadPaymentRequests({ locale,leadId,api,onPrepareMessage }: { lo
   const pending=useRef<{ fingerprint:string;requestId:string }|null>(null);const generation=useRef(0);
   const selected=methods.find((m)=>m.id===methodId);const root=`/api/leads/${leadId}`;
   async function loadMethods(next?:string) { const page=await api<{ items:Method[];nextCursor:string|null }>(root+'/payment-link-options'+(next ? '?cursor='+encodeURIComponent(next) : ''));
-    setMethods((old)=>next ? [...old,...page.items] : page.items);setMethodCursor(page.nextCursor); }
+    setMethods((old)=>next ? [...old,...page.items.filter((m)=>m.provider!=='BANK_TRANSFER')] : page.items.filter((m)=>m.provider!=='BANK_TRANSFER'));setMethodCursor(page.nextCursor); }
   async function loadRequests(next?:string) { const page=await api<{ items:Intent[];nextCursor:string|null }>(root+'/payment-link-requests'+(next ? '?cursor='+encodeURIComponent(next) : ''));
     setItems((old)=>next ? [...old,...page.items] : page.items);setCursor(page.nextCursor); }
   useEffect(()=> { const version=++generation.current;setBusy(true);setError('');
     setMethodId('');setPlan('');setAmount('');setCurrency('');setFinancialHistory([]);setFinancialIntent(null);setFinancialCursor(null);
     void Promise.all([api<{ items:Method[];nextCursor:string|null }>(root+'/payment-link-options'),api<{ items:Intent[];nextCursor:string|null }>(root+'/payment-link-requests')])
-      .then(([options,requests])=>{ if(version!==generation.current)return;setMethods(options.items);setMethodCursor(options.nextCursor);setItems(requests.items);setCursor(requests.nextCursor); })
+      .then(([options,requests])=>{ if(version!==generation.current)return;setMethods(options.items.filter((m)=>m.provider!=='BANK_TRANSFER'));setMethodCursor(options.nextCursor);setItems(requests.items);setCursor(requests.nextCursor); })
       .catch((e)=>{ if(version===generation.current)setError(String(e)); }).finally(()=>{ if(version===generation.current)setBusy(false); });
     return ()=>{ generation.current++; };
   },[leadId]);

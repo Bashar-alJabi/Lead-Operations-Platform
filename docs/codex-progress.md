@@ -1,5 +1,21 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: Bank Transfer baseline — 2026-10-08
+
+بدأت من HEAD c5286bf النظيفة بعد Alma9d8b80a المرفوعة. Bank Transfer مستقلة عن hosted checkout: managed account/Branch Method من الواجهة، immutable beneficiary/account/mode/currencies، تحرير الاسم والتعليمات وتعطيل/تفعيل مع version/history/Audit؛ scoped Lead request/reference/exact money/Agent-Campaign availability/idempotency وتعليمات أصلية قابلة للنسخ.
+
+AUTHORIZED_MANUAL تتطلب Manager ضمن فرعه أو Super Admin بجلسة حالية ومراجعة حركة SETTLED في البنك نفسه، transaction ID/settlement time/exact account/reference/money/reason وإقرار صريح. TRUSTED_FEED منفصلة: managed encrypted HMAC source approval/rotation/disable/callback، raw signature/timestamp/strict settled event/dedup، durable queue وworker/SKIP LOCKED/lease recovery/five attempts/Needs Attention/history/versioned retry. Agent أو customer claim/receipt image لا يؤكدان مالًا. لا Bank API أو credentials مفترضة؛ استقلال connector عن العميل prerequisite تقرها الإدارة، وليست LIVE verified.
+
+Native087–089 تمنع تغيير الأصل/reuse transaction/request/proof/missing manual evidence/history forgery، وتوسع Payment إلى one-of hosted أو bank request مع بقاء guards السابقة. Shared financial transition تحفظ Payment وEnrollment منفصلتين وActivities؛ deferred fences تمنع proof/Payment/Enrollment جزئية. Audit rollback لا يحفظ تأكيدًا جزئيًا، وLead لا تغلق تلقائيًا. UI ar/en/fr تفصل المصدرين وتعرض تاريخ الحساب والمصدر والمحاولات والأخطاء؛ hosted composer تستثني Bank.
+
+**البوابة النهائية ناجحة:** migrations001–089 development/test، **149/149 unit،59/59 full Docker PostgreSQL integration،27/27 full Edge Browser E2E** (1.2m)، focused Bank **1/1**، Backend/Web build/typecheck. Integration تختبر four-way request/approval وeight-worker concurrency، claim/receipt/Agent/foreign scope/money/reference/currency negatives، expired session/native history/proof/source guards، duplicate transaction، Audit atomicity، interrupted lease recovery، signed intake قبل confirmation، wrong reference→Needs Attention وexplicit retry/history/source rotation/pagination. Browser تثبت setup/secret omission/availability/precision/request/manual approval/separate Enrollment/feed signature/acceptance-before-worker/dedup/amount mismatch/readonly beneficiary/instruction editing معoriginal snapshot/French/RTL390px/XSS/keys. فشل fixture login بعد full suite أُصلح عبر session cache/test-only rate scope دون تغيير production security؛ أُعيدت البوابة كاملة. Vite611.15KB/gzip176.30KB warning ضمن backlog.
+
+**التصنيف:** Bank Transfer required baseline **Implemented وMock/Sandbox Verified محليًا** باستخدام synthetic bank records/signed feed/Docker PG/Edge فقط؛ لا actual Bank API أوexternal sandbox/account أوLive Verification. **Live Verification Pending External Credential/Approval**. Stripe/PayPal/Alma regression سليمة؛ Payments والمنصة جزئيتان بسبب Notifications/Analytics/AI/Automation وبقية acceptance.
+
+**الحفظ الجاري:** progress/coverage/runbook/architecture ثم commit/push حصريًا إلى codex/full-platform-build. لا main merge/deployment.
+
+**التالي الدقيق:** AI foundations حسب04/05/06: managed provider Connection وmodel/task profiles واختبار auth/model الحالي ضمن scope مع encrypted credentials/history/disable وUI؛ ثم Campaign draft/published/versioned Knowledge/qualification/claims/assets وdeterministic Global guardrails→Branch defaults→Campaign effective config؛ بعدها approved tools/runtime/jobs/Lead assistant/Operations assistant/handoff/evaluations. لا provider refinements اختيارية أو Bank ledger/refunds/partial-payment accounting.
+
 ## آخر حالة مستقرة: Alma financial end-to-end baseline — 2026-10-08
 
 بدأت المرحلة من checkpoint `cd88550` النظيفة والمرفوعة. أصبح إصدار Alma متاحًا عبر public scoped Lead API/UI: current authenticated Merchant، offers الحالية وخطة مختارة صراحة، exact EUR amount/limits، unsigned endpoint الأصلية الجاهزة، immutable intent وrequest idempotency تشمل الخطة. Worker تعيد fresh Merchant/eligibility وnative current scope/session/one-write admission قبل POST؛ لا second create عند UNKNOWN.

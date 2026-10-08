@@ -100,7 +100,7 @@ export function registerPaymentMethodRoutes(app:FastifyInstance,db:Database) {
         if(actor.role!=='SUPER_ADMIN' && connection.branch_id===null && current?.connection_id!==connection.id)throw new HttpError(403,'PAYMENT_SHARED_METHOD_BINDING_FORBIDDEN');
         if(!branch.active && (input.active || !current))throw new HttpError(409,'BRANCH_DISABLED');
         if(connection.status==='DISABLED' && (input.active || current?.connection_id!==connection.id))throw new HttpError(409,'CONNECTION_DISABLED');
-        const offered=connection.provider==='ALMA' ? ['EUR'] : connection.provider==='PAYPAL' ? paypalCurrencies : connection.capabilities.paymentOptionsVersion===connection.version ? connection.capabilities.paymentOptions?.currencies : null;
+        const offered=connection.provider==='BANK_TRANSFER' ? connection.config.currencies : connection.provider==='ALMA' ? ['EUR'] : connection.provider==='PAYPAL' ? paypalCurrencies : connection.capabilities.paymentOptionsVersion===connection.version ? connection.capabilities.paymentOptions?.currencies : null;
         if(input.active && Array.isArray(offered) && input.currencies.some((code)=>!offered.includes(code)))throw new HttpError(400,'PAYMENT_CURRENCY_NOT_OFFERED');
         const agents=await tx`SELECT id FROM user_account WHERE id IN (SELECT value::uuid FROM jsonb_array_elements_text(${tx.json(input.agents.ids)}) x(value))
           AND organization_id=${actor.organizationId} AND branch_id=${input.branchId} AND role='AGENT' ORDER BY id FOR SHARE`;
@@ -137,7 +137,7 @@ export function registerPaymentMethodRoutes(app:FastifyInstance,db:Database) {
         AND (${cursor?.timestamp ?? null}::timestamptz IS NULL OR (m.created_at,m.id)<(${cursor?.timestamp ?? null}::timestamptz,${cursor?.id ?? null}::uuid))
       ORDER BY m.created_at DESC,m.id DESC LIMIT ${limit+1}`;
     const items=rows.slice(0,limit);const last=items.at(-1);return { items:items.map((row)=> {
-      const issues=paymentMethodIssues(row as Parameters<typeof paymentMethodIssues>[0]);return { id:row.id,name:row.name,currencies:row.currencies,version:row.version,available:issues.length===0,issues };
+      const issues=paymentMethodIssues(row as Parameters<typeof paymentMethodIssues>[0]);return { id:row.id,name:row.name,currencies:row.currencies,version:row.version,provider:row.provider,available:issues.length===0,preparationAvailable:issues.length===0,issues };
     }),nextCursor:rows.length>limit && last ? encodeCursor({ timestamp:last.created_at.toISOString(),id:last.id }) : null };
   });
 }
