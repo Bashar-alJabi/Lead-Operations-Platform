@@ -2,6 +2,7 @@ import { useEffect,useRef,useState } from 'react';
 import { PaymentMethods } from './PaymentMethods.js';
 import { PaymentEligibility,EligibilityDetails,type Eligibility } from './PaymentEligibility.js';
 import { PaymentWebhooks } from './PaymentWebhooks.js';
+import { PaymentNotifications } from './PaymentNotifications.js';
 type Api=<T>(path:string,options?:RequestInit)=>Promise<T>;
 type Locale='ar'|'en'|'fr';
 type Connection={ id:string;name:string;provider:string;branch_id:string|null;config:{ mode:'TEST'|'LIVE';expectedMerchantId?:string };version:number;status:string;
@@ -147,7 +148,7 @@ export function PaymentSetup({ locale,role,branches,api }: { locale:Locale;role:
         {!selected.capabilities.merchantOffers.plans.length && <p>{ft.empty}</p>}<ul>{selected.capabilities.merchantOffers.plans.map((p)=><li key={[p.installments,p.deferredMonths,p.deferredDays].join(':')}>
           <dl className="inbound-target-summary"><div><dt>{ft.installments}</dt><dd>{p.installments}</dd></div><div><dt>{ft.months}</dt><dd>{p.deferredMonths}</dd></div><div><dt>{ft.days}</dt><dd>{p.deferredDays}</dd></div>
             <div><dt>{ft.allowed}</dt><dd>{p.allowed ? ft.yes : ft.no}</dd></div><div><dt>{ft.min}</dt><dd><bdi>{p.minMinor}</bdi></dd></div><div><dt>{ft.max}</dt><dd><bdi>{p.maxMinor}</bdi></dd></div></dl></li>)}</ul></section>}
-      {selected.provider==='ALMA' && <PaymentEligibility key={selected.id} locale={locale} connectionId={selected.id} version={selected.version}
+      {selected.provider==='ALMA' && <PaymentEligibility key={'eligibility:'+selected.id} locale={locale} connectionId={selected.id} version={selected.version}
         disabled={busy || selected.status==='DISABLED' || selected.capabilities.authenticationVersion!==selected.version}
         plans={selected.capabilities.merchantOffersVersion===selected.version ? selected.capabilities.merchantOffers?.plans ?? [] : []}
         current={selected.capabilities.paymentEligibilityVersion===selected.version ? selected.capabilities.paymentEligibility ?? null : null} api={api} onRefresh={async()=>{ await load();await history(selected.id); }} />}
@@ -174,6 +175,8 @@ export function PaymentSetup({ locale,role,branches,api }: { locale:Locale;role:
         {beneficiaryCursor && <button disabled={busy} className="secondary" onClick={()=>void beneficiaryHistory(selected.id,beneficiaryCursor).catch((e)=>setError(String(e)))}>{bt.more}</button>}
       </section>}
       {['STRIPE','PAYPAL'].includes(selected.provider) && <PaymentWebhooks key={selected.id} provider={selected.provider as 'STRIPE'|'PAYPAL'} connectionId={selected.id} connectionVersion={selected.version} disabled={selected.status==='DISABLED'} locale={locale} api={api} />}
+      {selected.provider==='ALMA' && <PaymentNotifications key={'notifications:'+selected.id} connectionId={selected.id} connectionVersion={selected.version}
+        canPrepare={!busy && selected.status!=='DISABLED' && selected.capabilities.authenticationVerified===true && selected.capabilities.authenticationVersion===selected.version} locale={locale} api={api} />}
     </section>}
     <PaymentMethods locale={locale} role={role} branches={branches} api={api} />
   </section>;

@@ -1,5 +1,17 @@
 # تكامل Alma
 
+## إعداد واستقبال IPN غير الموقّعة — checkpoint مثبتة 2026-10-08
+
+تُجهّز callback من Payment setup → Alma بعد Authentication للنسخة الحالية، مع سبب صريح. يحفظ Backend هوية Merchant والبيئة والنسخة ومرجع Authentication والعنوان الذي يولّده من أصل التطبيق؛ لا يقبل عنوانًا أوحسابًا يقدمه العميل. Manager يدير اتصال فرعه، وSuper Admin اتصالات مؤسسته، وAgent لا يقرأ هذا الإعداد أوتاريخه. إعادة الطلب لنفس النسخة تعيد endpoint نفسها دون إعادة تفعيل endpoint معطّلة. Disable/Reconnect تستعمل version وملاحظة، وتحفظ تاريخًا مستقلًا وAudit ذرية.
+
+المسار `GET /api/webhooks/payments/alma/:endpointId?pid=payment_ID` يستقبل مرجعًا محدودًا فقط، ويرفض الحقول الإضافية أوادعاءات المال. `payment_untrusted_notification` منفصلة عن signed financial receipts؛ تحمل `UNVERIFIED` ثابتة ولا تحفظ raw payload أوPII. التكرار يُحسم حسب Connection/Mode/Resource؛ كل endpoint تحفظ delivery الخاصة بها دون تعديل الأصل. Connection lock قبل endpoint ينسّق الاستقبال مع lifecycle والتزامن عبر replicas. فشل Audit يعيد inbox/delivery معًا. لا اتصال مالي بالمزود أوإنشاء Payment/Enrollment من هذا المسار.
+
+الحد التقني 60 طلبًا في الدقيقة لكل IP على المسار، و600 مرجع جديد في الساعة لكل Connection افتراضيًا، بساعة PostgreSQL وفحص ذري قبل الإدخال؛ `PAYMENT_NOTIFICATION_HOURLY_LIMIT` إعداد infrastructure من1 إلى10000 وليس قاعدة Business. التكرارات لا تستهلك مرجعًا جديدًا حتى عند الضغط. يرجع `PAYMENT_NOTIFICATION_BACKPRESSURE`/429 عند الحد؛ Alma تستطيع إعادة notification. يلزم قياس الحدود في البيئة المستهدفة، ولا يُدّعى sustained production load.
+
+تعطيل Connection أوتدوير config/key لا يوقف endpoint تاريخية مفعّلة؛ قد تخص عملية دفع سابقة. تعطيل endpoint صراحة يوقف استقبالها بما فيه التكرار، وReconnect تتطلب أصل Merchant/Mode/Config نفسه حاليًا. التاريخ باقٍ، ولا سقوط تلقائي إلى حساب جديد. UI ar/en/fr تعرض callback قابلة للنسخ، حالة الإعداد الحالية والتاريخية، state/version/reason history، inbox غير المتحققة، وحدود HTTP المحلي وعدم تفعيل Alma المالية. لا Signing Secret أوtest endpoint مصطنعة لأن IPN ليست موقّعة.
+
+Migration081 تفرض native current user/session/role/branch/config/verified authentication، immutable identity/history، safe callback، original inbox/delivery immutability وtrust=UNVERIFIED. البوابة140unit/56PostgreSQL/25Edge وbuild/typecheck/migrations001–081 ناجحة؛focused Alma2/2 أيضًا،والصورةالعربية390px فُحصت. **Implemented وMock/Sandbox Verified محليًا** لهذهprerequisite فقط؛لاAlma ماليةend-to-end أوexternal Sandbox account،و**Live Verification Pending External Credential/Approval**. التالي durable one-write وselected-plan issuance وindependent captured proof/native Payment/separate Enrollment/repair/Lead UI، وليس تحسينات IPN اختيارية.
+
 ## Hosted protocol وno-replay policy prerequisite — 2026-10-08
 
 `almaHostedAdapter` تنفّذ actual current Merchant وfresh amount-specific eligibility ثم automatic hosted `POST /v1/payments`؛الخطة وEUR exact minor وintentId/return/cancel/IPN server targets صريحة. لا provider key أوidempotency retention مفترضة أو hidden retries. Link response تحفظsafe fixed TEST/LIVE Alma URL matching payment ID وexpiry=null؛لاPaid evidence منcreation ACK حتى لو processing_status=captured. Customer data/fees/old installment state لا تدخل normalized snapshot.

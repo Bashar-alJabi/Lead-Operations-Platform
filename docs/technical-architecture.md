@@ -1,5 +1,9 @@
 # المعمارية التقنية
 
+## حدود unsigned Payment notifications — 2026-10-08
+
+Alma GETIPN ليستsigned receipt؛تُحفظ في generic untrusted notification endpoint/inbox منفصلة،معcurrent managed setup/native Merchant/session/version/history وdedup علىConnection/mode/resource. هذا يفصل notification origin غيرالمثبتة عنfinancial authority؛لا signedDeliveryVerified مزيفة أوPayment/Enrollment أوcustomer claim proof. التاليfinancial integration تستخدمnotification trigger للقراءةالمستقلة وربطoriginal immutable intent/account/money/plan،معnative proof قبل أيtransition؛signed Stripe/PayPal contracts ثابتة.
+
 ## Provider بدون ضمان idempotent replay وAlma hosted contract — 2026-10-08
 
 `PaymentDispatchPolicy.writeReplay` اختيارية backward compatible؛غيابها وPROVIDER_KEY تحتفظانبretention/retries القديمة،وNEVER تتطلب maxAttempts1/retentionMs=null وتمنعأيةdispatch بعدأولevidence. Unknown/interrupted تبقىNeeds Attention ولا تُمحىبرفضلاحق،وACK ليستPaid. هذهpure kernel لا تعنيتفعيلnullable policy فيDB؛native current policies تبقىلحينfinancial migration الملائمة.

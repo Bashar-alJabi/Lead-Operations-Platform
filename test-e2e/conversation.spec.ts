@@ -1412,3 +1412,58 @@ test('browser configures Alma encrypted key, verifies merchant identity and reta
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);expect(errors).toEqual([]);
   } finally { await control(page,{ paymentFailure:false });await context.close(); }
 });
+
+test('browser manages Alma unsigned IPN callbacks and unverified history without treating customer claims or reception as payment',async({ browser })=> {
+  const context=await browser.newContext({ storageState:managerStorageState,extraHTTPHeaders:{ 'x-e2e-rate-scope':randomUUID() } });const page=await context.newPage();const errors:string[]=[];
+  page.on('pageerror',(error)=>errors.push(error.message));
+  try {
+    if(!managerStorageState)await login(page,'manager');else await page.goto('/');await control(page,{ paymentFailure:false });
+    await page.getByRole('combobox',{ name:'Language' }).selectOption('en');await page.getByRole('button',{ name:'Payment setup',exact:true }).click();const panel=page.locator('.payment-setup');
+    await panel.getByLabel('Payment provider',{ exact:true }).selectOption('ALMA');const name='Alma IPN browser <script literal>';
+    await panel.getByLabel('Payment connection name',{ exact:true }).fill(name);await panel.getByLabel('Alma API key',{ exact:true }).fill('AlmaBrowserNotificationsKey_123456');
+    await panel.getByRole('button',{ name:'Save payment connection',exact:true }).click();const notifications=panel.locator('.payment-notifications');
+    await expect(notifications).toContainText('unsigned GET');await expect(notifications).toContainText('not activated yet');
+    await notifications.getByLabel('Alma notification change reason',{ exact:true }).fill('Prepare tested callback <img literal>');
+    await expect(notifications.getByRole('button',{ name:'Prepare Alma callback',exact:true })).toBeDisabled();
+    await panel.getByRole('button',{ name:'Test authentication',exact:true }).click();await expect(notifications.getByRole('button',{ name:'Prepare Alma callback',exact:true })).toBeEnabled();
+    await notifications.getByRole('button',{ name:'Prepare Alma callback',exact:true }).click();const detailPanel=notifications.locator('.payment-notification-detail');
+    await expect(detailPanel).toContainText('merchant_BrowserSynthetic123');await expect(detailPanel).toContainText('local HTTP');await expect(detailPanel.locator('img')).toHaveCount(0);
+    const callback=await notifications.getByLabel('Alma callback URL',{ exact:true }).inputValue();const items=(await (await page.request.get('/api/payments/connections')).json()).items;
+    const id=items.find((i:{ name:string })=>i.name===name).id;const path='/api/payments/connections/'+id;
+    const original=(await (await page.request.get(path+'/notification-endpoints')).json()).items[0];expect(callback).toBe(original.callback_url);expect(original.signedDeliveryVerified).toBe(false);expect(original.financialProcessingReady).toBe(false);
+    await context.grantPermissions(['clipboard-read','clipboard-write']);await detailPanel.getByRole('button',{ name:'Copy Alma callback',exact:true }).click();await expect(notifications.getByRole('status')).toContainText('Alma callback copied');
+    expect(await page.evaluate(()=>navigator.clipboard.readText())).toBe(callback);
+    const before=await control(page);expect((await page.request.get(callback+'?pid=payment_BrowserNotification&paid=true')).status()).toBe(400);
+    expect((await page.request.get(callback+'?pid=payment_BrowserNotification')).status()).toBe(200);
+    const duplicated=await page.request.get(callback+'?pid=payment_BrowserNotification');expect((await duplicated.json()).duplicate).toBe(true);
+    await notifications.getByRole('button',{ name:'Refresh Alma notifications',exact:true }).click();await expect(notifications.locator('.payment-untrusted-notifications')).toContainText('payment_BrowserNotification');
+    await expect(notifications.locator('.payment-untrusted-notifications li')).toHaveCount(1);await expect(notifications).toContainText('receipt only, no financial proof');
+    const after=await control(page);expect(after.paymentCalls).toBe(before.paymentCalls);
+    await detailPanel.getByRole('button',{ name:'Disable Alma callback',exact:true }).click();await expect(detailPanel.getByRole('button',{ name:'Reconnect Alma callback',exact:true })).toBeEnabled();
+    expect((await page.request.get(callback+'?pid=payment_BrowserNotification')).status()).toBe(410);
+    await notifications.getByRole('button',{ name:'Prepare Alma callback',exact:true }).click();await expect(detailPanel.getByRole('button',{ name:'Reconnect Alma callback',exact:true })).toBeEnabled();
+    await detailPanel.getByRole('button',{ name:'Reconnect Alma callback',exact:true }).click();await expect(detailPanel.getByRole('button',{ name:'Disable Alma callback',exact:true })).toBeEnabled();
+    expect((await (await page.request.get(callback+'?pid=payment_BrowserNotification')).json()).duplicate).toBe(true);
+    await expect(detailPanel).toContainText('Version 3');await expect(detailPanel).toContainText('Prepare tested callback <img literal>');
+    // Disabled connection retains a historical callback; configuration rotation cannot re-enable it under a new account.
+    await panel.getByLabel('Payment connection change reason',{ exact:true }).fill('Rotate merchant notifications');await panel.getByRole('button',{ name:'Disable payment connection',exact:true }).click();
+    await expect(notifications.getByRole('button',{ name:'Prepare Alma callback',exact:true })).toBeDisabled();expect((await page.request.get(callback+'?pid=payment_ConnectionDisabled')).status()).toBe(200);
+    await panel.getByRole('button',{ name:'Reconnect payment connection',exact:true }).click();await panel.getByLabel('Alma API key',{ exact:true }).fill('AlmaBrowserRotatedNotificationKey_123456');
+    await panel.getByRole('button',{ name:'Save payment connection',exact:true }).click();await panel.getByRole('button',{ name:'Test authentication',exact:true }).click();
+    await expect(panel.locator('.payment-authentication-identity')).toContainText('merchant_BrowserRotated456');await notifications.getByRole('button',{ name:'Refresh Alma notifications',exact:true }).click();
+    await detailPanel.getByRole('button',{ name:'Disable Alma callback',exact:true }).click();await expect(detailPanel.getByRole('button',{ name:'Reconnect Alma callback',exact:true })).toBeDisabled();
+    await notifications.getByRole('button',{ name:'Prepare Alma callback',exact:true }).click();await expect(detailPanel).toContainText('merchant_BrowserRotated456');
+    const nextCallback=await notifications.getByLabel('Alma callback URL',{ exact:true }).inputValue();expect(nextCallback).not.toBe(callback);
+    expect((await (await page.request.get(nextCallback+'?pid=payment_BrowserNotification')).json()).duplicate).toBe(true);
+    await notifications.getByRole('button',{ name:'Refresh Alma notifications',exact:true }).click();await expect(notifications.locator('.payment-untrusted-notifications li')).toHaveCount(2);
+    const endpointRows=(await (await page.request.get(path+'/notification-endpoints')).json()).items;expect(endpointRows.length).toBe(2);expect(endpointRows.find((e:any)=>e.id===original.id).current).toBe(false);
+    const second=await browser.newContext({ extraHTTPHeaders:{ 'x-e2e-rate-scope':randomUUID() } });try { const unauthorized=await second.newPage();await login(unauthorized,'second');
+      for(const suffix of ['/notification-endpoints','/untrusted-notifications','/notification-endpoints/'+original.id+'/history'])expect((await unauthorized.request.get(path+suffix)).status()).toBe(403);
+      expect((await unauthorized.request.post(path+'/notification-endpoints',{ data:{ connectionVersion:4,reason:'Unauthorized configuration' },headers:{ origin:'http://127.0.0.1:4100' } })).status()).toBe(403);
+    }finally { await second.close(); }
+    await page.getByRole('combobox',{ name:'Language' }).selectOption('fr');await expect(notifications).toContainText('Notifications non vérifiées');await expect(notifications).toContainText('sans preuve financière');
+    await page.setViewportSize({ width:390,height:844 });await page.getByRole('combobox',{ name:'Language' }).selectOption('ar');await notifications.scrollIntoViewIfNeeded();
+    await expect(notifications).toContainText('إشعارات غير متحققة');await expect(notifications).toContainText('دون إثبات مالي');await page.screenshot({ path:'.local/e2e/alma-notifications-ar.png' });
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);expect(errors).toEqual([]);
+  }finally { await control(page,{ paymentFailure:false });await context.close(); }
+});

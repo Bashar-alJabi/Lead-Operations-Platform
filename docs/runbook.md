@@ -1,5 +1,13 @@
 # دليل التشغيل والتطوير
 
+## إعداد واستقبال إشعارات Alma غير الموقّعة — checkpoint مثبتة 2026-10-08
+
+بعد migration081 ومن Payment setup → Alma افحص Authentication، وأدخل سببًا ثم **تجهيز callback لـAlma**. العنوان server-generated من أصل التطبيق ويُرفق بطلب الدفع عند اكتمال issuance؛ لا يُطلب سر توقيع أوتعديل source/DB من الإدارة. HTTP المحلي ليس استقبالًا عامًا من Alma. نسخ URL وتفعيلها لا يثبت وصولًا حيًا أوالدفع، وAlma المالية لا تزال غير مفعّلة.
+
+راجع **إشعارات غير متحققة** وتاريخ callback. `UNVERIFIED` تعني مرجعًا مستلمًا فقط، بلا Payment/Enrollment. لا تختبر بـProduction credentials أوcustomer claim. تعود duplicate لنفس المرجع دون سجل أصلي جديد. 429 تعني حد IP أوالضغط على Connection؛ صحّح السبب وأعد notification وفق حدود التشغيل، دون إنشاء دفع جديد. الحد الافتراضي600 مرجع جديد/ساعة/Connection ويمكن ضبط infrastructure `PAYMENT_NOTIFICATION_HOURLY_LIMIT` من1 إلى10000؛ لا تسجّل query strings أوsecrets.
+
+Disable Connection لا توقف callback تاريخية؛ لإيقافها اختر **تعطيل callback لـAlma** مع السبب. **إعادة تفعيل callback لـAlma** تتطلب حسابها وإعدادها الأصليين الحاليين وversion صحيحة؛ بعد rotation جهّز endpoint جديدة، ولا تعِد كتابة التاريخ أوتجاوز الحماية عبر DB/CLI. **Live Verification Pending External Credential/Approval**؛ تحقق الاستقبال والمال الخارجيان يحتاجان حساب اختبار/موافقة منفصلة، والتفاصيل في [Alma integration](alma-integration.md).
+
 ## حدود Alma hosted protocol — 2026-10-08
 
 Contract creation/independent read وno-replay kernel موجودة ومختبرةمحليًا بالعقد HTTP،لكنhosted issuance/IPN الماليينغيرمفعّلينفيruntime بعد. لاCLI/DB override لتسجيلAlma أوإصدارLinks؛الsetup Authentication/Offers/eligibility وحدهاهيالمساراتالحالية. UNKNOWN تعنيعدممعرفةنتيجةwrite ولا تبررsecond create/key؛success return وGETIPN pid لا تؤكدالدفع. التاليnative durable single write وauthorization recheckقبلPOST وindependent proof/repair/Lead UI؛Live Verification Pending External Credential/Approval. [Alma integration](alma-integration.md) تصفالحمايةوحالةكلprerequisite.

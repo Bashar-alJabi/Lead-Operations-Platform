@@ -1,5 +1,19 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: Alma unsigned IPN setup/notification inbox — 2026-10-08
+
+استُكملت التغييرات غير الملتزمة بعد `81ab35c` دون reset/discard/checkout. Backend وmigration081 وUI ar/en/fr تتيح إعداد callback وتعطيلها وإعادة تفعيلها وقراءة تاريخها ونسخ URL ومراجعة inbox محدودة الصلاحيات. Native guards تفرض current user/session/role/Branch/config/authenticated Merchant وimmutable identity/history؛Audit ذرية. إعادة الإعداد لنفس config تعيد endpoint نفسها ولا تعيد تفعيل المعطّلة تلقائيًا.
+
+GET IPN غير الموقّعة تحفظ مرجع Payment محدودًا بحالة `UNVERIFIED` ودليل delivery منفصلًا عن signed receipts. Dedup حسب Connection/Mode/Resource مع serialization عبر Connection lock؛60requests/min/IP و600 new references/hour/Connection افتراضيًا، قابلة للضبط infrastructure. Duplicate لا تستهلك مرجعًا جديدًا عند الضغط. Connection disable/rotation تحتفظ بالاستقبال التاريخي إلى تعطيل endpoint صراحة؛لا migration تلقائية إلى حساب جديد. لا provider financial I/O أوPayment/Enrollment منnotification أوcustomer claim.
+
+البوابة النهائية ناجحة: **140/140 unit،56/56 full PostgreSQL integration،25/25 Edge Browser E2E** (2.0m)،Backend/Web build/typecheck وmigrations001–081 علىdevelopment/test. ثلاثunit جديدة للعقد/URL/origin/limits؛integration جديدة بـactual Authentication HTTP mock تختبرACL/native session/config/identity/history،8-way setup/receipt dedup،hourly admission concurrency/IP limits،rotation/disabled historical Connection/endpoint reconnect،pagination/Audit rollback/no financial records. Browser25 تثبت setup/copy/unsigned receipt/claims denial/duplicate/disable/reconnect/rotation/current-historical identity/Agent denial/French/RTL390px،دونprovider financial reads. Focused Alma2/2 ناجحة أيضًا؛صورة `.local/e2e/alma-notifications-ar.png` فُحصت بصريًا دونoverflow.
+
+صُحّحت duplicate React keys بينEligibility وNotifications التي كشفتها Browser regression، وfixtures expiry/rate boundaries دونتخفيفproduction guards. Vite EPERM داخل العزل عولج بapproval لتشغيلالبوابة المحلية خارجالعزل؛migration081 لمتُعدّل بعدتطبيقها. Vite582.52KB/gzip168.65KB warning ضمنperformance/code splitting backlog.
+
+**التصنيف:** IPN setup/reception وAuthentication/Offers/eligibility **Implemented وMock/Sandbox Verified محليًا**؛actual adapters وHTTP mocks وDocker PostgreSQL/Edge فقط،لا external Sandbox account أوLive Verification. Hosted/read/no-replay protocol السابقةUnit/HTTP Mock Verified؛**Alma financial end-to-end غير مكتملة،Live Verification Pending External Credential/Approval**.
+
+**الحالة الجارية:** توثيق هذه checkpoint وcommit/push قبلfinancial activation. **التالي الدقيق:** immutable Lead selected plan/merchant/EUR money/intent وnative durable one-write policy/worker،current authorization recheck بعدfresh preflight وقبلPOST؛UNKNOWN/INTERRUPTED→Needs Attention وoriginal-account independent reconciliation دونsecond create. بعدها unsigned IPN→independent captured Payment proof/native monotonic Payment/separate Enrollment/history/read-only credential repair/scoped Lead UI وIntegration/Browser end-to-end؛ثمBank Transfer trusted reconciliation. لا optional provider refinements أوmain merge/deployment.
+
 ## آخر حالة مستقرة: Alma hosted protocol وno-replay dispatch policy — 2026-10-08
 
 Eligibility prerequisite محفوظة ومرفوعة في `59b3634`؛working tree كانت نظيفة وHEAD=origin عندالبدء. أُضيفت standalone actual hosted creation وindependent Merchant+Payment GET وexact merchant/gross money/plan/intent/automatic processing/refund-shape proof،safe fixed URL وexpiry=null. Fresh eligibility تسبقPOST واحدة؛لاProvider guarantee/key/retention أوhidden retry. Creation ACK وauthorized وdeprecated state=paid لا تؤكدالدفع؛captured بلاrefund فقط يمكنأنتنتجindependent proof،ولاnativefinancial activation بعد.
