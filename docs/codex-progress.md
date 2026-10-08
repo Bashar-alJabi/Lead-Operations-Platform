@@ -10,7 +10,7 @@ Campaign preview تحمل latest Published Knowledge/immutable asset manifests �
 
 **الحالة:** operational inheritance/effective-preview prerequisite **Implemented وPostgreSQL/Local Browser Verified**؛ ليست full AI configuration/runtime/assistant baseline. allowedTools فارغة وassistantReady=false، مع runtime/tools/follow-up/simulation blockers. Disclosure/formality وfollow-up/closed-returning/handoff policy التفصيلية، actual qualification answers/results وapproved tools وexecution snapshots/Lead-Conversation-pinned-Sender traces/runtime/jobs/assistants/evaluations باقية. لا inference أوLive AI call؛ **Live Verification Pending External Credential/Approval**. لا ادعاء اكتمال المنصة.
 
-**الحفظ:** البوابة مثبتة؛ يجري حفظ implementation checkpoint ورفعها فقط إلى `codex/full-platform-build`. لا reset/discard/main merge أوdeployment.
+**الحفظ:** implementation checkpoint `f31daa5` محفوظة ومرفوعة إلى `codex/full-platform-build`؛ البوابة159/65/33 و001–099/build/typecheck مثبتة. لا reset/discard/main merge أوdeployment.
 
 **التالي الدقيق:** اقرأ actual Field value write/history services و04 §§17–20/25–35 و01 §§65–70 و02 AI tool permissions؛ نفّذ scoped actual qualification answer/result application service + immutable source/history/version/idempotency/native guards + authorized Human Lead UI، مع approved action boundary قابلة لاستعمال AI/Form لاحقًا دون اختلاق source أوصلاحيات. لا Preview→result ولا automatic handoff/send قبل current Controller/approved tools/runtime. بعدها remaining Campaign policies وapproved tools/effective execution snapshot/runtime/jobs/AI assistants/evaluations،ثم Automation/Notifications/Analytics وبقية النطاق؛ لا provider refinements اختيارية.
 
