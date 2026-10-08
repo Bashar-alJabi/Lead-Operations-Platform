@@ -1625,3 +1625,31 @@ test('AI setup configures encrypted scoped credentials, discovers catalog and ma
     await expect(page.locator('.ai-setup')).toContainText('إعداد AI');await page.screenshot({ path:'.local/e2e/ai-setup-ar.png',fullPage:true });expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);expect(errors).toEqual([]);
   }finally { await context.close();await foreignContext.close(); }
 });
+
+test('Campaign knowledge edits and previews Draft separately, publishes immutable approved versions and preserves scoped safe history',async({ browser })=> {
+  const context=await browser.newContext({ storageState:managerStorageState,extraHTTPHeaders:{ 'x-e2e-rate-scope':randomUUID() } }),foreignContext=await browser.newContext({ extraHTTPHeaders:{ 'x-e2e-rate-scope':randomUUID() } });
+  const page=await context.newPage(),foreign=await foreignContext.newPage(),errors:string[]=[];page.on('pageerror',(e)=>errors.push(e.message));page.on('console',(m)=>{ if(m.type()==='error' && /same key|unique.*key/i.test(m.text()))errors.push(m.text()); });
+  const origin='http://127.0.0.1:4100';
+  try {
+    if(managerStorageState)await page.goto('/');else await login(page,'manager');await page.getByRole('combobox',{ name:'Language' }).selectOption('en');
+    const lead=(await (await page.request.get('/api/leads/'+fixture.leadId)).json()).lead;
+    const made=await page.request.post('/api/campaigns',{ headers:{ origin },data:{ name:'Browser Knowledge Campaign',branchId:lead.branch_id,routingMethod:'MANUAL' } });expect(made.status()).toBe(201);const c=await made.json();
+    await page.getByRole('button',{ name:'Campaigns',exact:true }).click();await page.getByRole('button',{ name:'Retry',exact:true }).click();await page.getByRole('row').filter({ hasText:'Browser Knowledge Campaign' }).getByRole('button',{ name:'Details',exact:true }).click();
+    const panel=page.locator('[data-campaign-knowledge]'),root='/api/ai/campaigns/'+c.id+'/knowledge';await expect(panel).toContainText('No published knowledge yet');
+    await panel.getByLabel('Knowledge product and service',{ exact:true }).fill('Approved product <img src=x onerror=alert(1)>');await panel.getByLabel('Knowledge approved prices',{ exact:true }).fill('EUR 35');
+    await panel.getByRole('button',{ name:'Add Knowledge FAQ',exact:true }).click();await panel.getByLabel('Knowledge FAQ question 1',{ exact:true }).fill('When is registration?');await panel.getByLabel('Knowledge FAQ answer 1',{ exact:true }).fill('Only approved schedules');
+    await panel.getByLabel('Allowed claims, one per line',{ exact:true }).fill('Approved product\nApproved price');await panel.getByLabel('Prohibited claims, one per line',{ exact:true }).fill('No invented discounts');
+    await panel.getByRole('button',{ name:'Add knowledge link',exact:true }).click();await panel.getByLabel('Knowledge link label 1',{ exact:true }).fill('Approved reference');await panel.getByLabel('Knowledge link URL 1',{ exact:true }).fill('https://example.com/approved');
+    await panel.getByRole('button',{ name:'Preview knowledge draft',exact:true }).click();await expect(panel.locator('[data-knowledge-preview]')).toContainText('EUR 35');await expect(panel.locator('img')).toHaveCount(0);await expect(panel.getByRole('button',{ name:'Publish approved knowledge',exact:true })).toBeDisabled();
+    await panel.getByLabel('Knowledge edit or publish reason',{ exact:true }).fill('Reviewed campaign facts');await panel.getByRole('button',{ name:'Save knowledge draft',exact:true }).click();await expect(panel).toContainText('Draft version: 1');
+    const publishPromise=page.waitForResponse((r)=>r.request().method()==='POST' && r.url().endsWith('/knowledge/publish'));await panel.getByRole('button',{ name:'Publish approved knowledge',exact:true }).click();const publishedResponse=await publishPromise;expect(publishedResponse.status()).toBe(201);const payload=publishedResponse.request().postDataJSON();
+    const published=panel.locator('[data-knowledge-published]');await expect(published).toContainText('EUR 35');await expect(published).toContainText('Approved product <img src=x onerror=alert(1)>');expect((await page.request.post(root+'/publish',{ headers:{ origin },data:payload })).status()).toBe(200);
+    await panel.getByLabel('Knowledge approved prices',{ exact:true }).fill('EUR 40 Draft only');await panel.getByLabel('Knowledge edit or publish reason',{ exact:true }).fill('Reviewed new price draft');await panel.getByRole('button',{ name:'Save knowledge draft',exact:true }).click();await expect(panel).toContainText('Draft version: 2');await expect(published).toContainText('EUR 35');await expect(published).not.toContainText('EUR 40');
+    expect((await page.request.post(root+'/publish',{ headers:{ origin },data:{ ...payload,requestId:randomUUID() } })).status()).toBe(409);
+    await panel.getByRole('button',{ name:'Publish approved knowledge',exact:true }).click();await expect(published).toContainText('EUR 40 Draft only');await panel.getByRole('button',{ name:'View knowledge version 1',exact:true }).click();await expect(panel.locator('[data-knowledge-version]')).toContainText('EUR 35');await expect(panel.locator('[data-knowledge-version]')).not.toContainText('EUR 40');
+    const link=published.getByRole('link',{ name:'Approved reference',exact:true });await expect(link).toHaveAttribute('href','https://example.com/approved');await expect(link).toHaveAttribute('rel','noopener noreferrer');
+    await login(foreign,'second');expect((await foreign.request.get(root)).status()).toBe(403);expect((await foreign.request.post(root+'/publish',{ headers:{ origin },data:payload })).status()).toBe(403);
+    await page.getByRole('combobox',{ name:'Language' }).selectOption('fr');await expect(panel).toContainText('Connaissances de campagne');await page.getByRole('combobox',{ name:'Language' }).selectOption('ar');await page.setViewportSize({ width:390,height:844 });await expect(panel).toContainText('معرفة الحملة');
+    await panel.screenshot({ path:'.local/e2e/knowledge-ar.png' });expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);expect(errors).toEqual([]);
+  }finally { await context.close();await foreignContext.close(); }
+});

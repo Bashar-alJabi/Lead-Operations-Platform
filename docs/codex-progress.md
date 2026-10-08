@@ -1,5 +1,19 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: Campaign structured Knowledge — 2026-10-08
+
+بدأت من AI Provider/Profile `011f715` المحفوظة والمرفوعة. المرحلة المنظمة من Campaign Knowledge منفذة في Backend/DB/authorization/UI: تسعة أقسام، FAQs وallowed/prohibited claims وروابط HTTPS معتمدة، strict bounded content ورفض unknown configuration/control bytes/invalid Unicode/unsafe links. لا external link fetch أوAI call؛ النص غير الموثوق يُعرض كنص.
+
+Migration 092 تحفظ Draft ذات optimistic version وnative current scope/session/active Branch، revisions immutable وAudit ذرية. Preview لا تحفظ ولا تنشر؛ publication معتمدة ذات request idempotency/current Draft snapshot ومؤشر latest version من تاريخ immutable. Draft جديدة لا تستبدل Published، ونشر جديد لا يعيد كتابة التاريخ. Same request بعد نشر لاحق يعيد الأصل؛ different request لنفس Draft أوsame key بمحتوى مختلف يُرفض. History بصفحات version محدودة دون تكرار content في كل صف، وقراءة نسخة مختارة من UI؛ GET لا ينشئ Draft. المعرفة مرتبطة بـCampaign، بلا مشاركة business context بين الحملات.
+
+**البوابة ناجحة:** migrations 001–092 development/test، **153/153 unit، 61/61 full Docker PostgreSQL integration، 29/29 full Edge Browser E2E** (1.3m)، focused Knowledge **1/1**، Backend/Web build/typecheck. API/native tests تثبت four-way draft edit وeight-way same-request publish، permissions/Branch/organization/current session، immutable versions، empty publication/unsafe data denial، Audit rollback للنشر والتحرير وhistory/pagination/isolation. Browser تثبت editor/preview/publish/Draft-Published separation/new version/original retry/history/Agent denial/approved safe link/XSS وFrench/RTL 390px؛ الصورة فُحصت. فشل fixture بسبب API campaign بعد cache UI أُصلح عبر refresh صريح وأُعيدت focused/full Browser؛ service/unit/integration code لم تتغير بعدها. Vite 634.72KB/gzip 182.50KB warning ضمن backlog.
+
+**الحالة:** structured Knowledge prerequisite **Implemented وPostgreSQL/Local Browser Verified**؛ لا ادعاء AI/Knowledge module كاملة. Approved scanned files/assets، qualification، effective configuration، inference/tools/assistants/evaluations باقية. لا external provider credential أوProduction deployment. AI provider Live Verification Pending External Credential/Approval.
+
+**الحفظ الجاري:** تحديث coverage/architecture/runbook ثم commit وpush فقط إلى `codex/full-platform-build`.
+
+**التالي الدقيق:** shared AI profile use entitlement: Super Admin تتيح Organization connection صراحة لفرع، Manager يستخدم metadata/profiles فقط دون credentials أوmanagement access؛ native current scope/version/history/Audit وUI/tests. هذه prerequisite من 03 §52 و04 §75 قبل effective configuration. ثم approved scanned Knowledge files/assets وqualification mappings، ثم Global guardrails → Branch defaults → Campaign effective configuration وapproved tools/runtime/evaluations. لا provider polish اختيارية.
+
 ## آخر حالة مستقرة: AI Provider/Profile foundations — 2026-10-08
 
 بدأت من Bank Transfer `9ae90de` المحفوظة والمرفوعة. أُنجزت managed AI connections وtask profiles في Backend/DB/UI: encrypted credential، scoped Manager/Super Admin setup/rotation/disable/reconnect، actual OpenAI catalog adapter مع fixed host/no redirects/8s timeout/bounded response، model selection بلا model افتراضية، profiles للمهام الأربع وcurrent catalog/version/session/Branch checks، history وAudit. Agent لا يدير هذه الإعدادات ولا يحصل على credential.
@@ -8,7 +22,7 @@
 
 **حدود الحالة:** prerequisite هذه **Implemented وMock/Sandbox Verified محليًا** بـactual adapter مع HTTP mocks فقط. Catalog يثبت authentication/model availability ولا يثبت inference أوtool compatibility أوassistant readiness. **Live Verification Pending External Credential/Approval**؛ لا credential شخصية/Production أوexternal account. Campaign AI activation وknowledge وeffective configuration وtools/runtime/assistants/evaluations غير منفذة بعد. المنصة جزئية.
 
-**الحفظ الجاري:** توثيق checkpoint هذه ثم commit وpush فقط إلى `codex/full-platform-build` قبل المرحلة التالية.
+**الحفظ:** checkpoint `011f715` محفوظة ومرفوعة إلى `codex/full-platform-build`؛ الشجرة كانت نظيفة بعدها. لا main merge أوdeployment.
 
 **التالي الدقيق:** Campaign Knowledge structured Draft/Preview/Published versions وhistory/scope/Audit أولًا؛ ثم scanned approved assets وqualification mappings، وبعدها deterministic Global guardrails → Branch defaults → Campaign effective configuration. لا runtime/AI auto-send قبل اكتمال الاعتماديات والاختبارات.
 

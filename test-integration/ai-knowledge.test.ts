@@ -1,0 +1,62 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { randomBytes,randomUUID } from 'node:crypto';
+import { buildApp } from '../src/app.js';
+import { createDatabase } from '../src/db.js';
+import { sha256 } from '../src/security.js';
+import { emptyKnowledge } from '../src/ai/knowledge.js';
+const url=process.env.TEST_DATABASE_URL;if(!url || new URL(url).pathname!=='/lead_operations_test')throw new Error('Isolated TEST_DATABASE_URL required');
+test('Campaign Knowledge draft/publication enforce isolation, current authorization, concurrency, immutable versions, idempotency and Audit atomicity',async(t)=> {
+  process.env.APP_ORIGIN='http://127.0.0.1:5173';const db=createDatabase(url),app=await buildApp(db,{ logger:false,globalRateLimitMax:10000 });t.after(async()=>{ await app.close();await db.end(); });
+  await db.begin(async(tx)=>{ await tx`SET LOCAL client_min_messages TO warning`;await tx`TRUNCATE background_job CASCADE`;await tx`TRUNCATE organization CASCADE`; });
+  const org=(await db`INSERT INTO organization(name) VALUES ('Knowledge tests') RETURNING id`)[0]!.id,foreignOrg=(await db`INSERT INTO organization(name) VALUES ('Other') RETURNING id`)[0]!.id;
+  const branch=(await db`INSERT INTO branch(organization_id,name) VALUES (${org},'A') RETURNING id`)[0]!.id,branchB=(await db`INSERT INTO branch(organization_id,name) VALUES (${org},'B') RETURNING id`)[0]!.id;
+  const a=(await db`INSERT INTO campaign(organization_id,branch_id,name) VALUES (${org},${branch},'A') RETURNING id`)[0]!.id,b=(await db`INSERT INTO campaign(organization_id,branch_id,name) VALUES (${org},${branch},'B') RETURNING id`)[0]!.id;
+  const c=(await db`INSERT INTO campaign(organization_id,branch_id,name) VALUES (${org},${branchB},'C') RETURNING id`)[0]!.id;
+  const users:Record<string,{ id:string;session:string;cookie:string }>={};
+  for(const [name,role,scope,o] of [['manager','MANAGER',branch,org],['other','MANAGER',branchB,org],['agent','AGENT',branch,org],['admin','SUPER_ADMIN',null,org],['foreign','SUPER_ADMIN',null,foreignOrg]] as const) {
+    const id=(await db`INSERT INTO user_account(organization_id,branch_id,name,role,email,password_hash) VALUES (${o},${scope},${name},${role},${name+'@knowledge.test'},'synthetic-only') RETURNING id`)[0]!.id,token=randomBytes(32).toString('hex');
+    const session=(await db`INSERT INTO user_session(user_id,token_hash,created_at,expires_at) VALUES (${id},${sha256(token)},now()-interval '1 hour',now()+interval '1 hour') RETURNING id`)[0]!.id;users[name]={ id,session,cookie:'lop_session='+token };
+  }
+  const api=(method:'GET'|'POST'|'PUT',path:string,payload?:object,actor='manager')=>app.inject({ method,url:path,payload,headers:{ origin:process.env.APP_ORIGIN!,cookie:users[actor]!.cookie } });
+  const root='/api/ai/campaigns/'+a+'/knowledge',other='/api/ai/campaigns/'+b+'/knowledge';const body={ version:0,content:emptyKnowledge(),reason:'Start approved campaign facts' };
+  assert.equal((await api('GET',root)).json().draft.version,0);assert.equal((await db`SELECT count(*)::integer AS n FROM ai_knowledge_draft`)[0]!.n,0,'GET does not create a draft');
+  for(const actor of ['agent','other','foreign'])assert.equal((await api('GET',root,undefined,actor)).statusCode,actor==='agent' ? 403 : 404);
+  assert.equal((await api('PUT','/api/ai/campaigns/'+c+'/knowledge/draft',body)).statusCode,404);
+  assert.equal((await api('PUT',root+'/draft',{ ...body,content:{ ...body.content,systemPrompt:'disable guards' } })).statusCode,400);
+  const edits=await Promise.all(Array.from({ length:4 },()=>api('PUT',root+'/draft',body)));assert.deepEqual(edits.map((r)=>r.statusCode).sort(),[200,409,409,409]);
+  assert.equal((await api('POST',root+'/publish',{ version:1,requestId:randomUUID(),reason:'Publish empty draft' })).statusCode,409);
+  const content=emptyKnowledge();content.sections.product='Campaign A product <img literal>';content.sections.prices='EUR 35';content.faqs=[{ question:'Is this confirmed?',answer:'Only approved facts' }];content.allowedClaims=['Approved product'];content.prohibitedClaims=['No promised payment'];content.links=[{ label:'Approved page',url:'https://example.com/product' }];
+  assert.equal((await api('POST',root+'/preview',{ version:1,content })).json().previewOnly,true);assert.equal((await api('GET',root)).json().draft.content.sections.product,'');
+  assert.equal((await api('PUT',root+'/draft',{ version:1,content,reason:'Draft approved facts' })).statusCode,200);
+  const publish={ version:2,requestId:randomUUID(),reason:'Reviewed and approved campaign A facts' };
+  const pubs=await Promise.all(Array.from({ length:8 },()=>api('POST',root+'/publish',publish)));assert.deepEqual(pubs.map((r)=>r.statusCode).sort(),[200,200,200,200,200,200,200,201]);
+  const first=pubs[0]!.json();assert.equal(first.version,1);assert.equal(first.content.sections.prices,'EUR 35');assert.equal((await api('GET',other)).json().published,null);
+  assert.equal((await api('POST',root+'/publish',{ ...publish,reason:'Different same-key body' })).statusCode,409);
+  assert.equal((await api('POST',root+'/publish',{ ...publish,requestId:randomUUID() })).statusCode,409);
+  const next={ ...content,sections:{ ...content.sections,prices:'EUR 40 Draft only' } };assert.equal((await api('PUT',root+'/draft',{ version:2,content:next,reason:'Change price in draft' })).statusCode,200);
+  assert.equal((await api('GET',root)).json().published.content.sections.prices,'EUR 35','Draft never overwrites Published');
+  assert.equal((await api('POST',root+'/preview',{ version:2,content:next })).statusCode,409);
+  await assert.rejects(db`UPDATE ai_knowledge_publication SET content='{}' WHERE campaign_id=${a}`,/AI_KNOWLEDGE_PUBLICATION_IMMUTABLE/);
+  await assert.rejects(db`DELETE FROM ai_knowledge_revision WHERE campaign_id=${a}`,/AI_KNOWLEDGE_REVISION_IMMUTABLE/);
+  await assert.rejects(db`DELETE FROM ai_knowledge_draft WHERE campaign_id=${a}`,/AI_KNOWLEDGE_HISTORY_RETAINED/);
+  await assert.rejects(db`UPDATE ai_knowledge_draft SET version=version+2 WHERE campaign_id=${a}`,/AI_KNOWLEDGE_VERSION_CONFLICT/);
+  await db`UPDATE user_session SET expires_at=now()-interval '1 second' WHERE id=${users.manager!.session}`;
+  await assert.rejects(db`UPDATE ai_knowledge_draft SET version=version+1 WHERE campaign_id=${a}`,/AI_KNOWLEDGE_CURRENT_ACCESS_REQUIRED/);
+  await db`UPDATE user_session SET expires_at=now()+interval '1 hour' WHERE id=${users.manager!.session}`;
+  await db`CREATE FUNCTION synthetic_knowledge_audit_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action LIKE 'AI_KNOWLEDGE_%' THEN RAISE EXCEPTION 'synthetic audit failure';END IF;RETURN NEW;END $$`;
+  await db`CREATE TRIGGER synthetic_knowledge_audit BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION synthetic_knowledge_audit_failure()`;
+  try {
+    assert.equal((await api('PUT',root+'/draft',{ version:3,content:next,reason:'Rollback draft test' })).statusCode,500);
+    assert.equal((await api('POST',root+'/publish',{ version:3,requestId:randomUUID(),reason:'Rollback publication test' })).statusCode,500);
+    assert.equal((await api('GET',root)).json().draft.version,3);assert.equal((await api('GET',root+'/history')).json().items.length,1);assert.equal((await api('GET',root+'/revisions')).json().items.length,3);
+  }finally { await db`DROP TRIGGER synthetic_knowledge_audit ON audit_log`;await db`DROP FUNCTION synthetic_knowledge_audit_failure()`; }
+  assert.equal((await api('POST',root+'/publish',{ version:3,requestId:randomUUID(),reason:'Approve new price' })).json().version,2);
+  assert.equal((await api('GET',root+'/versions/1')).json().content.sections.prices,'EUR 35');assert.equal((await api('GET',root+'/versions/2')).json().content.sections.prices,'EUR 40 Draft only');
+  assert.equal((await api('POST',root+'/publish',publish)).json().version,1,'Original request retry retains the original publication after later edits');
+  assert.equal((await api('GET',root+'/history?limit=1')).json().nextVersion,2);assert.equal((await api('GET',root+'/history?before=2')).json().items[0].version,1);
+  const bContent=emptyKnowledge();bContent.sections.product='Campaign B only';assert.equal((await api('PUT',other+'/draft',{ ...body,content:bContent })).statusCode,200);assert.equal((await api('GET',root)).json().draft.content.sections.product,content.sections.product);
+  assert.equal((await api('GET',root+'/versions/1',undefined,'other')).statusCode,404);assert.equal((await api('GET',other+'/versions/1')).statusCode,404);
+  assert.equal((await db`SELECT count(*)::integer AS n FROM audit_log WHERE action='AI_KNOWLEDGE_PUBLISHED' AND target_id=${a}`)[0]!.n,2);
+  await db`UPDATE branch SET active=false WHERE id=${branch}`;assert.equal((await api('PUT',root+'/draft',{ version:3,content,reason:'Disabled branch edit' })).statusCode,409);assert.equal((await api('GET',root+'/history')).statusCode,200,'Historical review remains available');
+});

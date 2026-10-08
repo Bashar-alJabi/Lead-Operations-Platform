@@ -396,3 +396,9 @@ UNKNOWN أو PREPARED/accepted outcome لا تستخدم هذا الإجراء،
 من AI setup ينشئ Manager اتصالًا لفرعه أوSuper Admin اتصالًا مشتركًا/لفرع، ويدخل credential مخصصة للمؤسسة والمشروع من مزودها. الاختبار يفحص authentication/model catalog فقط؛ لا يرسل Lead data ولايثبت inference. اختر task/model صراحة من catalog الحالية. Credential لا تُعرض بعد الحفظ؛ rotation/reconnect/disable/history متاحة داخل المنتج. بعد rotation أوتعطيل الاتصال/الفرع تصبح profiles غير متاحة حتى تحقق حالي صالح؛ التاريخ يبقى.
 
 عند AUTH_EXPIRED/ERROR راجع credential لدى المزود، عدّلها من UI، ثم أعد test. Late response بعد rotation/revocation لا تعيد CONNECTED أوcatalog قديمة. لا تستخدم CLI/DB لإجبار الجاهزية أوتفعيل Campaign AI؛ knowledge/effective config/tools/runtime لم تكتمل بعد. التحقق المحلي actual HTTP mocks فقط: 151 unit/60 integration/28 Browser، 001–091/build/typecheck. Live Verification Pending External Credential/Approval. تفاصيل القرارات في `ai-provider-foundations.md`.
+
+## Campaign Knowledge
+
+من Campaign details يمكن Manager ضمن فرعه أوSuper Admin تحرير الأقسام/FAQs/claims/links، ومراجعة Preview ثم Save Draft مع سبب. Publish approved knowledge ينشر Draft محفوظة فقط ويحفظ snapshot/history؛ التعديل التالي لا يبدل Published حتى اعتماد جديد. History تعرض metadata بصفحات ونسخة مختارة بمحتواها. Version conflict يتطلب Reload ومراجعة التعديل الحالي قبل حفظ جديد؛ لا force overwrite أوDB edits.
+
+لا تستنتج inference/assistant readiness من Publish؛ scanned approved files وqualification/effective configuration/tools/runtime/evaluations باقية. الروابط HTTPS معتمدة كعناوين دون fetching محتواها. GET/history مسموحة للمراجعة بعد تعطيل Branch، والتعديل/النشر ممنوعان؛ Agent لا يدير Knowledge. التحقق 153 unit/61 integration/29 Browser و001–092/build/typecheck؛ لا external provider call من Knowledge. `ai-campaign-knowledge.md` يحدد الحدود الحالية.

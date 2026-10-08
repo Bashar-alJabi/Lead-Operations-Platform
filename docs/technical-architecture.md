@@ -551,3 +551,7 @@ Queue محفوظة ذرية مع receipt، worker مستقلة وSKIP LOCKED و3
 ## AI Provider/Profile setup — checkpoint 2026-10-08
 
 Connections وtask profiles مستقلة عن Campaign knowledge/configuration. Registry أولها actual OpenAI catalog adapter، بلا default model أوحساب شخصي. Credential encrypted ومحصورة في server adapter؛ model IDs فقط من bounded catalog، network خارج transaction، current session/version/Branch وprobe lease تمنع late results. Catalog/authentication ليست inference readiness، ولا تزيل AI activation guard الحالية. History/profile versions/Audit وscoped setup UI مثبتة محليًا؛ التفاصيل في `ai-provider-foundations.md`. البوابة 151 unit/60 PostgreSQL/28 Browser وmigrations 001–091؛ Live Verification Pending External Credential/Approval.
+
+## Campaign structured Knowledge — 092
+
+Draft/revisions وimmutable publication منفصلة ومقيدة بـCampaign/current Manager-Super Admin session/Branch. API تستخدم optimistic version وpublication request UUID، والتاريخ/Audit داخل transaction. Latest Published لا تتغير من Draft edits؛ لا context sharing بين Campaigns. Strict bounded text/FAQs/claims/HTTPS links تُrender كنص، ولا external fetch/AI activation. تفاصيل القرار وحدود scanned files/qualification/runtime التالية في `ai-campaign-knowledge.md`. المرحلة مثبتة بـ153 unit/61 PostgreSQL/29 Browser و001–092/build/typecheck.
