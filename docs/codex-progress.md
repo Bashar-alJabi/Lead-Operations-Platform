@@ -1,5 +1,17 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: Alma hosted protocol وno-replay dispatch policy — 2026-10-08
+
+Eligibility prerequisite محفوظة ومرفوعة في `59b3634`؛working tree كانت نظيفة وHEAD=origin عندالبدء. أُضيفت standalone actual hosted creation وindependent Merchant+Payment GET وexact merchant/gross money/plan/intent/automatic processing/refund-shape proof،safe fixed URL وexpiry=null. Fresh eligibility تسبقPOST واحدة؛لاProvider guarantee/key/retention أوhidden retry. Creation ACK وauthorized وdeprecated state=paid لا تؤكدالدفع؛captured بلاrefund فقط يمكنأنتنتجindependent proof،ولاnativefinancial activation بعد.
+
+Generic policy صريحة `writeReplay=NEVER/maxAttempts1/retentionMs=null` تسمحأولdispatch فقطوتمنعكلمايليها؛unknown/interrupted تحتاجNeeds Attention،ACK permanent acceptance لاPaid؛legacy Stripe/PayPal provider-key retry semantics وnative policy budgets ثابتة. هذهpure kernel فقط؛DB policy الحاليةلا تسمحnullable retention جديدة قبلfinancial migration.
+
+بوابة checkpoint ناجحة: **137/137 unit،55/55 full PostgreSQL integration،24/24 Edge Browser E2E** (2.2m)،Backend/Web build/typecheck وmigrations001–080 علىdevelopment/test؛لاmigration جديدة. ثمانيةunit جديدة:5actual hosted/read HTTP mocks للpayload/one write/independent captured مقابلapproval/old state/refund/strict identity-money-plan/URLs/finite failures/lost ACK/no hidden retry،و3no-replay kernel tests لfirst admission/unknown/rejection/running/ACK/clock-policy-evidence corruption وbackward provider-key equivalence. Integration/Browser هناregression كاملةللمساراتالموجودة،**ليستاAlma ماليةend-to-end**. Vite571.91KB/gzip166.14KB warning ضمنperformance/code splitting backlog.
+
+**التصنيف:** standalone protocol/policy **Implemented وUnit/HTTP Mock Verified** فقط؛Authentication/Offers/eligibility السابقة Mock/Sandbox Verified محليًا. لاAlma financial Integration/Browser أوLive Provider Verified؛ **Live Verification Pending External Credential/Approval**. PayPal baseline المالية ثابتة؛Bank Transfer باقية.
+
+**الحالة الجارية:** document/commit/push لهذهcheckpoint قبلربطruntime. **التالي الدقيق:** Alma unsigned IPN setup/notification receipt منUI معnative scope/current-session/config/history/Audit وdedup/backpressure،دونfake signed-delivery proof؛ثمimmutable Lead selected plan/merchant/EUR money/intent وnative one-write policy/durable issuance معauthorization recheck بعدfresh preflight وقبلPOST،UNKNOWN→original-account independent reconciliation بلاsecond create؛independent captured proof→native monotonic Payment/separate Enrollment/repair/history/scoped Lead UI وIntegration/Browser end-to-end قبلتفعيلfinancial registries. بعدهاBank Transfer المستقلة trusted reconciliation؛لا optional provider refinements أوmain merge/deployment.
+
 ## آخر حالة مستقرة: Alma amount-specific eligibility prerequisite — 2026-10-08
 
 Checkpoint عروض Alma محفوظة ومرفوعة في `1a50cf9` مع واجهتها في `d0f7598`؛working tree كانت نظيفة وHEAD=origin عند البدء. أُكملت prerequisite اللازمة للإصدار: actual current Merchant + V2 specific-query eligibility لخطة مختارة صراحة ومبلغ EUR exact minor/int32،safe schema1 result وimmutable original request/native session/config/current identity/latest/TTL/history/Audit وsetup UI ar/en/fr. لا default plan أوcustomer underwriting أوfinancial confirmation؛false eligible تقييم ناجح لاPayment failed،ولا financial registry activation أوPayment/Enrollment.

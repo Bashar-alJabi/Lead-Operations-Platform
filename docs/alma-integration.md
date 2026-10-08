@@ -1,5 +1,17 @@
 # تكامل Alma
 
+## Hosted protocol وno-replay policy prerequisite — 2026-10-08
+
+`almaHostedAdapter` تنفّذ actual current Merchant وfresh amount-specific eligibility ثم automatic hosted `POST /v1/payments`؛الخطة وEUR exact minor وintentId/return/cancel/IPN server targets صريحة. لا provider key أوidempotency retention مفترضة أو hidden retries. Link response تحفظsafe fixed TEST/LIVE Alma URL matching payment ID وexpiry=null؛لاPaid evidence منcreation ACK حتى لو processing_status=captured. Customer data/fees/old installment state لا تدخل normalized snapshot.
+
+`retrievePayment` قراءة مستقلة current Merchant ثم GET exact Payment ID؛تراجعoriginal merchant/intent/exact gross money/plan/automatic capture/refund shape. Evidence `INDEPENDENT_ALMA_PAYMENT_READ` schema1 لا تعتبر authorized أوstate=paid القديمة تأكيدًا؛PAID فقطcaptured دونrefund. Partial/full refund تمنعinitial confirmation منهذهproof؛لا accounting/refund workflow جديدة. malformed identity/money/plan/URLs/manual/unknown status تفشلclosed،وerrors finite دونsecrets. Missing guarantees تستخدم UNKNOWN للwrite network/HTTP ambiguity،لا automatic replacement.
+
+Generic dispatch policy أضيفت لها `writeReplay:'NEVER'` معmaxAttempts=1 وretentionMs=null،بدلretention مالية مختلقة. الأول يُسمح فقطمعempty contiguous evidence؛أيattempt أخرى تحجبwrite،وUNKNOWN/INTERRUPTED تحفظNeeds Attention،وACK تبقىpermanent acceptance لاPaid. Legacy Stripe/PayPal provider-key policies دونالحقل تبقىبنفس semantics وبميزانياتهاالمثبتة.
+
+هذه standalone protocol/policy prerequisite،ليست runtime financial activation. Adapter نفسهاsingle invocation وليستprovider-idempotent؛يلزمdurable native one-write admission وcurrent authorization recheck بعدpreflight وقبلPOST،unsigned IPN trigger/independent proof native guards وLead plan/issuance/recovery UI وIntegration/Browser ماليةقبلتسجيلAlma فيregistries. Source GETIPN لا يملكsignature وتحتاجdedup/abuse limits وhistorical account-bound read-only reconciliation؛لاverification منcustomer pid/claim/return وحدها. نتائج البوابة وحدودها فيprogress/coverage.
+
+بوابة137unit/55PostgreSQL/24Edge وbuild/typecheck/migrations001–080 ناجحة؛8unit جديدة للعقد HTTP وno-replay policy. Integration/Browser regression للمساراتالموجودة فقط؛ليستاAlma financial end-to-end. **Unit/HTTP Mock Verified لهذاprotocol؛Live Verification Pending External Credential/Approval**.
+
 ## Amount-specific eligibility prerequisite — 2026-10-08
 
 `inspectEligibility` امتداد اختياري لـPaymentConnectionAdapter؛Alma تنفّذ current Merchant ثم `POST /v2/payments/eligibility` مع purchase_amount EUR cents/int32 وorigin=online وquery واحدة لخطة مختارة صراحة،دون provider default. العملية تقييم فقط ولا تنشئ Payment لدى المزود. الإجابة يجب أن تحتوي result واحدة بنفس installments/deferred tuple وeligible boolean؛money/account/mode من الطلب والهوية المستقلة،ولا raw reasons/fees/PII/payment schedules تُحفظ أو تُعرض. False eligible نتيجة تقييم ناجحة وليست Authentication failure أوPayment failed.
@@ -50,7 +62,7 @@ adapter الفعلية تستخدمHTTP mocks فيunit/PostgreSQL/Browser؛لاA
 
 ## التالي: financial baseline
 
-Merchant offers وcurrent V2 specific-query eligibility مثبتتان؛التالي hosted creation protocol/selected-plan Lead UI دون installments Business defaults مختلقة،ثمimmutable merchant/money/intent/options وdurable write policy. Reference V2 توثق purchase amount كـEUR cents/int32؛هذا API money profile وليس إثبات capability لكل حساب أوcustomer underwriting. لاidempotency retention أوUNKNOWN retry مفترضةحتىيتحققعقدالمزوّد؛reconciliation تحفظhistory ولا تنشئPayment ثانيةتخمينًا.
+Authentication/Offers/V2 eligibility وstandalone hosted/read/no-replay protocol موجودة؛التالي durable/native financial activation وselected-plan Lead UI دون installments Business defaults مختلقة،immutable merchant/money/intent/plan وتحقق current authorization عندactual write. Reference V2 توثق EUR cents/int32 كـAPI money profile،لاcustomer underwriting. UNKNOWN تحتاجoriginal-account independent reconciliation عبرPayment ID موثوقة الربط،لا second create؛لاprovider retention مفترضة.
 
 IPN الرسميةGET `pid` غيرموقّعة؛notification غيرموثوقة تحتاجcorrelation/abuse bounds/dedup ثمindependent authenticated GETPayment وmerchant/exact money/currency/intent. `processing_status` مرجعالحالةبدلstate القديمة،و`authorized` لا تُساوىcaptured. Native confirmation/monotonic Payment/separate Enrollment/history/repair/scoped UI وnegative integration/Browser E2E قبلfinancial activation. Bank Transfer بعدهذهbaseline معtrusted reconciliation لاcustomer claim.
 
@@ -61,3 +73,4 @@ IPN الرسميةGET `pid` غيرموقّعة؛notification غيرموثوقة 
 - [Official SDK FeePlan](https://github.com/alma/alma-php-client/blob/main/src/Entities/FeePlan.php): general offers وallowed/count/deferred/purchase bounds.
 - [V2 eligibility](https://docs.almapay.com/reference/verifier-eligibilite-achat): amount-specific EUR eligibility،queries وترتيب الإجابة؛inspection مثبتة،وليستcustomer/payment verification.
 - [Technical guide](https://docs.almapay.com/docs/custom-integration-technical-guide)،[Payment](https://docs.almapay.com/reference/payment): IPN/independent lookup/processing states؛مراجعةللمرحلةالتاليّةوليستverification ماليةمنفذة.
+- [Create Payment](https://docs.almapay.com/reference/creer-un-payment)،[Retrieve Payment](https://docs.almapay.com/reference/recuperer-un-payment)،[Official SDK usage](https://github.com/alma/alma-php-client)،[Payment entity](https://github.com/alma/alma-php-client/blob/main/src/Entities/Payment.php): actual hosted request/independent retrieval؛لاضمانidempotency مفترض منالمصادرالمقروءة. SDK old state examples لا تلغيcurrent processing_status.

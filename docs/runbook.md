@@ -1,5 +1,9 @@
 # دليل التشغيل والتطوير
 
+## حدود Alma hosted protocol — 2026-10-08
+
+Contract creation/independent read وno-replay kernel موجودة ومختبرةمحليًا بالعقد HTTP،لكنhosted issuance/IPN الماليينغيرمفعّلينفيruntime بعد. لاCLI/DB override لتسجيلAlma أوإصدارLinks؛الsetup Authentication/Offers/eligibility وحدهاهيالمساراتالحالية. UNKNOWN تعنيعدممعرفةنتيجةwrite ولا تبررsecond create/key؛success return وGETIPN pid لا تؤكدالدفع. التاليnative durable single write وauthorization recheckقبلPOST وindependent proof/repair/Lead UI؛Live Verification Pending External Credential/Approval. [Alma integration](alma-integration.md) تصفالحمايةوحالةكلprerequisite.
+
 ## فحص أهلية مبلغ وخطة Alma — 2026-10-08
 
 شغّل migrations حتى080. من Payment setup → Alma افحص Authentication/Offers ثم أدخل مبلغ EUR بأرقام إنجليزية ونقطة عشرية واختر خطة allowed صراحة. زر **فحص أهلية خطة Alma** يقيّم المبلغ والخطة فقط؛راجع result money/plan/merchant/mode/history. لا اختيار افتراضي أوcustomer credit approval أورابط/Payment/Enrollment منالفحص. PAYMENT_AMOUNT_PRECISION_INVALID/AMOUNT_INVALID ترفض rounding/zero/int32 overflow قبل I/O؛false eligible تعني عدم أهلية الخطة للمبلغ دونتأكيدفشل دفع. provider/auth failure finite وتتطلبتصحيح الاتصال وإعادةفحص؛rotation/disable لا تحذفhistory. Actual eligibility HTTP mocked محليًا؛Live Verification Pending External Credential/Approval.

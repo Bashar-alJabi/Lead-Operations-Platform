@@ -1,5 +1,11 @@
 # المعمارية التقنية
 
+## Provider بدون ضمان idempotent replay وAlma hosted contract — 2026-10-08
+
+`PaymentDispatchPolicy.writeReplay` اختيارية backward compatible؛غيابها وPROVIDER_KEY تحتفظانبretention/retries القديمة،وNEVER تتطلب maxAttempts1/retentionMs=null وتمنعأيةdispatch بعدأولevidence. Unknown/interrupted تبقىNeeds Attention ولا تُمحىبرفضلاحق،وACK ليستPaid. هذهpure kernel لا تعنيتفعيلnullable policy فيDB؛native current policies تبقىلحينfinancial migration الملائمة.
+
+Standalone `almaHostedAdapter` تقيّمMerchant/خطةالمبلغقبلautomatic create،وتتحققsafe URL/identity/exact gross minor/plan وnullable expiry. independent Merchant+Payment GET تنتج schema1 proof معprocessing_status/refund shape؛creation ACK/authorized/deprecated state لا تؤكد. لاregistry activation حالية،ويلزمنative durable admission/current scope recheck مباشرةقبلPOST وunsigned IPN→independent proof/immutable original account/native confirmation/separate Enrollment/repair/Lead UI. adapter لا تنفذhidden retry أوprovider idempotency guarantee مخترعة. التفاصيل في[Alma integration](alma-integration.md).
+
 ## Alma amount-specific eligibility — 2026-10-08
 
 Optional `inspectEligibility` تعيد safe normalized request/snapshot لا financial proof. كل تقييم يقرأ actual Merchant ثم specific V2 query بخطة صريحة وEUR int32 cents؛unexpected count/plan/bool مرفوضة،PII/fee schedules/raw reasons تُسقط. Native080 تحفظ original money/plan request immutable وتراجع exact result/request/authenticated identity وcurrent session/config/latest/TTL مع Audit transaction واحدة. الواجهة تميز current assessment عن historical وتعرض مبلغها وخطتها؛لا default plan أو customer underwriting أوPayment/Enrollment منprobe. المستقبل يربط selected plan بـLead intent ويعيد fresh eligibility قبلwrite،دون replay guarantee مفترضة.
