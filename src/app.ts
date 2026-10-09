@@ -54,6 +54,7 @@ import { registerAIKnowledgeAssetRoutes } from './routes/ai-knowledge-assets.js'
 import { registerAIQualificationRoutes } from './routes/ai-qualification.js';
 import { registerLeadQualificationRoutes } from './routes/lead-qualification.js';
 import { registerAIFollowupPolicyRoutes } from './routes/ai-followup-policy.js';
+import { registerAIBehaviorPolicyRoutes } from './routes/ai-behavior-policy.js';
 import { registerAIOperationalConfigRoutes } from './routes/ai-operational-config.js';
 import { registerAISharedUseRoutes } from './routes/ai-shared-use.js';
 
@@ -151,6 +152,7 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   registerAIQualificationRoutes(app,db);
   registerLeadQualificationRoutes(app,db);
   registerAIFollowupPolicyRoutes(app,db);
+  registerAIBehaviorPolicyRoutes(app,db);
   registerAIOperationalConfigRoutes(app,db);
   registerAISharedUseRoutes(app,db);
   return app;

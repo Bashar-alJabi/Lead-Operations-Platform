@@ -1,5 +1,22 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: AI behavior policies/returning decisions prerequisite — 2026-10-09
+
+استؤنف من `b206107` النظيفة بعد Follow-up policy. Native102 وBackend وUI ar/en/fr لإعدادformality/disclosure/handoff وCampaign-only returning-contact rule منفذة. Branch defaults تُورث بالأقسام الصريحة وnull،وempty formality تجاوز صريح؛Tone/brand guidance القائمة أعيد استعمالها بلاdefinition مكررة. Manager ضمنBranch وSuper Admin ضمنOrganization؛Agent/foreign scope/current revoked-expired session/disabled Branch ممنوعة منالحفظ. Native identity/shape/version/current Session/account locks وimmutablehistory وatomicAudit،وCAS/advisorylock للتزامن.
+
+Mandatory Human request/unknown answer/out-of-scope/complaint/sensitive/pricing/legal/payment/low-confidence/takeover triggers لايمكنتعطيلها. لاHuman مؤهل → WAITING_FOR_HUMAN وManager attention decision،بلاrandom assignment أوAI continuation لموضوع حساس. Saved effective policy preview تميزHuman control/handoff/closed/archived/ambiguous states؛CREATE_NEW تحتاجrule صريحة وunique resolution وtrusted Campaign reference/required data. Context فيpreview hypothetical فقط؛لاLead/Conversation/Message/job mutation أوsend. Effective hash تتبعcurrent policy versions/sources وblockers؛لاAI activation. تفاصيلالعقد في`ai-behavior-policy.md`.
+
+**البوابة ناجحة:** development/test migrations001–102، **164/164 unit،68/68 full Docker PostgreSQL integration،36/36 full Edge Browser E2E** (3.9m)،focused PostgreSQL1/1 وfocused policy unit2/2 وfocused Browser1/1،Backend/Web build/typecheck. Four-way first Branch insert/four-way Campaign edits،strict malformed/control/Unicode/disabled mandatory keys،native current role/session/expiry/revoke/Branch/version/immutability/Audit rollback/history pagination،inheritance/empty clearing/currenthash/Campaign isolation وwrite-free decisions. Browser delayed GET edit lock→disclosure/handoff defaults→Campaign returning rule→unknown/noHuman/closed insufficient context/explicit new-rule preview/ambiguous/Human control→stale denial→clear/original history/Agent denial/XSS/French/RTL390px؛صورتاBranch/Campaign فُحصتا. Vite707.15KB/gzip201.81KB warning ضمنbacklog.
+
+**الحالة:** behavior policy configuration/decision prerequisite **Implemented وPostgreSQL/Local Browser Verified**. Actual inbound reopening/new Lead/AI handoff/transition sends/SLA notifications وapproved AI/Form actions/tools/execution snapshots/runtime/inference/activation/assistants/evaluations باقية؛لاادعاءاكتمالAI أوالمنصة. **Live Verification Pending External Credential/Approval**؛لاlive credential أوprovider inference فيهذهالمرحلة.
+
+**الحفظ:** checkpoint الحاليةاجتازتالبوابةوتُحفظمحليًاوتُرفعفقطإلى`codex/full-platform-build` الآن؛actual hash يوثقبعدالحفظ. لاreset/discard/main merge أوProduction deployment.
+
+**قيد التنفيذ:** لاFeature group جديدة أوتعديلاتغيرمثبتةعندحفظهذهcheckpoint. الملفاتالأقدمأدناهتاريخية،والحالةالنهائيةهناهيالمرجع.
+
+**الخطوة التالية الدقيقة:** استخرجcurrent effective Campaign trace/context service القابلةلاستعمالها منpreview/execution،ثمtrusted immutable AI execution snapshot/provenance وapproved tool executor/actions معLead/Conversation/Controller/pinned-Sender/current Profile/grant/Published Knowledge/qualification/Field-version fences. لاModel→DB أوclient source=AI/FORM. اربطactual AI/Form Qualification source/actions وdurable runtime/provider inference ومصدرنتائجموثوقًا،ثمحandoff/returning transitions/follow-up/SLA jobs وCopilot/customer+Operations assistants/simulation/evaluations/activation. استخدمHTTP mocks/dedicated sandbox فقط؛بعداستقرارAI انتقلAutomation/Notifications/Analytics/Import/Export/Google Sheets/Email وبقيةالمتطلبات،دونoptional provider refinements.
+
+
 ## آخر حالة مستقرة: Campaign AI Follow-up policy/timing prerequisite — 2026-10-09
 
 بدأت من Human Qualification `d55d81b` المحفوظة والمرفوعة. Campaign-scoped strict policy/native101 وBackend Manager/Super Admin/current session/Branch/version/concurrency/history/Audit وUI ar/en/fr منفذة. Initial delay/ordered delays/stop-on-reply/final COMPLETE أوHANDOFF قابلة للإعداد،وmaxAttempts مشتقةمنطولschedule. Mandatory Human/handoff/closed Lead/Conversation stops لايمكنتعطيلها؛لاhardcoded Business delay أوSender fallback.

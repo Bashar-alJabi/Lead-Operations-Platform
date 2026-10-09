@@ -1,23 +1,19 @@
 import type postgres from 'postgres';
 import type { FastifyInstance,FastifyRequest } from 'fastify';
 import type { Database } from '../db.js';
-import { HttpError,principalFromRequest,requireRole,type Principal } from '../security.js';
-import { currentPaymentSession } from '../payments/access.js';
+import { HttpError,principalFromRequest,type Principal } from '../security.js';
+import { aiConfigurationBranch as branchAccess } from '../ai/configuration-access.js';
 import { knowledgeCampaign } from './ai-knowledge.js';
 import { aiTasks,aiOperationalSchema,emptyAIOperationalConfig,normalizeAIOperationalConfig,inheritAIOperationalConfig,effectiveConfigHash,globalAIGuardrails,type AIOperationalConfig } from '../ai/operational-config.js';
 import { emptyQualification } from '../ai/qualification.js';
 import { emptyAIFollowupPolicy,aiFollowupMandatoryStops } from '../ai/followup-policy.js';
+import { currentAIBehaviorPolicy } from './ai-behavior-policy.js';
+import { inheritAIBehaviorPolicy,aiMandatoryHandoffTriggers } from '../ai/behavior-policy.js';
 import { validateFieldValue,type FieldType,type FieldOption,type FieldValidation } from '../fields.js';
 import { resolveConfiguredSender } from '../messaging/sender-resolution.js';
 const uuid={ type:'string',format:'uuid' } as const;
 const params={ type:'object',additionalProperties:false,required:['id'],properties:{ id:uuid } } as const;
 const page={ type:'object',additionalProperties:false,properties:{ before:{ type:'integer',minimum:1 },limit:{ type:'integer',minimum:1,maximum:100 } } } as const;
-async function branchAccess(tx:postgres.TransactionSql,actor:Principal,id:string,request:FastifyRequest,write=false) {
-  requireRole(actor,'SUPER_ADMIN','MANAGER');
-  const b=(await tx`SELECT id,organization_id,active,timezone,messaging_window,messaging_policy_version,default_sender_id FROM branch WHERE id=${id} AND organization_id=${actor.organizationId} AND (${actor.role==='SUPER_ADMIN'} OR id=${actor.branchId}) FOR SHARE`)[0];
-  if(!b)throw new HttpError(404,'BRANCH_NOT_FOUND');const sessionId=await currentPaymentSession(tx,actor,request);if(!sessionId)throw new HttpError(403,'AI_OPERATIONAL_ACCESS_REVOKED');
-  if(write && !b.active)throw new HttpError(409,'BRANCH_DISABLED');return { b,sessionId };
-}
 async function current(tx:postgres.TransactionSql,scope:string,id:string) {
   return (await tx`SELECT version,definition,actor_id,reason,updated_at FROM ai_operational_config WHERE scope=${scope} AND resource_id=${id} FOR SHARE`)[0] ?? { version:0,definition:emptyAIOperationalConfig(),actor_id:null,reason:null,updated_at:null };
 }
@@ -76,6 +72,10 @@ export function registerAIOperationalConfigRoutes(app:FastifyInstance,db:Databas
       const followup=(await tx`SELECT version,definition FROM ai_followup_policy WHERE campaign_id=${id} FOR SHARE`)[0] ?? { version:0,definition:emptyAIFollowupPolicy() };
       const blockers=['AI_RUNTIME_NOT_IMPLEMENTED','AI_APPROVED_TOOLS_NOT_IMPLEMENTED','AI_FOLLOWUP_RUNTIME_NOT_IMPLEMENTED','AI_SIMULATION_NOT_IMPLEMENTED'];
       if(!followup.version)blockers.push('AI_FOLLOWUP_POLICY_REQUIRED');
+      const behaviorBranch=await currentAIBehaviorPolicy(tx,'BRANCH',b.id),behaviorCampaign=await currentAIBehaviorPolicy(tx,'CAMPAIGN',id),behavior=inheritAIBehaviorPolicy(behaviorBranch.definition,behaviorCampaign.definition);
+      if(!behavior.effective.disclosure)blockers.push('AI_DISCLOSURE_POLICY_REQUIRED');
+      if(!behavior.effective.handoff)blockers.push('AI_HANDOFF_POLICY_REQUIRED');
+      if(!behavior.effective.returningContact)blockers.push('AI_RETURNING_CONTACT_POLICY_REQUIRED');
       if(!b.active)blockers.push('BRANCH_DISABLED');if(!c.ai_config.enabled)blockers.push('AI_DISABLED');if(!effective.language)blockers.push('AI_LANGUAGE_REQUIRED');
       const profiles:Record<string,unknown>={};
       for(const task of aiTasks) {
@@ -110,6 +110,7 @@ export function registerAIOperationalConfigRoutes(app:FastifyInstance,db:Databas
         branchDefaults:{ version:branch.version,definition:branch.definition },campaignOverrides:{ version:campaign.version,definition:campaign.definition },effective,sources,profiles,
         campaignVersion:c.version,campaignAIEnabled:c.ai_config.enabled===true,branchActive:b.active,knowledge,qualification:{ ...qualification,fieldVersions },handoffTarget:target,
         followup:{ ...followup,maxAttempts:followup.definition.delaysSeconds.length,mandatoryStops:aiFollowupMandatoryStops },
+        behavior:{ ...behavior,branchVersion:behaviorBranch.version,campaignVersion:behaviorCampaign.version,mandatoryHandoffTriggers:aiMandatoryHandoffTriggers },
         messaging:{ timezone:b.timezone,branchPolicyVersion:b.messaging_policy_version,campaignPolicyVersion:c.version,window:c.messaging_policy?.sendingWindow ?? (b.messaging_window?.start ? b.messaging_window : null),maxAttempts:c.messaging_policy?.maxAttempts ?? null,minIntervalSeconds:c.messaging_policy?.minIntervalSeconds ?? null,
           newConversationSender:sender.sender ?? null,resolutionReason:sender.reason,consentRequired:true },allowedTools:[],blockers };
       return { ...snapshot,hash:effectiveConfigHash(snapshot),previewOnly:true,assistantReady:false,inferenceVerified:false };

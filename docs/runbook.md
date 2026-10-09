@@ -434,3 +434,9 @@ Super Admin فقط تدير Organization AI connection branch-use من تفاص�
 من تفاصيل Campaign افتح «سياسة متابعة AI». حدد initial delay وأضف التأخيرات بالترتيب وبالثواني؛عددها هوmax attempts للدورة. حددstop-on-reply وfinal COMPLETE/HANDOFF،واكتبreason واحفظ. لاschedule مفعلة دونdelay واحدة علىالأقل،ولاBusiness delays افتراضية. Disable يحتفظبالتعريفوالتاريخ. عندVersion conflict حدّثوقارنقبلالحفظ؛Branch disable تمنعالتعديل،وتبقيhistory للمراجعة.
 
 Preview تستعملinputs مفترضة وDBclock؛تختبرWAIT/DUE/stops/exhaustion فقط،ولاLead facts أوCustomer send. Human/handoff/closed stops إلزامية؛sending hours/timezone/frequency/provider constraints منCentral Messaging Policy التييجبفحصهاقبلأيsend حقيقية. DUE لايعنيsend authorization،وconfiguration enabled لاتشغلassistant/jobs. راجعنسخةpolicy/history منالواجهة،وcurrent policy/hash منeffective AI preview. Actual runtime/dispatch/evaluations باقية؛لاCLI/DB edits لتجاوزالجاهزية. تفاصيلالعقدفي `ai-followup-policy.md`.
+
+## تشغيل إعدادAI behavior policies
+
+منCampaign details افتحسياساتسلوكAI: اضبطBranch defaults للformality/disclosure/handoff،ثمCampaign overrides وreturning-contact rule عندالحاجة. راجعالنص معالسياسةالقانونيةوالتشغيليةالمعتمدة؛النصالمحفوظلايعنيlegal verification. Null تعنيوراثة،وclear returning يعيدUNCONFIGURED/review. احفظreason وراجعcurrent effective versions/source/history. Stale edit409 تحتاجreload ومراجعة؛لاforce overwrite.
+
+المعاينةhypothetical وتعرضno-mutation/no-send؛لاتفتحLead/Conversation أوتنشئLead أوترسلtransition message. CREATE_NEW تتطلبعندالتنفيذمطابقةوحيدةومرجعCampaign صريحًاوبياناتFields المطلوبةمنمصدرموثوق. AI runtime/approved tools/actual handoff/returning/follow-up/SLA/jobs مازالتغيرمنفذةفيهذهالمرحلة؛setup لايفعلAI.
