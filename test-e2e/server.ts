@@ -27,6 +27,7 @@ import { processOnePaymentDispatch } from '../src/payments/dispatch-worker.js';
 import { processOnePaymentReceipt } from '../src/payments/confirmation-worker.js';
 import { processOneBankSettlement } from '../src/payments/bank-worker.js';
 import { processOneKnowledgeAsset } from '../src/ai/knowledge-asset-worker.js';
+import { processOneAISimulation } from '../src/ai/simulation-worker.js';
 import { stripeCurrencyPrecision,PaymentCheckoutError,type CheckoutSnapshot,type PaymentCheckoutAdapter } from '../src/payments/checkout-provider.js';
 import { paypalPaymentEvents } from '../src/payments/webhook-profile.js';
 import { testPayPalCertificate,testPayPalCertUrl } from '../test/paypal-test-support.js';
@@ -41,6 +42,15 @@ const paypalTransport=syntheticPayPalFinancialTransport();
 const almaPayments=new Map<string,{ intentId:string;merchant:string;amount:number;plan:{ installments_count:number;deferred_months:number;deferred_days:number };captured:boolean }>();
 let almaLoseResponse=false;let almaReadFailure=false;let almaWrites=0;
 globalThis.fetch=async(target,init)=> { if(String(target)===testPayPalCertUrl)return new Response(testPayPalCertificate);
+  if(String(target)==='https://api.openai.com/v1/responses') {
+    if(init?.method!=='POST' || init.redirect!=='error')throw new Error('UNEXPECTED_AI_INFERENCE_REQUEST');
+    if(!new Headers(init.headers).get('authorization')?.startsWith('Bearer BrowserSyntheticAI_'))return new Response('private synthetic failure',{ status:401 });
+    const body=JSON.parse(init.body as string),data=JSON.parse(body.input[1].content);
+    if(body.store!==false || body.tools.length || body.text.format.type!=='json_schema' || !body.text.format.strict)throw new Error('UNEXPECTED_AI_INFERENCE_BOUNDARY');
+    if(data.question.includes('Provider failure'))return new Response('private synthetic provider failure',{ status:401 });
+    const proposal=data.question.includes('Unknown') || data.question.includes('Ignore') ? { decision:'HANDOFF',referenceIds:[],handoffReason:'UNKNOWN_ANSWER' } : { decision:'ANSWER',referenceIds:['section:prices'],handoffReason:null };
+    return new Response(JSON.stringify({ status:'completed',output:[{ type:'message',role:'assistant',status:'completed',content:[{ type:'output_text',text:JSON.stringify(proposal) }] }] }));
+  }
   if(String(target)==='https://api.openai.com/v1/models') {
     if(init?.method!=='GET' || init.redirect!=='error' || init.body)throw new Error('UNEXPECTED_AI_CATALOG_REQUEST');
     const authorization=new Headers(init.headers).get('authorization');
@@ -225,6 +235,10 @@ const app = await buildApp(db, { logger:false,globalRateLimitMax:10000,mediaStor
     },
   } });
 app.get('/',async (_request,reply)=>reply.type('text/html').send(await readFile(resolve('dist-web/index.html'))));
+app.post('/__test__/ai-simulation',async(request)=>{
+  if(typeof request.headers.authorization!=='string' || !safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
+  return { processed:await processOneAISimulation(db,{ retryDelaySeconds:0 }) };
+});
 app.get<{ Params:{ name:string } }>('/assets/:name',async (request,reply)=> {
   if (!/^[A-Za-z0-9_.-]+\.(js|css)$/.test(request.params.name)) throw new HttpError(404,'ASSET_NOT_FOUND');
   const type = request.params.name.endsWith('.js') ? 'text/javascript' : 'text/css';

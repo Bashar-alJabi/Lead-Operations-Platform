@@ -1,5 +1,11 @@
 # المعمارية التقنية
 
+## Campaign AI read-only Simulation وdurable inference — 2026-10-09
+
+`effectiveCampaignContext` خدمةواحدةللمعاينةوالتنفيذ،معimmutable Published Campaign snapshot ونسخProfile/Connection/grant/Knowledge/policies وcurrent scope/session/full canonical fences. Queue مخصصةPostgreSQL وSKIP LOCKED/lease/retries/history/native result proof/Audit،وworker مستقلةقابلةللتشغيلأفقيًا. Provider-independent inference registry؛OpenAI Responses adapter فعليةبـmanaged credentials/models وstrict evidence-only output/no tools/store:false/timeouts/safe errors. لاDB transaction أثناءprovider HTTP،ولاModel→DB أوCustomer mutation. تفاصيلالعقدوحدودMock/Live والتحقق في[ai-campaign-simulation.md](ai-campaign-simulation.md).
+
+المرحلةread-only foundation فعلية؛actual approved AI/Form tools وLead/Conversation/controller/pinned-Sender execution وcustomer assistants/handoff/follow-up/SLA/Operations/Copilot/action simulation/activation تبقىغيرمكتملة. لايحوّلنجاحSimulation إعدادAI إلىReady.
+
 ## Alma financial baseline وproof-backed checkout links — 2026-10-08
 
 Lead issuance API تعمم source readiness حسب profile: signed webhook لـStripe/PayPal، وcurrent original Merchant/unsigned notification endpoint لـAlma. Alma expose current allowed offers/limits فقط إلى authorized Lead بدون Connection secrets؛ selected plan صريحة وcanonical money/idempotency، ثم immutable intent. Fresh actual provider eligibility عند worker تبقى authority قبل native one-write admission؛ cached offers hints وليست payment proof.

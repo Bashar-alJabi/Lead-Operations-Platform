@@ -1,5 +1,23 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: Campaign AI read-only Simulation / durable inference — 2026-10-09
+
+استُؤنف من `dc64e76` النظيفة على `codex/full-platform-build`؛ لم تُعد المراحل السابقة. Compose PostgreSQL/ClamAV سليمتان. تعذّر process setup داخلCodex sandbox؛ scoped approved execution خارجالعزل تعمل. خدمة `effectiveCampaignContext` مشتركة بينالمعاينةوالتنفيذ،وmigration103 وAPI وdurable leased worker وmanaged provider-independent OpenAI Responses adapter وUI ar/en/fr/history منفذة.
+
+المسار الفعلي: Sample question → immutable Published Campaign snapshot/current Profile/Connection/grant/config versions → queued worker → HTTP inference → validated Published evidence أوhandoff recommendation → UI/history. لاfree commercial text أوDraft/foreign Campaign data/tools/Customer sends/Lead-Field-Payment-Enrollment mutations. يعادفحصcurrent actor/session/scope وfull canonical snapshot قبلHTTP وقبلcompletion. Native source/result/version/lease/history/Audit وperactor-Campaign idempotency/backpressure وbounded retries/stale lease recovery. التفاصيل في`ai-campaign-simulation.md`.
+
+**البوابة النهائية ناجحة:** migrations001–103 development/test، **166/166 unit،69/69 full Docker PostgreSQL integration،38/38 full Edge Browser E2E** (3.7m)،focused unit2/2 وPG1/1 وBrowser1/1،Backend/Web build/typecheck وdiff check. Eight-way duplicate/four-way workers وcurrent role/foreign scope/expiry/grant revoke/Branch disabled/new Published vsDraft/history/midflight change/lease reclaim/5 retries/invalid reference/native immutable-proof/Audit rollback/pagination/backpressure/noBusiness writes مثبتة. Browser actual queue→production adapter HTTP mock→evidence/handoff/failure/stale context/history/Agent denial/XSS/French/RTL390px؛الصورةفُحصت. Vite715.63KB/gzip204.35KB warning ضمنbacklog.
+
+**Regressions أصلحت:** أولintegration كشفاسمجدولPayment خاطئ فيassertion وصُحح؛أولfull Browser كشفUsers network failure جعلPromise.all تمنعكلstartup catalogs رغمbranches/campaigns/leads200. Independent settled loading معrefresh sequence/current-session fence وclear failed lists وإظهارالخطأ وexplicit Retry أضيفت. Browser regression تُفشلUsers عمدًا وتثبتبقاءBranch/Campaign والتعافي؛البوابةالنهائيةالكاملةنجحت بعدالإصلاح،دونرفعrate limits أوإخفاءالفشل.
+
+**الحالة:** read-only Simulation/runtime prerequisite **Implemented وHTTP Mock/PostgreSQL/Local Browser Verified**. Model تختارPublished evidence والعرضيحفظالنصالمعتمد؛لاادعاءLive semantic evaluation أوfull generative assistant/action simulation. Actual customer tools/AI-Form Qualification/current Lead-Conversation-controller-pinned Sender execution وhandoff/returning/follow-up/SLA/Copilot/Operations/activation مازالتغيرمكتملة. **Live Verification Pending External Credential/Approval**؛لاpersonal/production credentials أوDeployment. المنصةجزئية.
+
+**الحفظ:** هذهالمجموعةتُحفظبعدالبوابةمعprogress/coverage/architecture/runbook علىbranch المحددة؛معرفcheckpoint فيآخرGit commit. لاreset/discard/main push/merge.
+
+**قيد التنفيذ:** لاFeature group غيرمثبتةفيهذهcheckpoint. التفاصيلالأقدمأدناهتاريخية.
+
+**الخطوة التالية الدقيقة:** راجعcurrent Lead/Conversation access وField/Qualification writer/provenance/native100 وcurrent controller/pinned-Sender/inbound messages. نفّذtrusted Lead/Conversation execution context وapproved scoped tool executor/actions (read context/Published knowledge،typed Qualification capture،Human handoff) بمصدرexecution مثبت،دونclient source=AI/FORM أوModel→DB. اربطهاdurable customer runtime/inbound وcurrent Published/config/Profile/grant/controller/sender fences،ثمactual returning/follow-up/SLA وCopilot/Operations/action simulation/evaluations/activation. بعدAI انتقلAutomation/Notifications/Analytics/Import/Export/Google Sheets/Email وبقيةالنطاق،دونoptional provider refinements.
+
 ## آخر حالة مستقرة: AI behavior policies/returning decisions prerequisite — 2026-10-09
 
 استؤنف من `b206107` النظيفة بعد Follow-up policy. Native102 وBackend وUI ar/en/fr لإعدادformality/disclosure/handoff وCampaign-only returning-contact rule منفذة. Branch defaults تُورث بالأقسام الصريحة وnull،وempty formality تجاوز صريح؛Tone/brand guidance القائمة أعيد استعمالها بلاdefinition مكررة. Manager ضمنBranch وSuper Admin ضمنOrganization؛Agent/foreign scope/current revoked-expired session/disabled Branch ممنوعة منالحفظ. Native identity/shape/version/current Session/account locks وimmutablehistory وatomicAudit،وCAS/advisorylock للتزامن.

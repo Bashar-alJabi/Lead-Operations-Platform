@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './style.css';
 import { ContactWorkspace } from './ContactWorkspace.js';
@@ -125,6 +125,7 @@ function App() {
   const [deliveryJobs, setDeliveryJobs] = useState<DeliveryJob[]>([]);
   const [nextDeliveryCursor, setNextDeliveryCursor] = useState<string | null>(null);
   const [workspaceRefresh, setWorkspaceRefresh] = useState(0);
+  const refreshSequence = useRef(0);
   const [emailForm, setEmailForm] = useState<Record<string, string>>({ secure: 'true', port: '465' });
 
   useEffect(() => { if (initialLinkToken) window.history.replaceState(null, '', window.location.pathname + window.location.search); }, []);
@@ -144,17 +145,27 @@ function App() {
 
   async function refresh() {
     if (!user) return;
+    const sequence = ++refreshSequence.current;
     setBusy(true); setError('');
     try {
-      const [branchResult, campaignResult, leadResult, userResult] = await Promise.all([
+      const [branchResult, campaignResult, leadResult, userResult] = await Promise.allSettled([
         api<{ items: Branch[] }>('/api/branches'), api<{ items: Campaign[]; nextCursor: string | null }>('/api/campaigns'),
         api<{ items: Lead[]; nextCursor: string | null }>(`/api/leads?${leadQuery ? leadQuery + '&' : ''}limit=50`),
         user.role === 'AGENT' ? Promise.resolve({ items: [] as ManagedUser[], nextCursor: null }) : api<{ items: ManagedUser[]; nextCursor: string | null }>('/api/users'),
       ]);
-      setBranches(branchResult.items); setCampaigns(campaignResult.items); setNextCampaignCursor(campaignResult.nextCursor); setLeads(leadResult.items); setNextLeadCursor(leadResult.nextCursor); setUsers(userResult.items); setNextUserCursor(userResult.nextCursor); setSelectedLeadIds([]);
-    } catch (failure) { setError(String(failure)); } finally { setBusy(false); }
+      if (sequence !== refreshSequence.current) return;
+      setBranches(branchResult.status === 'fulfilled' ? branchResult.value.items : []);
+      setCampaigns(campaignResult.status === 'fulfilled' ? campaignResult.value.items : []); setNextCampaignCursor(campaignResult.status === 'fulfilled' ? campaignResult.value.nextCursor : null);
+      setLeads(leadResult.status === 'fulfilled' ? leadResult.value.items : []); setNextLeadCursor(leadResult.status === 'fulfilled' ? leadResult.value.nextCursor : null);
+      setUsers(userResult.status === 'fulfilled' ? userResult.value.items : []); setNextUserCursor(userResult.status === 'fulfilled' ? userResult.value.nextCursor : null); setSelectedLeadIds([]);
+      const failures = [branchResult, campaignResult, leadResult, userResult].filter(result => result.status === 'rejected');
+      if (failures.length) setError(failures.map(result => String(result.reason)).join(' · '));
+    } catch (failure) { if (sequence === refreshSequence.current) setError(String(failure)); } finally { if (sequence === refreshSequence.current) setBusy(false); }
   }
-  useEffect(() => { void refresh(); }, [user?.id]);
+  useEffect(() => {
+    setBranches([]); setCampaigns([]); setLeads([]); setUsers([]); setNextCampaignCursor(null); setNextLeadCursor(null); setNextUserCursor(null);
+    void refresh(); return () => { refreshSequence.current++; };
+  }, [user?.id]);
   useEffect(() => { setLeadFieldValues({}); }, [form.campaignId]);
   async function refreshDeliveryJobs() {
     const result = await api<{ items: DeliveryJob[]; nextCursor: string | null }>('/api/identity/deliveries');

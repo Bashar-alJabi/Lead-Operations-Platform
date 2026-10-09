@@ -57,6 +57,7 @@ import { registerAIFollowupPolicyRoutes } from './routes/ai-followup-policy.js';
 import { registerAIBehaviorPolicyRoutes } from './routes/ai-behavior-policy.js';
 import { registerAIOperationalConfigRoutes } from './routes/ai-operational-config.js';
 import { registerAISharedUseRoutes } from './routes/ai-shared-use.js';
+import { registerAISimulationRoutes } from './routes/ai-simulation.js';
 
 export async function buildApp(db: Database, options: { logger?: boolean; emailAdapter?: IdentityEmailAdapter;
   messagingAdapter?: MessagingProviderAdapter; messagingTemplateAdapter?: MessagingTemplateAdapter;
@@ -155,5 +156,6 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   registerAIBehaviorPolicyRoutes(app,db);
   registerAIOperationalConfigRoutes(app,db);
   registerAISharedUseRoutes(app,db);
+  registerAISimulationRoutes(app,db);
   return app;
 }

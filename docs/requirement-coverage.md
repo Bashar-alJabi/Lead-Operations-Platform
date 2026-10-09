@@ -1,5 +1,14 @@
 # مصفوفة تغطية المتطلبات
 
+## أحدث checkpoint: Campaign AI read-only Simulation — 2026-10-09
+
+| المتطلب ومصدره | التنفيذ الحالي | الإثبات والحالة |
+|---|---|---|
+| Campaign Test/Simulate،03 إعداد AI،04 §§6–8/59–73،05 isolation،06 §12،AGENTS §§19–29/38–40 | خدمة effective context مشتركة وimmutable Published snapshot،durable PostgreSQL queue/current scope/session/profile/grant/version/lease fences وnative references/result/history/Audit؛managed OpenAI Responses adapter مستقلة؛evidence-only answer أوhandoff recommendation وUI ar/en/fr | **166/166 unit،69/69 full PostgreSQL integration،38/38 full Edge Browser** وfocused unit2/2/PG1/1/Browser1/1 و001–103/build/typecheck/diff check ناجحة. Duplicate/concurrent workers/current scope-session-grant/config change/Published vsDraft/stale lease/bounded failures/native proof/immutable history/Audit rollback/backpressure/noBusiness writes وBrowser actual HTTP-mock queue/evidence/handoff/failure/history/Agent denial/XSS/French/RTL مثبتة. Startup independent catalog failure/Retry regression مثبتةبعدفشلUsers network فيأولsuite. read-only prerequisite Implemented وHTTP Mock/PostgreSQL/Local Browser Verified؛Live Verification Pending External Credential/Approval |
+| بقيةAI tools/assistants/action simulation/activation | actual customer tools/AI-Form Qualification/current Lead-Conversation-controller-pinned Sender runtime وhandoff/returning/follow-up/SLA/Copilot/Operations/activation لمتُنفذفيهذهالمرحلة | غيرمكتملة. Unknown/injection local scenarios تثبتprotocol/application boundary باستخدامHTTP mocks فقط؛لاLive semantic model evaluation أوfull AI baseline |
+
+الصفوف السابقة أدناه تاريخية. هذه ليست full AI baseline أواكتمالًا للمنصة؛راجعحدودSimulation في`ai-campaign-simulation.md`.
+
 > أحدثcheckpoint2026-10-09: **164unit/68full PostgreSQL integration/36Edge Browser E2E** وfocused PG/Browser1/1 وpolicy unit2/2 و001–102/build/typecheck. AI behavior defaults/overrides/current decisions/history/scoped UI مثبتة؛actual approved tools/provenance/runtime/inference/handoff/returning/follow-up/SLA actions/evaluations باقية. لاLive AI verification أوassistant activation؛الصفوفأدناهتاريخية.
 
 | إضافة checkpoint | التنفيذ المثبت | الاختبارات وحدود الحالة |

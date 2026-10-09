@@ -1,5 +1,11 @@
 # دليل التشغيل والتطوير
 
+## Campaign AI Simulation — migration103
+
+طبّق migrations وشغّل `npm run worker:ai` كعمليةinfrastructure معنفسDB/credential encryption deployment configuration. هذهخدمةserver؛Super Admin/Manager يديرانConnection/Profile/catalog/language/Published Knowledge وSample question منCampaign UI دونCLI أوتعديلserver. شاهدstate/attempts/failure/source coverage/original trace فيSimulation history. QUEUED طويلةتحتاجفحصworker health/service؛FAILED تعرضcode آمنة؛BLOCKED تعنيcurrent scope/session/config تغيرت. صحّحالإعدادوصلاحيةالمستدعي،حدّثالسياق،ثمأنشئاختبارًاجديدًا. لاreset/replay تاريخيأوDB override.
+
+lease60s/timeout20s/attempt budget5/queue cap10 peractor-Campaign قيمتقنية؛monitor pending age وFAILED/BLOCKED منالسجل،واضبطworker capacity منقياساتالبيئةقبلProduction acceptance. providernetwork/rate/5xx تُعادبحدمحدود؛auth/model/refusal/incomplete/invalid outputs نهائية. لايُرسلأيCustomer message ولايتغيرPayment/Enrollment. HTTP mocks مخصصةللاختبارات،وLive Verification Pending External Credential/Approval. العقدوالخطواتفي[ai-campaign-simulation.md](ai-campaign-simulation.md).
+
 ## Alma financial baseline — checkpoint086
 
 طبّق migrations001–086 وشغّل payment worker كعملية infrastructure المعتادة؛ أصبحت تشمل independent read cycle. من Payment setup → Alma اختبر Merchant وافحص offers ثم جهّز callback، ومن Payment Methods أنشئ Method بEUR وBranch/Agent/Campaign availability. من Lead اختر الخطة صراحة والمبلغ وفق provider limits، واحفظ request؛ راقب issuance وLink وverification/Payment/Enrollment/history. لا server code/DB override من الإدارة.
