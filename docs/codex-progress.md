@@ -12,7 +12,7 @@ Migration100 تحفظ durable canonical per-answer request/hash وnative current
 
 **الحالة:** Human collection/current-result baseline **Implemented وPostgreSQL/Local Browser Verified**. Qualification AI/Form approved action/provenance وremaining policies/approved tools/execution snapshots/runtime/jobs/assistants/evaluations غير مكتملة؛لاInference/assistant activation أوLive AI verification. **Live Verification Pending External Credential/Approval**. المنصة جزئية؛تفاصيل العقد وحدوده في `lead-qualification-results.md`.
 
-**الحفظ:** البوابة ناجحة وهذه checkpoint جاهزة للـcommit/push إلى `codex/full-platform-build` فقط. لاreset/discard/main merge أوdeployment.
+**الحفظ:** checkpoint `b48d2d1` محفوظة ومرفوعة إلى `codex/full-platform-build`؛working tree نظيفة بعدها. لاreset/discard/main merge أوdeployment.
 
 **التالي الدقيق:** نفّذ Campaign AI behavior policies اللازمة للـruntime: configurable follow-up timing/delays/attempts/stop/final action،disclosure/formality،handoff behavior وclosed/returning-contact policy،مع current scoped/versioned native history/Audit وUI وdeterministic effective preview بلاactivation. ثمapproved AI/Form qualification/tool actions بمصدر مثبت،Lead/Conversation/pinned-Sender execution snapshots ودurable runtime/provider inference وhandoff/copilot/customer+operations assistants/evaluations؛بعداستقرارAI انتقل Automation/Notifications/Analytics وبقيةالنطاق. لاoptional provider refinements.
 
