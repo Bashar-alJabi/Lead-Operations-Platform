@@ -1,5 +1,9 @@
 # دليل التشغيل والتطوير
 
+## Published Campaign Knowledge للموظف
+
+منCampaign Knowledge setup: upload→durable scan→explicit approval→Draft save→Publish؛منLead→Human Conversation→**عرض معرفة الحملة** يقرأالموظفlatest Published version ويحملapproved files فقط. Agent لايدخلsetup/review/Draft حتىلوكانملفمنشورًايمكنهقراءتهبـLead scope. لاModel/Profile أوConnection credential مطلوبةللقراءة المحلية. عند`AI_PUBLISHED_KNOWLEDGE_CHANGED` أعدالقراءة؛لاforce older version أوraw storage URL. عندstorage integrity failure تتوقفbytes وتظهر503؛افحصmanaged private storage/history؛لاrelabel الملفلتمريرالفشل. Assignment/session/controller/Branch revoke تحجبالتحميلبعدI/O أيضًا. التفاصيلفي[ai-approved-campaign-knowledge-read.md](ai-approved-campaign-knowledge-read.md).
+
 ## Human Copilot summary وAI live transfer disabled — migrations104–106
 
 طبّقmigrations المعتادة. منAI setup اخترcurrent SUMMARIZATION Profile للحملة/Branch بحسبالصلاحيات؛منLead→Conversation يراجعالموظفمصادرالملخص وحقائقDB دونprovider call. Inference فيالتشغيل الافتراضي معطّلة بـ`AI_LIVE_DATA_TRANSFER_DISABLED`،والزر يوضحعدمavailability؛لاتتجاوزها بتعديلenv أوDB أوtest injection. `worker:ai` تستهلكreadonly kinds وتblock المهام القديمةبلاcredential access أوcustomer-data HTTP. هذاالقيدمقصودبناءًعلىتصريحالمستخدم،وليسفشلconnection catalog أوBusiness prerequisite مجهول.

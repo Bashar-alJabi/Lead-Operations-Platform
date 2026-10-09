@@ -1,5 +1,14 @@
 # مصفوفة تغطية المتطلبات
 
+## أحدث checkpoint: approved Human Published Campaign Knowledge read — 2026-10-09
+
+| المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |
+|---|---|---|
+| Human Copilot Show campaign knowledge / Approved read tool،02 Agent scope،03 §§66–67،04 §§6–8/39–40،05 isolation،AGENTS §§8/19–22/26–29 | current User/Lead/Conversation→latest Published content/immutable manifest،safe private scoped approved-file download معcurrent version/hash/size/approval وauthorization بعدI/O،atomic Audit وexplicit UI ar/en/fr/error refresh | **168/168 unit،71/71 full PostgreSQL integration،40/40 full Edge Browser** و001–106/build/typecheck/diff check وfocused PG1/1/Browser1/1 ناجحة. Source-exclusion/foreign permissions/midflight reassignment/publication/storage corruption/current session/Branch/controller/Audit rollback/history/no-model/no-mutations،actual upload→scan→review→publish→Agent read/download/error/Draft denial/foreign Agent/XSS/French/RTL مثبتة. Arabic wording-only correction أُعيدتfocused Browser/build/typecheck بعدها. Approved Human read tool Implemented وPostgreSQL/Storage/Local Browser Verified؛لاinference أوLive AI claim |
+| Remaining AI baseline | Human summary/knowledge read prerequisites ثابتة؛customer execution proofs/approved AI/Form Qualification/Handoff وdurable customer runtime/initial contact/returning/follow-up/SLA وremaining Copilot/Operations/evaluations/activation باقية | غيرمكتملة. Readonly queue/result ليستsource proof للـcustomer mutations. Live inference معطّلة حسبتصريحالمستخدم؛HTTP mocks/synthetic data فقط وLive Verification Pending External Credential/Approval |
+
+تفاصيلالقراءة في[ai-approved-campaign-knowledge-read.md](ai-approved-campaign-knowledge-read.md). المجموعات أدناه تاريخية؛Show campaign knowledge boundary/UI أصبحتمنفذة بهذهcheckpoint،وبقيةالمساعدينغيرمكتملة.
+
 ## أحدث checkpoint: Human Copilot scoped read / extractive summary — 2026-10-09
 
 | المتطلب ومصدره | التنفيذ الحالي | الإثبات والحالة |

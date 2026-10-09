@@ -1,5 +1,9 @@
 # المعمارية التقنية
 
+## Approved Published Knowledge read/asset boundary — 2026-10-09
+
+`approvedHumanCampaignKnowledge` تستخدمcurrent scoped Lead/Conversation authorization وتقرأlatest immutable publication/manifests؛لاModel/Connection dependency للقراءةالتشغيلية. DTO تعرضBusiness information فقط،وasset access تتطلبcurrent version/current safe approval وSHA256/length/backend integrity وdouble authorization بعدstorage I/O. Audit بذريمعread proof وUI explicit/error-aware blob download دونinline execution. Native092/094/095 القائمةتظلauthority ولاSchema/Role جديدة. العقدفي[ai-approved-campaign-knowledge-read.md](ai-approved-campaign-knowledge-read.md). Live inference block من15d6c69 باقٍ؛customer tools/runtime منفصلةوتالية.
+
 ## Human Copilot summary وdefault live egress block — 2026-10-09
 
 Approved current Lead/Conversation read boundary وCOPILOT_SUMMARY نوع مستقل ضمنdurable readonly queue،معnative identity/current scope-session-controller-SUMMARIZATION Profile/config/publication/source proof وimmutable result/history/atomic Audit. Worker تعيدfull canonical context قبلHTTP وبعده؛لاmodel authority علىBusiness data. النتيجةextractive/attributed ومحدودة المصدر،والحقائق المالية native queries مستقلة. تفاصيلالعقد في[ai-human-copilot-summary.md](ai-human-copilot-summary.md).
