@@ -420,3 +420,11 @@ Super Admin فقط تدير Organization AI connection branch-use من تفاص�
 ## Effective AI Configuration
 
 من Campaign setup راجع Branch defaults ثمCampaign overrides؛ تغيير Default يؤثر على الحملات التي ترثه فقط،ويحفظ version/history/reason. اختر task Profile متاحة حاليًا،واللغة والنبرة والوجهة البشرية/SLA عند الحاجة؛null فيCampaign تعني وراثة،tone فارغة explicit clear. لا تعدّلlegacy JSON أوdeployment. استخدم Refresh effective AI preview لعرض source/Knowledge-Qualification/Profile-Connection-grant versions/hash/Messaging window/Sender وreadiness blockers. Shared Profile تحتاج current Admin grant؛بعدrevoke/disable لاfallback،أصلح setup أوامسحreference. أي Field type/options/permission change تعيدفحصcriteria. History الأصلية منواجهةكلscope. هذه preview لا inference أوsend أوLead mutation؛runtime/tools/policies/simulation لمتكتمل. راجع `ai-effective-configuration.md`.
+
+## جمع Qualification على Lead
+
+من تفاصيل Lead افتح «تأهيل Lead»، وحدّث الإجابات لقراءة الحالة الحالية. احفظ كل إجابة من واجهتها؛ السؤال المرتبط بـField يستعمل type/options/validation وصلاحيات Field نفسها، ويحدث Field الحالية وسجلها. المصدر Human لهذه العملية؛ العميل لا يختار AI/Form. النتيجة تعرض ما ينقص والشروط المحققة من القواعد الحالية، ولا تُنقل المحادثة أوترسل رسالة عند الحفظ.
+
+عند Version conflict حدّث البيانات وراجع draft قبل إعادة الحفظ؛ لا force overwrite أوتعديل DB. Retry لنفس الطلب محفوظة تمنع duplicate history/Field writes. بعد تعديل Field من واجهة أخرى استعمل تحديث الإجابات لمشاهدة المرجع الحالي؛ تاريخ الجمع يحتفظ بالإجابة الأصلية. تغيير تعريف السؤال يحجب تفسير إجابته القديمة، أما السؤال المطابق فيحتفظ بإجابته عند إعادة الترتيب أوdisable/reenable. التاريخ متاح readonly بعد تعطيل التأهيل؛ Branch معطلة تمنع الحفظ.
+
+إذا كانت النتيجة unavailable راجع current Field visibility/type/options/binding/usable_by_ai مع Manager. لا تستنتج اكتمالًا من Fields لا يحق للمستخدم رؤيتها. التصحيح typed ممكن لقيمة قديمة غير صالحة إذا كان Field نفسه متاحًا ومسموحًا. إعادة assignment أوSession revocation تمنع القراءة والحفظ والتاريخ قبل أي idempotency replay. كل Capture وAudit/Field history ذرية. راجع `lead-qualification-results.md`. AI/Form approved actions وruntime/evaluations لم تُنفذ في هذه المرحلة.

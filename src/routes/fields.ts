@@ -2,7 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import type postgres from 'postgres';
 import type { Database } from '../db.js';
 import { calculateLeadFields } from '../calculated-fields.js';
-import { calculationKinds, fieldTypes, validateFieldConfiguration, validateFieldValue,
+import { writeManualFieldValue } from '../field-values.js';
+import { calculationKinds, fieldTypes, validateFieldConfiguration,
   type CalculationKind, type FieldOption, type FieldType, type FieldValidation } from '../fields.js';
 import { decodeCursor, encodeCursor } from '../pagination.js';
 import { HttpError, principalFromRequest, requireBranch, requireRole, type Principal } from '../security.js';
@@ -277,34 +278,8 @@ export function registerFieldRoutes(app: FastifyInstance, db: Database): void {
     const actor = await principalFromRequest(request, db);
     return db.begin(async (tx) => {
       const lead = await scopedLead(tx, actor, request.params.id, 'UPDATE');
-      const fields = await tx`SELECT fd.id, fd.field_type, fd.value_mode, fd.options, fd.validation, fd.active AS definition_active,
-        cf.active AS binding_active, cf.required_stage, cf.visible_to_agent, cf.editable_by_agent, cf.visible_to_manager, cf.editable_by_manager,
-        cf.show_in_details, cf.show_in_table
-        FROM campaign_field cf JOIN field_definition fd ON fd.id = cf.field_id
-        WHERE cf.campaign_id = ${lead.campaign_id} AND fd.id = ${request.params.fieldId} AND fd.organization_id = ${actor.organizationId}`;
-      const field = fields[0];
-      if (!field || actor.role === 'AGENT' && !field.visible_to_agent || actor.role === 'MANAGER' && !field.visible_to_manager ||
-        actor.role !== 'SUPER_ADMIN' && !field.show_in_details && !field.show_in_table) {
-        throw new HttpError(404, 'FIELD_NOT_FOUND');
-      }
-      if (!field.definition_active || !field.binding_active || field.value_mode !== 'MANUAL' ||
-        actor.role === 'AGENT' && !field.editable_by_agent || actor.role === 'MANAGER' && !field.editable_by_manager) {
-        throw new HttpError(403, 'FIELD_READ_ONLY');
-      }
-      const value = validateFieldValue(field.field_type, request.body.value, field.options, field.validation);
-      if (value === null && (field.required_stage === 'CLOSE' && lead.lifecycle === 'CLOSED')) throw new HttpError(409, 'FIELD_REQUIRED');
-      const previous = await tx`SELECT value, version FROM lead_field_value WHERE lead_id = ${lead.id} AND field_id = ${field.id} FOR UPDATE`;
-      if (previous.length && previous[0]!.version !== request.body.version) throw new HttpError(409, 'FIELD_VALUE_VERSION_CONFLICT');
-      if (!previous.length && request.body.version !== undefined) throw new HttpError(409, 'FIELD_VALUE_VERSION_CONFLICT');
-      const updated = await tx`INSERT INTO lead_field_value (lead_id, field_id, value, source, updated_by)
-        VALUES (${lead.id}, ${field.id}, ${tx.json(value as postgres.JSONValue)}, 'MANUAL', ${actor.id})
-        ON CONFLICT (lead_id, field_id) DO UPDATE SET value = EXCLUDED.value, source = EXCLUDED.source, updated_by = EXCLUDED.updated_by,
-          version = lead_field_value.version + 1, updated_at = now(),source_submission_id=NULL,source_binding_id=NULL,source_mapping_version=NULL RETURNING version`;
-      await tx`INSERT INTO field_value_history (lead_id, field_id, old_value, new_value, source, actor_user_id)
-        VALUES (${lead.id}, ${field.id}, ${previous.length ? tx.json(previous[0]!.value) : null}, ${tx.json(value as postgres.JSONValue)}, 'MANUAL', ${actor.id})`;
-      await tx`INSERT INTO lead_activity (lead_id, actor_user_id, event_type, detail)
-        VALUES (${lead.id}, ${actor.id}, 'FIELD_VALUE_CHANGED', ${tx.json({ fieldId: field.id })})`;
-      return { version: updated[0]!.version };
+      const changed = await writeManualFieldValue(tx, actor, lead as { id: string; campaign_id: string; lifecycle: string }, request.params.fieldId, request.body);
+      return { version: changed.version };
     });
   });
 

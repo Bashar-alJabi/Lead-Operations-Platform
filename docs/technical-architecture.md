@@ -571,3 +571,9 @@ Ordered question UUIDs/required/optional/optional current Field mapping، explic
 ## Effective AI operational configuration — 099
 
 Typed versioned Branch/Campaign config فيجدولمستقلعنlegacy generic JSON؛immutable Global guardrails لاprompt-only enforcement. Explicit null inheritance/empty-tone/false،current task/catalog/scope/shared-grant/target checks وimmutable history/Audit/version/concurrency. Campaign-only Published Knowledge/manifests وQualification/current Field trace،Central Messaging config دونduplicate policy،canonical deterministichash وtruthful readiness blockers. تفاصيلالحدودوالاختباراتفي `ai-effective-configuration.md`؛runtime/tool action/Lead-Conversation-pinned-Sender execution snapshots لاحقة.
+
+## Actual Human Qualification capture — 100
+
+Current mapped answers مصدرها `lead_field_value`، مع إعادة استعمال `writeManualFieldValue` لواجهة Field وجمع Qualification؛ لا current duplication. Unmapped answers لها state/history وتستعمل فقط إذا كان question snapshot مطابقًا؛ تاريخ النسخة القديمة لا يعاد تفسيره بعد تغير السؤال. Completion مشتقة من current Definition/Field/value versions، مع حجب النتيجة التي قد تكشف hidden Fields. Lead assignment/Branch/session/current role/Field permissions فحوص Backend، وnative capture proof تمنع انتحال المصدر أوفصل receipt عن history.
+
+Lead lock ونسختا answer/Field تمنعان lost updates بين الواجهتين. Immutable canonical request/hash/history مع deferred receipt completion proof وnative atomic Audit/Lead activity تحفظ التاريخ وتمنع replay mutation. API bounded/paginated وواجهة ar/en/fr تقرأ وتعالج version conflicts/reload/history. مصدر HUMAN مشتق من approved authenticated action؛ توسعة AI/Form لاحقًا تحتاج provenance/approved tools بدل قبول source من العميل. التفاصيل والحدود في `lead-qualification-results.md`؛لاautomatic handoff/inference أوlive Provider claim.

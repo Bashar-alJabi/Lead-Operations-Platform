@@ -1,5 +1,21 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: Actual Human Qualification answers/results — 2026-10-09
+
+استؤنف العمل من `ef02de9` مع الحفاظ على التعديلات الثلاثة غير الملتزمة. Compose كانت متوقفة؛ شُغلت PostgreSQL/ClamAV الموجودة دون حذف بيانات. صُحح موضع refactor غير مكتملة، وأُعيد استعمال `writeManualFieldValue` من Lead Field وQualification routes مع current Field locks/type/options/validation/version/history.
+
+Human يجمع إجابات Qualification من Lead UI ar/en/fr. Mapped answers تقرأ Field الحالية، بينما التاريخ يحفظ الإجابة المجمعة الأصلية؛ Unmapped text لها state/history وquestion snapshot. السؤال المطابق يحتفظ بإجابته عند reorder/disable/reenable، وتغيير السؤال يحجب إعادة تفسير الإجابة القديمة. Completion/missing/handoff criteria محسوبة من القواعد الحالية معfalse/0؛ لا Preview→result أوautomatic Controller/Lead lifecycle/Payment/Enrollment/message changes. Current Lead ownership/Branch/session/role/Field visibility-editability تفحص في Backend؛ hidden Field لا تظهر ولا تُسرّب حقيقتها عبرcomplete/missing، والتاريخ يعاد تقييده بالصلاحيات الحالية.
+
+Migration100 تحفظ durable canonical per-answer request/hash وnative current scope/session/question/version/Field-value/source proof وimmutable history. Lead lock ونسختا answer/Field تنسقان edits/assignment، وdeferred proof تمنع receipt دونcapture history. Native Audit/Lead activity وField value/history ذرية؛Audit failure يعيد الكل. UI تدعم readonly/source/required/result/history/reload/version conflict وstable retry key، وتحتفظ بالتاريخ بعد disable. Source HUMAN مشتقة من authenticated action؛ لا يقبل العميل AI/Form/actor/tool.
+
+**البوابة النهائية ناجحة:** development/test migrations001–100، **160/160 unit،66/66 full Docker PostgreSQL integration،34/34 full Edge Browser E2E** (2.9m)، focused Human answers Browser1/1، Backend/Web build/typecheck. Eight-way duplicate capture وfour-way edit وField-vs-Qualification concurrent CAS،current scope/assignment/expired-revoked session/Branch وhidden-result/history/typed invalid/revoked Field وimmutable native receipt/answer/history/deferred orphan proof/Audit rollback،same-question reuse vschanged meaning،actual20k UTF-8 LONG_TEXT/type/oversize/NUL/Unicode negatives. Browser actual save→Field→current result→retained original history،duplicate/stale denial،disable/reenable/history وforeign Agent/hidden mapping/reassignment denial/XSS/no HTML/French/RTL390px؛الصورة النهائية فُحصت بعد إصلاح التاريخ وتوطينboolean. Vite680.69KB/gzip195.05KB warning ضمنbacklog.
+
+**الحالة:** Human collection/current-result baseline **Implemented وPostgreSQL/Local Browser Verified**. Qualification AI/Form approved action/provenance وremaining policies/approved tools/execution snapshots/runtime/jobs/assistants/evaluations غير مكتملة؛لاInference/assistant activation أوLive AI verification. **Live Verification Pending External Credential/Approval**. المنصة جزئية؛تفاصيل العقد وحدوده في `lead-qualification-results.md`.
+
+**الحفظ:** البوابة ناجحة وهذه checkpoint جاهزة للـcommit/push إلى `codex/full-platform-build` فقط. لاreset/discard/main merge أوdeployment.
+
+**التالي الدقيق:** نفّذ Campaign AI behavior policies اللازمة للـruntime: configurable follow-up timing/delays/attempts/stop/final action،disclosure/formality،handoff behavior وclosed/returning-contact policy،مع current scoped/versioned native history/Audit وUI وdeterministic effective preview بلاactivation. ثمapproved AI/Form qualification/tool actions بمصدر مثبت،Lead/Conversation/pinned-Sender execution snapshots ودurable runtime/provider inference وhandoff/copilot/customer+operations assistants/evaluations؛بعداستقرارAI انتقل Automation/Notifications/Analytics وبقيةالنطاق. لاoptional provider refinements.
+
 ## آخر حالة مستقرة: Effective AI configuration prerequisite — 2026-10-09
 
 بدأت من `3637eb9` النظيفة بعد Qualification. Versioned scoped Branch defaults/Campaign overrides لأربعة task Profiles وsupported/preferred/detected language وtone وhuman escalation target/SLA، مع immutable Global guardrails وcurrent scope/session/reference guards، native history/Audit وoptimistic concurrency منفذة. null وراثة/غير محدد، وempty tone وdetect=false overrides صريحة؛ لا Provider/Profile fallback. UI ar/en/fr لاختيار metadata/target search/pagination/reason/history وعرض effective values ومصدرها والنسخ الحالية والقيود والجاهزية.

@@ -22,11 +22,11 @@ function formatValue(value: unknown): string {
   return String(value);
 }
 
-export function FieldInput({ field, value, onChange,ariaLabel }: { field: FieldRow; value: unknown; onChange: (value: unknown) => void;ariaLabel?:string }) {
+export function FieldInput({ field, value, onChange,ariaLabel,booleanLabels }: { field: FieldRow; value: unknown; onChange: (value: unknown) => void;ariaLabel?:string;booleanLabels?:{ yes:string;no:string } }) {
   const type = field.field_type;
   if (type === 'CALCULATED') return <strong>{formatValue(value)}</strong>;
   if (['SINGLE_SELECT','STATUS','INTEREST','BOOLEAN'].includes(type)) return <select aria-label={ariaLabel} value={value === null || value === undefined ? '' : String(value)} onChange={(event) => onChange(event.target.value === '' ? null : type === 'BOOLEAN' ? event.target.value === 'true' : event.target.value)}>
-    <option value="">—</option>{type === 'BOOLEAN' ? <><option value="true">Yes</option><option value="false">No</option></>
+    <option value="">—</option>{type === 'BOOLEAN' ? <><option value="true">{booleanLabels?.yes ?? 'Yes'}</option><option value="false">{booleanLabels?.no ?? 'No'}</option></>
       : field.options.filter((option) => option.active || option.value === value).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select>;
   if (type === 'MULTI_SELECT') return <select aria-label={ariaLabel} multiple value={Array.isArray(value) ? value.map(String) : []} onChange={(event) => onChange(Array.from(event.target.selectedOptions, (option) => option.value))}>
     {field.options.filter((option) => option.active || Array.isArray(value) && value.includes(option.value)).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select>;

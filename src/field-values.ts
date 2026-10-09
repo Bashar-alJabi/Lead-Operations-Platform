@@ -5,6 +5,27 @@ import { HttpError, type Principal } from './security.js';
 export type ManualFieldInput = { fieldId: string; value: postgres.JSONValue };
 export type PreparedFieldValue = { fieldId: string; value: postgres.JSONValue };
 
+// The caller locks the currently authorized Lead; both Field and Qualification UI use this Human action.
+export async function writeManualFieldValue(tx: postgres.TransactionSql, actor: Principal,
+  lead: { id: string; campaign_id: string; lifecycle: string }, fieldId: string, input: { value: unknown; version?: number }) {
+  const field = (await tx`SELECT fd.id,fd.field_type,fd.value_mode,fd.options,fd.validation,fd.active AS definition_active,
+    cf.active AS binding_active,cf.required_stage,cf.visible_to_agent,cf.editable_by_agent,cf.visible_to_manager,cf.editable_by_manager,cf.show_in_details,cf.show_in_table
+    FROM campaign_field cf JOIN field_definition fd ON fd.id=cf.field_id WHERE cf.campaign_id=${lead.campaign_id} AND fd.id=${fieldId} AND fd.organization_id=${actor.organizationId} FOR SHARE OF fd,cf`)[0];
+  if (!field || actor.role === 'AGENT' && !field.visible_to_agent || actor.role === 'MANAGER' && !field.visible_to_manager ||
+    actor.role !== 'SUPER_ADMIN' && !field.show_in_details && !field.show_in_table) throw new HttpError(404, 'FIELD_NOT_FOUND');
+  if (!field.definition_active || !field.binding_active || field.value_mode !== 'MANUAL' ||
+    actor.role === 'AGENT' && !field.editable_by_agent || actor.role === 'MANAGER' && !field.editable_by_manager) throw new HttpError(403, 'FIELD_READ_ONLY');
+  const value = validateFieldValue(field.field_type as FieldType, input.value, field.options as FieldOption[], field.validation as FieldValidation) as postgres.JSONValue;
+  if (value === null && field.required_stage === 'CLOSE' && lead.lifecycle === 'CLOSED') throw new HttpError(409, 'FIELD_REQUIRED');
+  const old = (await tx`SELECT value,version FROM lead_field_value WHERE lead_id=${lead.id} AND field_id=${field.id} FOR UPDATE`)[0];
+  if (old && old.version !== input.version || !old && input.version !== undefined) throw new HttpError(409, 'FIELD_VALUE_VERSION_CONFLICT');
+  const row = (await tx`INSERT INTO lead_field_value(lead_id,field_id,value,source,updated_by) VALUES (${lead.id},${field.id},${tx.json(value)},'MANUAL',${actor.id})
+    ON CONFLICT(lead_id,field_id) DO UPDATE SET value=EXCLUDED.value,source=EXCLUDED.source,updated_by=EXCLUDED.updated_by,version=lead_field_value.version+1,updated_at=now(),source_submission_id=NULL,source_binding_id=NULL,source_mapping_version=NULL RETURNING version`)[0]!;
+  await tx`INSERT INTO field_value_history(lead_id,field_id,old_value,new_value,source,actor_user_id) VALUES (${lead.id},${field.id},${old ? tx.json(old.value) : null},${tx.json(value)},'MANUAL',${actor.id})`;
+  await tx`INSERT INTO lead_activity(lead_id,actor_user_id,event_type,detail) VALUES (${lead.id},${actor.id},'FIELD_VALUE_CHANGED',${tx.json({ fieldId:field.id })})`;
+  return { version: row.version as number, value };
+}
+
 export async function prepareManualFieldValues(tx: postgres.TransactionSql, campaignId: string, actor: Principal,
   submitted: ManualFieldInput[]): Promise<PreparedFieldValue[]> {
   if (new Set(submitted.map((item) => item.fieldId)).size !== submitted.length) throw new HttpError(400, 'FIELD_DUPLICATE_INPUT');
