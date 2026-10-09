@@ -1,5 +1,13 @@
 # دليل التشغيل والتطوير
 
+## Human Copilot summary وAI live transfer disabled — migrations104–106
+
+طبّقmigrations المعتادة. منAI setup اخترcurrent SUMMARIZATION Profile للحملة/Branch بحسبالصلاحيات؛منLead→Conversation يراجعالموظفمصادرالملخص وحقائقDB دونprovider call. Inference فيالتشغيل الافتراضي معطّلة بـ`AI_LIVE_DATA_TRANSFER_DISABLED`،والزر يوضحعدمavailability؛لاتتجاوزها بتعديلenv أوDB أوtest injection. `worker:ai` تستهلكreadonly kinds وتblock المهام القديمةبلاcredential access أوcustomer-data HTTP. هذاالقيدمقصودبناءًعلىتصريحالمستخدم،وليسفشلconnection catalog أوBusiness prerequisite مجهول.
+
+فيisolated tests فقط تُحقنadapters صراحةمعHTTP mocks وsynthetic data. Source review→generate→QUEUED/RUNNING→COMPLETED/FAILED/BLOCKED،وتُعرضgeneratedAt/stale/history وsensitive omissions. بعدsource/context change راجعالسجل ثمrequest جديدة؛لاreset أوتغييرhistorical summary. بعدauth failure أصلحcurrent managed Connection/Profile وcatalog منSetup،وبعدcurrent access revoke لايُعاداستخدامالطلب القديم. لاcustomer send/Payment/Enrollment mutation منCopilot. العقدوحدودVerified/Live pending في[ai-human-copilot-summary.md](ai-human-copilot-summary.md).
+
+تعليماتSimulation التاريخية أدناه تشرحworkflow المنفذة،لكنprovider inference الحالية كذلكlive-disabled وتحتاجisolated HTTP mocks؛لايعنيتشغيلworker تفعيلنقلالبياناتالحية.
+
 ## Campaign AI Simulation — migration103
 
 طبّق migrations وشغّل `npm run worker:ai` كعمليةinfrastructure معنفسDB/credential encryption deployment configuration. هذهخدمةserver؛Super Admin/Manager يديرانConnection/Profile/catalog/language/Published Knowledge وSample question منCampaign UI دونCLI أوتعديلserver. شاهدstate/attempts/failure/source coverage/original trace فيSimulation history. QUEUED طويلةتحتاجفحصworker health/service؛FAILED تعرضcode آمنة؛BLOCKED تعنيcurrent scope/session/config تغيرت. صحّحالإعدادوصلاحيةالمستدعي،حدّثالسياق،ثمأنشئاختبارًاجديدًا. لاreset/replay تاريخيأوDB override.

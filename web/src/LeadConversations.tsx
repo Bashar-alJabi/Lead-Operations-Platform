@@ -3,6 +3,7 @@ import { MessageAttachment, type Attachment } from './MessageAttachment';
 import { MessageDelivery } from './MessageDelivery';
 import { TemplateButtons, type TemplateButton } from './TemplateButtons';
 import { MessageSourceReference, type SourceReference } from './MessageSourceReference';
+import { ConversationSummarySource } from './ConversationSummarySource';
 
 type Api = <T>(path: string, options?: RequestInit) => Promise<T>;
 type Locale = 'ar'|'fr'|'en';
@@ -330,6 +331,7 @@ export function LeadConversations({ leadId, lifecycle, role, actorId, locale, ap
       </label><button className="secondary" disabled={busy || takeoverReason.trim().length < 3}
         onClick={() => void takeover()}>{t.takeover}</button></div>}
       {!messages.length && <p>{t.noMessages}</p>}
+      <ConversationSummarySource key={selectedId} conversationId={selectedId} locale={locale} api={api} humanActive={selected?.controller_type==='HUMAN' && selected?.state==='HUMAN_ACTIVE'} revision={messages.map(m=>m.id+':'+m.delivery_state).join(',')} />
       <ul className="conversation-messages">{messages.map((message) => <li key={message.id} id={'message-'+message.id}>
         <strong>{message.direction === 'INBOUND' ? t.customer : message.author_type}</strong>
         {' · '}{message.message_kind}{' · '}{message.delivery_state}{message.last_error_code && ` · ${message.last_error_code}`}

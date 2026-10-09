@@ -58,6 +58,10 @@ import { registerAIBehaviorPolicyRoutes } from './routes/ai-behavior-policy.js';
 import { registerAIOperationalConfigRoutes } from './routes/ai-operational-config.js';
 import { registerAISharedUseRoutes } from './routes/ai-shared-use.js';
 import { registerAISimulationRoutes } from './routes/ai-simulation.js';
+import { registerAICopilotContextRoutes } from './routes/ai-copilot-context.js';
+import { registerAICopilotRoutes } from './routes/ai-copilot.js';
+import { assertAIReadTestTransport } from './ai/read-transport.js';
+import type { AIInferenceRegistry } from './ai/inference-provider.js';
 
 export async function buildApp(db: Database, options: { logger?: boolean; emailAdapter?: IdentityEmailAdapter;
   messagingAdapter?: MessagingProviderAdapter; messagingTemplateAdapter?: MessagingTemplateAdapter;
@@ -66,6 +70,7 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   leadSourceSubscriptionAdapter?: LeadSourceSubscriptionAdapter;
   paymentConnectionAdapters?:PaymentAdapterRegistry;
   aiConnectionAdapters?:AIAdapterRegistry;
+  aiReadTestAdapters?:AIInferenceRegistry;
   mediaStorage?: MediaStorage;
   mediaScanner?: MediaScanner;
   globalRateLimitMax?: number;
@@ -156,6 +161,9 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   registerAIBehaviorPolicyRoutes(app,db);
   registerAIOperationalConfigRoutes(app,db);
   registerAISharedUseRoutes(app,db);
-  registerAISimulationRoutes(app,db);
+  const aiReadTestTransport=await assertAIReadTestTransport(db,options.aiReadTestAdapters);
+  registerAISimulationRoutes(app,db,aiReadTestTransport);
+  registerAICopilotContextRoutes(app,db,aiReadTestTransport);
+  registerAICopilotRoutes(app,db,aiReadTestTransport);
   return app;
 }

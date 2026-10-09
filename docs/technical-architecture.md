@@ -1,5 +1,11 @@
 # المعمارية التقنية
 
+## Human Copilot summary وdefault live egress block — 2026-10-09
+
+Approved current Lead/Conversation read boundary وCOPILOT_SUMMARY نوع مستقل ضمنdurable readonly queue،معnative identity/current scope-session-controller-SUMMARIZATION Profile/config/publication/source proof وimmutable result/history/atomic Audit. Worker تعيدfull canonical context قبلHTTP وبعده؛لاmodel authority علىBusiness data. النتيجةextractive/attributed ومحدودة المصدر،والحقائق المالية native queries مستقلة. تفاصيلالعقد في[ai-human-copilot-summary.md](ai-human-copilot-summary.md).
+
+وفق موافقةالمستخدم،النقل الحي معطّل فيSimulation وCopilot قبلcredential/model payload؛test adapter injection تحتاجisolated synthetic PostgreSQL وغيرproduction. لاdeployment env override أوlive toggle. OpenAI Responses implementation جاهزةللـHTTP mocks،بعمليةsummarize منفصلة عنsimulate؛customer Conversation Agent ستملكapproved tool contract مستقلًا معCentral Messaging Policy،لاقيودreadonly عامة. Suggest reply/actual qualification/handoff/follow-up/Operations/runtime activation مازالتباقية.
+
 ## Campaign AI read-only Simulation وdurable inference — 2026-10-09
 
 `effectiveCampaignContext` خدمةواحدةللمعاينةوالتنفيذ،معimmutable Published Campaign snapshot ونسخProfile/Connection/grant/Knowledge/policies وcurrent scope/session/full canonical fences. Queue مخصصةPostgreSQL وSKIP LOCKED/lease/retries/history/native result proof/Audit،وworker مستقلةقابلةللتشغيلأفقيًا. Provider-independent inference registry؛OpenAI Responses adapter فعليةبـmanaged credentials/models وstrict evidence-only output/no tools/store:false/timeouts/safe errors. لاDB transaction أثناءprovider HTTP،ولاModel→DB أوCustomer mutation. تفاصيلالعقدوحدودMock/Live والتحقق في[ai-campaign-simulation.md](ai-campaign-simulation.md).

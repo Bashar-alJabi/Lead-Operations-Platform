@@ -1,5 +1,19 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: Human Copilot approved read / extractive summary — 2026-10-09
+
+استُؤنف من `f01eeac` المحفوظة والمرفوعة دونreset/discard أوإعادة المراحل. Approved current User/Lead/Conversation read boundary وdurable extractive summary وnative104–106 وUI ar/en/fr/history/generatedAt/stale منفذة. تحافظ علىcurrent ownership/session/Organization/Branch وSUMMARIZATION Profile/grant/publication/full canonical context/lease fences؛لاsend أوField/Payment/Enrollment mutation. Customer statements تبقىمنسوبة وليستإثباتدفع،والحقائق المالية native queries خارجModel. native100 تبقىHuman-only حتىتوجدactual AI/Form execution source proofs. التفاصيل في[ai-human-copilot-summary.md](ai-human-copilot-summary.md).
+
+المستخدم وافق صراحة على تنفيذ OpenAI Responses باستخدام HTTP mocks وبيانات اصطناعية فقط، مع تعطيل النقل الحي لبيانات العملاء. رفض automatic review السابق حُلّ بهذه الموافقة. القيد يخص Copilot Summarization الحالية، ولا يقيّد قدرات AI Conversation Agent المستقبلية. لا يوجد مفتاح تشغيل حي ضمنهذهالمرحلة؛test transport يتطلب explicit injection وisolated synthetic PostgreSQL خارجproduction.
+
+**البوابة النهائية ناجحة علىآخرالكود:** migrations001–106 development/test، **168/168 unit،70/70 full Docker PostgreSQL integration،39/39 full Edge Browser E2E** (3.7m)،focused unit2/2 وPG1/1 وBrowser1/1،Backend/Web build/typecheck وdiff check. Eight-way duplicate/four-way workers،foreign Organization/Branch/Lead،current owner/session/Profile/controller،Published-change وoriginal trace،midflight source change،5 retries،sensitive omission/result rejection،native source/identity/terminal/Audit rollback/pagination/Lead-parent fence وlive-off قبلcredential/HTTP مثبتة. Browser actual managed Profile→source→queue→production adapter HTTP mock→attributed result/native facts/history/stale/failure وAgent denial/XSS/French/RTL390px؛الصورةفُحصت. Compose PostgreSQL/ClamAV healthy. Vite725.12KB/gzip207.16KB warning ضمنbacklog.
+
+**الحدود:** Extractive summarization/read prerequisite **Implemented وHTTP Mock/PostgreSQL/Local Browser Verified**. ليستfull Copilot أوAI baseline؛Suggest/Rewrite/Published information/next-question/draft follow-up/intent وactual AI/Form Qualification/Handoff/customer runtime/returning/follow-up/SLA/Operations/activation/evaluations باقية. **Live Verification Pending External Credential/Approval** والنقلالحي معطّل حسبتصريحالمستخدم؛لاLive semantic evaluation أوDLP guarantee أوProduction deployment.
+
+**الحفظ:** هذهالمجموعة تُحفظبعدالبوابة معprogress/coverage/architecture/runbook وcommit واضح،والرفعإلى`codex/full-platform-build` فقط. آخرGit commit يحملمعرفها. لاmain merge أوreset/discard.
+
+**قيد التنفيذ عندالحفظ:** لاكودFeature group غيرمثبت. الخطوة التالية الدقيقة: approved current Published Campaign Knowledge read للموظف ضمنLead/Conversation scope،معsafe scanned approved-asset download وcurrent authorization وواجهةCopilot؛ثمcustomer execution provenance منفصلةعنreadonly queue وapproved typed AI/Form Qualification/Handoff/Field fences،ثمdurable inbound/customer runtime/Central Messaging Policy وreturning/follow-up/SLA وبقيةCopilot/Operations/actions/evaluations/activation. بعدAI انتقلAutomation/Notifications/Analytics وبقيةالنطاق؛لاoptional provider refinements.
+
 ## آخر حالة مستقرة: Campaign AI read-only Simulation / durable inference — 2026-10-09
 
 استُؤنف من `dc64e76` النظيفة على `codex/full-platform-build`؛ لم تُعد المراحل السابقة. Compose PostgreSQL/ClamAV سليمتان. تعذّر process setup داخلCodex sandbox؛ scoped approved execution خارجالعزل تعمل. خدمة `effectiveCampaignContext` مشتركة بينالمعاينةوالتنفيذ،وmigration103 وAPI وdurable leased worker وmanaged provider-independent OpenAI Responses adapter وUI ar/en/fr/history منفذة.

@@ -1,5 +1,15 @@
 # مصفوفة تغطية المتطلبات
 
+## أحدث checkpoint: Human Copilot scoped read / extractive summary — 2026-10-09
+
+| المتطلب ومصدره | التنفيذ الحالي | الإثبات والحالة |
+|---|---|---|
+| Human Copilot Summarize وSummary freshness،02 Agent scope،03 §§66–67،04 §§6–8/39–40/85،05 isolation،06 §12،AGENTS §§8/19–29 | Approved current Organization/Branch/User-session/Lead/Conversation read،SUMMARIZATION Profile مستقلة،native104–106 وdurable readonly worker/queue،strict attributed evidence،generatedAt/stale/history وUI ar/en/fr،native Payment/Enrollment counts خارجModel | **168/168 unit،70/70 full PostgreSQL integration،39/39 full Edge Browser** وfocused unit2/2 وPG1/1 وBrowser1/1 و001–106/build/typecheck/diff check ناجحةعلىآخرالكود. Native source/identity/Audit rollback/terminal/result/lease وduplicate/concurrent jobs/current scope-owner-session-controller-Profile-Published/midflight/failure/pagination/live-off/Lead-parent fence وBrowser HTTP-mock/no mutations/history/stale/XSS/French/RTL مثبتة. Extractive summarization prerequisite Implemented وHTTP Mock/PostgreSQL/Local Browser Verified؛لااكتمالfull Copilot أوAI |
+| منعlive customer-data inference وفقموافقةالمستخدم2026-10-09 | Default Simulation/Copilot POST409،old queued jobs BLOCKED قبلcredential/payload/HTTP،explicit adapter injection مقيدة بـisolated synthetic test PostgreSQL وغيرproduction،sensitive-excerpt omission وDTO دونsecrets/financial data/user scopes | Focused PG يثبتinvalid encryption key دونdecryption/fetch،current access/current task وreadonly artifacts وtrusted claim separation؛unit تثبتminimal payload وseparate summary system instruction. **HTTP Mock Verified** فقط،**Live Verification Pending External Credential/Approval** والاستخدامالحي معطّل؛لاLive semantic evaluation أوDLP guarantee |
+| بقيةAI وCopilot/customer actions | Suggest/Rewrite reply،Published information assistance/next-question/draft follow-up/intent،actual AI/Form Qualification source proofs/approved customer tools/Handoff/returning/follow-up/SLA/Operations/runtime activation/evaluations | غيرمكتملة؛لاModel→DB أوreuse readonly result لإثباتmutations. Next actual customer execution provenance/tool executor ثمapproved typed Qualification/Handoff وCentral Messaging Policy. لاoptional providers أوإسقاطمتطلبات |
+
+الصفوف السابقة أدناه تاريخية. التفاصيل وحدودهذهالعملية في[ai-human-copilot-summary.md](ai-human-copilot-summary.md).
+
 ## أحدث checkpoint: Campaign AI read-only Simulation — 2026-10-09
 
 | المتطلب ومصدره | التنفيذ الحالي | الإثبات والحالة |

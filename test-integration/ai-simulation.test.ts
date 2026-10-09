@@ -6,12 +6,13 @@ import { buildApp } from '../src/app.js';
 import { sha256 } from '../src/security.js';
 import { emptyAIOperationalConfig } from '../src/ai/operational-config.js';
 import { emptyKnowledge } from '../src/ai/knowledge.js';
-import { processOneAISimulation } from '../src/ai/simulation-worker.js';
-import { AIInferenceError } from '../src/ai/inference-provider.js';
+import { processOneAISimulation as simulationWorker } from '../src/ai/simulation-worker.js';
+import { AIInferenceError,aiInferenceAdapters } from '../src/ai/inference-provider.js';
 const url=process.env.TEST_DATABASE_URL;if(!url || new URL(url).pathname!=='/lead_operations_test')throw new Error('Isolated TEST_DATABASE_URL required');
+const processOneAISimulation=(db:Parameters<typeof simulationWorker>[0],options:Parameters<typeof simulationWorker>[1]={})=>simulationWorker(db,{ adapters:aiInferenceAdapters,...options });
 test('Campaign AI simulation executes durable scoped published inference, audited immutable evidence/history, idempotency/concurrency, current fences and bounded failure/recovery without business mutations',async(t)=> {
   process.env.APP_ORIGIN='http://127.0.0.1:5173';process.env.CREDENTIAL_ENCRYPTION_KEY=randomBytes(32).toString('hex');
-  const db=createDatabase(url),app=await buildApp(db,{ logger:false,globalRateLimitMax:10000,aiConnectionAdapters:{ OPENAI:{ listModels:async()=>['Synthetic-conversation-model'] } } }),originalFetch=globalThis.fetch;
+  const db=createDatabase(url),app=await buildApp(db,{ logger:false,globalRateLimitMax:10000,aiReadTestAdapters:aiInferenceAdapters,aiConnectionAdapters:{ OPENAI:{ listModels:async()=>['Synthetic-conversation-model'] } } }),originalFetch=globalThis.fetch;
   t.after(async()=>{ globalThis.fetch=originalFetch;await app.close();await db.end(); });
   await db.begin(async(tx)=>{ await tx`SET LOCAL client_min_messages TO warning`;await tx`TRUNCATE background_job CASCADE`;await tx`TRUNCATE organization CASCADE`; });
   const org=(await db`INSERT INTO organization(name) VALUES ('Simulation') RETURNING id`)[0]!.id,foreignOrg=(await db`INSERT INTO organization(name) VALUES ('Foreign') RETURNING id`)[0]!.id;

@@ -2,6 +2,8 @@
 
 ## النطاق
 
+**تحديث2026-10-09:** حسبتصريحالمستخدماللاحق،النقل الحي للـAI معطّل. Production/default POST ترفض بـ`AI_LIVE_DATA_TRANSFER_DISABLED` وworker تحجبالمهام القديمةقبلcredential/payload. تشغيلHTTP فيالاختبارات يتطلبexplicit injected adapters معisolated synthetic PostgreSQL وغيرproduction وHTTP mocks. لاenv toggle لتجاوزالقيد. بقيةworkflow أدناه تصفالتنفيذ القابلللاختبار؛Live Verification Pending External Credential/Approval معضوابطوموافقةالتفعيل. راجع[حدود Copilot والنقل](ai-human-copilot-summary.md).
+
 المرجع: 03 إعداد AI،04 §§6–8/59–73،05 Campaign isolation،06 §12،وAGENTS §§8–9/19–29/38–40. هذه مرحلة تنفيذ فعلية لمسار **سؤال اختباري → queue → provider HTTP → validated evidence أوhandoff recommendation → UI/history**. تستخدم نفسeffective Campaign context التي تستعملها المعاينة. لا توجد Customer message أوLead/Field/Payment/Enrollment mutation أوAI activation في هذا المسار.
 
 Simulation الحالية تختبر اختيار الأدلة المعتمدة وunknown/handoff boundary. الإجابة المعروضة تُبنى من نصوصPublished references المطابقة؛لا تُقبل صياغة تجارية حرة منModel حتى لو ادعت وجودcitation. النبرة/اللغة/السلوك محفوظة في السياق وتصل كبيانات إلى المزوّد،لكن العرض يحفظ لغة النص المعتمد ولا يدّعي اختبارgeneration/paraphrasing أوالدقة الدلالية لـLive model. Simulation التي تختبر actual approved tools/Qualification/customer lifecycle/actions تبقى غير مكتملة حتى تنفيذ هذه الخدمات. لا يُعتبرهذا اكتمالًا لـAI Lead Assistant أوOperations Assistant أوCopilot.
