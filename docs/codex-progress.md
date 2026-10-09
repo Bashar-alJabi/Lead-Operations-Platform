@@ -10,7 +10,7 @@ Hypothetical timing Preview تستعملDB clock وتعيدWAIT/DUE/STOPPED/COMP
 
 **الحالة:** Follow-up policy/timing prerequisite **Implemented وPostgreSQL/Local Browser Verified**. Actual scheduler/dispatch/jobs/sends،AI-approved actions/source provenance/execution snapshots/inference/activation/assistants/evaluations غيرمنفذة؛لاادعاءاكتمالFollow-ups أوAI أوالمنصة. **Live Verification Pending External Credential/Approval**؛لاcredentials شخصية/production.
 
-**الحفظ:** هذهcheckpoint اجتازتالبوابةوتُحفظمحليًاوتُرفعفقطإلى`codex/full-platform-build` الآن؛actual hash يوثقبعدcommit. لاreset/discard/main merge أوdeployment.
+**الحفظ:** checkpoint `bce256c` محفوظةومرفوعةفقطإلى`codex/full-platform-build` بعدالبوابة؛working tree نظيفةعندالحفظ. لاreset/discard/main merge أوdeployment.
 
 **التالي الدقيق:** إعدادdisclosure/formality/brand guidance وhandoff behavior وclosed/returning-contact policy معnative version/scope/history/Audit وdeterministic effective preview/readiness/safer current-state decision وUI/tests. ثمapproved AI/Form Qualification/tools بمصدرمثبت،trusted Lead/Conversation/controller/pinned-Sender execution snapshots ودurable runtime/provider inference وhandoff/copilot/customer+Operations assistants/evaluations؛ثمAutomation/Notifications/Analytics وبقيةالمتطلبات،دونoptional provider refinements.
 
