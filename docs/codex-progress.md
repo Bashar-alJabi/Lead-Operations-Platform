@@ -1,5 +1,19 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: Campaign AI Follow-up policy/timing prerequisite — 2026-10-09
+
+بدأت من Human Qualification `d55d81b` المحفوظة والمرفوعة. Campaign-scoped strict policy/native101 وBackend Manager/Super Admin/current session/Branch/version/concurrency/history/Audit وUI ar/en/fr منفذة. Initial delay/ordered delays/stop-on-reply/final COMPLETE أوHANDOFF قابلة للإعداد،وmaxAttempts مشتقةمنطولschedule. Mandatory Human/handoff/closed Lead/Conversation stops لايمكنتعطيلها؛لاhardcoded Business delay أوSender fallback.
+
+Hypothetical timing Preview تستعملDB clock وتعيدWAIT/DUE/STOPPED/COMPLETE/HANDOFF وsendAllowed=false دونLead/Followup/Message/job write. Effective configuration تشملcurrent policy/version/mandatory stops ضمنcanonicalhash/Campaign isolation،معruntime blockers وعدمactivation. Sending windows/timezone/frequency تبقىCentral Messaging Policy؛DUE ليستإذنإرسال. العقد وحدوده في`ai-followup-policy.md`.
+
+**البوابة ناجحة:** development/test migrations001–101، **162/162 unit،67/67 full Docker PostgreSQL integration،35/35 full Edge Browser E2E** (3.8m)،focused PostgreSQL1/1 وfocused Browser1/1،Backend/Web build/typecheck. Strict definitions/bounds/mandatory stops/exhaustion وcurrent role/scope/session/expiry/revoke/disabled Branch/version/history/Audit rollback،four-way first insert،hash/Campaign isolation/current clock وno preview mutations مثبتة. Browser actual setup/save/timing/Human+reply+exhaustion/history/stale edit/Agent denial/XSS/French/RTL390px؛الصورةفُحصت. أولfull Browser كشفinitial-load race؛قُفلتinputs أثناءload/save معlatest-load fence،وأضيفGET مؤجلةتثبتالقفلثمإعادةfocused/full Browser ناجحة. Vite690.42KB/gzip197.60KB warning ضمنbacklog.
+
+**الحالة:** Follow-up policy/timing prerequisite **Implemented وPostgreSQL/Local Browser Verified**. Actual scheduler/dispatch/jobs/sends،AI-approved actions/source provenance/execution snapshots/inference/activation/assistants/evaluations غيرمنفذة؛لاادعاءاكتمالFollow-ups أوAI أوالمنصة. **Live Verification Pending External Credential/Approval**؛لاcredentials شخصية/production.
+
+**الحفظ:** هذهcheckpoint اجتازتالبوابةوتُحفظمحليًاوتُرفعفقطإلى`codex/full-platform-build` الآن؛actual hash يوثقبعدcommit. لاreset/discard/main merge أوdeployment.
+
+**التالي الدقيق:** إعدادdisclosure/formality/brand guidance وhandoff behavior وclosed/returning-contact policy معnative version/scope/history/Audit وdeterministic effective preview/readiness/safer current-state decision وUI/tests. ثمapproved AI/Form Qualification/tools بمصدرمثبت،trusted Lead/Conversation/controller/pinned-Sender execution snapshots ودurable runtime/provider inference وhandoff/copilot/customer+Operations assistants/evaluations؛ثمAutomation/Notifications/Analytics وبقيةالمتطلبات،دونoptional provider refinements.
+
 ## آخر حالة مستقرة: Actual Human Qualification answers/results — 2026-10-09
 
 استؤنف العمل من `ef02de9` مع الحفاظ على التعديلات الثلاثة غير الملتزمة. Compose كانت متوقفة؛ شُغلت PostgreSQL/ClamAV الموجودة دون حذف بيانات. صُحح موضع refactor غير مكتملة، وأُعيد استعمال `writeManualFieldValue` من Lead Field وQualification routes مع current Field locks/type/options/validation/version/history.
@@ -15,6 +29,8 @@ Migration100 تحفظ durable canonical per-answer request/hash وnative current
 **الحفظ:** checkpoint `b48d2d1` محفوظة ومرفوعة إلى `codex/full-platform-build`؛working tree نظيفة بعدها. لاreset/discard/main merge أوdeployment.
 
 **التالي الدقيق:** نفّذ Campaign AI behavior policies اللازمة للـruntime: configurable follow-up timing/delays/attempts/stop/final action،disclosure/formality،handoff behavior وclosed/returning-contact policy،مع current scoped/versioned native history/Audit وUI وdeterministic effective preview بلاactivation. ثمapproved AI/Form qualification/tool actions بمصدر مثبت،Lead/Conversation/pinned-Sender execution snapshots ودurable runtime/provider inference وhandoff/copilot/customer+operations assistants/evaluations؛بعداستقرارAI انتقل Automation/Notifications/Analytics وبقيةالنطاق. لاoptional provider refinements.
+
+
 
 ## آخر حالة مستقرة: Effective AI configuration prerequisite — 2026-10-09
 

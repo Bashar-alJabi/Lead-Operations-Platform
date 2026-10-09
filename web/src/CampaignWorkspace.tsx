@@ -3,6 +3,7 @@ import { CampaignTemplates } from './CampaignTemplates';
 import { CampaignSources } from './CampaignSources';
 import { CampaignKnowledge } from './CampaignKnowledge';
 import { CampaignQualification } from './CampaignQualification';
+import { CampaignAIFollowupPolicy } from './CampaignAIFollowupPolicy';
 import { CampaignAIConfiguration } from './CampaignAIConfiguration';
 
 type Api = <T>(path: string, options?: RequestInit) => Promise<T>;
@@ -136,6 +137,7 @@ export function CampaignWorkspace({ id, locale, api, onBack, onChanged }: {
     <CampaignTemplates campaignId={id} senderId={effectiveSender?.senderId ?? null} locale={locale} api={api} />
     <CampaignKnowledge key={id} campaignId={id} locale={locale} api={api} />
     <CampaignQualification key={'qualification-'+id} campaignId={id} locale={locale} api={api} />
+    <CampaignAIFollowupPolicy key={'ai-followup-'+id} campaignId={id} locale={locale} api={api} />
     <CampaignAIConfiguration key={'ai-config-'+id} campaignId={id} branchId={campaign.branch_id} locale={locale} api={api} />
     {campaign.source_kind==='META' && <CampaignSources key={id} campaignId={id} locale={locale} api={api}/>}
     {policy && <section className="panel"><h3>{t.policy}</h3>

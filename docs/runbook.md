@@ -428,3 +428,9 @@ Super Admin فقط تدير Organization AI connection branch-use من تفاص�
 عند Version conflict حدّث البيانات وراجع draft قبل إعادة الحفظ؛ لا force overwrite أوتعديل DB. Retry لنفس الطلب محفوظة تمنع duplicate history/Field writes. بعد تعديل Field من واجهة أخرى استعمل تحديث الإجابات لمشاهدة المرجع الحالي؛ تاريخ الجمع يحتفظ بالإجابة الأصلية. تغيير تعريف السؤال يحجب تفسير إجابته القديمة، أما السؤال المطابق فيحتفظ بإجابته عند إعادة الترتيب أوdisable/reenable. التاريخ متاح readonly بعد تعطيل التأهيل؛ Branch معطلة تمنع الحفظ.
 
 إذا كانت النتيجة unavailable راجع current Field visibility/type/options/binding/usable_by_ai مع Manager. لا تستنتج اكتمالًا من Fields لا يحق للمستخدم رؤيتها. التصحيح typed ممكن لقيمة قديمة غير صالحة إذا كان Field نفسه متاحًا ومسموحًا. إعادة assignment أوSession revocation تمنع القراءة والحفظ والتاريخ قبل أي idempotency replay. كل Capture وAudit/Field history ذرية. راجع `lead-qualification-results.md`. AI/Form approved actions وruntime/evaluations لم تُنفذ في هذه المرحلة.
+
+## AI Follow-up policy
+
+من تفاصيل Campaign افتح «سياسة متابعة AI». حدد initial delay وأضف التأخيرات بالترتيب وبالثواني؛عددها هوmax attempts للدورة. حددstop-on-reply وfinal COMPLETE/HANDOFF،واكتبreason واحفظ. لاschedule مفعلة دونdelay واحدة علىالأقل،ولاBusiness delays افتراضية. Disable يحتفظبالتعريفوالتاريخ. عندVersion conflict حدّثوقارنقبلالحفظ؛Branch disable تمنعالتعديل،وتبقيhistory للمراجعة.
+
+Preview تستعملinputs مفترضة وDBclock؛تختبرWAIT/DUE/stops/exhaustion فقط،ولاLead facts أوCustomer send. Human/handoff/closed stops إلزامية؛sending hours/timezone/frequency/provider constraints منCentral Messaging Policy التييجبفحصهاقبلأيsend حقيقية. DUE لايعنيsend authorization،وconfiguration enabled لاتشغلassistant/jobs. راجعنسخةpolicy/history منالواجهة،وcurrent policy/hash منeffective AI preview. Actual runtime/dispatch/evaluations باقية؛لاCLI/DB edits لتجاوزالجاهزية. تفاصيلالعقدفي `ai-followup-policy.md`.

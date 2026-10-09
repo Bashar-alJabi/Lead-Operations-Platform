@@ -6,6 +6,7 @@ import { currentPaymentSession } from '../payments/access.js';
 import { knowledgeCampaign } from './ai-knowledge.js';
 import { aiTasks,aiOperationalSchema,emptyAIOperationalConfig,normalizeAIOperationalConfig,inheritAIOperationalConfig,effectiveConfigHash,globalAIGuardrails,type AIOperationalConfig } from '../ai/operational-config.js';
 import { emptyQualification } from '../ai/qualification.js';
+import { emptyAIFollowupPolicy,aiFollowupMandatoryStops } from '../ai/followup-policy.js';
 import { validateFieldValue,type FieldType,type FieldOption,type FieldValidation } from '../fields.js';
 import { resolveConfiguredSender } from '../messaging/sender-resolution.js';
 const uuid={ type:'string',format:'uuid' } as const;
@@ -72,7 +73,9 @@ export function registerAIOperationalConfigRoutes(app:FastifyInstance,db:Databas
     const actor=await principalFromRequest(request,db);return db.begin(async(tx)=> {
       const id=request.params.id,{ c }=await knowledgeCampaign(tx,actor,id,request),{ b }=await branchAccess(tx,actor,c.branch_id,request);
       const branch=await current(tx,'BRANCH',b.id),campaign=await current(tx,'CAMPAIGN',id),{ effective,sources }=inheritAIOperationalConfig(branch.definition,campaign.definition);
-      const blockers=['AI_RUNTIME_NOT_IMPLEMENTED','AI_APPROVED_TOOLS_NOT_IMPLEMENTED','AI_FOLLOWUP_POLICY_NOT_IMPLEMENTED','AI_SIMULATION_NOT_IMPLEMENTED'];
+      const followup=(await tx`SELECT version,definition FROM ai_followup_policy WHERE campaign_id=${id} FOR SHARE`)[0] ?? { version:0,definition:emptyAIFollowupPolicy() };
+      const blockers=['AI_RUNTIME_NOT_IMPLEMENTED','AI_APPROVED_TOOLS_NOT_IMPLEMENTED','AI_FOLLOWUP_RUNTIME_NOT_IMPLEMENTED','AI_SIMULATION_NOT_IMPLEMENTED'];
+      if(!followup.version)blockers.push('AI_FOLLOWUP_POLICY_REQUIRED');
       if(!b.active)blockers.push('BRANCH_DISABLED');if(!c.ai_config.enabled)blockers.push('AI_DISABLED');if(!effective.language)blockers.push('AI_LANGUAGE_REQUIRED');
       const profiles:Record<string,unknown>={};
       for(const task of aiTasks) {
@@ -106,6 +109,7 @@ export function registerAIOperationalConfigRoutes(app:FastifyInstance,db:Databas
       const snapshot={ schema:1,organizationId:actor.organizationId,branchId:b.id,campaignId:id,globalGuardrails:globalAIGuardrails,
         branchDefaults:{ version:branch.version,definition:branch.definition },campaignOverrides:{ version:campaign.version,definition:campaign.definition },effective,sources,profiles,
         campaignVersion:c.version,campaignAIEnabled:c.ai_config.enabled===true,branchActive:b.active,knowledge,qualification:{ ...qualification,fieldVersions },handoffTarget:target,
+        followup:{ ...followup,maxAttempts:followup.definition.delaysSeconds.length,mandatoryStops:aiFollowupMandatoryStops },
         messaging:{ timezone:b.timezone,branchPolicyVersion:b.messaging_policy_version,campaignPolicyVersion:c.version,window:c.messaging_policy?.sendingWindow ?? (b.messaging_window?.start ? b.messaging_window : null),maxAttempts:c.messaging_policy?.maxAttempts ?? null,minIntervalSeconds:c.messaging_policy?.minIntervalSeconds ?? null,
           newConversationSender:sender.sender ?? null,resolutionReason:sender.reason,consentRequired:true },allowedTools:[],blockers };
       return { ...snapshot,hash:effectiveConfigHash(snapshot),previewOnly:true,assistantReady:false,inferenceVerified:false };
