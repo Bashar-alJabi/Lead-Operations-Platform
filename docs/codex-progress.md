@@ -10,7 +10,7 @@ Mandatory Human request/unknown answer/out-of-scope/complaint/sensitive/pricing/
 
 **الحالة:** behavior policy configuration/decision prerequisite **Implemented وPostgreSQL/Local Browser Verified**. Actual inbound reopening/new Lead/AI handoff/transition sends/SLA notifications وapproved AI/Form actions/tools/execution snapshots/runtime/inference/activation/assistants/evaluations باقية؛لاادعاءاكتمالAI أوالمنصة. **Live Verification Pending External Credential/Approval**؛لاlive credential أوprovider inference فيهذهالمرحلة.
 
-**الحفظ:** checkpoint الحاليةاجتازتالبوابةوتُحفظمحليًاوتُرفعفقطإلى`codex/full-platform-build` الآن؛actual hash يوثقبعدالحفظ. لاreset/discard/main merge أوProduction deployment.
+**الحفظ:** checkpoint `db84f02` محفوظةومرفوعةإلى`codex/full-platform-build` بعدالبوابة؛working tree نظيفةوHEAD يطابقoriginعندالتحقق. لاreset/discard/main merge أوProduction deployment.
 
 **قيد التنفيذ:** لاFeature group جديدة أوتعديلاتغيرمثبتةعندحفظهذهcheckpoint. الملفاتالأقدمأدناهتاريخية،والحالةالنهائيةهناهيالمرجع.
 
