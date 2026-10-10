@@ -6,11 +6,13 @@ import { currentAIBehaviorPolicy } from '../routes/ai-behavior-policy.js';
 import { inheritAIBehaviorPolicy,aiMandatoryHandoffTriggers } from './behavior-policy.js';
 import { validateFieldValue,type FieldType,type FieldOption,type FieldValidation } from '../fields.js';
 import { resolveConfiguredSender } from '../messaging/sender-resolution.js';
+import { effectiveAIToolPolicy } from './tool-policy.js';
 export async function currentAIOperationalConfig(tx:postgres.TransactionSql,scope:string,id:string) {
   return (await tx`SELECT version,definition,actor_id,reason,updated_at FROM ai_operational_config WHERE scope=${scope} AND resource_id=${id} FOR SHARE`)[0] ?? { version:0,definition:emptyAIOperationalConfig(),actor_id:null,reason:null,updated_at:null };
 }
 export async function effectiveCampaignContext(tx:postgres.TransactionSql,organizationId:string,c:postgres.Row,b:postgres.Row) {
   const id=c.id,current=currentAIOperationalConfig;
+      const toolPolicy=await effectiveAIToolPolicy(tx,b.id,id);
       const branch=await current(tx,'BRANCH',b.id),campaign=await current(tx,'CAMPAIGN',id),{ effective,sources }=inheritAIOperationalConfig(branch.definition,campaign.definition);
       const followup=((await tx`SELECT version,definition FROM ai_followup_policy WHERE campaign_id=${id} FOR SHARE`)[0] ?? { version:0,definition:emptyAIFollowupPolicy() }) as { version:number;definition:ReturnType<typeof emptyAIFollowupPolicy> };
       const blockers=['AI_RUNTIME_NOT_IMPLEMENTED','AI_APPROVED_TOOLS_NOT_IMPLEMENTED','AI_FOLLOWUP_RUNTIME_NOT_IMPLEMENTED','AI_ACTION_SIMULATION_NOT_IMPLEMENTED'];
@@ -55,7 +57,7 @@ export async function effectiveCampaignContext(tx:postgres.TransactionSql,organi
         followup:{ ...followup,maxAttempts:followup.definition.delaysSeconds.length,mandatoryStops:aiFollowupMandatoryStops },
         behavior:{ ...behavior,branchVersion:behaviorBranch.version,campaignVersion:behaviorCampaign.version,mandatoryHandoffTriggers:aiMandatoryHandoffTriggers },
         messaging:{ timezone:b.timezone,branchPolicyVersion:b.messaging_policy_version,campaignPolicyVersion:c.version,window:c.messaging_policy?.sendingWindow ?? (b.messaging_window?.start ? b.messaging_window : null),maxAttempts:c.messaging_policy?.maxAttempts ?? null,minIntervalSeconds:c.messaging_policy?.minIntervalSeconds ?? null,
-          newConversationSender:sender.sender ?? null,resolutionReason:sender.reason,consentRequired:true },allowedTools:[],blockers };
+          newConversationSender:sender.sender ?? null,resolutionReason:sender.reason,consentRequired:true },toolPolicy,allowedTools:toolPolicy.allowedTools,blockers };
   return { ...snapshot,hash:effectiveConfigHash(snapshot),previewOnly:true,assistantReady:false,inferenceVerified:false };
 }
 export type EffectiveCampaignContext=Awaited<ReturnType<typeof effectiveCampaignContext>>;

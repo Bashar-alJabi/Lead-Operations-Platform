@@ -86,6 +86,13 @@ test('Human Copilot trusted read/summary enforces current scopes and native prov
   await db`CREATE TRIGGER copilot_test_audit_failure BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION copilot_test_audit_failure()`;
   try { assert.equal((await runApi('POST',jobs,{ requestId:randomUUID() })).statusCode,500);assert.equal((await db`SELECT count(*)::integer AS n FROM ai_campaign_simulation`)[0]!.n,auditCount); }finally { await db`DROP TRIGGER copilot_test_audit_failure ON audit_log`;await db`DROP FUNCTION copilot_test_audit_failure()`; }
   const fresh=await db.begin(tx=>trustedCopilotSnapshot(tx,users.agent!.principal,cv,users.agent!.session));
+  const forgedTools={ ...fresh.context,campaignContext:{ ...fresh.context.campaignContext,toolPolicy:{ ...fresh.context.campaignContext.toolPolicy,allowedTools:['SQL'] },allowedTools:['SQL'] } };
+  await assert.rejects(db`INSERT INTO ai_campaign_simulation(kind,lead_id,conversation_id,organization_id,branch_id,campaign_id,actor_id,session_id,request_id,request_hash,question,context,context_hash,references_json)
+    VALUES ('COPILOT_SUMMARY',${lead},${cv},${org},${branch},${campaign},${users.agent!.principal.id},${users.agent!.session},${randomUUID()},${'0'.repeat(64)},'Forged tool context',${db.json(JSON.parse(JSON.stringify(forgedTools)))},${snapshot.hash},'[]')`,/CURRENT_CONTEXT_REQUIRED/);
+  const toolPending=await enqueue(),beforeToolCalls=calls;
+  assert.equal((await api('PUT','/api/ai/campaigns/'+campaign+'/tool-policy',{ version:0,definition:{ allowedTools:['requestHumanHandoff'] },reason:'Current tool approval fences Copilot context' })).statusCode,200);
+  assert.equal((await db`SELECT ai_simulation_current(s) AS current FROM ai_campaign_simulation s WHERE id=${toolPending.id}`)[0]!.current,false);
+  await processOneAICopilotSummary(db,{ adapters:aiInferenceAdapters });assert.equal(calls,beforeToolCalls);assert.equal((await db`SELECT state FROM ai_campaign_simulation WHERE id=${toolPending.id}`)[0]!.state,'BLOCKED');
   const bad={ ...fresh.context,summaryContext:{ ...fresh.context.summaryContext,confirmedPaymentCount:1 } };
   await assert.rejects(db`INSERT INTO ai_campaign_simulation(kind,lead_id,conversation_id,organization_id,branch_id,campaign_id,actor_id,session_id,request_id,request_hash,question,context,context_hash,references_json)
     VALUES ('COPILOT_SUMMARY',${lead},${cv},${org},${branch},${campaign},${users.agent!.principal.id},${users.agent!.session},${randomUUID()},${'0'.repeat(64)},'Forged payment claim',${db.json(JSON.parse(JSON.stringify(bad)))},${snapshot.hash},'[]')`,/CURRENT_CONTEXT_REQUIRED/);

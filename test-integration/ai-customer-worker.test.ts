@@ -165,6 +165,16 @@ test('Customer proposal worker uses authenticated autonomous scope, current fenc
   assert.equal((await api('PUT', kr + '/draft', { version: 1, content: { ...content, sections: { ...content.sections, prices: 'New approved published price' } }, reason: 'Publish current version' })).statusCode, 200);
   assert.equal((await api('POST', kr + '/publish', { version: 2, requestId: randomUUID(), reason: 'Second current publication' })).statusCode, 201);
   assert.equal(await run(), true); assert.equal((await query(oldVersion.id))[0]!.state, 'BLOCKED'); const fresh = (await inbound('current-publication'))!; assert.equal(await run(), true); assert.equal((await query(fresh.id))[0]!.context.knowledge.version, 2); assert.equal((await query(p.id))[0]!.context.knowledge.version, 1);
+  // Configured approval is traced but never turns a proposal into action authority. Changes fence work before/after HTTP.
+  const policyRoot = '/api/ai/campaigns/' + campaign + '/tool-policy', toolPending = (await inbound('tool-policy-pending'))!, beforeTools = calls;
+  assert.equal((await api('PUT', policyRoot, { version: 0, definition: { allowedTools: ['requestHumanHandoff','updateQualificationField'] }, reason: 'Explicit future customer action approval' })).statusCode, 200);
+  assert.equal(await run(), true); assert.equal(calls, beforeTools); assert.equal((await query(toolPending.id))[0]!.state, 'BLOCKED');
+  const toolFresh = (await inbound('tool-policy-current'))!; assert.equal(toolFresh.context.toolPolicy.campaignVersion, 1); assert.deepEqual(toolFresh.context.toolPolicy.allowedTools, ['requestHumanHandoff','updateQualificationField']); assert.deepEqual(toolFresh.context.approvedTools, []);
+  assert.equal(await run(), true); assert.equal((await query(toolFresh.id))[0]!.state, 'PROPOSED'); assert.deepEqual((await query(toolFresh.id))[0]!.result.toolsExecuted, []);
+  const policyInFlight = (await inbound('tool-policy-inflight'))!; let policyEntered!: () => void, policyRelease!: (p: object) => void; const policyReady = new Promise<void>(r => { policyEntered = r; });
+  const policyWork = run({ OPENAI: { ...adapters.OPENAI!, proposeCustomer: async () => { policyEntered(); return new Promise(r => { policyRelease = r; }); } } }); await policyReady;
+  assert.equal((await api('PUT', policyRoot, { version: 1, definition: { allowedTools: [] }, reason: 'Revoke pending customer action approval' })).statusCode, 200);
+  policyRelease(answer); await policyWork; assert.equal((await query(policyInFlight.id))[0]!.state, 'BLOCKED'); assert.equal((await query(toolFresh.id))[0]!.context.toolPolicy.campaignVersion, 1);
   // Audit failure is atomic, leaving a lease recoverable without tool/send replay.
   const atomic = (await inbound('atomic'))!;
   await db`CREATE FUNCTION proposal_test_audit_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='AI_CUSTOMER_PROPOSAL_PROPOSED' THEN RAISE EXCEPTION 'SYNTHETIC_AUDIT_FAILURE';END IF;RETURN NEW;END $$`;

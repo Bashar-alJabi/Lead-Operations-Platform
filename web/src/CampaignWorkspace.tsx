@@ -6,6 +6,7 @@ import { CampaignQualification } from './CampaignQualification';
 import { CampaignAIFollowupPolicy } from './CampaignAIFollowupPolicy';
 import { CampaignAIBehaviorPolicy } from './CampaignAIBehaviorPolicy';
 import { CampaignAIConfiguration } from './CampaignAIConfiguration';
+import { CampaignAITools } from './CampaignAITools';
 import { CampaignAISimulation } from './CampaignAISimulation';
 
 type Api = <T>(path: string, options?: RequestInit) => Promise<T>;
@@ -142,6 +143,7 @@ export function CampaignWorkspace({ id, locale, api, onBack, onChanged }: {
     <CampaignAIFollowupPolicy key={'ai-followup-'+id} campaignId={id} locale={locale} api={api} />
     <CampaignAIBehaviorPolicy key={'ai-behavior-'+id} campaignId={id} branchId={campaign.branch_id} locale={locale} api={api} />
     <CampaignAIConfiguration key={'ai-config-'+id} campaignId={id} branchId={campaign.branch_id} locale={locale} api={api} />
+    <CampaignAITools key={'ai-tools-'+id} campaignId={id} branchId={campaign.branch_id} locale={locale} api={api} />
     <CampaignAISimulation key={'ai-simulation-'+id} campaignId={id} locale={locale} api={api} />
     {campaign.source_kind==='META' && <CampaignSources key={id} campaignId={id} locale={locale} api={api}/>}
     {policy && <section className="panel"><h3>{t.policy}</h3>

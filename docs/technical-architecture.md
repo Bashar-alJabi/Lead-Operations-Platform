@@ -1,5 +1,9 @@
 # المعمارية التقنية
 
+## Approved Customer Tools configuration — 2026-10-10
+
+Migration116 تضيفversioned scoped tool-policy/catalog/native current guards/history/Audit،معBranch default/Campaign override وnull-inheritance مقابلexplicit[]deny. لاتعديلnative100 أوHuman roles/financial boundaries. Parent-first Branch UPDATE فيsetup يمنعغيابpolicy-row كـrace أمامcurrent worker context؛HTTP بلاlocks. Effective preview/nativecustomer proposal/Simulation/Copilot تحفظcurrent versions/list وتبطلpending/inflight contexts عندتغييرها. Configured approval منفصلةعنcurrent action authority؛proposal.approvedTools=[] وcatalog/customerRuntimeImplemented=false وruntimeAuthorized=false/liveTransferEnabled=false. التفاصيل في[ai-customer-tool-policy.md](ai-customer-tool-policy.md). Actual tool receipts/executor/Qualification/Handoff هيالخطوةالتالية؛لاactivation أوlive inference فيهذهالمرحلة.
+
 ## Customer proposal worker — 2026-10-10
 
 `110–115` و`src/ai/customer-worker.ts` تنشئ durable autonomous proposal queue من **new authenticated inbound** بصورة ذرّية مع journal الحالية، دون سلطة موظف أو إعادة تشغيل BLOCKED artifacts. Admission تدعم SAVEPOINT/subtransaction، وtyped CURRENCY/canonical normalization تبقى دونField authority. Context ونسخة المعرفة والأسئلة وbounded conversation evidence تتبع نفس Campaign؛current locks وfull canonical comparison وlease fences قبل/بعد HTTP. State `PROPOSED` تعني اقتراحًا فقط، لا approved tool proof. العقد يدعم ANSWER/QUESTION/typed QUALIFICATION/HANDOFF ولا يرسل أو يغيّر Fields/Payments/Enrollment. History وAudit مستقلة، وUI تعرض نتائج آمنة مع إخفاء qualification candidate metadata. Default live block يبقى قبل decryption/HTTP؛explicit HTTP mocks في isolated non-production test DB فقط. تفاصيل queue/backpressure/minimization والحدود في [ai-customer-proposal-worker.md](ai-customer-proposal-worker.md). لا تغيير source=HUMAN/native100 أوactivation readiness حتى تكتمل actual approved actions وCentral Messaging Policy/evaluations.

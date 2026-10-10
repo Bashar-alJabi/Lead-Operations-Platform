@@ -1,5 +1,9 @@
 # دليل التشغيل والتطوير
 
+## Approved Customer Tools — migration116
+
+بعدتطبيق116،Manager/Super Admin يضبطApproved Tools منCampaign Details. Campaign null تورّثBranch؛explicit[] تمنعجميعالأدوات حتىعندتغييرBranch. لاSQL أوPayment/Enrollment/security action فيcatalog. استخدمreason وcurrentversion؛409تتطلبreload. History تحتفظبكلنسخة،ولاDelete لتجاوزrevocation. حفظالإعدادلايُفعّلAI أويرفعlive-data block؛PROPOSED ليستإجراءمنفذًا. Policy update تبطلسياقqueued/inflight workers الحالي ويظهرBLOCKED،معإبقاءالتاريخ. لاreplay لسجلقديم لتطبيقصلاحياتجديدة؛الخطوةالتاليةcurrent action proofs/executor. التفاصيل والحدود في[ai-customer-tool-policy.md](ai-customer-tool-policy.md).
+
 ## Durable customer proposals — migrations110–115
 
 طبّق migrations قبل تحديث events/AI workers. `worker:ai` تعالج customer proposal queue أولًا، ثم Simulation/Copilot، بbounded batches وgraceful shutdown. Default live inference معطّلة قبل credential access/HTTP؛لا environment switch أو business setup يفتحها حاليًا. Test transport injection مقيدة بقاعدة `lead_operations_test` غيرproduction، ولا يجوز نقل test-control endpoints إلىProduction.

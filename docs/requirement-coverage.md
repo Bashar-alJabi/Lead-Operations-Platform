@@ -1,5 +1,14 @@
 # مصفوفة تغطية المتطلبات
 
+## أحدث checkpoint: Approved Customer Tools configuration — 2026-10-10
+
+| المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |
+|---|---|---|
+| 04 §§6–8/19،05 §§13–17،02 §§44/48/50،AGENTS §§8/19–22/26–29: Approved Tools/configuration/isolation | Versioned Branch defaults/Campaign override،known bounded catalog،null inheritance/explicit[]deny،current scope/session/activeBranch/CAS/native guards/history/atomic Audit/effective traces وUI ar/en/fr | **171/171 unit،74/74 full PostgreSQL integration،43/43 full Edge Browser** (5.0m) و001–116/build/typecheck/diff check وfocused PG4/4/Browser1/1 ناجحة. Eight-way CAS وforeign/Agent/revoked-disabled-expired session denial وstrict type/SQL-financial-security rejection/history/native forgery/Audit rollback وCustomer/Copilot/Simulation pre/post-HTTP invalidation وloading/stale-save/reload/permission-failure clear/French/RTL مثبتة. Configuration Implemented وPostgreSQL/Local Browser Verified |
+| Actual Qualification/Handoff/action runtime/sends/activation | Configured list ليستaction authority؛proposal.approvedTools=[] وnative100 HUMAN-only وruntimeAuthorized=false | غير مكتملة. التالي actual execution admission/current action receipts/native proofs وtyped AI Qualification،ثمHuman Handoff/Central Messaging Policy وبقيةAI. لا diagnostic processing-attention exception أوfake employee principal كـTool authorization. Live transfer معطّلة؛HTTP mocks اصطناعية وLive Verification Pending External Credential/Approval |
+
+`28816cc` والصفوف أدناه تاريخية؛معرفcheckpoint الحالية فيآخرGit commit. تفاصيلالعقد في[ai-customer-tool-policy.md](ai-customer-tool-policy.md). لا ادعاء باكتمالAI أوالمنصة.
+
 ## أحدث checkpoint: Customer proposal worker — 2026-10-10
 
 | المتطلب ومصدره | التنفيذ الفعلي | الإثبات وحدود الحالة |
