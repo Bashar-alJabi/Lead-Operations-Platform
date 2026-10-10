@@ -1,5 +1,14 @@
 # مصفوفة تغطية المتطلبات
 
+## أحدث checkpoint: Human Qualification application writer — 2026-10-10
+
+| المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |
+|---|---|---|
+| 04 §§6–8/18–20،AGENTS §§8/19–22/26–29: Application Service/typed capture/current authorization | Human writer/current state/DTO مستقلة عن HTTP؛writer تملك Branch→Lead locks وexact current Principal/session/Lead identity/native100 proof قبل idempotency/write،مع current Field validation/CAS/immutable history/Audit | **168/168 unit،72/72 full PostgreSQL integration،41/41 full Edge Browser** (2.5m) و001–109/build/typecheck/diff check وfocused Human Qualification Browser1/1 ناجحة. Direct-service forged role/missing session/unassigned Agent/fake Lead scope وeight-way duplicate calls وexisting typed/hidden-field/history/concurrency/current proof/Audit rollback/Browser regression مثبتة. Boundary Implemented وPostgreSQL/Local Browser Verified؛لا schema/source/role جديدة |
+| AI/Form qualification وcustomer action runtime | source=HUMAN/native100 ثابتة؛لا customer worker/action proof أوAI/Form capture أوHandoff جديدة | غير مكتملة. لا تقبل fake Human principal أوreadonly/BLOCKED result كـAI authorization. Live transfer معطّلة وLive Verification Pending External Credential/Approval |
+
+`620604c` والصفوف أدناه تاريخية. التالي current leased customer execution/action proofs ثم approved Qualification/Handoff؛بقية AI والنطاق الكبير باقية.
+
 ## أحدث checkpoint: Customer AI authenticated inbound provenance — 2026-10-10
 
 | المتطلب ومصدره | المنفّذ حاليًا | الإثبات وحدود الحالة |

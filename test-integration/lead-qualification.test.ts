@@ -7,6 +7,8 @@ import { createDatabase } from '../src/db.js';
 import { sha256 } from '../src/security.js';
 import { emptyQualification } from '../src/ai/qualification.js';
 import { effectiveConfigHash } from '../src/ai/operational-config.js';
+import { collectHumanQualificationAnswer } from '../src/ai/human-qualification.js';
+import type { Principal } from '../src/security.js';
 const url = process.env.TEST_DATABASE_URL;
 if (!url || new URL(url).pathname !== '/lead_operations_test') throw new Error('Isolated TEST_DATABASE_URL required');
 
@@ -38,9 +40,16 @@ test('Actual Human qualification uses current authorized Fields, typed idempoten
   const root = '/api/leads/' + lead + '/qualification', config = '/api/ai/campaigns/' + campaign + '/qualification';
   const api = (method: 'GET' | 'PUT', path: string, payload?: object, actor = 'agent') => app.inject({ method, url: path, payload, headers: { origin: process.env.APP_ORIGIN!, cookie: users[actor]!.cookie } });
   assert.equal((await api('PUT', config, { version: 0, definition, reason: 'Define actual collection' }, 'manager')).statusCode, 200);
-  const input = (value: unknown, answerVersion = 0, fieldValueVersion: number | null = 0, definitionVersion = 1) => ({ requestId: randomUUID(), definitionVersion, answerVersion, fieldValueVersion, value });
+  const input = (value: postgres.JSONValue, answerVersion = 0, fieldValueVersion: number | null = 0, definitionVersion = 1) => ({ requestId: randomUUID(), definitionVersion, answerVersion, fieldValueVersion, value });
   const put = (question: string, body: object, actor = 'agent') => api('PUT', root + '/answers/' + question, body, actor);
   const read = () => api('GET', root);
+  const claimedLead = { id: lead, campaign_id: campaign as string, branch_id: branch as string, lifecycle: 'OPEN' };
+  const human: Principal = { id: users.agent!.id, organizationId: org, branchId: branch, role: 'AGENT', name: 'agent', email: 'agent@actualqualification.test' };
+  // The application service must enforce source authority even when bypassing the HTTP handler.
+  await assert.rejects(db.begin(tx => collectHumanQualificationAnswer(tx, { ...human, role: 'SUPER_ADMIN', branchId: null }, claimedLead, users.agent!.session, q, input(false))), /QUALIFICATION_ACCESS_REVOKED/);
+  await assert.rejects(db.begin(tx => collectHumanQualificationAnswer(tx, human, claimedLead, randomUUID(), q, input(false))), /QUALIFICATION_ACCESS_REVOKED/);
+  await assert.rejects(db.begin(tx => collectHumanQualificationAnswer(tx, { ...human, id: users.second!.id }, claimedLead, users.second!.session, q, input(false))), /QUALIFICATION_ACCESS_REVOKED/);
+  await assert.rejects(db.begin(tx => collectHumanQualificationAnswer(tx, human, { ...claimedLead, branch_id: branchB }, users.agent!.session, q, input(false))), /QUALIFICATION_ACCESS_REVOKED/);
   assert.equal((await read()).json().result.complete, false);
   for (const actor of ['second', 'other', 'foreign']) {
     assert.equal((await api('GET', root, undefined, actor)).statusCode, 404);
@@ -53,6 +62,8 @@ test('Actual Human qualification uses current authorized Fields, typed idempoten
   const first = input(false), repeated = await Promise.all(Array.from({ length: 8 }, () => put(q, first)));
   for (const response of repeated) assert.equal(response.statusCode, 200, response.body);
   assert.equal(repeated.filter(r => !r.json().duplicate).length, 1);
+  const directDuplicates = await Promise.all(Array.from({ length: 8 }, () => db.begin(tx => collectHumanQualificationAnswer(tx, human, claimedLead, users.agent!.session, q, first))));
+  assert.ok(directDuplicates.every(r => r.duplicate));
   assert.equal((await db`SELECT count(*)::integer AS n FROM field_value_history WHERE lead_id=${lead}`)[0]!.n, 1);
   assert.equal((await put(q, { ...first, value: true })).statusCode, 409);
   const collected = input(' Available <img literal> ', 0, null), freeResponse = await put(free, collected);

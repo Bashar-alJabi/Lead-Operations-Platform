@@ -1,5 +1,9 @@
 # إجابات ونتيجة Qualification على Lead
 
+## Application Service — 2026-10-10
+
+Actual Human capture/current Field-value state/permission-safe result DTO انتقلت من HTTP إلى `src/ai/human-qualification.ts`. Writer تملك Branch→Lead locks وتفحص exact current Principal/session/Lead identity/native100 authority قبل idempotency أوwrites؛لا تكفي caller role أوpassed Lead metadata. Source وtyped validation/CAS/history/Audit والـHTTP schema/permissions ثابتة. Read helper تستخدم فقط بعد current authorized access. البوابة ناجحة:168unit/72full PostgreSQL integration/41full Edge Browser و001–109/build/typecheck/diff check وfocused Human Qualification Browser1/1،ومنها direct-service forged-role/session/scope/owner denial وeight-way duplicate replay. هذه ليست AI/Form capture،ولا يُسمح باستدعاء Human writer بموظف وهمي من Customer AI.
+
 ## المرجع والسلوك
 
 01 §§65–66 و02 §48 و04 §§17–20 تسمح بربط سؤال بحقل المنصة، وباحتساب النتيجة من Structured Field Values بدل تكرار Current State. هذه المرحلة تنفذ جمع Human للإجابات وقراءة النتيجة من البيانات الفعلية. شروط الحملة الحالية تحدد الاكتمال والبيانات الناقصة ومطابقة شروط handoff؛ Required questions تبقى لازمة، وfalse و0 إجابات صحيحة.

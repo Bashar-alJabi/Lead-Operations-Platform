@@ -1,5 +1,9 @@
 # المعمارية التقنية
 
+## Qualification application writer — 2026-10-10
+
+`src/ai/human-qualification.ts` تفصل actual Human capture وtyped normalization/current Field-value state/permission-safe result projection عن HTTP. Writer تملك Branch→Lead locks وتثبت exact current Principal/session/Lead identity/native100 access قبل idempotency lookup أوwrite،وتستعمل `writeManualFieldValue` الحالية وnative deferred request/answer/history/Audit proofs. HTTP يبقى مسؤولًا عن request schema/current authenticated access وhistory pagination. Read-state helper تتطلب already-authorized caller،وليست public/Model tool. هذا الاستخراج لا يغيّر source=HUMAN أوصلاحيات Field ولا يتيح AI/Form writes. Customer AI تحتاج execution/action proof وخدمة مستقلة؛لا تمر عبر fake Human principal/session.
+
 ## Customer AI inbound provenance مستقلة عن جلسة الموظف — 2026-10-10
 
 `107–109` تضيف authenticated inbound receipt من verified raw-body HMAC، وnative metadata/hash snapshot وسجل terminal BLOCKED مستقل عن readonly Simulation/Copilot وHuman authority. نسخة المصدر تشمل current Campaign/Lead/Conversation/pinned Sender/Profile/grant/Published Knowledge/Field versions، دون نسخ customer body أو Knowledge أو credentials أو financial data. Guards تربط event/Message/scope/content وتمنع تغيير التاريخ والأدوات؛Audit وattachment وحالة الفشل ذرّية. scoped keyset API وUI للمراجعة لا تعيدان raw snapshot. `stale` مقارنة تاريخية وليست lock/action authorization؛actual approved tool executor التالي يحتاج current execution/action proof وlocks/CAS مستقلة. لا reuse لسجلات BLOCKED أوnative100 Human proof أوpublic source label لإجازة AI writes. التفاصيل في [ai-customer-inbound-provenance.md](ai-customer-inbound-provenance.md). النقل الحي يبقى معطّلًا.

@@ -1,5 +1,9 @@
 # دليل التشغيل والتطوير
 
+## Qualification application service
+
+تدفق الموظف وAPI وsource=HUMAN لم تتغيّر. خدمة `collectHumanQualificationAnswer` تحتاج current authenticated Human/session وLead identity صحيحة،وتملك Branch→Lead locks قبل current permission/native100 proof؛الاستدعاء الداخلي لا يتجاوز هذه الضوابط. لا يستعملها Customer AI بانتحال موظف أو باسترجاع session من artifact تاريخية. AI/Form capture تبقى معطّلة حتى تنفيذ separate execution/action proofs. Native100 وmigration checksums القائمة ثابتة؛راجع [lead-qualification-results.md](lead-qualification-results.md).
+
 ## مراجعة Customer AI inbound المحجوبة — migrations107–109
 
 طبّق migrations قبل تحديث webhook/events worker. الرسائل الجديدة المقبولة بعد HMAC تملك immutable authentication receipt؛لا backfill ثقة للأحداث القديمة. من Lead→Conversation→**مراجعة تنفيذ AI** تظهر محاولات AI المحجوبة ذات المصدر الموثّق ووقت/Knowledge version وسبب الحجب وتغيّر السياق. Current Lead ownership/session تتحكم بالقراءة؛Human takeover يبقي التاريخ ويوقف إنشاء AI attempts للوارد التالي. هذه المرحلة لا تفعّل runtime أو inference أو approved actions.

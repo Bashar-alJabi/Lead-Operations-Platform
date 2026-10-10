@@ -32,7 +32,7 @@ Native fingerprint مبنية على canonical PostgreSQL jsonb، ومستقلة
 
 ## الخطوة التالية
 
-استخرج typed Qualification application writer الحالي مع إبقاء native100 HUMAN-only. أضف durable customer worker بlease/result وseparate current execution/action proofs وapproved tool executor، مرتبطًا بنفس المصدر وcurrent AI controller/configuration/Published Knowledge/Profile/grant/Field versions. بعد ذلك actual AI Qualification وHuman Handoff والـLead UI والتقييمات،ثم sends عبر Central Messaging Policy وinitial contact/returning/follow-up/SLA. لا تحوّل BLOCKED artifact إلى action proof ولا تستعمل Human-session/readonly Copilot result لتفويض Customer AI.
+Typed Human Qualification application writer استُخرجت بعد620604c مع current exact Human proof/locks وnative100 HUMAN-only،وبوابة168unit/72PostgreSQL/41Edge؛التفاصيل في[lead-qualification-results.md](lead-qualification-results.md). التالي durable customer worker بlease/result وseparate current execution/action proofs وapproved tool executor،مرتبطًا بنفس المصدر وcurrent AI controller/configuration/Published Knowledge/Profile/grant/Field versions. بعد ذلك actual AI Qualification وHuman Handoff والـLead UI والتقييمات،ثم sends عبر Central Messaging Policy وinitial contact/returning/follow-up/SLA. لا تحوّل BLOCKED artifact إلى action proof ولا تستعمل Human-session/readonly Copilot result لتفويض Customer AI.
 
 Live customer-data inference معطّلة حسب موافقة المستخدم. لا تفعيل حي دون الإعدادات والموافقات والضوابط اللازمة؛حالة AI العامة `Live Verification Pending External Credential/Approval`.
 
