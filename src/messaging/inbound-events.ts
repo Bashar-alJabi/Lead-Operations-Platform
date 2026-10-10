@@ -7,6 +7,7 @@ import { parseInboundQuickReply } from './quick-replies.js';
 import { parseTextTemplate } from './approved-template.js';
 import { identityLockKeys, normalizeSourceContact } from '../contacts.js';
 import { parseMetaSourceReference, type SourceReference } from './source-reference.js';
+import { recordBlockedCustomerAIInbound } from '../ai/customer-inbound.js';
 
 type InboundPayload = { senderExternalId: string; message: Record<string, unknown> };
 type EventRow = { id: string; connection_id: string; sender_id: string | null;
@@ -288,6 +289,7 @@ export async function processInboundEvent(tx: postgres.TransactionSql, eventId: 
   await tx`UPDATE integration_event SET state = 'PROCESSED', failure_code = NULL,
     lead_id = ${leadId}, conversation_id = ${conversationId}, resolved_by = ${decision?.actor.id ?? null},
     resolved_at = now() WHERE id = ${event.id}`;
+  await recordBlockedCustomerAIInbound(tx, event.id);
   await tx`INSERT INTO audit_log (organization_id, branch_id, actor_user_id, action,
     target_type, target_id, detail) SELECT l.organization_id, l.branch_id,
       ${decision?.actor.id ?? null}, 'INBOUND_MESSAGE_ATTACHED', 'MESSAGE', ${inserted[0]?.id ?? existing?.id},

@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type { Database } from '../db.js';
 import { openSecret } from '../credentials.js';
@@ -266,6 +266,13 @@ export function registerMetaMessagingWebhookRoutes(app: FastifyInstance, db: Dat
               state text, failure_code text)
           ON CONFLICT (connection_id, provider_event_id) DO NOTHING RETURNING id`;
         created = inserted.length;
+        // Only events newly accepted through this verified raw-body HMAC receive an authentication receipt.
+        // Existing historical events are never retroactively promoted by a duplicate webhook.
+        const inboundIds = records.filter(item => item.event_kind === 'INBOUND_MESSAGE').map(item => item.provider_event_id);
+        const newIds = inserted.map(item => item.id as string);
+        if (newIds.length && inboundIds.length) await tx`INSERT INTO messaging_inbound_authentication(event_id,method,request_sha256,payload_sha256)
+          SELECT id,'META_HMAC_SHA256',${createHash('sha256').update(raw).digest('hex')},'' FROM integration_event
+          WHERE id IN ${tx(newIds)} AND provider_event_id IN ${tx(inboundIds)}`;
         await tx`UPDATE integration_connection SET
           capabilities = capabilities || ${tx.json({ webhookVerified: true })}::jsonb,
           last_success_at = now(), updated_at = now() WHERE id = ${connection.id}`;

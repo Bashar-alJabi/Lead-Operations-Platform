@@ -120,7 +120,7 @@ await db`INSERT INTO campaign_field (campaign_id,field_id,required_stage,editabl
 const connection = (await db`INSERT INTO integration_connection (organization_id,branch_id,kind,provider,name,status,config)
   VALUES (${org},${branch},'MESSAGING','META_WHATSAPP_CLOUD','Browser Connection','CONNECTED',
     '{"graphVersion":"v25.0","wabaId":"123456789"}'::jsonb) RETURNING id`)[0]!.id;
-const secret = sealSecret(connection, JSON.stringify({ accessToken:'test-fake-token-not-a-real-account' }));
+const secret = sealSecret(connection, JSON.stringify({ accessToken:'test-fake-token-not-a-real-account',appSecret:'test-customer-ai-e2e-secret',verifyToken:'test-customer-ai-verification' }));
 await db`INSERT INTO connection_secret (connection_id,ciphertext,nonce,auth_tag)
   VALUES (${connection},${secret.ciphertext},${secret.nonce},${secret.authTag})`;
 const sender = (await db`INSERT INTO messaging_sender
@@ -243,6 +243,17 @@ app.post('/__test__/ai-simulation',async(request)=>{
 app.post('/__test__/ai-copilot-summary',async(request)=>{
   if(typeof request.headers.authorization!=='string' || !safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
   return { processed:await processOneAICopilotSummary(db,{ retryDelaySeconds:0,adapters:aiInferenceAdapters }) };
+});
+app.post<{ Body:{ conversationId:string;body:string;aiControl?:boolean } }>('/__test__/ai-customer-inbound',{ schema:{ body:{ type:'object',additionalProperties:false,required:['conversationId','body'],properties:{ conversationId:{ type:'string',format:'uuid' },body:{ type:'string',minLength:1,maxLength:2000 },aiControl:{ type:'boolean' } } } } },async(request)=>{
+  if(typeof request.headers.authorization!=='string' || !safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
+  const row=(await db`SELECT cv.id,cv.connection_id,cv.participant_ref,s.external_sender_id,ic.config FROM conversation cv JOIN lead l ON l.id=cv.lead_id JOIN messaging_sender s ON s.id=cv.sender_id JOIN integration_connection ic ON ic.id=cv.connection_id
+    WHERE cv.id=${request.body.conversationId} AND l.organization_id=${org} AND cv.connection_id=${connection}`)[0];if(!row)throw new HttpError(404,'SYNTHETIC_CONVERSATION_NOT_FOUND');
+  // Isolated synthetic fixture only. Production activation remains blocked until the runtime/tools exist.
+  if(request.body.aiControl)await db`UPDATE conversation SET controller_type='AI',controller_user_id=NULL,state='AI_ACTIVE',needs_attention_reason=NULL WHERE id=${row.id}`;
+  const raw=JSON.stringify({ object:'whatsapp_business_account',entry:[{ id:row.config.wabaId,changes:[{ field:'messages',value:{ messaging_product:'whatsapp',metadata:{ phone_number_id:row.external_sender_id },messages:[{ id:'wamid.synthetic-ai-'+randomBytes(12).toString('hex'),from:row.participant_ref.slice(1),timestamp:String(Math.floor(Date.now()/1000)),type:'text',text:{ body:request.body.body } }] } }] }] });
+  const received=await app.inject({ method:'POST',url:'/api/webhooks/messaging/meta/'+row.connection_id,payload:raw,headers:{ 'content-type':'application/json','x-hub-signature-256':'sha256='+createHmac('sha256','test-customer-ai-e2e-secret').update(raw).digest('hex') } });
+  if(received.statusCode!==200)throw new HttpError(500,'SYNTHETIC_CUSTOMER_WEBHOOK_FAILED');
+  return { processed:await processOneInboundEvent(db) };
 });
 app.post<{ Body:{ conversationId:string;body:string } }>('/__test__/ai-copilot-inbound',{ schema:{ body:{ type:'object',additionalProperties:false,required:['conversationId','body'],properties:{ conversationId:{ type:'string',format:'uuid' },body:{ type:'string',minLength:1,maxLength:2000 } } } } },async(request)=>{
   if(typeof request.headers.authorization!=='string' || !safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');

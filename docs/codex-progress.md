@@ -1,5 +1,17 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: Customer AI authenticated inbound provenance — 2026-10-10
+
+استؤنف من `7a2ee05` وworking tree نظيفة دون إعادة مراحل أو reset/discard. حاويتا Compose كانتا متوقفتين وأعيد تشغيلهما دون تغيير volumes؛PostgreSQL/ClamAV healthy. authenticated new inbound receipt بعد raw-body HMAC، وnative metadata/hash snapshot مستقلة عن Human session، وimmutable terminal BLOCKED execution journal وatomic Audit وscoped keyset history وUI ar/en/fr منفذة. لا customer/Knowledge text أوcredentials أوfinancial data في snapshot،ولاModel call أوTool/Field/Payment/Enrollment mutation. العقد في [ai-customer-inbound-provenance.md](ai-customer-inbound-provenance.md).
+
+**البوابة ناجحة:** migrations001–109 development/test،**168/168 unit،72/72 full Docker PostgreSQL integration،41/41 full Edge Browser E2E** (4.7m)،focused PG1/1 وBrowser1/1 وBackend/Web build/typecheck وdiff check. Signature rejection/source/body/scope/tool-list forgery،eight-way duplicate/four workers،Human-session استقلالية،Draft exclusion/current Published-version history،Field binding/controller/owner/Lead-parent changes،missing legacy receipt وعدم retrofit عبرduplicate،Audit rollback/pagination/no-provider/no-customer-financial writes مثبتة. Browser actual HMAC webhook→worker→history/empty/block/stale/scoped denial/Human takeover وFrench/RTL390px؛الصورة فُحصت. أصلح تعارض fixture name مع selector قديمة وأعيدت focused/full Browser بنجاح. SQL record alias أُصلح في109 دون تغيير checksums المطبّقة. Vite733.89KB/gzip209.78KB warning ضمن backlog.
+
+**الحالة:** authenticated inbound provenance/blocked journal/review prerequisite **Implemented وSynthetic HMAC/PostgreSQL/Local Browser Verified**. ليست actual autonomous inference/action proof أو اكتمال AI/Handoff؛approvedTools=[] وliveTransferEnabled=false وnative100 HUMAN-only. **Live Verification Pending External Credential/Approval** للـAI والنقل الحي معطّل وفق موافقة المستخدم.
+
+**الحفظ:** تُحفظ المجموعة مع progress/coverage/architecture/runbook وcommit واضح وpush إلى `codex/full-platform-build` فقط؛آخر Git commit يحمل معرفها،و`7a2ee05` السابقة. لا main merge أوProduction deployment.
+
+**قيد التنفيذ عند الحفظ:** لا Feature group غير مثبتة. **الخطوة التالية الدقيقة:** استخرج typed Qualification application writer من Human HTTP endpoint مع current Human authority/native100 وبقاء API behavior/permissions/history ثابتة. ثم actual leased customer worker وseparate current execution/action proofs وapproved Qualification/Handoff/native guards/UI/evaluations،دون reuse لسجلات BLOCKED أوHuman-session/readonly Copilot proof لإجازة AI mutation. بعدها outbound Central Messaging Policy وinitial contact/returning/follow-up/SLA وبقية Copilot/Operations ثم Automation/Notifications/Analytics وباقي النطاق. لا optional provider refinements.
+
 ## آخر حالة مستقرة: approved Published Campaign Knowledge للموظف — 2026-10-09
 
 استُؤنف من `15d6c69` المحفوظة والمرفوعة دونإعادةالمراحل. approved current Lead/Conversation→Published Knowledge read وscanned approved-asset download وlatest publication/version/current authorization/storage integrity fences وatomic Audit وUI ar/en/fr منفذة. Employee business knowledge لا تحتاجModel/Profile لكي تبقىمعلوماتالحملة متاحة عندتعطلالمزوّد. Agent لايكسبsetup/Draft/review rights. لاmodel call أوforeign Campaign أوcredentials/configuration exposure أوCustomer send أوField/Payment/Enrollment mutation؛النقل الحي مازالمعطّلًا. التفاصيل في[ai-approved-campaign-knowledge-read.md](ai-approved-campaign-knowledge-read.md).

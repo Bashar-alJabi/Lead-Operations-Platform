@@ -1,5 +1,14 @@
 # مصفوفة تغطية المتطلبات
 
+## أحدث checkpoint: Customer AI authenticated inbound provenance — 2026-10-10
+
+| المتطلب ومصدره | المنفّذ حاليًا | الإثبات وحدود الحالة |
+|---|---|---|
+| 04 §§6–8/19/32/51–55،05 isolation،AGENTS §§15–16/19–22/26–29 | HMAC-authenticated new-event receipt،native source/body/scope/context/version hashes،immutable terminal BLOCKED journal وatomic Audit،scoped keyset history/Lead UI ar/en/fr | **168/168 unit،72/72 full Docker PostgreSQL integration،41/41 full Edge Browser** (4.7m) و001–109/build/typecheck/diff check وfocused PG1/1/Browser1/1 ناجحة. Signature/source/body/foreign scope/tool-list forgery،eight-way duplicate/four workers،Human-session استقلالية،Draft/Published version/history،Field/controller/owner/Lead-parent fences،legacy no-retrofit،Audit rollback/pagination/no-provider/no-mutations،actual Browser HMAC→worker→empty/block/stale/current access/Human takeover/French/RTL مثبتة. Fixture-name regression أصلحت وأعيدت Browser كاملة. Prerequisite Implemented وSynthetic HMAC/PostgreSQL/Local Browser Verified؛ليست autonomous action authority |
+| Customer AI approved actions وQualification/Handoff/runtime | لم تُضف أي سلطة Tool أوsend/mutation؛native100 HUMAN-only،approvedTools=[]،liveTransferEnabled=false | غير مكتملة. Provenance/historical equality ليست action authorization. Live Verification Pending External Credential/Approval؛لا Model أو live semantic verification في هذه المجموعة |
+
+التفاصيل في [ai-customer-inbound-provenance.md](ai-customer-inbound-provenance.md). `7a2ee05` والصفوف أدناه checkpoints تاريخية؛بقية AI غير مكتملة.
+
 ## أحدث checkpoint: approved Human Published Campaign Knowledge read — 2026-10-09
 
 | المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |

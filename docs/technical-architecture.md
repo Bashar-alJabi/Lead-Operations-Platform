@@ -1,5 +1,9 @@
 # المعمارية التقنية
 
+## Customer AI inbound provenance مستقلة عن جلسة الموظف — 2026-10-10
+
+`107–109` تضيف authenticated inbound receipt من verified raw-body HMAC، وnative metadata/hash snapshot وسجل terminal BLOCKED مستقل عن readonly Simulation/Copilot وHuman authority. نسخة المصدر تشمل current Campaign/Lead/Conversation/pinned Sender/Profile/grant/Published Knowledge/Field versions، دون نسخ customer body أو Knowledge أو credentials أو financial data. Guards تربط event/Message/scope/content وتمنع تغيير التاريخ والأدوات؛Audit وattachment وحالة الفشل ذرّية. scoped keyset API وUI للمراجعة لا تعيدان raw snapshot. `stale` مقارنة تاريخية وليست lock/action authorization؛actual approved tool executor التالي يحتاج current execution/action proof وlocks/CAS مستقلة. لا reuse لسجلات BLOCKED أوnative100 Human proof أوpublic source label لإجازة AI writes. التفاصيل في [ai-customer-inbound-provenance.md](ai-customer-inbound-provenance.md). النقل الحي يبقى معطّلًا.
+
 ## Approved Published Knowledge read/asset boundary — 2026-10-09
 
 `approvedHumanCampaignKnowledge` تستخدمcurrent scoped Lead/Conversation authorization وتقرأlatest immutable publication/manifests؛لاModel/Connection dependency للقراءةالتشغيلية. DTO تعرضBusiness information فقط،وasset access تتطلبcurrent version/current safe approval وSHA256/length/backend integrity وdouble authorization بعدstorage I/O. Audit بذريمعread proof وUI explicit/error-aware blob download دونinline execution. Native092/094/095 القائمةتظلauthority ولاSchema/Role جديدة. العقدفي[ai-approved-campaign-knowledge-read.md](ai-approved-campaign-knowledge-read.md). Live inference block من15d6c69 باقٍ؛customer tools/runtime منفصلةوتالية.

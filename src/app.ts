@@ -61,6 +61,7 @@ import { registerAISimulationRoutes } from './routes/ai-simulation.js';
 import { registerAICopilotContextRoutes } from './routes/ai-copilot-context.js';
 import { registerAICopilotRoutes } from './routes/ai-copilot.js';
 import { registerAICopilotKnowledgeRoutes } from './routes/ai-copilot-knowledge.js';
+import { registerAICustomerHistoryRoutes } from './routes/ai-customer-history.js';
 import { assertAIReadTestTransport } from './ai/read-transport.js';
 import type { AIInferenceRegistry } from './ai/inference-provider.js';
 
@@ -167,5 +168,6 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   registerAICopilotContextRoutes(app,db,aiReadTestTransport);
   registerAICopilotRoutes(app,db,aiReadTestTransport);
   registerAICopilotKnowledgeRoutes(app,db,options.mediaStorage);
+  registerAICustomerHistoryRoutes(app,db);
   return app;
 }

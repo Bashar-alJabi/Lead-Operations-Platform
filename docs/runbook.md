@@ -1,5 +1,11 @@
 # دليل التشغيل والتطوير
 
+## مراجعة Customer AI inbound المحجوبة — migrations107–109
+
+طبّق migrations قبل تحديث webhook/events worker. الرسائل الجديدة المقبولة بعد HMAC تملك immutable authentication receipt؛لا backfill ثقة للأحداث القديمة. من Lead→Conversation→**مراجعة تنفيذ AI** تظهر محاولات AI المحجوبة ذات المصدر الموثّق ووقت/Knowledge version وسبب الحجب وتغيّر السياق. Current Lead ownership/session تتحكم بالقراءة؛Human takeover يبقي التاريخ ويوقف إنشاء AI attempts للوارد التالي. هذه المرحلة لا تفعّل runtime أو inference أو approved actions.
+
+`AI_LIVE_DATA_TRANSFER_DISABLED` حجب مقصود وفق موافقة المستخدم؛لا تتجاوزه بتعديل DB/secret/env أو test controls. `AI_PROCESSING_NOT_READY` تبقى حالة Attention القائمة؛يمكن للموظف المخوّل أخذ المحادثة عبر Takeover الحالي. لا تعِد تشغيل terminal execution artifact أو تحوّلها إلى Payment/Qualification proof. Recovery لوارد فشل أثناء Audit تستعمل event retry/review القائمة حسب الصلاحية،مع idempotent message/journal capture. افحص آخر scoped error/history دون طباعة credentials أو raw payload. التفاصيل في [ai-customer-inbound-provenance.md](ai-customer-inbound-provenance.md).
+
 ## Published Campaign Knowledge للموظف
 
 منCampaign Knowledge setup: upload→durable scan→explicit approval→Draft save→Publish؛منLead→Human Conversation→**عرض معرفة الحملة** يقرأالموظفlatest Published version ويحملapproved files فقط. Agent لايدخلsetup/review/Draft حتىلوكانملفمنشورًايمكنهقراءتهبـLead scope. لاModel/Profile أوConnection credential مطلوبةللقراءة المحلية. عند`AI_PUBLISHED_KNOWLEDGE_CHANGED` أعدالقراءة؛لاforce older version أوraw storage URL. عندstorage integrity failure تتوقفbytes وتظهر503؛افحصmanaged private storage/history؛لاrelabel الملفلتمريرالفشل. Assignment/session/controller/Branch revoke تحجبالتحميلبعدI/O أيضًا. التفاصيلفي[ai-approved-campaign-knowledge-read.md](ai-approved-campaign-knowledge-read.md).
