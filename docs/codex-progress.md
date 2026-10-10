@@ -1,5 +1,15 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: durable customer proposal worker — 2026-10-10
+
+**البوابة النهائية ناجحة على آخر الكود:** migrations001–115 development/test،Backend/Web build/typecheck،**170/170 unit،73/73 full Docker PostgreSQL integration،42/42 full Edge Browser E2E** (4.9m) وfocused PG1/1 وBrowser1/1. تشمل CURRENCY/typed normalization،production test-transport denial،SAVEPOINT admission،duplicate/concurrent workers وlease recovery وbounded failure retries وcurrent controller/pin/Profile/Field/publication/scope fences وAudit rollback. Valid context أكبر من1MiB تحفظ inbound/event PROCESSED وتظهر Attention وatomic Audit دونenqueue؛authorized Human recovery مثبتة. RTL390px screenshot فُحصت،وVite chunk warning باقية فيbacklog.
+
+استؤنف من `04e0877` وworking tree نظيفة دونreset/discard. Docker Compose PostgreSQL/ClamAV healthy. Actual authenticated new inbound→durable proposal queue/worker→managed CONVERSATION Profile→validated provider-independent proposal→scoped Lead history/UI ar/en/fr منفذة. لاHuman session كسلطة autonomous ولاreplay لسجلBLOCKED قديم. Context تحافظ علىCampaign isolation وPublished Knowledge/approved assets/current typed questions؛HTTP خارجtransaction،والإتمام يعيد current full-context/lease fences. التفاصيل في[ai-customer-proposal-worker.md](ai-customer-proposal-worker.md).
+
+**الحالة والحفظ:** proposal stage **Implemented وMock/Sandbox Verified (synthetic HTTP mocks + PostgreSQL + Local Browser)**؛لاactual Tool/Field/Payment/Enrollment mutation أوCustomer send،وapprovedTools=[] وnative100 HUMAN-only. Default live transfer معطّلة قبلcredential access/HTTP؛**Live Verification Pending External Credential/Approval**. تُحفظprogress/coverage/architecture/runbook معcommit وتُرفع فقط إلى`codex/full-platform-build`؛آخرGit commit يحملمعرفها و`04e0877` السابقة. لاmain merge أوProduction deployment.
+
+**قيد التنفيذ عند الحفظ:** لاFeature group غير مثبتة. **الخطوة التالية الدقيقة:** approved Campaign tools policy/configuration/current authorization/history/UI ثم separate current action receipts/native execution proofs وactual typed AI Qualification/Human Handoff. PROPOSED توصية وليستتفويضًا،ولاfake Human Principal أوreadonly/Summary proof. بعدهاCentral Messaging Policy/customer sends وinitial contact/returning/follow-up/SLA/bقيةCopilot/Operations/evaluations/activation؛ثمAutomation/Notifications/Analytics/import/export/Google Sheets/Email وبقيةالنطاق،دونoptional provider refinements.
+
 ## آخر حالة مستقرة: typed Human Qualification application writer — 2026-10-10
 
 استؤنف بعد `620604c` المحفوظة والمرفوعة من working tree نظيفة. actual typed capture/current state/permission-safe DTO انتقلت من HTTP route إلى `src/ai/human-qualification.ts`. Writer تملك Branch→Lead locks وتثبت exact current Principal/session/Lead identity/native100 access قبل idempotency lookup أوwrite. Typed validation/current Field CAS/request hash/source=HUMAN/history/atomic Audit وAPI permissions ثابتة؛read helper تتطلب already-authorized caller،ولا AI/Form source أوfake Human authority. Native100 HUMAN-only بلا تعديل.

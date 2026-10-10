@@ -1,5 +1,13 @@
 # دليل التشغيل والتطوير
 
+## Durable customer proposals — migrations110–115
+
+طبّق migrations قبل تحديث events/AI workers. `worker:ai` تعالج customer proposal queue أولًا، ثم Simulation/Copilot، بbounded batches وgraceful shutdown. Default live inference معطّلة قبل credential access/HTTP؛لا environment switch أو business setup يفتحها حاليًا. Test transport injection مقيدة بقاعدة `lead_operations_test` غيرproduction، ولا يجوز نقل test-control endpoints إلىProduction.
+
+من Lead→Conversation→**مراجعة تنفيذ AI** تظهر QUEUED/RUNNING/PROPOSED/FAILED/BLOCKED وattempt count وPublished version وتغيّر السياق. `PROPOSED` توصية لم تُنفّذ، لا رسالة مرسلة أوQualification/Payment confirmation. القيمة/السؤال التأهيلي لا يظهران فيhistory DTO، لحماية Fields مخفية عن الموظف. Audit/history تحفظ كل transition وهويةAI التقنية دونHuman actor أوraw content/secrets.
+
+`AI_LIVE_DATA_TRANSFER_DISABLED` حجب مقصود. `AI_CUSTOMER_CONTEXT_REVOKED_OR_CHANGED` يتطلب مراجعة current controller/owner/Branch/Campaign/Profile/grant/pinned Sender/Knowledge/Field/consent/source؛لا replay للـartifact القديمة. `AI_SENSITIVE_INPUT_OMITTED` يعني حجب نص المصدر قبلHTTP. Retries تقتصر على inference بلاactions، حتى5attempts وبحد300seconds، وexpired leases تُستعاد بتوكن جديد. Pending limit10 لكلConversation؛burst تظلرسائلها محفوظة معblocked trace و`AI_CUSTOMER_PROPOSAL_BACKPRESSURE` Audit. Human Takeover الحالية تبقى recovery تشغيلية منNeeds Attention؛activation/tools/sends تنتظرالمتطلبات التالية. التفاصيل في [ai-customer-proposal-worker.md](ai-customer-proposal-worker.md).
+
 ## Qualification application service
 
 تدفق الموظف وAPI وsource=HUMAN لم تتغيّر. خدمة `collectHumanQualificationAnswer` تحتاج current authenticated Human/session وLead identity صحيحة،وتملك Branch→Lead locks قبل current permission/native100 proof؛الاستدعاء الداخلي لا يتجاوز هذه الضوابط. لا يستعملها Customer AI بانتحال موظف أو باسترجاع session من artifact تاريخية. AI/Form capture تبقى معطّلة حتى تنفيذ separate execution/action proofs. Native100 وmigration checksums القائمة ثابتة؛راجع [lead-qualification-results.md](lead-qualification-results.md).

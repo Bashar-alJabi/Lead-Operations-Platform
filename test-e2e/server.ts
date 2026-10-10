@@ -29,6 +29,7 @@ import { processOneBankSettlement } from '../src/payments/bank-worker.js';
 import { processOneKnowledgeAsset } from '../src/ai/knowledge-asset-worker.js';
 import { processOneAISimulation,processOneAICopilotSummary } from '../src/ai/simulation-worker.js';
 import { aiInferenceAdapters } from '../src/ai/inference-provider.js';
+import { processOneAICustomerProposal } from '../src/ai/customer-worker.js';
 import { stripeCurrencyPrecision,PaymentCheckoutError,type CheckoutSnapshot,type PaymentCheckoutAdapter } from '../src/payments/checkout-provider.js';
 import { paypalPaymentEvents } from '../src/payments/webhook-profile.js';
 import { testPayPalCertificate,testPayPalCertUrl } from '../test/paypal-test-support.js';
@@ -48,6 +49,12 @@ globalThis.fetch=async(target,init)=> { if(String(target)===testPayPalCertUrl)re
     if(!new Headers(init.headers).get('authorization')?.startsWith('Bearer BrowserSyntheticAI_'))return new Response('private synthetic failure',{ status:401 });
     const body=JSON.parse(init.body as string),data=JSON.parse(body.input[1].content);
     if(body.store!==false || body.tools.length || body.text.format.type!=='json_schema' || !body.text.format.strict)throw new Error('UNEXPECTED_AI_INFERENCE_BOUNDARY');
+    if(body.text.format.name==='customer_proposal') {
+      const message=data.messages.find((m:{ id:string })=>m.id===data.currentMessageId)?.text ?? '';
+      if(message.includes('Provider failure'))return new Response('private synthetic customer failure',{ status:401 });
+      const proposal={ decision:message.includes('Unknown') || message.includes('Ignore') ? 'HANDOFF' : 'ANSWER',referenceIds:message.includes('Unknown') || message.includes('Ignore') ? [] : ['section:prices'],questionId:null,answerValue:null,sourceQuote:null,handoffReason:message.includes('Unknown') || message.includes('Ignore') ? 'UNKNOWN_ANSWER' : null };
+      return new Response(JSON.stringify({ status:'completed',output:[{ type:'message',role:'assistant',status:'completed',content:[{ type:'output_text',text:JSON.stringify(proposal) }] }] }));
+    }
     if(body.text.format.name==='copilot_summary' ? data.references.some((r:{ text:string })=>r.text.includes('Provider failure')) : data.question.includes('Provider failure'))return new Response('private synthetic provider failure',{ status:401 });
     const proposal=body.text.format.name==='copilot_summary' ? data.references.length ? { decision:'ANSWER',referenceIds:data.references.slice(-8).map((r:{ id:string })=>r.id),handoffReason:null } : { decision:'HANDOFF',referenceIds:[],handoffReason:'LOW_CONFIDENCE' } : data.question.includes('Unknown') || data.question.includes('Ignore') ? { decision:'HANDOFF',referenceIds:[],handoffReason:'UNKNOWN_ANSWER' } : { decision:'ANSWER',referenceIds:['section:prices'],handoffReason:null };
     return new Response(JSON.stringify({ status:'completed',output:[{ type:'message',role:'assistant',status:'completed',content:[{ type:'output_text',text:JSON.stringify(proposal) }] }] }));
@@ -243,6 +250,14 @@ app.post('/__test__/ai-simulation',async(request)=>{
 app.post('/__test__/ai-copilot-summary',async(request)=>{
   if(typeof request.headers.authorization!=='string' || !safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
   return { processed:await processOneAICopilotSummary(db,{ retryDelaySeconds:0,adapters:aiInferenceAdapters }) };
+});
+app.post<{ Body:{ conversationId:string;enable?:boolean;process?:boolean } }>('/__test__/ai-customer-proposal',{ schema:{ body:{ type:'object',additionalProperties:false,required:['conversationId'],properties:{ conversationId:{ type:'string',format:'uuid' },enable:{ type:'boolean' },process:{ type:'boolean' } } } } },async(request)=>{
+  if(typeof request.headers.authorization!=='string' || !safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
+  const target=(await db`SELECT l.campaign_id FROM conversation cv JOIN lead l ON l.id=cv.lead_id WHERE cv.id=${request.body.conversationId} AND l.organization_id=${org} AND cv.connection_id=${connection}`)[0];
+  if(!target)throw new HttpError(404,'SYNTHETIC_CONVERSATION_NOT_FOUND');
+  // Explicit isolated fixture only; no production readiness, activation or live transport switch.
+  if(request.body.enable)await db`UPDATE campaign SET ai_config=jsonb_set(ai_config,'{enabled}','true') WHERE id=${target.campaign_id}`;
+  return { processed:request.body.process ? await processOneAICustomerProposal(db,{ adapters:aiInferenceAdapters,retryDelaySeconds:0 }) : false };
 });
 app.post<{ Body:{ conversationId:string;body:string;aiControl?:boolean } }>('/__test__/ai-customer-inbound',{ schema:{ body:{ type:'object',additionalProperties:false,required:['conversationId','body'],properties:{ conversationId:{ type:'string',format:'uuid' },body:{ type:'string',minLength:1,maxLength:2000 },aiControl:{ type:'boolean' } } } } },async(request)=>{
   if(typeof request.headers.authorization!=='string' || !safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');

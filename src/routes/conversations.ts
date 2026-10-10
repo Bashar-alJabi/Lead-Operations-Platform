@@ -220,7 +220,7 @@ export function registerConversationRoutes(app: FastifyInstance, db: Database): 
         if (cv.version !== request.body.version) throw new HttpError(409, 'CONVERSATION_VERSION_CONFLICT');
         if (cv.controller_type === 'HUMAN' && cv.controller_user_id === actor.id
           && cv.state === 'HUMAN_ACTIVE') return { state: cv.state, version: cv.version, existing: true };
-        const attention = ['NO_HUMAN_CONTROLLER','AI_PROCESSING_NOT_READY'].includes(cv.needs_attention_reason)
+        const attention = ['NO_HUMAN_CONTROLLER','AI_PROCESSING_NOT_READY','AI_CUSTOMER_CONTEXT_TOO_LARGE','AI_QUEUE_BACKPRESSURE'].includes(cv.needs_attention_reason)
           ? null : cv.needs_attention_reason;
         const changed = (await tx`UPDATE conversation SET controller_type = 'HUMAN',
           controller_user_id = ${actor.id}, state = 'HUMAN_ACTIVE',

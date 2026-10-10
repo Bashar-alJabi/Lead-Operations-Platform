@@ -1,5 +1,9 @@
 # المعمارية التقنية
 
+## Customer proposal worker — 2026-10-10
+
+`110–115` و`src/ai/customer-worker.ts` تنشئ durable autonomous proposal queue من **new authenticated inbound** بصورة ذرّية مع journal الحالية، دون سلطة موظف أو إعادة تشغيل BLOCKED artifacts. Admission تدعم SAVEPOINT/subtransaction، وtyped CURRENCY/canonical normalization تبقى دونField authority. Context ونسخة المعرفة والأسئلة وbounded conversation evidence تتبع نفس Campaign؛current locks وfull canonical comparison وlease fences قبل/بعد HTTP. State `PROPOSED` تعني اقتراحًا فقط، لا approved tool proof. العقد يدعم ANSWER/QUESTION/typed QUALIFICATION/HANDOFF ولا يرسل أو يغيّر Fields/Payments/Enrollment. History وAudit مستقلة، وUI تعرض نتائج آمنة مع إخفاء qualification candidate metadata. Default live block يبقى قبل decryption/HTTP؛explicit HTTP mocks في isolated non-production test DB فقط. تفاصيل queue/backpressure/minimization والحدود في [ai-customer-proposal-worker.md](ai-customer-proposal-worker.md). لا تغيير source=HUMAN/native100 أوactivation readiness حتى تكتمل actual approved actions وCentral Messaging Policy/evaluations.
+
 ## Qualification application writer — 2026-10-10
 
 `src/ai/human-qualification.ts` تفصل actual Human capture وtyped normalization/current Field-value state/permission-safe result projection عن HTTP. Writer تملك Branch→Lead locks وتثبت exact current Principal/session/Lead identity/native100 access قبل idempotency lookup أوwrite،وتستعمل `writeManualFieldValue` الحالية وnative deferred request/answer/history/Audit proofs. HTTP يبقى مسؤولًا عن request schema/current authenticated access وhistory pagination. Read-state helper تتطلب already-authorized caller،وليست public/Model tool. هذا الاستخراج لا يغيّر source=HUMAN أوصلاحيات Field ولا يتيح AI/Form writes. Customer AI تحتاج execution/action proof وخدمة مستقلة؛لا تمر عبر fake Human principal/session.

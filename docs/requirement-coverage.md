@@ -1,5 +1,14 @@
 # مصفوفة تغطية المتطلبات
 
+## أحدث checkpoint: Customer proposal worker — 2026-10-10
+
+| المتطلب ومصدره | التنفيذ الفعلي | الإثبات وحدود الحالة |
+|---|---|---|
+| 04 §§6–8/14–20/28–32/51–58،05 isolation/current context،AGENTS §§15–22/26–29/38 | autonomous new authenticated inbound queue،current scoped source/knowledge/profile/config/Field/pin fences،durable leased proposal worker،separate provider operation،safe scoped history/UI وAudit | **170/170 unit،73/73 full PostgreSQL integration،42/42 full Edge Browser** (4.9m) وfocused PG1/1/Browser1/1 و001–115/build/typecheck/diff check ناجحة علىآخرالكود. SAVEPOINT/duplicate/concurrency/expired lease/late completion/current proof/retries/typed CURRENCY-normalization/sensitive omission/production injection denial/Audit rollback/backpressure/oversize context-Human recovery/permissions/French/RTL مثبتة. Proposal stage Implemented وMock/Sandbox Verified؛لاLive أوfull AI claim |
+| Actual customer actions/Qualification/Handoff/sends وAI activation | PROPOSED مجرد توصية؛approvedTools=[] وnative100 HUMAN-only؛لاTool/Field/Payment/Enrollment mutation أوsend | غير مكتملة. Default live transfer معطّلة،explicit synthetic HTTP mocks فقط. Live Verification Pending External Credential/Approval. الخطوة التالية approved tool policy/current action proofs وactual Qualification/Handoff ثمCentral Messaging Policy وبقيةAI |
+
+تفاصيل العقد في[ai-customer-proposal-worker.md](ai-customer-proposal-worker.md). `04e0877` والصفوف أدناه تاريخية؛معرفcheckpoint الحالية فيآخرGit commit. لا تُعدّ هذه الإضافة إعلانًا باكتمال AI أوالمنصة.
+
 ## أحدث checkpoint: Human Qualification application writer — 2026-10-10
 
 | المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |
