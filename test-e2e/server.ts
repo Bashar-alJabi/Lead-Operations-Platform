@@ -30,6 +30,7 @@ import { processOneKnowledgeAsset } from '../src/ai/knowledge-asset-worker.js';
 import { processOneAISimulation,processOneAICopilotSummary } from '../src/ai/simulation-worker.js';
 import { aiInferenceAdapters } from '../src/ai/inference-provider.js';
 import { processOneAICustomerProposal } from '../src/ai/customer-worker.js';
+import { processOneAIQualificationAction } from '../src/ai/customer-qualification.js';
 import { stripeCurrencyPrecision,PaymentCheckoutError,type CheckoutSnapshot,type PaymentCheckoutAdapter } from '../src/payments/checkout-provider.js';
 import { paypalPaymentEvents } from '../src/payments/webhook-profile.js';
 import { testPayPalCertificate,testPayPalCertUrl } from '../test/paypal-test-support.js';
@@ -52,7 +53,8 @@ globalThis.fetch=async(target,init)=> { if(String(target)===testPayPalCertUrl)re
     if(body.text.format.name==='customer_proposal') {
       const message=data.messages.find((m:{ id:string })=>m.id===data.currentMessageId)?.text ?? '';
       if(message.includes('Provider failure'))return new Response('private synthetic customer failure',{ status:401 });
-      const proposal={ decision:message.includes('Unknown') || message.includes('Ignore') ? 'HANDOFF' : 'ANSWER',referenceIds:message.includes('Unknown') || message.includes('Ignore') ? [] : ['section:prices'],questionId:null,answerValue:null,sourceQuote:null,handoffReason:message.includes('Unknown') || message.includes('Ignore') ? 'UNKNOWN_ANSWER' : null };
+      const proposal=message.startsWith('Qualification fixture:') ? { decision:'QUALIFICATION',referenceIds:[],questionId:data.questions[0]?.id,answerValue:data.questions[0]?.type==='BOOLEAN' ? true : message.slice('Qualification fixture:'.length).trim(),sourceQuote:message,handoffReason:null }
+        : { decision:message.includes('Unknown') || message.includes('Ignore') ? 'HANDOFF' : 'ANSWER',referenceIds:message.includes('Unknown') || message.includes('Ignore') ? [] : ['section:prices'],questionId:null,answerValue:null,sourceQuote:null,handoffReason:message.includes('Unknown') || message.includes('Ignore') ? 'UNKNOWN_ANSWER' : null };
       return new Response(JSON.stringify({ status:'completed',output:[{ type:'message',role:'assistant',status:'completed',content:[{ type:'output_text',text:JSON.stringify(proposal) }] }] }));
     }
     if(body.text.format.name==='copilot_summary' ? data.references.some((r:{ text:string })=>r.text.includes('Provider failure')) : data.question.includes('Provider failure'))return new Response('private synthetic provider failure',{ status:401 });
@@ -250,6 +252,10 @@ app.post('/__test__/ai-simulation',async(request)=>{
 app.post('/__test__/ai-copilot-summary',async(request)=>{
   if(typeof request.headers.authorization!=='string' || !safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
   return { processed:await processOneAICopilotSummary(db,{ retryDelaySeconds:0,adapters:aiInferenceAdapters }) };
+});
+app.post('/__test__/ai-qualification-action',async(request)=>{
+  if(typeof request.headers.authorization!=='string' || !safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
+  return { processed:await processOneAIQualificationAction(db) };
 });
 app.post<{ Body:{ conversationId:string;enable?:boolean;process?:boolean } }>('/__test__/ai-customer-proposal',{ schema:{ body:{ type:'object',additionalProperties:false,required:['conversationId'],properties:{ conversationId:{ type:'string',format:'uuid' },enable:{ type:'boolean' },process:{ type:'boolean' } } } } },async(request)=>{
   if(typeof request.headers.authorization!=='string' || !safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');

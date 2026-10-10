@@ -5,7 +5,7 @@ import { HttpError } from '../security.js';
 export const aiCustomerTools = ['createFollowUp', 'getCampaignKnowledge', 'getLeadContext', 'requestHumanHandoff', 'sendConversationMessage', 'updateQualificationField'] as const;
 export type AICustomerTool = typeof aiCustomerTools[number];
 export type AIToolPolicy = { allowedTools: AICustomerTool[] | null };
-export const aiCustomerToolCatalog = aiCustomerTools.map(name => ({ name, category: name === 'sendConversationMessage' ? 'SEND' : name.startsWith('get') ? 'READ' : 'WRITE', customerRuntimeImplemented: false }));
+export const aiCustomerToolCatalog = aiCustomerTools.map(name => ({ name, category: name === 'sendConversationMessage' ? 'SEND' : name.startsWith('get') ? 'READ' : 'WRITE', customerRuntimeImplemented: name === 'updateQualificationField' }));
 export const emptyAIToolPolicy = (): AIToolPolicy => ({ allowedTools: null });
 export function normalizeAIToolPolicy(raw: unknown): AIToolPolicy {
   const invalid = () => { throw new HttpError(400, 'AI_TOOL_POLICY_INVALID'); };

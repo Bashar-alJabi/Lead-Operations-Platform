@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-type Entry = { id: string; sourceMessageId: string; state: string; errorCode: string | null; knowledgeVersion: number | null; createdAt: string; stale: boolean; attemptCount: number; providerInvoked: boolean; proposal: { decision: string; handoffReason: string | null; answer: string | null } | null };
+type Entry = { id: string; sourceMessageId: string; state: string; errorCode: string | null; knowledgeVersion: number | null; createdAt: string; stale: boolean; attemptCount: number; providerInvoked: boolean; action: { id: string; tool: string; state: string; errorCode: string | null; createdAt: string } | null; proposal: { decision: string; handoffReason: string | null; answer: string | null } | null };
 type Result = { items: Entry[]; nextCursor: string | null };
 type Api = <T>(path: string, options?: RequestInit) => Promise<T>;
 const labels = {
@@ -8,6 +8,8 @@ const labels = {
   fr: { title: 'Historique des exécutions IA client', read: 'Consulter les exécutions IA', more: 'Exécutions précédentes', empty: 'Aucune exécution IA client avec source authentifiée.', note: 'Le transfert de données IA en direct est désactivé. Une proposition ou une trace bloquée ne permet aucun message, action ou confirmation de paiement.', source: 'Message source', version: 'Version des connaissances publiées', unavailable: 'Indisponible', stale: 'Le contexte actuel a changé. La trace originale est conservée.', attempts: 'Tentatives', proposed: 'Étape suivante proposée', pending: 'Aucune action ni aucun message client exécuté.' },
 };
 export function ConversationAIHistory({ conversationId, locale, api }: { conversationId: string; locale: 'ar' | 'en' | 'fr'; api: Api }) {
+  const applied = { ar: 'حُفظت إجابة Qualification بإجراء AI مصرح به. راجع القيم والتاريخ ضمن صلاحيات الحقول. لم تُرسل رسالة للعميل.', en: 'Qualification was saved by an authorized AI action. Review values and history within Field permissions. No customer message was sent.', fr: 'Qualification enregistrée par une action IA autorisée. Consultez les valeurs et l’historique selon les droits des champs. Aucun message client envoyé.' }[locale];
+  const blocked = { ar: 'حُجب إجراء Qualification دون تغيير البيانات.', en: 'Qualification action was blocked without changing data.', fr: 'Action de qualification bloquée sans modifier les données.' }[locale];
   const t = labels[locale], [value, setValue] = useState<Result | null>(null), [busy, setBusy] = useState(false), [error, setError] = useState(''), sequence = useRef(0);
   useEffect(() => { sequence.current++; setValue(null); setError(''); setBusy(false); return () => { sequence.current++; }; }, [conversationId]);
   async function load(older = false) {
@@ -23,7 +25,9 @@ export function ConversationAIHistory({ conversationId, locale, api }: { convers
     {error && <p role="alert">{error}</p>}{value && !value.items.length && <p>{t.empty}</p>}
     {value?.items.map(e => <article key={e.id} data-ai-customer-execution><p><time dateTime={e.createdAt}>{new Date(e.createdAt).toLocaleString(locale)}</time> · {e.state}</p>
       {e.errorCode && <p dir="ltr" style={{ overflowWrap: 'anywhere' }}>{e.errorCode}</p>}<p>{t.attempts}: {e.attemptCount}</p><p>{t.source}: <span dir="ltr" style={{ overflowWrap: 'anywhere' }}>{e.sourceMessageId}</span></p><p>{t.version}: {e.knowledgeVersion ?? t.unavailable}</p>
-      {e.proposal && <div data-ai-customer-proposal><p>{t.proposed}: {e.proposal.decision}{e.proposal.handoffReason ? ' · ' + e.proposal.handoffReason : ''}</p>{e.proposal.answer && <p style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{e.proposal.answer}</p>}<p>{t.pending}</p></div>}{e.stale && <p>{t.stale}</p>}</article>)}
+      {e.proposal && <div data-ai-customer-proposal><p>{t.proposed}: {e.proposal.decision}{e.proposal.handoffReason ? ' · ' + e.proposal.handoffReason : ''}</p>{e.proposal.answer && <p style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{e.proposal.answer}</p>}{!e.action && <p>{t.pending}</p>}</div>}
+      {e.action && <div data-ai-customer-action><p>{e.action.state === 'APPLIED' ? applied : blocked}</p><p dir="ltr" style={{ overflowWrap: 'anywhere' }}>{e.action.tool} · {e.action.state} · {e.action.id}</p><time dateTime={e.action.createdAt}>{new Date(e.action.createdAt).toLocaleString(locale)}</time>{e.action.errorCode && <p>{e.action.errorCode}</p>}</div>}
+      {e.stale && <p>{t.stale}</p>}</article>)}
     {value?.nextCursor && <button disabled={busy} onClick={() => void load(true)}>{t.more}</button>}
   </section>;
 }

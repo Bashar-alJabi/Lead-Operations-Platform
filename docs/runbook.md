@@ -1,5 +1,13 @@
 # دليل التشغيل والتطوير
 
+## Actual AI Qualification — migrations117–124
+
+تهيئة الأداة من Campaign AI → Approved Tools عبر Manager الفرع أوSuper Admin، مع Qualification mapping وusableByAI وPublished Knowledge وConversation Profile الحالية. حفظ policy لا يفعّل AI؛ full runtime/activation وlive data transfer مازالا محجوبين. تستخدم هذه المرحلة HTTP mocks وبيانات اصطناعية فقط في الاختبارات المعزولة.
+
+`worker:ai` يعالج durable proposal ثم local Qualification action job، بالإضافة إلىSimulation/Copilot. كل local action قصيرة وذرية، وتكرارها لا ينشئ كتابة ثانية. عند failure/Audit rollback يبقى Job منتظرًا؛ عندما تغيّرت الصلاحية أوالسياق تصبح Action BLOCKED ولا يُعاد تشغيلها باقتراح قديم. لا تصلح الحالة بتعديل DB أوتزوير session/source. استخدم current Human takeover/الواجهة أوانتظر رسالة جديدة ذات قبول جديد بعد تصحيح الإعداد.
+
+في Lead → Qualification راجع القيمة ومصدر AI/تاريخها حسب صلاحيات الحقول. Customer AI execution history تعرض receipt ID/tool/state/error/time مستقلًا عن الاقتراح، وتحجب mapped values/questions عن DTO العام. Human تعديل مصرح به يحفظ AI history. لا يعني استخراج جواب Currency تأكيد Payment/Enrollment، ولا تُرسل رسالة ضمن هذه الأداة. التفاصيل في [ai-qualification-actions.md](ai-qualification-actions.md)، والتحقق النهائي فيprogress/coverage.
+
 ## Approved Customer Tools — migration116
 
 بعدتطبيق116،Manager/Super Admin يضبطApproved Tools منCampaign Details. Campaign null تورّثBranch؛explicit[] تمنعجميعالأدوات حتىعندتغييرBranch. لاSQL أوPayment/Enrollment/security action فيcatalog. استخدمreason وcurrentversion؛409تتطلبreload. History تحتفظبكلنسخة،ولاDelete لتجاوزrevocation. حفظالإعدادلايُفعّلAI أويرفعlive-data block؛PROPOSED ليستإجراءمنفذًا. Policy update تبطلسياقqueued/inflight workers الحالي ويظهرBLOCKED،معإبقاءالتاريخ. لاreplay لسجلقديم لتطبيقصلاحياتجديدة؛الخطوةالتاليةcurrent action proofs/executor. التفاصيل والحدود في[ai-customer-tool-policy.md](ai-customer-tool-policy.md).

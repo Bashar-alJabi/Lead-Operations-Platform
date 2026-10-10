@@ -22,7 +22,7 @@ export async function readHumanQualificationState(tx: postgres.TransactionSql, a
   const values = ids.length ? await tx`SELECT field_id,value,version,source FROM lead_field_value WHERE lead_id=${lead.id} AND field_id IN ${tx(ids)}` : [];
   const byValue = new Map(values.map(v => [v.field_id as string, v]));
   const questionIds = definition.questions.map(q => q.id);
-  const captured = questionIds.length ? await tx`SELECT question_id,qualification_version,question_snapshot,version,value FROM lead_qualification_answer WHERE lead_id=${lead.id} AND question_id IN ${tx(questionIds)}` : [];
+  const captured = questionIds.length ? await tx`SELECT question_id,qualification_version,question_snapshot,version,value,source FROM lead_qualification_answer WHERE lead_id=${lead.id} AND question_id IN ${tx(questionIds)}` : [];
   const byAnswer = new Map(captured.map(a => [a.question_id as string, a]));
   const visible = (f: postgres.Row | undefined) => !!f && (actor.role === 'SUPER_ADMIN' ||
     (actor.role === 'AGENT' ? f.visible_to_agent : f.visible_to_manager) && (f.show_in_details || f.show_in_table));
@@ -41,7 +41,7 @@ export async function readHumanQualificationState(tx: postgres.TransactionSql, a
     catch { valid = false; }
     if (!valid) blockers.add('QUALIFICATION_FIELD_UNAVAILABLE');
     answers[q.id] = valid ? value : null;
-    return [{ ...q, value, source: q.fieldId ? fv?.source === 'MANUAL' ? 'HUMAN' : fv?.source ?? null : sameQuestion ? 'HUMAN' : null,
+    return [{ ...q, value, source: q.fieldId ? fv?.source === 'MANUAL' ? 'HUMAN' : fv?.source ?? null : sameQuestion ? capture!.source : null,
       collectedDefinitionVersion: sameQuestion ? capture!.qualification_version : null,
       answerVersion: capture?.version ?? 0, fieldValueVersion: q.fieldId ? fv?.version ?? 0 : null,
       editable: definition.enabled && branchActive && available && (!f || actor.role === 'SUPER_ADMIN' || (actor.role === 'AGENT' ? f.editable_by_agent : f.editable_by_manager)),

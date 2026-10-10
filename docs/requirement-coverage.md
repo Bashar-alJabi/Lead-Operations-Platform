@@ -1,5 +1,14 @@
 # مصفوفة تغطية المتطلبات
 
+## أحدث checkpoint: actual AI Qualification actions — 2026-10-10
+
+| المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |
+|---|---|---|
+| 04 §§6–8/18–20،05 §§13–17،02 §§44/48/50،AGENTS §§8/15/19–22/26–29/38: approved typed AI Qualification | Fresh active inbound admission،indexed durable action job/current full context/CAS،typed Application Service/native117–124،AI Field/answer/action provenance/history/Audit،scoped Lead UI وHuman override | **171/171 unit،75/75 full Docker PostgreSQL integration،44/44 full Edge Browser** (5.2m) و001–124 development/test/Backend-Web build/typecheck/diff check وfocused PG1/1/Browser1/1 ناجحة علىآخرالكود. Boolean/text/Currency/native typing،old-diagnostic replay denial/current owner-controller-Field-policy-Profile-Published-pin-Branch/duplicate workers/atomic proof/Audit rollback/shared Contact first Consent INSERT/out-of-order inbound/hidden values/foreign denial/history/XSS/ar-en-fr/RTL مثبتة. **Implemented وMock/Sandbox Verified** |
+| Actual Human Handoff/package/SLA/customer sends/full AI activation/remaining assistants وForm capture | أداةQualification لا تنفّذ هذهالمتطلبات | غيرمكتملة. التاليactual approved Handoff/current receipt/native proof/package/availability/attention/SLA ثمCentral Messaging Policy/bقيةAI وAutomation/Notifications/Analytics وبقيةالمنصة. Live transfer معطّلة،synthetic HTTP mocks فقط،**Live Verification Pending External Credential/Approval**؛لاLive أوfull AI completion claim |
+
+تفاصيلالعقد في[ai-qualification-actions.md](ai-qualification-actions.md). `38785aa` والصفوفأدناه تاريخية؛معرفcheckpoint الحالية فيآخرGit commit. لاCustomer send/Payment/Enrollment action منأداةQualification.
+
 ## أحدث checkpoint: Approved Customer Tools configuration — 2026-10-10
 
 | المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |

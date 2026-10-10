@@ -282,14 +282,17 @@ export async function processInboundEvent(tx: postgres.TransactionSql, eventId: 
     WHERE connection_id = ${event.connection_id} AND provider_message_id = ${message.id}`)[0];
   if (existing && existing.conversation_id !== conversationId)
     throw new HttpError(409, 'INBOUND_MESSAGE_ALREADY_ATTACHED');
-  await tx`UPDATE conversation SET last_message_at = GREATEST(coalesce(last_message_at, ${timestamp}), ${timestamp}),
+  await tx`UPDATE conversation SET last_message_at = GREATEST(coalesce(last_message_at, ${timestamp}), ${timestamp}) WHERE id=${conversationId}`;
+  await tx`UPDATE integration_event SET state = 'PROCESSED', failure_code = NULL,
+    lead_id = ${leadId}, conversation_id = ${conversationId}, resolved_by = ${decision?.actor.id ?? null},
+    resolved_at = now() WHERE id = ${event.id}`;
+  // Preserve active AI only for a newly eligible implemented tool path. Diagnostic attention never grants execution.
+  const admitted = (await tx`SELECT ai_qualification_admissible(ai_customer_proposal_context(${event.id})) AS allowed`)[0]!.allowed;
+  if (!admitted) await tx`UPDATE conversation SET
     needs_attention_reason = CASE WHEN controller_type = 'AI' THEN 'AI_PROCESSING_NOT_READY'
       ELSE needs_attention_reason END,
     state = CASE WHEN controller_type = 'AI' THEN 'AI_HANDOFF_REQUIRED' ELSE state END
     WHERE id = ${conversationId}`;
-  await tx`UPDATE integration_event SET state = 'PROCESSED', failure_code = NULL,
-    lead_id = ${leadId}, conversation_id = ${conversationId}, resolved_by = ${decision?.actor.id ?? null},
-    resolved_at = now() WHERE id = ${event.id}`;
   const trace = await recordBlockedCustomerAIInbound(tx, event.id);
   if (trace && !trace.duplicate) await enqueueCustomerProposal(tx, event.id);
   await tx`INSERT INTO audit_log (organization_id, branch_id, actor_user_id, action,

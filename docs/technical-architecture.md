@@ -1,5 +1,9 @@
 # المعمارية التقنية
 
+## Actual AI Qualification — 2026-10-10
+
+إذن التنفيذ مستقل عن Human/Copilot/PROPOSED. Native117–124 تربط fresh authenticated inbound وcurrent AI control وApproved tool بـimmutable admission؛ بعد validated proposal تُدرج pending action job مفهرسة. Typed Application Service تعيد current full context وCAS تحت Job→Branch→Campaign→Lead→Contact→Conversation/dependency locks، ثم receipt/Field source=AI/answer/history/Audit/Job DONE في transaction واحدة مع deferred proof. Contact fence تحمي first Consent INSERT عبرLead مشتركة؛ delayed provider timestamp أقدم لا يمنح Action لاستبدال إجابة أحدث. لا locks عبر HTTP، ولا fake employee أوpublic write endpoint أوPayment/Enrollment/send. Current Human permission/session guards محفوظة. التفاصيل في [ai-qualification-actions.md](ai-qualification-actions.md). Live transfer وfull activation مازالا محجوبين؛ التالي actual Human Handoff/package/SLA ثمCentral Messaging Policy وسائر AI.
+
 ## Approved Customer Tools configuration — 2026-10-10
 
 Migration116 تضيفversioned scoped tool-policy/catalog/native current guards/history/Audit،معBranch default/Campaign override وnull-inheritance مقابلexplicit[]deny. لاتعديلnative100 أوHuman roles/financial boundaries. Parent-first Branch UPDATE فيsetup يمنعغيابpolicy-row كـrace أمامcurrent worker context؛HTTP بلاlocks. Effective preview/nativecustomer proposal/Simulation/Copilot تحفظcurrent versions/list وتبطلpending/inflight contexts عندتغييرها. Configured approval منفصلةعنcurrent action authority؛proposal.approvedTools=[] وcatalog/customerRuntimeImplemented=false وruntimeAuthorized=false/liveTransferEnabled=false. التفاصيل في[ai-customer-tool-policy.md](ai-customer-tool-policy.md). Actual tool receipts/executor/Qualification/Handoff هيالخطوةالتالية؛لاactivation أوlive inference فيهذهالمرحلة.
