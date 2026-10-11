@@ -14,6 +14,7 @@ test('Actual customer AI Handoff transitions durably to Human waiting with scope
     await login(manager, 'manager'); await login(page, 'agent'); await login(second, 'second');
     const me = await (await manager.request.get('/api/auth/me')).json(), agent = await (await page.request.get('/api/auth/me')).json();
     const created = await manager.request.post('/api/campaigns', { headers: { origin }, data: { name: 'Browser AI Handoff Action Campaign', branchId: me.branchId, routingMethod: 'MANUAL' } }); expect(created.status()).toBe(201); const campaign = (await created.json()).id;
+    expect((await manager.request.put('/api/campaigns/'+campaign+'/agents',{headers:{origin},data:{agentId:agent.id}})).status()).toBe(200);
     expect((await manager.request.post('/api/campaigns/' + campaign + '/activate', { headers: { origin } })).status()).toBe(200);
     const made = await manager.request.post('/api/leads', { headers: { origin }, data: { branchId: me.branchId, campaignId: campaign, contact: { name: 'Browser AI Handoff Action Customer', phone: '+15556667774' } } }); expect(made.status()).toBe(201); const lead = (await made.json()).id;
     const version = (await (await manager.request.get('/api/leads/' + lead)).json()).lead.version;
@@ -46,6 +47,7 @@ test('Actual customer AI Handoff transitions durably to Human waiting with scope
     await queue.getByRole('button', { name: 'Open Lead for review', exact: true }).click(); await expect(manager.getByRole('heading', { name: 'Browser AI Handoff Action Customer', exact: true })).toBeVisible();
     await history.getByRole('button', { name: 'Review AI executions', exact: true }).click(); await expect(history).toContainText('requestHumanHandoff'); await expect(history).toContainText('APPLIED');
     await review.getByRole('button', { name: 'Review handoff requests', exact: true }).click(); await expect(review).toContainText('WAITING_FOR_HUMAN'); await expect(review).toContainText('UNKNOWN_ANSWER'); await expect(review).toContainText(question);
+    await expect(review.locator('[data-handoff-reception="current"]')).toContainText('Current owner available');await expect(review.locator('[data-handoff-reception="historical"]')).toContainText('Current owner available');
     const pack = review.locator('[data-ai-handoff-package]'), summaryControl = () => manager.request.post('/__test__/ai-handoff-summary', { headers: { origin, authorization: 'Bearer ' + fixture.testToken } });
     expect((await page.request.post('/__test__/ai-handoff-summary')).status()).toBe(403);
     await expect(pack.locator('[data-ai-handoff-summary]')).toContainText('QUEUED'); expect((await summaryControl()).status()).toBe(200);
@@ -56,6 +58,14 @@ test('Actual customer AI Handoff transitions durably to Human waiting with scope
     await pack.getByRole('button', { name: 'Refresh handoff summary', exact: true }).click(); await expect(pack.locator('[data-ai-handoff-summary]').first()).toContainText('QUEUED'); expect((await summaryControl()).status()).toBe(200);
     await review.getByRole('button', { name: 'Review handoff requests', exact: true }).click(); await expect(pack.locator('[data-ai-handoff-summary]').first()).toContainText('COMPLETED');
     await pack.getByText('Current published knowledge references', { exact: false }).click(); await expect(pack).toContainText(approved);
+    const otherAgent=(await (await second.request.get('/api/auth/me')).json()).id,cfgRoot='/api/ai/campaigns/'+campaign+'/configuration';
+    expect((await manager.request.put('/api/campaigns/'+campaign+'/agents',{headers:{origin},data:{agentId:otherAgent}})).status()).toBe(200);
+    const config=(await (await manager.request.get(cfgRoot)).json());
+    expect((await manager.request.put(cfgRoot,{headers:{origin},data:{version:config.version,definition:{...config.definition,handoffTargetId:otherAgent},reason:'Explicit target preserves Lead permissions'}})).status()).toBe(200);
+    await review.getByRole('button',{name:'Review handoff requests',exact:true}).click();await expect(review.locator('[data-handoff-reception="current"]')).toContainText('Recipient requires authorized Lead assignment');
+    expect((await second.request.get(reviewRoot)).status()).toBe(404);expect((await (await second.request.get('/api/ai/human-handoff-queue')).json()).items).toEqual([]);
+    expect((await manager.request.put(cfgRoot,{headers:{origin},data:{version:config.version+1,definition:config.definition,reason:'Restore current owner reception'}})).status()).toBe(200);
+    await review.getByRole('button',{name:'Review handoff requests',exact:true}).click();await expect(review.locator('[data-handoff-reception="current"]')).toContainText('Current owner available');
     expect(await review.locator('img').count()).toBe(0); expect(await page.evaluate(() => Object.hasOwn(window, '__handoffXss'))).toBe(false);
     expect((await second.request.get(reviewRoot)).status()).toBe(404); expect((await second.request.get(root)).status()).toBe(404);
     const entry = (await (await page.request.get(root)).json()).items[0]; expect(entry.toolsExecuted).toEqual(['requestHumanHandoff']); expect(entry.action.context).toBeUndefined(); expect(entry.sendAllowed).toBe(false);

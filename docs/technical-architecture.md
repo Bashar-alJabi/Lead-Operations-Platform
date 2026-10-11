@@ -1,5 +1,9 @@
 # المعمارية التقنية
 
+## Handoff reception وoperational working hours — 2026-10-11
+
+Native132–134 تضيف إعداد ساعات Branch/User مصرحًا ومؤرشفًا، مع projection ذرية إلى حقول routing الموجودة وnative current session/scope/CAS/history-time proof وAudit. User ساعاتها تدخل routing القائمة؛ Branch ساعاتها تدخل Handoff availability. Native133 تحسب current recipient من Campaign → Branch → Owner، ضمن current trusted waiting receipt/Lead scope وUser activity/Campaign eligibility وتقاطع ساعات Branch/User. لا Capacity eviction للمالك الحالي ولا Controller/Owner/ACL mutation. Target Agent غير Owner تحتاج existing authorized assignment؛ Manager attention queue تبقى عند عدم التوفّر. Native initial receipt/history تشتق reception evidence مرة واحدة مع نفس المعاملة؛ Current API/UI تفصلها عن current reevaluation وتبقى محكومة بالـLead access. ساعات العمل لا تمنح صلاحية إرسال ولا قبولًا بشريًا. العقد وحدود المرحلة في [ai-handoff-reception-availability.md](ai-handoff-reception-availability.md). SLA والتنبيهات والتصعيد وtriggers/full activation مازالت غير مكتملة.
+
 ## Handoff summary/package — 2026-10-11
 
 Native129–131 و`processOneAIHandoffSummary` تفصل autonomous Handoff evidence عن Human Copilot/session authority. Current APPLIED receipt + WAITING_FOR_HUMAN/NONE تقبل initial summary في المعاملة نفسها؛refresh تتطلب real authorized employee/session. Dedicated queue/lease/current pre/post-HTTP context/result proof/history/Audit،مع Profile مستقلة SUMMARIZATION وlive-off قبلsecret/payload. Extractive selector مشتركة على مستوىProvider abstraction فقط؛لاsend/Field/Payment/Enrollment mutation. Scoped package تعرض freshness/current transport-derived unanswered input/current Published refs/Qualification masking/deterministic next action بجانبfull paginated conversation. غيابProfile أوProvider failure لايؤخرsafe Handoff. العقد والحدود في[ai-handoff-summary-package.md](ai-handoff-summary-package.md). Routing/availability/SLA/triggers/full activation مازالت غير مكتملة.

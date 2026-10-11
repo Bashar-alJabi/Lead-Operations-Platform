@@ -1,5 +1,11 @@
 # دليل التشغيل والتطوير
 
+## إعداد ساعات العمل ومراجعة مستلم Handoff — 2026-10-11
+
+من الفروع أو المستخدمين افتح **إعداد ساعات العمل**؛ تُفتح لوحة مستقلة عن الجدول. راجع Branch timezone، ثم اختر عدم التقييد أو فترات الأيام الأسبوعية. الأيام الفارغة مغلقة عند التقييد؛ النهاية غير مشمولة ويمكن أن تكون 24:00. قسّم الفترة العابرة لمنتصف الليل على يومين. احفظ reason وراجع history. Manager تدير Branch وساعات AGENT في فرعها؛ تعديل MANAGER يتطلب Super Admin.409 stale version تتطلب reload ومراجعة، دون overwrite قسري.403/404 تُخفي بيانات الإعداد القديمة. لا تعديل server files أوDB يدويًا لهذا الإعداد.
+
+في قائمة Handoff أو حزمة Conversation راجع **مستلم التسليم الحالي** وسبب عدم التوفّر، مع قرار المستلم التاريخي عند الطلب. تُحسب المعلومات عند القراءة وتحتاج إعادة القراءة بعد تغيير إعداد/ساعات/eligibility. Target من Campaign أوBranch لا تمنح Agent غيرOwner وصولًا؛ عند `TARGET_REQUIRES_AUTHORIZED_ASSIGNMENT` تستخدم Manager إجراء Lead assignment الحالي وفق الصلاحيات والتاريخ، ثم تراجع الحزمة من جديد. عند Unassigned أوinactive/outside-hours تبقى Manager attention مطلوبة وAI متوقفة. لا تغيّر Target إعدادات Lead Owner أو Controller؛ قبول Human control صريح عبر Takeover الحالية. SLA والتنبيهات التلقائية والتصعيد ليست مكتملة بعد، ولا توجد رسالة انتقالية تلقائية في هذه المرحلة. تفاصيل التنفيذ والتحقق في [ai-handoff-reception-availability.md](ai-handoff-reception-availability.md).
+
 ## Handoff review package — migrations129–131
 
 من AI Connections/Profiles اختر Profile من task SUMMARIZATION،ثم Branch defaults أوCampaign configuration حسب الصلاحية. لا يفعّل ذلك live data transfer. بعدactual AI Handoff ينتظرsummary job مستقلة؛worker:ai يعالجها دون تغيير Owner/controller أوإرسالCustomer message. راجع Lead→Conversation→Handoff requests لحالة الملخص/generated time/stale/truncation،والرسالة المنتظرة للرد وcurrent Published refs وQualification الناقصة حسبالصلاحيات. استخدم message pagination للمصدرالكامل.

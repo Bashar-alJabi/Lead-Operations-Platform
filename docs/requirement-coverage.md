@@ -1,5 +1,16 @@
 # مصفوفة تغطية المتطلبات
 
+## أحدث checkpoint: Handoff reception وworking hours — 2026-10-11
+
+| المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |
+|---|---|---|
+| AGENTS §§8/9/15/27–30، 02 §§26–35: إعداد ساعات العمل من المنصة | Native132–134 وBranch/User APIs وscoped UI، validation مشتركة/native وcurrent session/CAS، projection/history/Audit ذرية وتوقيت history مشتق | **173unit و77full Docker PostgreSQL integration و46full Edge Browser E2E** (2m)، migrations001–134 development/test وBackend/Web build/typecheck/diff؛ focused PG/Browser2/2. PG تثبت eight-way CAS وsession revocation/parent transfer أثناء الانتظار وnative projection/history denial وAudit rollback. Browser النهائية تثبت UI/routing/stale edits/history/failed-read clear/no-XSS/ar-en-fr/RTL390. الصور فُحصت بعد نقل المحرّر إلى لوحة مستقلة. **Implemented وMock/Sandbox Verified** لهذه المرحلة |
+| 04 §§25–30/33، 02 §§26–35/49، 05 §21: Handoff target/availability ضمن Lead access | Native current reception وfresh immutable initial event/Audit وcurrent مقابل historical API/UI؛ Campaign→Branch→Owner، User activity/Campaign eligibility وBranch/User hours/timezone؛ Manager attention عند التعذّر | PG وBrowser مثبتتان ضمن البوابة أعلاه؛ inheritance/override وdifferent/inactive/ineligible Agent وUnassigned/outside-hours وOwner معCapacity صفر. Target لا تمنح nonowner access ولا تغير Owner/controller أوترسل؛ immutable decision محفوظة بعد إعادة الإعداد، current reception مستقلة عن provider availability. **Implemented وMock/Sandbox Verified** لهذه المرحلة؛ لاSLA/Notifications أوfull Handoff claim |
+| Full Handoff SLA/timezone/working-hours/escalation/notifications وmandatory/Qualification-completion triggers | لم تنفذ بالكامل بعد، وهي اعتماديات المرحلة التالية | **غير مكتملة**؛ attention queue وحدها لا تعني Notifications أوSLA runtime. Full Handoff catalog/runtime/activation تبقىblocked |
+| Live AI وبقية modules | Synthetic بيانات وHTTP mocks فقط؛ Live transfer معطلة | **Live Verification Pending External Credential/Approval**؛ لاLive أوFull AI/platform completion. التالي SLA/Notifications ثمtriggers ثمCustomer Messaging وبقيةAI/Automation/Analytics/import/export/Sheets/Email |
+
+العقد والحدود في [ai-handoff-reception-availability.md](ai-handoff-reception-availability.md). معرف checkpoint في آخر Git commit؛ `6979cb1` وما يليها حالات تاريخية.
+
 ## أحدث checkpoint: Handoff summary/package — 2026-10-11
 
 | المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |

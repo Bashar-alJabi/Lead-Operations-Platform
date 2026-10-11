@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
+import { HandoffReception, type Reception } from './HandoffReception.js';
 type Api = <T>(path: string, options?: RequestInit) => Promise<T>;
-type Result = { items: { id: string; state: string; error_code: string | null; handoff_reason: string; created_at: string; knowledge_version: number; customer_question: string }[];
+type Result = { items: { id: string; state: string; error_code: string | null; handoff_reason: string; created_at: string; knowledge_version: number; customer_question: string; reception_at_request:Reception|null }[];reception:Reception|null;
   nextCursor: string | null; current: { state: string; controller_type: string; campaign_name: string; source_kind: string };
   qualification: { questions: { id: string; prompt: string; value: unknown; source: string | null }[]; result: { missingQuestionIds: string[] } | null; blockers: string[] };
   package: { summaries: { id: string; state: string; error_code: string | null; stale: boolean; truncated: boolean; completed_at: string | null; knowledge_version: number;
@@ -38,7 +39,8 @@ export function ConversationAIHandoffs({ conversationId, locale, api, revision }
   }
   return <section className="panel" data-ai-handoffs><h4>{t.title}</h4><p>{t.note}</p><button disabled={busy} onClick={() => void load()}>{t.read}</button>
     {error && <p role="alert">{error}</p>}{value && <><p>{t.current}: {value.current.state} · {value.current.controller_type}</p><p>{value.current.campaign_name} · {value.current.source_kind}</p>
-      {!value.items.length && <p>{t.empty}</p>}{value.items.map(e => <article key={e.id} data-ai-handoff-request><p dir="ltr">{e.handoff_reason} · {e.state}</p><time dateTime={e.created_at}>{new Date(e.created_at).toLocaleString(locale)}</time>
+      {value.reception&&<HandoffReception value={value.reception} locale={locale}/>}{!value.items.length && <p>{t.empty}</p>}{value.items.map(e => <article key={e.id} data-ai-handoff-request><p dir="ltr">{e.handoff_reason} · {e.state}</p><time dateTime={e.created_at}>{new Date(e.created_at).toLocaleString(locale)}</time>
+        {e.reception_at_request&&<HandoffReception value={e.reception_at_request} locale={locale} historical/>}
         {e.error_code && <p dir="ltr" style={{ overflowWrap: 'anywhere' }}>{e.error_code}</p>}<p>{t.version}: {e.knowledge_version}</p><p>{t.question}: <span dir="auto" style={{ display: 'block', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{e.customer_question}</span></p></article>)}
       <div data-ai-handoff-package><h5>{p.title}</h5><p>{p.live}</p><p>{p.next}: {value.package.suggestedNextAction === 'REVIEW_AND_ACCEPT_HUMAN_CONTROL' ? p.accept : value.package.suggestedNextAction === 'REVIEW_AND_RESPOND_AS_CURRENT_CONTROLLER' ? p.respond : p.review}</p>
         <h5>{p.awaiting}</h5><p>{p.awaitingNote}</p>{value.package.awaitingCustomerMessage ? <p dir="auto" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{value.package.awaitingCustomerMessage.body || value.package.awaitingCustomerMessage.message_kind}</p> : <p>{p.none}</p>}

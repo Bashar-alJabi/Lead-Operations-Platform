@@ -6,6 +6,7 @@ import { approvedConversationReadContext } from '../ai/copilot-context.js';
 import { decodeCursor, encodeCursor } from '../pagination.js';
 import { readHumanQualificationState, humanQualificationDTO } from '../ai/human-qualification.js';
 import { enqueueHandoffSummary } from '../ai/handoff-summary.js';
+import { currentHandoffReception } from '../ai/handoff-reception.js';
 
 export function registerAICustomerHistoryRoutes(app: FastifyInstance, db: Database) {
   app.post<{ Params: { id: string }; Body: { requestId: string } }>('/api/conversations/:id/ai-handoff-summary', {
@@ -35,7 +36,7 @@ export function registerAICustomerHistoryRoutes(app: FastifyInstance, db: Databa
     const actor = await principalFromRequest(request, db), cursor = decodeCursor(request.query.cursor), limit = request.query.limit ?? 10;
     return db.begin(async tx => {
       const rows = await tx`SELECT a.id,a.handoff_reason,a.created_at,cv.id AS conversation_id,l.id AS lead_id,c.name AS campaign_name,
-          ct.name AS contact_name,l.assigned_agent_id FROM conversation cv JOIN ai_customer_handoff_action a ON a.id=cv.ai_handoff_action_id
+          ct.name AS contact_name,l.assigned_agent_id,ai_handoff_reception(a.id,statement_timestamp()) AS reception FROM conversation cv JOIN ai_customer_handoff_action a ON a.id=cv.ai_handoff_action_id
           JOIN lead l ON l.id=cv.lead_id JOIN campaign c ON c.id=l.campaign_id LEFT JOIN contact ct ON ct.id=l.contact_id
         WHERE cv.state='WAITING_FOR_HUMAN' AND cv.controller_type='NONE' AND a.state='APPLIED' AND a.lead_id=l.id AND a.campaign_id=c.id
           AND l.organization_id=${actor.organizationId} AND (${actor.role === 'SUPER_ADMIN'} OR l.branch_id=${actor.branchId})
@@ -59,7 +60,8 @@ export function registerAICustomerHistoryRoutes(app: FastifyInstance, db: Databa
       if (!session) throw new HttpError(403, 'AI_HANDOFF_ACCESS_REVOKED');
       const access = await approvedConversationReadContext(tx, actor, request.params.id, session);
       const rows = await tx`SELECT a.id,a.state,a.error_code,a.handoff_reason,a.created_at,a.context->'knowledge'->'version' AS knowledge_version,
-          p.message_id,left(m.body,2000) AS customer_question FROM ai_customer_handoff_action a JOIN ai_customer_proposal p ON p.id=a.proposal_id
+          p.message_id,left(m.body,2000) AS customer_question,re.snapshot AS reception_at_request FROM ai_customer_handoff_action a JOIN ai_customer_proposal p ON p.id=a.proposal_id
+          LEFT JOIN ai_handoff_reception_event re ON re.action_id=a.id
           JOIN conversation_message m ON m.id=p.message_id AND m.conversation_id=a.conversation_id
         WHERE a.conversation_id=${request.params.id} AND a.lead_id=${access.lead.id} AND a.campaign_id=${access.lead.campaign_id}
           AND (${cursor?.timestamp ?? null}::timestamptz IS NULL OR (a.created_at,a.id)<(${cursor?.timestamp ?? null}::timestamptz,${cursor?.id ?? null}::uuid))
@@ -67,6 +69,7 @@ export function registerAICustomerHistoryRoutes(app: FastifyInstance, db: Databa
       const current = (await tx`SELECT cv.state,cv.controller_type,cv.controller_user_id,cv.version,cv.ai_handoff_action_id,l.assigned_agent_id,l.source_kind,c.name AS campaign_name
         FROM conversation cv JOIN lead l ON l.id=cv.lead_id JOIN campaign c ON c.id=l.campaign_id WHERE cv.id=${request.params.id}`)[0]!;
       const qualification = humanQualificationDTO(await readHumanQualificationState(tx, actor, { id: access.lead.id as string, campaign_id: access.lead.campaign_id as string }, access.b.active));
+      const reception = await currentHandoffReception(tx,current.ai_handoff_action_id);
       const summaries = await tx`SELECT s.id,s.action_id,s.state,s.error_code,s.created_at,s.completed_at,s.attempt_count,s.result,s.context->'summaryContext'->'truncated' AS truncated,
           s.context->'sourceContext'->'knowledge'->'version' AS knowledge_version,s.context->'profile'->>'id' AS profile_id,
           s.context IS DISTINCT FROM ai_handoff_summary_context(s.action_id) AS stale
@@ -85,7 +88,7 @@ export function registerAICustomerHistoryRoutes(app: FastifyInstance, db: Databa
       const items = rows.slice(0, limit), last = items.at(-1);
       await tx`INSERT INTO audit_log(organization_id,branch_id,actor_user_id,action,target_type,target_id,detail)
         VALUES(${actor.organizationId},${access.lead.branch_id},${actor.id},'AI_HUMAN_HANDOFF_HISTORY_READ','CONVERSATION',${request.params.id},${tx.json({ count: items.length })})`;
-      return { items, current, qualification, package: { summaries, awaitingCustomerMessage: awaiting, publication, refreshAvailable,
+      return { items, current, qualification, reception, package: { summaries, awaitingCustomerMessage: awaiting, publication, refreshAvailable,
         suggestedNextAction: current.state === 'WAITING_FOR_HUMAN' ? 'REVIEW_AND_ACCEPT_HUMAN_CONTROL' : current.controller_type === 'HUMAN' ? 'REVIEW_AND_RESPOND_AS_CURRENT_CONTROLLER' : 'REVIEW_CURRENT_CONTROL',
         liveTransferEnabled: false }, nextCursor: rows.length > limit && last ? encodeCursor({ timestamp: last.created_at.toISOString(), id: last.id }) : null };
     });

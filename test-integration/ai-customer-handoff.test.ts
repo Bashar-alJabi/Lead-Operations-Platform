@@ -208,6 +208,36 @@ test('Approved customer AI Handoff owns current authority, durable atomic transi
   } } } }), true);
   assert.ok(!(await db`SELECT result FROM ai_handoff_summary WHERE id=${minimized}`)[0]!.result.answer.includes('card_number'));
   assert.equal(fetchCalls, 0);
+  // Reception routing uses current operational availability and never grants a nonowner Agent access.
+  const initialReception = requested.items[0].reception_at_request;
+  assert.equal(initialReception.reason,'AGENT_NOT_CAMPAIGN_ELIGIBLE');assert.equal(initialReception.managerAttentionRequired,true);
+  await assert.rejects(db`UPDATE ai_handoff_reception_event SET snapshot='{}' WHERE action_id=${action.id}`,/IMMUTABLE/);
+  await assert.rejects(db`DELETE FROM ai_handoff_reception_event WHERE action_id=${action.id}`,/IMMUTABLE/);
+  await db`INSERT INTO campaign_agent(campaign_id,agent_id) VALUES(${campaign},${users.agent!.id}),(${campaign},${users.second!.id})`;
+  await db`UPDATE user_account SET capacity=0 WHERE id=${users.agent!.id}`;
+  const reception = async () => (await api('GET',review)).json().reception;
+  assert.equal((await reception()).reason,'CURRENT_OWNER_READY');assert.equal((await reception()).receiverId,users.agent!.id);
+  const hoursRoot='/api/users/'+users.agent!.id+'/working-hours',branchHoursRoot='/api/branches/'+branch+'/working-hours';
+  assert.equal((await api('PUT',hoursRoot,{version:0,hours:{mon:[]},reason:'Outside Human availability'})).statusCode,200);
+  assert.equal((await reception()).reason,'OUTSIDE_WORKING_HOURS');assert.equal((await reception()).managerAttentionRequired,true);
+  assert.equal((await api('PUT',hoursRoot,{version:1,hours:{},reason:'Resume current owner availability'})).statusCode,200);
+  const configRoot='/api/ai/campaigns/'+campaign+'/configuration',branchDefaultRoot='/api/ai/branches/'+branch+'/defaults';
+  assert.equal((await api('PUT',branchDefaultRoot,{version:0,definition:{...emptyAIOperationalConfig(),handoffTargetId:users.manager!.id},reason:'Explicit Manager fallback target'})).statusCode,200);
+  assert.equal((await reception()).receiverId,users.manager!.id);assert.equal((await reception()).targetSource,'BRANCH');
+  const setTarget = async (id:string|null) => { const x=(await api('GET',configRoot)).json();assert.equal((await api('PUT',configRoot,{version:x.version,definition:{...x.definition,handoffTargetId:id},reason:'Explicit current Handoff recipient'})).statusCode,200); };
+  await setTarget(users.second!.id);assert.equal((await reception()).reason,'TARGET_REQUIRES_AUTHORIZED_ASSIGNMENT');assert.equal((await reception()).receiverId,null);
+  assert.equal((await api('GET',review,undefined,'second')).statusCode,404);assert.deepEqual((await api('GET',queue,undefined,'second')).json().items,[]);
+  assert.equal((await db`SELECT assigned_agent_id FROM lead WHERE id=${lead}`)[0]!.assigned_agent_id,users.agent!.id);
+  await db`UPDATE user_account SET active=false WHERE id=${users.second!.id}`;assert.equal((await reception()).reason,'TARGET_UNAVAILABLE');await db`UPDATE user_account SET active=true WHERE id=${users.second!.id}`;
+  await setTarget(users.agent!.id);assert.equal((await reception()).reason,'CONFIGURED_TARGET_READY');assert.equal((await reception()).targetSource,'CAMPAIGN');
+  await db`UPDATE campaign_agent SET active=false WHERE campaign_id=${campaign} AND agent_id=${users.agent!.id}`;assert.equal((await reception()).reason,'AGENT_NOT_CAMPAIGN_ELIGIBLE');await db`UPDATE campaign_agent SET active=true WHERE campaign_id=${campaign} AND agent_id=${users.agent!.id}`;
+  assert.equal((await api('PUT',branchHoursRoot,{version:0,hours:{mon:[]},reason:'Outside Branch working hours'})).statusCode,200);assert.equal((await reception()).reason,'OUTSIDE_WORKING_HOURS');
+  assert.equal((await api('PUT',branchHoursRoot,{version:1,hours:{},reason:'Resume Branch availability'})).statusCode,200);
+  await setTarget(null);assert.equal((await reception()).receiverId,users.manager!.id);
+  assert.equal((await api('PUT',branchDefaultRoot,{version:1,definition:emptyAIOperationalConfig(),reason:'Restore no explicit recipient'})).statusCode,200);
+  assert.equal((await api('GET',review)).json().items.find((e:any)=>e.id===action.id).reception_at_request.reason,initialReception.reason);
+  assert.equal((await db`SELECT controller_type FROM conversation WHERE id=${cv}`)[0]!.controller_type,'NONE');
+  assert.equal((await db`SELECT count(*)::int AS n FROM audit_log WHERE action='AI_HANDOFF_RECEPTION_RESOLVED' AND target_id=${cv}`)[0]!.n,1);
   // Only a current authorized employee can accept; observing the queue is not control.
   assert.equal((await api('POST', '/api/conversations/' + cv + '/takeover', { version: current.version, reason: 'Unauthorized acceptance' }, 'second')).statusCode, 404);
   assert.equal((await api('POST', '/api/conversations/' + cv + '/takeover', { version: current.version - 1, reason: 'Stale acceptance' }, 'agent')).statusCode, 409);
@@ -303,7 +333,7 @@ test('Approved customer AI Handoff owns current authority, durable atomic transi
   const unassigned = (await inbound('unassigned'))!; await run(); assert.equal(await processOneAIHumanHandoff(db), true);
   assert.equal((await db`SELECT assigned_agent_id FROM lead WHERE id=${lead}`)[0]!.assigned_agent_id, null);
   assert.equal((await api('GET', review, undefined, 'agent')).statusCode, 404);
-  assert.equal((await api('GET', review)).json().current.controller_type, 'NONE');
+  assert.equal((await api('GET', review)).json().current.controller_type, 'NONE');assert.equal((await api('GET',review)).json().reception.reason,'UNASSIGNED_MANAGER_ATTENTION');
   assert.equal((await api('GET', queue)).json().items[0].lead_id, lead); assert.deepEqual((await api('GET', queue, undefined, 'agent')).json().items, []);
   const waiting = (await db`SELECT version FROM conversation WHERE id=${cv}`)[0]!.version;
   await db`UPDATE branch SET active=false WHERE id=${branch}`;

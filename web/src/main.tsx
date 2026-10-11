@@ -15,6 +15,7 @@ import { PaymentSetup } from './PaymentSetup.js';
 import { AISetup } from './AISetup.js';
 import { AIHumanHandoffQueue } from './AIHumanHandoffQueue.js';
 import { LeadPaymentMethods } from './PaymentMethods.js';
+import { WorkingHoursEditor } from './WorkingHoursEditor.js';
 
 type Role = 'SUPER_ADMIN' | 'MANAGER' | 'AGENT';
 type User = { id: string; organizationId: string; branchId: string | null; role: Role; name: string; email: string };
@@ -100,6 +101,8 @@ function App() {
   const [notice, setNotice] = useState('');
   const [initialized, setInitialized] = useState<boolean | null>(null);
   const [page, setPage] = useState<Page>('leads');
+  const [hoursResource,setHoursResource] = useState<{scope:'BRANCH'|'USER';id:string;name:string}|null>(null);
+  useEffect(()=>{setHoursResource(null);},[page,user?.id]);
   const [selectedLead, setSelectedLead] = useState<string | null>(null);
   const [fieldRefresh, setFieldRefresh] = useState(0);
   const [branches, setBranches] = useState<Branch[]>([]);
@@ -307,6 +310,8 @@ function App() {
     {error && <div role="alert" className="error">{error}</div>}
     {notice && <div role="status" className="panel">{notice}</div>}
     {busy && <div className="loading">{t.loading}</div>}
+    {hoursResource && (page==='users'||page==='branches') && <section className="panel"><h2>{hoursResource.name}</h2><button className="link" onClick={()=>setHoursResource(null)}>{t.back}</button>
+      <WorkingHoursEditor scope={hoursResource.scope} id={hoursResource.id} locale={locale} api={api} initiallyOpen/></section>}
     {page === 'identityEmail' ? <section className="panel form-panel"><h2>{t.identityEmail}</h2>
       {isAdmin && <>
       <p>{t.emailStatus}: {emailConnection?.status ?? 'NOT_CONFIGURED'}</p>
@@ -395,12 +400,12 @@ function App() {
           onChange={(event) => setSelectedLeadIds((current) => event.target.checked ? [...current, lead.id] : current.filter((id) => id !== lead.id))} /></td>}{leadColumns.map((column) =>
           <td key={column}>{leadCell(lead, column)}</td>)}<td><button className="link" onClick={() => setSelectedLead(lead.id)}>{t.details}</button></td></tr>)}
         {page === 'campaigns' && campaigns.map((campaign) => <tr key={campaign.id}><td><strong>{campaign.name}</strong></td><td>{branches.find((item) => item.id === campaign.branch_id)?.name || '—'}</td><td><span className="badge">{campaign.status}</span></td><td>{campaign.routing_method}<small>{campaign.agents?.map((agent) => agent.name).join(', ') || '—'}</small></td><td>{canManage && <button className="link" onClick={() => setSelectedCampaign(campaign.id)}>{t.details}</button>}</td></tr>)}
-        {page === 'branches' && branches.map((branch) => <tr key={branch.id}><td><strong>{branch.name}</strong></td><td>{branch.timezone}</td><td>{branch.active ? t.active : t.inactive}</td></tr>)}
+        {page === 'branches' && branches.map((branch) => <tr key={branch.id}><td><strong>{branch.name}</strong></td><td>{branch.timezone}</td><td>{branch.active ? t.active : t.inactive}<button className="link" data-hours-open={branch.id} onClick={()=>setHoursResource({scope:'BRANCH',id:branch.id,name:branch.name})}>{locale==='ar'?'إعداد ساعات العمل':locale==='fr'?'Configurer les horaires':'Configure working hours'}</button></td></tr>)}
         {page === 'users' && users.map((item) => <tr key={item.id}><td><strong>{item.name}</strong></td><td>{item.email}</td><td>{item.role}</td><td>{branches.find((branch) => branch.id === item.branch_id)?.name || '—'}</td><td>{item.credential_state === 'INVITED' ? t.invited : item.active ? t.active : t.inactive}</td><td>{item.id !== user.id && (isAdmin || (item.role === 'AGENT' && item.branch_id === user.branchId)) && <div className="actions">
           {item.active && item.credential_state === 'INVITED' && <button className="link" disabled={busy} onClick={() => void submit(`/api/users/${item.id}/invitation`, {})}>{t.inviteAgain}</button>}
           <button className="link" disabled={busy} onClick={() => { setBusy(true); setError('');
             void api(`/api/users/${item.id}/status`, { method: 'PATCH', body: JSON.stringify({ active: !item.active }) })
-              .then(() => refresh()).catch((failure) => setError(String(failure))).finally(() => setBusy(false)); }}>{item.active ? t.disable : t.enable}</button></div>}</td></tr>)}
+              .then(() => refresh()).catch((failure) => setError(String(failure))).finally(() => setBusy(false)); }}>{item.active ? t.disable : t.enable}</button></div>}{item.role !== 'SUPER_ADMIN' && (isAdmin || item.role === 'AGENT' && item.branch_id === user.branchId) && <button className="link" data-hours-open={item.id} onClick={()=>setHoursResource({scope:'USER',id:item.id,name:item.name})}>{locale==='ar'?'إعداد ساعات العمل':locale==='fr'?'Configurer les horaires':'Configure working hours'}</button>}</td></tr>)}
         </tbody></table></div>{(page === 'leads' ? leads : page === 'campaigns' ? campaigns : page === 'branches' ? branches : users).length === 0 && <div className="empty">{t.noData}</div>}
         {page === 'leads' && nextLeadCursor && <div className="load-more"><button className="secondary" disabled={busy} onClick={() => { setBusy(true);
           api<{ items: Lead[]; nextCursor: string | null }>(`/api/leads?${leadQuery ? leadQuery + '&' : ''}limit=50&cursor=${encodeURIComponent(nextLeadCursor)}`)
