@@ -1,5 +1,16 @@
 # مصفوفة تغطية المتطلبات
 
+## أحدث checkpoint: actual Customer AI Human Handoff requests — 2026-10-11
+
+| المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |
+|---|---|---|
+| 04 §§6–8/21–30،02 §§37/49–50،05 §21 وAGENTS §§8/15/18–26/28–29/38–39: actual requestHumanHandoff/current control/owner separation | Fresh active authenticated admission،separate durable indexed job/current native125–128 receipt/Application Service،WAITING_FOR_HUMAN/NONE وimmutable history/Activity/atomic Audit،current scoped queue/review وexplicit Human acceptance | **171unit،76full Docker PostgreSQL integration،45full Edge Browser** (5.5m) و001–128 development/test/Backend-Web build/typecheck/diff check وfocused PG1/1/Browser1/1 ناجحة. duplicate/concurrency/old-diagnostic denial/native scope/old receipt/deferred proof/own-transaction context change/Audit rollback/retry/current fences/session-revocation race/Super Admin parent-transfer race مثبتة. **Implemented وMock/Sandbox Verified** لهذهالمرحلة فقط |
+| Scoped queue/review/current qualification/immutable request history وUI | Manager ترىUnassigned ضمنفرعها،Agent ترىملكيتها،Backend current session/Lead scope وField masking/aggregate denial وpagination،Human acceptance دونOwner change أوAI auto-reactivation | PG وBrowser تبرهنforeign/second-Agent denial/hidden Fields/queue removal afteracceptance/no-XSS/failed-read clear/ar-en-fr/RTL390px. Direction-only correction أعيدت بعدها focused Browser وWeb build/typecheck؛الصورةالمحدثة فُحصت. لاCustomer send أوPayment/Enrollment action |
+| Full Handoff package/AI summary/current unanswered question/suggested action/approved refs/target routing/availability/SLA/working-hours/escalation وqualification-completion/mandatory triggers | لم تُنفّذ كاملة ضمنمرحلة الطلب | **غيرمكتملة**؛التاليautonomous current summary/package proof/UI،ثمrouting/availability/SLA/triggers قبلcustomer sends وfull AI activation. لاHuman/Copilot session أوdiagnostic proposal كسلطة autonomous،ولااسترخاءfull context بعدown answer write. ليست optional improvements |
+| Live AI والـmodules التالية | النقل الحي وfull activation معطّلتان؛اختباراتProvider synthetic HTTP mocks فقط | **Live Verification Pending External Credential/Approval**. لاLive verification أوfull AI/platform completion claim. بعدHandoff وcustomer messaging يبقىCopilot/Operations/Form/evaluations ثمAutomation/Notifications/Analytics/import/export/Sheets/Email وبقيةالمتطلبات |
+
+التفاصيل في [ai-customer-handoff-actions.md](ai-customer-handoff-actions.md). معرفcheckpoint فيآخرGit commit؛`864431f` والصفوف أدناه تاريخية. Tool catalog/full readiness لا تدعي اكتمالHandoff baseline في هذهالمرحلة.
+
 ## أحدث checkpoint: actual AI Qualification actions — 2026-10-10
 
 | المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |

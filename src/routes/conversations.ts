@@ -4,6 +4,7 @@ import { HttpError, principalFromRequest, requireLead, requireRole } from '../se
 import { resolveConfiguredSender } from '../messaging/sender-resolution.js';
 import { decodeCursor, encodeCursor } from '../pagination.js';
 import { metaMediaCapabilities } from '../media/meta-outbound.js';
+import { currentPaymentSession } from '../payments/access.js';
 
 function withMediaRules(row:Record<string,unknown>) {
   const { sender_provider,...conversation }=row;
@@ -206,6 +207,12 @@ export function registerConversationRoutes(app: FastifyInstance, db: Database): 
       const actor = await principalFromRequest(request, db);
       if (!request.body.reason.trim()) throw new HttpError(400, 'TAKEOVER_REASON_REQUIRED');
       return db.begin(async (tx) => {
+        const branch = (await tx`SELECT b.id,b.active FROM branch b JOIN lead l ON l.branch_id=b.id JOIN conversation cv ON cv.lead_id=l.id
+          WHERE cv.id=${request.params.id} AND l.organization_id=${actor.organizationId}
+            AND (${actor.role === 'SUPER_ADMIN'} OR l.branch_id=${actor.branchId})
+            AND (${actor.role !== 'AGENT'} OR l.assigned_agent_id=${actor.id}) FOR SHARE OF b`)[0];
+        if (!branch) throw new HttpError(404, 'CONVERSATION_NOT_FOUND');
+        if (!branch.active) throw new HttpError(409, 'BRANCH_DISABLED');
         const lead = (await tx`SELECT l.id, l.branch_id FROM conversation cv
           JOIN lead l ON l.id = cv.lead_id WHERE cv.id = ${request.params.id}
             AND l.organization_id = ${actor.organizationId}
@@ -214,13 +221,15 @@ export function registerConversationRoutes(app: FastifyInstance, db: Database): 
               (${actor.role === 'AGENT'} AND l.assigned_agent_id = ${actor.id}))
           FOR UPDATE OF l`)[0];
         if (!lead) throw new HttpError(404, 'CONVERSATION_NOT_FOUND');
+        if (lead.branch_id !== branch.id) throw new HttpError(409, 'CONVERSATION_CONTEXT_CHANGED');
         const cv = (await tx`SELECT id, state, version, controller_type, controller_user_id,
             needs_attention_reason FROM conversation WHERE id = ${request.params.id} FOR UPDATE`)[0]!;
+        if (!await currentPaymentSession(tx, actor, request)) throw new HttpError(403, 'CONVERSATION_ACCESS_REVOKED');
         if (cv.state === 'CLOSED') throw new HttpError(409, 'CONVERSATION_CLOSED');
         if (cv.version !== request.body.version) throw new HttpError(409, 'CONVERSATION_VERSION_CONFLICT');
         if (cv.controller_type === 'HUMAN' && cv.controller_user_id === actor.id
           && cv.state === 'HUMAN_ACTIVE') return { state: cv.state, version: cv.version, existing: true };
-        const attention = ['NO_HUMAN_CONTROLLER','AI_PROCESSING_NOT_READY','AI_CUSTOMER_CONTEXT_TOO_LARGE','AI_QUEUE_BACKPRESSURE'].includes(cv.needs_attention_reason)
+        const attention = ['NO_HUMAN_CONTROLLER','AI_PROCESSING_NOT_READY','AI_CUSTOMER_CONTEXT_TOO_LARGE','AI_QUEUE_BACKPRESSURE','AI_HUMAN_HANDOFF_REQUESTED'].includes(cv.needs_attention_reason)
           ? null : cv.needs_attention_reason;
         const changed = (await tx`UPDATE conversation SET controller_type = 'HUMAN',
           controller_user_id = ${actor.id}, state = 'HUMAN_ACTIVE',

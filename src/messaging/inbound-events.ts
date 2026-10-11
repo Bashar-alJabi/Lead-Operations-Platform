@@ -287,7 +287,8 @@ export async function processInboundEvent(tx: postgres.TransactionSql, eventId: 
     lead_id = ${leadId}, conversation_id = ${conversationId}, resolved_by = ${decision?.actor.id ?? null},
     resolved_at = now() WHERE id = ${event.id}`;
   // Preserve active AI only for a newly eligible implemented tool path. Diagnostic attention never grants execution.
-  const admitted = (await tx`SELECT ai_qualification_admissible(ai_customer_proposal_context(${event.id})) AS allowed`)[0]!.allowed;
+  const admitted = (await tx`WITH source AS (SELECT ai_customer_proposal_context(${event.id}) AS context)
+    SELECT ai_qualification_admissible(context) OR ai_handoff_admissible(context) AS allowed FROM source`)[0]!.allowed;
   if (!admitted) await tx`UPDATE conversation SET
     needs_attention_reason = CASE WHEN controller_type = 'AI' THEN 'AI_PROCESSING_NOT_READY'
       ELSE needs_attention_reason END,

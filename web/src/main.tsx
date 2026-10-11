@@ -13,6 +13,7 @@ import { LeadCustomerOperations } from './LeadCustomerOperations.js';
 import { MetaSourceSetup } from './MetaSourceSetup.js';
 import { PaymentSetup } from './PaymentSetup.js';
 import { AISetup } from './AISetup.js';
+import { AIHumanHandoffQueue } from './AIHumanHandoffQueue.js';
 import { LeadPaymentMethods } from './PaymentMethods.js';
 
 type Role = 'SUPER_ADMIN' | 'MANAGER' | 'AGENT';
@@ -383,6 +384,7 @@ function App() {
              {form.campaignId && <LeadCreationFields campaignId={form.campaignId} locale={locale} api={api} values={leadFieldValues} onChange={setLeadFieldValues} />}</>}
           {page === 'users' && <>{field('name', t.name)}{field('email', t.email, 'email')}{select('role', t.role, (isAdmin ? ['SUPER_ADMIN','MANAGER','AGENT'] : ['AGENT']).map((value) => ({ value, text: value })))}{form.role !== 'SUPER_ADMIN' && select('branchId', t.branch, branchOptions)}</>}
           <button disabled={busy}>{t.save}</button></form></section>}
+      {page === 'leads' && <AIHumanHandoffQueue locale={locale} api={api} onOpenLead={id => setSelectedLead(id)} />}
       <section className="panel table-panel"><div className="table-scroll"><table><thead><tr>{page === 'leads' ? <>{canManage && <th>{locale === 'ar' ? 'تحديد' : locale === 'fr' ? 'Choisir' : 'Select'}</th>}{leadColumns.map((column) =>
         <th key={column}>{leadColumnLabels[column]}</th>)}<th>{t.actions}</th></> :
         page === 'campaigns' ? <><th>{t.name}</th><th>{t.branch}</th><th>{t.status}</th><th>{t.routing}</th><th>{t.actions}</th></> :

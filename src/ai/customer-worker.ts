@@ -28,6 +28,8 @@ export async function enqueueCustomerProposal(tx: postgres.TransactionSql, event
     VALUES(${s.organizationId},${s.branchId},${s.campaignId},${s.leadId},${s.conversationId},${eventId},${context.source.messageId},${tx.json(context)},'') ON CONFLICT(event_id) DO NOTHING RETURNING id`)[0] ?? null;
   if (proposal && (await tx`SELECT ai_qualification_admissible(${tx.json(context)}) AS allowed`)[0]!.allowed)
     await tx`INSERT INTO ai_customer_action_admission(proposal_id,event_id,context) VALUES(${proposal.id},${eventId},${tx.json(context)})`;
+  if (proposal && (await tx`SELECT ai_handoff_admissible(${tx.json(context)}) AS allowed`)[0]!.allowed)
+    await tx`INSERT INTO ai_customer_handoff_admission(proposal_id,event_id,context) VALUES(${proposal.id},${eventId},${tx.json(context)})`;
   return proposal;
 }
 export async function processOneAICustomerProposal(db: Database, options: { adapters?: AIInferenceRegistry; leaseSeconds?: number; retryDelaySeconds?: number } = {}): Promise<boolean> {
@@ -80,11 +82,14 @@ export async function processOneAICustomerProposal(db: Database, options: { adap
     await tx`UPDATE ai_customer_proposal SET state=${state},result=${state === 'PROPOSED' ? tx.json({ ...result!, protocolVersion: 1, toolsExecuted: [], sendAllowed: false, mutationsAllowed: false }) : null},
       error_code=${block ?? failure?.code ?? null},provider_invoked=provider_invoked OR ${invoked},completed_lease_token=${token},lease_token=NULL,lease_until=NULL,
       available_at=clock_timestamp()+(${delay ?? Math.min(300, 2 ** held.attempt_count)}*interval '1 second'),version=version+1 WHERE id=${row.id}`;
-    if (state === 'FAILED' || state === 'BLOCKED' || state === 'PROPOSED' && result!.decision !== 'QUALIFICATION')
+    if (state === 'FAILED' || state === 'BLOCKED' || state === 'PROPOSED')
       await tx`UPDATE conversation cv SET state='AI_HANDOFF_REQUIRED',needs_attention_reason='AI_PROCESSING_NOT_READY'
         WHERE cv.id=${row.conversation_id} AND cv.controller_type='AI' AND cv.state IN ('AI_ACTIVE','AI_WAITING_FOR_LEAD') AND cv.needs_attention_reason IS NULL
           AND ${row.message_id}::uuid=(SELECT id FROM conversation_message WHERE conversation_id=cv.id ORDER BY created_at DESC,id DESC LIMIT 1)
-          AND EXISTS(SELECT 1 FROM ai_customer_action_admission WHERE proposal_id=${row.id})`;
+          AND (EXISTS(SELECT 1 FROM ai_customer_action_admission WHERE proposal_id=${row.id})
+            OR EXISTS(SELECT 1 FROM ai_customer_handoff_admission WHERE proposal_id=${row.id}))
+          AND NOT (${state === 'PROPOSED' && result?.decision === 'HANDOFF'} AND EXISTS(SELECT 1 FROM ai_customer_handoff_admission WHERE proposal_id=${row.id}))
+          AND NOT (${state === 'PROPOSED' && result?.decision === 'QUALIFICATION'} AND EXISTS(SELECT 1 FROM ai_customer_action_admission WHERE proposal_id=${row.id}))`;
   });
   return true;
 }

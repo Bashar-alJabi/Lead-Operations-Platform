@@ -1,5 +1,9 @@
 # المعمارية التقنية
 
+## Customer AI Human Handoff actions — 2026-10-11
+
+Native125–128 تضيف fresh autonomous Handoff admission/indexed durable job/current immutable action receipt وatomic CV/history/Audit proof مستقلة عنQualification وHuman/Copilot. current full-context locks تحتShort DB transaction؛لاLocks عبرHTTP أوfake employee/old diagnostic authorization. APPLIED تنتقلإلىWAITING_FOR_HUMAN/NONE معManager attention وOwner/pin محفوظين. Scoped waiting queue/review تستخدمcurrentLead/session/Field masking؛explicit Human takeover تعيدcurrentsession بعدCV lock ولا تعيدAI تلقائيًا. التفاصيل والحدود في[ai-customer-handoff-actions.md](ai-customer-handoff-actions.md). Handoff package/summary/routing/availability/SLA/qualification-completion triggers وfullruntime/live transfer تبقىغيرمكتملة؛هذهمرحلةمنHandoff وليستإكمالالوحدة.
+
 ## Actual AI Qualification — 2026-10-10
 
 إذن التنفيذ مستقل عن Human/Copilot/PROPOSED. Native117–124 تربط fresh authenticated inbound وcurrent AI control وApproved tool بـimmutable admission؛ بعد validated proposal تُدرج pending action job مفهرسة. Typed Application Service تعيد current full context وCAS تحت Job→Branch→Campaign→Lead→Contact→Conversation/dependency locks، ثم receipt/Field source=AI/answer/history/Audit/Job DONE في transaction واحدة مع deferred proof. Contact fence تحمي first Consent INSERT عبرLead مشتركة؛ delayed provider timestamp أقدم لا يمنح Action لاستبدال إجابة أحدث. لا locks عبر HTTP، ولا fake employee أوpublic write endpoint أوPayment/Enrollment/send. Current Human permission/session guards محفوظة. التفاصيل في [ai-qualification-actions.md](ai-qualification-actions.md). Live transfer وfull activation مازالا محجوبين؛ التالي actual Human Handoff/package/SLA ثمCentral Messaging Policy وسائر AI.

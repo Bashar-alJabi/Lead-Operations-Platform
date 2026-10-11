@@ -6,6 +6,7 @@ import { MessageSourceReference, type SourceReference } from './MessageSourceRef
 import { ConversationSummarySource } from './ConversationSummarySource';
 import { ConversationCampaignKnowledge } from './ConversationCampaignKnowledge';
 import { ConversationAIHistory } from './ConversationAIHistory';
+import { ConversationAIHandoffs } from './ConversationAIHandoffs';
 
 type Api = <T>(path: string, options?: RequestInit) => Promise<T>;
 type Locale = 'ar'|'fr'|'en';
@@ -336,6 +337,7 @@ export function LeadConversations({ leadId, lifecycle, role, actorId, locale, ap
       <ConversationSummarySource key={selectedId} conversationId={selectedId} locale={locale} api={api} humanActive={selected?.controller_type==='HUMAN' && selected?.state==='HUMAN_ACTIVE'} revision={messages.map(m=>m.id+':'+m.delivery_state).join(',')} />
       <ConversationCampaignKnowledge key={'knowledge-'+selectedId} conversationId={selectedId} locale={locale} api={api} humanActive={selected?.controller_type==='HUMAN' && selected?.state==='HUMAN_ACTIVE'} />
       <ConversationAIHistory key={'ai-history-'+selectedId} conversationId={selectedId} locale={locale} api={api} />
+      <ConversationAIHandoffs key={'ai-handoffs-'+selectedId} conversationId={selectedId} locale={locale} api={api} />
       <ul className="conversation-messages">{messages.map((message) => <li key={message.id} id={'message-'+message.id}>
         <strong>{message.direction === 'INBOUND' ? t.customer : message.author_type}</strong>
         {' · '}{message.message_kind}{' · '}{message.delivery_state}{message.last_error_code && ` · ${message.last_error_code}`}

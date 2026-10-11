@@ -1,5 +1,11 @@
 # دليل التشغيل والتطوير
 
+## Customer AI Human Handoff — migrations125–128
+
+هيّئApproved requestHumanHandoff منCampaign AI حسبالصلاحيات. حفظpolicy لايفعّلAI،وlive data transfer تبقىمعطلة. worker:ai يعالجHANDOFF proposal ذاتfresh admission عبرindexed durable job وcurrent native receipt ثمWAITING_FOR_HUMAN/NONE/history/Audit. Audit failure يعيدكلالكتابةويبقىJob منتظرًا؛context change تنتجBLOCKED دونتغييرConversation ولاreplay. صححالإعداد عبرالمنصةواستخدمcurrent Human takeover أوfresh inbound بعدتصحيحالإعداد؛لاتعدّلDB لتزويرadmission/receipt/session.
+
+راجعقائمةAI conversations awaiting a human فيصفحةLeads. Manager ترىUnassigned ضمنفرعها؛Agent ترىملكيتها. افتحLead→Conversation→Handoff requests للتاريخوسؤالالعميلعندالطلبوQualification الحاليةحسبField permissions. تولّيالمحادثةبسببواضحوقيمتهاالحاليةيقبلHuman control صراحةً؛لاCustomer transition message أوتغييرOwner آليفيهذهالمرحلة. 409تحتاجreload،وrevoked/disabled session أوBranch لا تقبلtakeover. Summary package/target routing/SLA/escalation مازالتمتطلباتغيرمنفذة،ولايُدعىاكتمالHandoff. تفاصيلالعقدفي[ai-customer-handoff-actions.md](ai-customer-handoff-actions.md).
+
 ## Actual AI Qualification — migrations117–124
 
 تهيئة الأداة من Campaign AI → Approved Tools عبر Manager الفرع أوSuper Admin، مع Qualification mapping وusableByAI وPublished Knowledge وConversation Profile الحالية. حفظ policy لا يفعّل AI؛ full runtime/activation وlive data transfer مازالا محجوبين. تستخدم هذه المرحلة HTTP mocks وبيانات اصطناعية فقط في الاختبارات المعزولة.
