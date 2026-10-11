@@ -5,8 +5,30 @@ import { currentPaymentSession } from '../payments/access.js';
 import { approvedConversationReadContext } from '../ai/copilot-context.js';
 import { decodeCursor, encodeCursor } from '../pagination.js';
 import { readHumanQualificationState, humanQualificationDTO } from '../ai/human-qualification.js';
+import { enqueueHandoffSummary } from '../ai/handoff-summary.js';
 
 export function registerAICustomerHistoryRoutes(app: FastifyInstance, db: Database) {
+  app.post<{ Params: { id: string }; Body: { requestId: string } }>('/api/conversations/:id/ai-handoff-summary', {
+    schema: { params: { type: 'object', additionalProperties: false, required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
+      body: { type: 'object', additionalProperties: false, required: ['requestId'], properties: { requestId: { type: 'string', format: 'uuid' } } } },
+  }, async (request, reply) => {
+    const actor = await principalFromRequest(request, db);
+    return db.begin(async tx => {
+      const initial = (await tx`SELECT l.branch_id FROM conversation cv JOIN lead l ON l.id=cv.lead_id WHERE cv.id=${request.params.id}
+        AND l.organization_id=${actor.organizationId} AND (${actor.role === 'SUPER_ADMIN'} OR l.branch_id=${actor.branchId}) AND (${actor.role !== 'AGENT'} OR l.assigned_agent_id=${actor.id})`)[0];
+      if (!initial) throw new HttpError(404, 'CONVERSATION_NOT_FOUND');
+      await tx`SELECT id FROM branch WHERE id=${initial.branch_id} FOR UPDATE`;
+      const session = await currentPaymentSession(tx, actor, request);
+      if (!session) throw new HttpError(403, 'AI_HANDOFF_ACCESS_REVOKED');
+      const access = await approvedConversationReadContext(tx, actor, request.params.id, session);
+      if (access.lead.branch_id !== initial.branch_id) throw new HttpError(409, 'AI_HANDOFF_SUMMARY_CONTEXT_CHANGED');
+      const current = (await tx`SELECT ai_handoff_action_id FROM conversation WHERE id=${request.params.id}`)[0];
+      if (!current?.ai_handoff_action_id) throw new HttpError(409, 'AI_HANDOFF_SUMMARY_CURRENT_ADMISSION_REQUIRED');
+      const result = await enqueueHandoffSummary(tx, current.ai_handoff_action_id, request.body.requestId, actor.id, session);
+      if (!result) throw new HttpError(409, 'AI_HANDOFF_SUMMARY_CURRENT_ADMISSION_REQUIRED');
+      reply.code(result.duplicate ? 200 : 202); return result;
+    });
+  });
   app.get<{ Querystring: { limit?: number; cursor?: string } }>('/api/ai/human-handoff-queue', {
     schema: { querystring: { type: 'object', additionalProperties: false, properties: { limit: { type: 'integer', minimum: 1, maximum: 50 }, cursor: { type: 'string', maxLength: 256 } } } },
   }, async request => {
@@ -45,10 +67,27 @@ export function registerAICustomerHistoryRoutes(app: FastifyInstance, db: Databa
       const current = (await tx`SELECT cv.state,cv.controller_type,cv.controller_user_id,cv.version,cv.ai_handoff_action_id,l.assigned_agent_id,l.source_kind,c.name AS campaign_name
         FROM conversation cv JOIN lead l ON l.id=cv.lead_id JOIN campaign c ON c.id=l.campaign_id WHERE cv.id=${request.params.id}`)[0]!;
       const qualification = humanQualificationDTO(await readHumanQualificationState(tx, actor, { id: access.lead.id as string, campaign_id: access.lead.campaign_id as string }, access.b.active));
+      const summaries = await tx`SELECT s.id,s.action_id,s.state,s.error_code,s.created_at,s.completed_at,s.attempt_count,s.result,s.context->'summaryContext'->'truncated' AS truncated,
+          s.context->'sourceContext'->'knowledge'->'version' AS knowledge_version,s.context->'profile'->>'id' AS profile_id,
+          s.context IS DISTINCT FROM ai_handoff_summary_context(s.action_id) AS stale
+        FROM ai_handoff_summary s WHERE s.conversation_id=${request.params.id} AND s.lead_id=${access.lead.id} AND s.campaign_id=${access.lead.campaign_id}
+        ORDER BY s.created_at DESC,s.id DESC LIMIT 5`;
+      // Transport evidence, not a claim that a semantic answer was satisfactory. FAILED/QUEUED never count as a reply.
+      const awaiting = (await tx`SELECT m.id,m.body,m.message_kind,m.created_at FROM conversation_message m WHERE m.conversation_id=${request.params.id}
+        AND m.direction='INBOUND' AND m.author_type='CUSTOMER' AND NOT EXISTS(SELECT 1 FROM conversation_message o WHERE o.conversation_id=m.conversation_id
+          AND o.direction='OUTBOUND' AND o.delivery_state IN ('SENT','DELIVERED','READ') AND (o.created_at,o.id)>(m.created_at,m.id))
+        ORDER BY m.created_at DESC,m.id DESC LIMIT 1`)[0] ?? null;
+      const publication = (await tx`SELECT version,ai_simulation_references(jsonb_build_object('content',content,'assets',COALESCE((SELECT jsonb_agg(pa.snapshot ORDER BY pa.asset_id)
+        FROM ai_knowledge_publication_asset pa JOIN ai_knowledge_asset ka ON ka.id=pa.asset_id JOIN ai_knowledge_asset_approval ap ON ap.asset_id=ka.id
+        WHERE pa.campaign_id=kp.campaign_id AND pa.version=kp.version AND ka.state='REVIEW' AND ap.decision='APPROVED'),'[]'))) AS references
+        FROM ai_knowledge_publication kp WHERE campaign_id=${access.lead.campaign_id} ORDER BY version DESC LIMIT 1`)[0] ?? null;
+      const refreshAvailable = !!current.ai_handoff_action_id && !!(await tx`SELECT ai_handoff_summary_context(${current.ai_handoff_action_id}) IS NOT NULL AS available`)[0]?.available;
       const items = rows.slice(0, limit), last = items.at(-1);
       await tx`INSERT INTO audit_log(organization_id,branch_id,actor_user_id,action,target_type,target_id,detail)
         VALUES(${actor.organizationId},${access.lead.branch_id},${actor.id},'AI_HUMAN_HANDOFF_HISTORY_READ','CONVERSATION',${request.params.id},${tx.json({ count: items.length })})`;
-      return { items, current, qualification, nextCursor: rows.length > limit && last ? encodeCursor({ timestamp: last.created_at.toISOString(), id: last.id }) : null };
+      return { items, current, qualification, package: { summaries, awaitingCustomerMessage: awaiting, publication, refreshAvailable,
+        suggestedNextAction: current.state === 'WAITING_FOR_HUMAN' ? 'REVIEW_AND_ACCEPT_HUMAN_CONTROL' : current.controller_type === 'HUMAN' ? 'REVIEW_AND_RESPOND_AS_CURRENT_CONTROLLER' : 'REVIEW_CURRENT_CONTROL',
+        liveTransferEnabled: false }, nextCursor: rows.length > limit && last ? encodeCursor({ timestamp: last.created_at.toISOString(), id: last.id }) : null };
     });
   });
   app.get<{ Params: { id: string }; Querystring: { limit?: number; cursor?: string } }>('/api/conversations/:id/ai-customer-executions', {

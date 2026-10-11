@@ -25,7 +25,8 @@ test('Actual customer AI Handoff transitions durably to Human waiting with scope
     const connection = await manager.request.post('/api/ai/connections', { headers: { origin }, data: { name: 'Browser Proposal Connection', branchId: me.branchId, provider: 'OPENAI', credential: 'BrowserSyntheticAI_CustomerProposal12345', reason: 'Isolated synthetic runtime' } }); expect(connection.status()).toBe(201); const cid = (await connection.json()).id;
     expect((await manager.request.post('/api/ai/connections/' + cid + '/test', { headers: { origin }, data: { version: 1 } })).status()).toBe(200);
     const profile = await manager.request.post('/api/ai/profiles', { headers: { origin }, data: { connectionId: cid, name: 'Browser Proposal Model', task: 'CONVERSATION', modelId: 'Browser-synthetic-model-a', maxOutputTokens: 1024, active: true, reason: 'Current managed Conversation profile' } }); expect(profile.status()).toBe(201); const pid = (await profile.json()).id;
-    expect((await manager.request.put('/api/ai/campaigns/' + campaign + '/configuration', { headers: { origin }, data: { version: 0, definition: { ...emptyAIOperationalConfig(), profiles: { ...emptyAIOperationalConfig().profiles, CONVERSATION: pid }, language: { supported: ['en', 'ar', 'fr'], preferred: 'ar', detect: true } }, reason: 'Campaign-specific runtime isolation' } })).status()).toBe(200);
+    const sumProfile = await manager.request.post('/api/ai/profiles', { headers: { origin }, data: { connectionId: cid, name: 'Browser Handoff Summary', task: 'SUMMARIZATION', modelId: 'Browser-synthetic-model-a', maxOutputTokens: 1024, active: true, reason: 'Separate summary task' } }); expect(sumProfile.status()).toBe(201); const sumPid = (await sumProfile.json()).id;
+    expect((await manager.request.put('/api/ai/campaigns/' + campaign + '/configuration', { headers: { origin }, data: { version: 0, definition: { ...emptyAIOperationalConfig(), profiles: { ...emptyAIOperationalConfig().profiles, CONVERSATION: pid, SUMMARIZATION: sumPid }, language: { supported: ['en', 'ar', 'fr'], preferred: 'ar', detect: true } }, reason: 'Campaign-specific runtime isolation' } })).status()).toBe(200);
     const control = (data: object) => manager.request.post('/__test__/ai-customer-proposal', { headers: { origin, authorization: 'Bearer ' + fixture.testToken }, data: { conversationId: cv, ...data } });
     const tools = '/api/ai/campaigns/' + campaign + '/tool-policy';
     expect((await manager.request.put(tools, { headers: { origin }, data: { version: 0, definition: { allowedTools: ['requestHumanHandoff'] }, reason: 'Explicit current Handoff approval' } })).status()).toBe(200);
@@ -45,6 +46,16 @@ test('Actual customer AI Handoff transitions durably to Human waiting with scope
     await queue.getByRole('button', { name: 'Open Lead for review', exact: true }).click(); await expect(manager.getByRole('heading', { name: 'Browser AI Handoff Action Customer', exact: true })).toBeVisible();
     await history.getByRole('button', { name: 'Review AI executions', exact: true }).click(); await expect(history).toContainText('requestHumanHandoff'); await expect(history).toContainText('APPLIED');
     await review.getByRole('button', { name: 'Review handoff requests', exact: true }).click(); await expect(review).toContainText('WAITING_FOR_HUMAN'); await expect(review).toContainText('UNKNOWN_ANSWER'); await expect(review).toContainText(question);
+    const pack = review.locator('[data-ai-handoff-package]'), summaryControl = () => manager.request.post('/__test__/ai-handoff-summary', { headers: { origin, authorization: 'Bearer ' + fixture.testToken } });
+    expect((await page.request.post('/__test__/ai-handoff-summary')).status()).toBe(403);
+    await expect(pack.locator('[data-ai-handoff-summary]')).toContainText('QUEUED'); expect((await summaryControl()).status()).toBe(200);
+    await review.getByRole('button', { name: 'Review handoff requests', exact: true }).click(); await expect(pack.locator('[data-ai-handoff-summary]')).toContainText('COMPLETED'); await expect(pack).toContainText('INBOUND / CUSTOMER / RECEIVED');
+    expect((await second.request.post('/api/conversations/' + cv + '/ai-handoff-summary', { headers: { origin }, data: { requestId: randomUUID() } })).status()).toBe(404);
+    expect((await inbound('New unanswered package question')).status()).toBe(200);
+    await review.getByRole('button', { name: 'Review handoff requests', exact: true }).click(); await expect(pack).toContainText('Historical summary'); await expect(pack).toContainText('New unanswered package question');
+    await pack.getByRole('button', { name: 'Refresh handoff summary', exact: true }).click(); await expect(pack.locator('[data-ai-handoff-summary]').first()).toContainText('QUEUED'); expect((await summaryControl()).status()).toBe(200);
+    await review.getByRole('button', { name: 'Review handoff requests', exact: true }).click(); await expect(pack.locator('[data-ai-handoff-summary]').first()).toContainText('COMPLETED');
+    await pack.getByText('Current published knowledge references', { exact: false }).click(); await expect(pack).toContainText(approved);
     expect(await review.locator('img').count()).toBe(0); expect(await page.evaluate(() => Object.hasOwn(window, '__handoffXss'))).toBe(false);
     expect((await second.request.get(reviewRoot)).status()).toBe(404); expect((await second.request.get(root)).status()).toBe(404);
     const entry = (await (await page.request.get(root)).json()).items[0]; expect(entry.toolsExecuted).toEqual(['requestHumanHandoff']); expect(entry.action.context).toBeUndefined(); expect(entry.sendAllowed).toBe(false);
@@ -53,7 +64,10 @@ test('Actual customer AI Handoff transitions durably to Human waiting with scope
     expect((await second.request.post('/api/conversations/' + cv + '/takeover', { headers: { origin }, data: { version: waiting.version, reason: 'No access to this owner' } })).status()).toBe(404);
     expect((await page.request.post('/api/conversations/' + cv + '/takeover', { headers: { origin }, data: { version: waiting.version - 1, reason: 'Stale takeover' } })).status()).toBe(409);
     await page.getByLabel('Takeover reason', { exact: true }).fill('Explicit Human acceptance'); await page.getByRole('button', { name: 'Take over conversation', exact: true }).click();
-    await expect(page.getByText('HUMAN_ACTIVE', { exact: false }).first()).toBeVisible(); await review.getByRole('button', { name: 'Review handoff requests', exact: true }).click(); await expect(review).toContainText('HUMAN_ACTIVE'); await expect(review).toContainText(question);
+    await expect(page.getByText('HUMAN_ACTIVE', { exact: false }).first()).toBeVisible(); await expect(pack).toHaveCount(0);
+    await review.getByRole('button', { name: 'Review handoff requests', exact: true }).click(); await expect(review).toContainText('HUMAN_ACTIVE'); await expect(review).toContainText(question);
+    await expect(pack.getByRole('button', { name: 'Refresh handoff summary', exact: true })).toHaveCount(0); await expect(pack).toContainText('Historical summary');
+    expect((await page.request.post('/api/conversations/' + cv + '/ai-handoff-summary', { headers: { origin }, data: { requestId: randomUUID() } })).status()).toBe(409);
     expect((await (await manager.request.get('/api/ai/human-handoff-queue')).json()).items).toEqual([]);
     // Permission changes between proposal and action block the transition.
     expect((await inbound('Unknown revoked tool', true)).status()).toBe(200); expect((await control({ process: true })).status()).toBe(200);

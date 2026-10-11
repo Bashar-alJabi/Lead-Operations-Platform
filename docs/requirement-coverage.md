@@ -1,5 +1,16 @@
 # مصفوفة تغطية المتطلبات
 
+## أحدث checkpoint: Handoff summary/package — 2026-10-11
+
+| المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |
+|---|---|---|
+| 04 §§29/85،05 Campaign isolation وAGENTS §§19–26/28–29: autonomous Handoff summary | Native129–131 current receipt admission/SUMMARIZATION snapshot،dedicated bounded lease/retry worker،native result/current fences/history/atomic Audit؛initial actor/session=NULL وrefresh بصلاحية/session حقيقيتين | **171unit،76full Docker PostgreSQL integration،45full Edge Browser** (5.2m)،001–131 development/test وBackend/Web build/typecheck؛focused PG/Browser1/1. **Implemented وMock/Sandbox Verified** لهذهالمرحلة؛لاsend أوField/Payment/Enrollment action |
+| 04 §29: Handoff review package/current source/Qualification/missing/Campaign/source/reason/next action/approved refs | Scoped API/UI تعرضآخر5summary traces/generated/stale/truncated،current transport-derived input awaiting a sent reply،current Published refs وcurrent Field-masked Qualification؛full conversation موجودةبـpagination؛suggestion deterministic بحسبcontroller | PG وBrowser تبرهنforeign/nonowner denial/immutable/native old admission denial/duplicate workers/lease replacement/Audit rollback/retry/invalid evidence/sensitive omission/current real-session وPublished fences/missing Profile-safe stop/no-XSS/ar-en-fr/RTL. بعدfull Browser أضيفمسحالحزمةعندcontroller/version/messages change وأعيدfocused Browser وWeb build/typecheck وBackend typecheck؛الصورةفُحصت. Source indicator لايحكملغويًا علىجودةالجواب،وrefs متاحةلاكذب relevance |
+| Full Handoff routing/availability/target/SLA/working-hours/escalation وmandatory/Qualification-completion triggers | لمتكتملضمنsummary/package checkpoint | **غيرمكتملة ومطلوبةتاليًا**؛Owner منفصلةعنController،ولاold diagnostic/readonly artifact كإذنautonomous. Full Handoff catalog/runtime readiness تبقىblocked |
+| Live AI وبقيةModules | Live transport/full activation معطّلان؛Provider tests synthetic HTTP mocks فقط | **Live Verification Pending External Credential/Approval**. لاLive verification أوFull AI/platform completion. التاليHandoff baseline ثمCustomer messaging وبقيةAI/Operations/Form/evals ثمAutomation/Notifications/Analytics/import/export/Sheets/Email وبقيةالنطاق |
+
+العقدفي[ai-handoff-summary-package.md](ai-handoff-summary-package.md). معرفcheckpoint فيآخرGit commit؛`c4bbc03` والصفوفأدناهحالاتتاريخية.
+
 ## أحدث checkpoint: actual Customer AI Human Handoff requests — 2026-10-11
 
 | المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |

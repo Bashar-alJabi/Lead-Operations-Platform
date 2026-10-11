@@ -1,10 +1,16 @@
 # دليل التشغيل والتطوير
 
+## Handoff review package — migrations129–131
+
+من AI Connections/Profiles اختر Profile من task SUMMARIZATION،ثم Branch defaults أوCampaign configuration حسب الصلاحية. لا يفعّل ذلك live data transfer. بعدactual AI Handoff ينتظرsummary job مستقلة؛worker:ai يعالجها دون تغيير Owner/controller أوإرسالCustomer message. راجع Lead→Conversation→Handoff requests لحالة الملخص/generated time/stale/truncation،والرسالة المنتظرة للرد وcurrent Published refs وQualification الناقصة حسبالصلاحيات. استخدم message pagination للمصدرالكامل.
+
+`AI_LIVE_DATA_TRANSFER_DISABLED` متوقعةفيهذهالمرحلة: النقل الحي معطّل،وتحققProvider synthetic HTTP mocks فقط. Missing Profile لايؤخرHuman acceptance. Refresh متاحةفقطللـcurrent waiting Handoff وموظفمخوّل؛لا تعدّلDB أوterminal traces لإعادتها. Pending refresh تعيدjob الموجودة؛terminal trace محفوظة،والطلبالجديد ينشئsnapshot جديدة. Provider transient failures يعادمحاولة5مراتحتى300sdelay؛RUNNING expired lease قابلةللاستعادة. Context/session/Profile/grant/Published/Owner/controller changes تؤديBLOCKED وتحتاجcurrent review،ولاauto-reactivation للـAI. `AI_RETRY_EXHAUSTED` أوFAILED يمكنمراجعتهاثمطلبrefresh بصلاحيةحقيقية بينماالحالةwaiting. Human acceptance تبقىمستقلةعنالملخص؛بعدهاHuman Copilot لهاworkflow منفصلة. التفاصيلفي[ai-handoff-summary-package.md](ai-handoff-summary-package.md). Routing/SLA/escalation/triggers ليستمكتملةبعد.
+
 ## Customer AI Human Handoff — migrations125–128
 
 هيّئApproved requestHumanHandoff منCampaign AI حسبالصلاحيات. حفظpolicy لايفعّلAI،وlive data transfer تبقىمعطلة. worker:ai يعالجHANDOFF proposal ذاتfresh admission عبرindexed durable job وcurrent native receipt ثمWAITING_FOR_HUMAN/NONE/history/Audit. Audit failure يعيدكلالكتابةويبقىJob منتظرًا؛context change تنتجBLOCKED دونتغييرConversation ولاreplay. صححالإعداد عبرالمنصةواستخدمcurrent Human takeover أوfresh inbound بعدتصحيحالإعداد؛لاتعدّلDB لتزويرadmission/receipt/session.
 
-راجعقائمةAI conversations awaiting a human فيصفحةLeads. Manager ترىUnassigned ضمنفرعها؛Agent ترىملكيتها. افتحLead→Conversation→Handoff requests للتاريخوسؤالالعميلعندالطلبوQualification الحاليةحسبField permissions. تولّيالمحادثةبسببواضحوقيمتهاالحاليةيقبلHuman control صراحةً؛لاCustomer transition message أوتغييرOwner آليفيهذهالمرحلة. 409تحتاجreload،وrevoked/disabled session أوBranch لا تقبلtakeover. Summary package/target routing/SLA/escalation مازالتمتطلباتغيرمنفذة،ولايُدعىاكتمالHandoff. تفاصيلالعقدفي[ai-customer-handoff-actions.md](ai-customer-handoff-actions.md).
+راجعقائمةAI conversations awaiting a human فيصفحةLeads. Manager ترىUnassigned ضمنفرعها؛Agent ترىملكيتها. افتحLead→Conversation→Handoff requests للتاريخوسؤالالعميلعندالطلبوQualification الحاليةحسبField permissions. تولّيالمحادثةبسببواضحوقيمتهاالحاليةيقبلHuman control صراحةً؛لاCustomer transition message أوتغييرOwner آليفيهذهالمرحلة. 409تحتاجreload،وrevoked/disabled session أوBranch لا تقبلtakeover. Summary/package في129–131 موثقةأعلاه؛target routing/SLA/escalation مازالتمتطلباتغيرمنفذة،ولايُدعىاكتمالHandoff. تفاصيلالعقدفي[ai-customer-handoff-actions.md](ai-customer-handoff-actions.md).
 
 ## Actual AI Qualification — migrations117–124
 

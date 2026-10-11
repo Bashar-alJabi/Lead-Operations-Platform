@@ -1,8 +1,12 @@
 # المعمارية التقنية
 
+## Handoff summary/package — 2026-10-11
+
+Native129–131 و`processOneAIHandoffSummary` تفصل autonomous Handoff evidence عن Human Copilot/session authority. Current APPLIED receipt + WAITING_FOR_HUMAN/NONE تقبل initial summary في المعاملة نفسها؛refresh تتطلب real authorized employee/session. Dedicated queue/lease/current pre/post-HTTP context/result proof/history/Audit،مع Profile مستقلة SUMMARIZATION وlive-off قبلsecret/payload. Extractive selector مشتركة على مستوىProvider abstraction فقط؛لاsend/Field/Payment/Enrollment mutation. Scoped package تعرض freshness/current transport-derived unanswered input/current Published refs/Qualification masking/deterministic next action بجانبfull paginated conversation. غيابProfile أوProvider failure لايؤخرsafe Handoff. العقد والحدود في[ai-handoff-summary-package.md](ai-handoff-summary-package.md). Routing/availability/SLA/triggers/full activation مازالت غير مكتملة.
+
 ## Customer AI Human Handoff actions — 2026-10-11
 
-Native125–128 تضيف fresh autonomous Handoff admission/indexed durable job/current immutable action receipt وatomic CV/history/Audit proof مستقلة عنQualification وHuman/Copilot. current full-context locks تحتShort DB transaction؛لاLocks عبرHTTP أوfake employee/old diagnostic authorization. APPLIED تنتقلإلىWAITING_FOR_HUMAN/NONE معManager attention وOwner/pin محفوظين. Scoped waiting queue/review تستخدمcurrentLead/session/Field masking؛explicit Human takeover تعيدcurrentsession بعدCV lock ولا تعيدAI تلقائيًا. التفاصيل والحدود في[ai-customer-handoff-actions.md](ai-customer-handoff-actions.md). Handoff package/summary/routing/availability/SLA/qualification-completion triggers وfullruntime/live transfer تبقىغيرمكتملة؛هذهمرحلةمنHandoff وليستإكمالالوحدة.
+Native125–128 تضيف fresh autonomous Handoff admission/indexed durable job/current immutable action receipt وatomic CV/history/Audit proof مستقلة عنQualification وHuman/Copilot. current full-context locks تحتShort DB transaction؛لاLocks عبرHTTP أوfake employee/old diagnostic authorization. APPLIED تنتقلإلىWAITING_FOR_HUMAN/NONE معManager attention وOwner/pin محفوظين. Scoped waiting queue/review تستخدمcurrentLead/session/Field masking؛explicit Human takeover تعيدcurrentsession بعدCV lock ولا تعيدAI تلقائيًا. التفاصيل والحدود في[ai-customer-handoff-actions.md](ai-customer-handoff-actions.md). Handoff package/summary موثقةفي129–131 أعلاه؛routing/availability/SLA/qualification-completion triggers وfullruntime/live transfer تبقىغيرمكتملة؛هذهمرحلةمنHandoff وليستإكمالالوحدة.
 
 ## Actual AI Qualification — 2026-10-10
 

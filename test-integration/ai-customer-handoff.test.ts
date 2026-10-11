@@ -12,6 +12,7 @@ import { emptyQualification } from '../src/ai/qualification.js';
 import { processOneAICustomerProposal } from '../src/ai/customer-worker.js';
 import { AIInferenceError, aiInferenceAdapters, type AIInferenceRegistry } from '../src/ai/inference-provider.js';
 import { requestAIHumanHandoff, processOneAIHumanHandoff } from '../src/ai/customer-handoff.js';
+import { processOneAIHandoffSummary } from '../src/ai/handoff-summary.js';
 const url = process.env.TEST_DATABASE_URL;
 if (!url || new URL(url).pathname !== '/lead_operations_test') throw new Error('Isolated TEST_DATABASE_URL required');
 
@@ -50,7 +51,9 @@ test('Approved customer AI Handoff owns current authority, durable atomic transi
   assert.equal((await api('POST', '/api/ai/connections/' + aiConnection + '/test', { version: 1 })).statusCode, 200);
   const madeProfile = await api('POST', '/api/ai/profiles', { connectionId: aiConnection, name: 'Conversation', task: 'CONVERSATION', modelId: 'synthetic-conversation-model', maxOutputTokens: 1024, active: true, reason: 'Synthetic Conversation scope' });
   assert.equal(madeProfile.statusCode, 201, madeProfile.body); const profile = madeProfile.json().id;
-  const cfg = { ...emptyAIOperationalConfig(), profiles: { ...emptyAIOperationalConfig().profiles, CONVERSATION: profile } };
+  const sumProfile = await api('POST', '/api/ai/profiles', { connectionId: aiConnection, name: 'Handoff summary', task: 'SUMMARIZATION', modelId: 'synthetic-conversation-model', maxOutputTokens: 1024, active: true, reason: 'Separate summarization task' });
+  assert.equal(sumProfile.statusCode, 201, sumProfile.body);
+  const cfg = { ...emptyAIOperationalConfig(), profiles: { ...emptyAIOperationalConfig().profiles, CONVERSATION: profile, SUMMARIZATION: sumProfile.json().id } };
   assert.equal((await api('PUT', '/api/ai/campaigns/' + campaign + '/configuration', { version: 0, definition: cfg, reason: 'Synthetic current config' })).statusCode, 200);
   const field = (await db`INSERT INTO field_definition(organization_id,branch_id,campaign_id,key,label,field_type) VALUES (${org},${branch},${campaign},'interest','Interest','BOOLEAN') RETURNING id`)[0]!.id;
   await db`INSERT INTO campaign_field(campaign_id,field_id,usable_by_ai) VALUES (${campaign},${field},true)`;
@@ -111,6 +114,100 @@ test('Approved customer AI Handoff owns current authority, durable atomic transi
   await assert.rejects(db`UPDATE conversation_handoff SET reason='forged' WHERE ai_action_id=${action.id}`, /IMMUTABLE/);
   await assert.rejects(db`INSERT INTO conversation(lead_id,connection_id,sender_id,channel,participant_ref,controller_type,state,ai_handoff_action_id)
     VALUES(${lead},${mc},${sender},'WHATSAPP','+15557770000','NONE','WAITING_FOR_HUMAN',${action.id})`, /TRANSITION_PROOF_REQUIRED/);
+  // Handoff summary has its own autonomous proof and never delays the safe stop.
+  const summaryRoot = '/api/conversations/' + cv + '/ai-handoff-summary';
+  const initialSummary = (await db`SELECT * FROM ai_handoff_summary WHERE action_id=${action.id}`)[0]!;
+  assert.equal(initialSummary.actor_id, null); assert.equal(initialSummary.session_id, null); assert.equal(initialSummary.state, 'QUEUED');
+  const key = process.env.CREDENTIAL_ENCRYPTION_KEY; process.env.CREDENTIAL_ENCRYPTION_KEY = 'not-a-key';
+  try { assert.equal(await processOneAIHandoffSummary(db), true); } finally { process.env.CREDENTIAL_ENCRYPTION_KEY = key; }
+  assert.equal((await db`SELECT error_code FROM ai_handoff_summary WHERE id=${initialSummary.id}`)[0]!.error_code, 'AI_LIVE_DATA_TRANSFER_DISABLED');
+  assert.equal((await db`SELECT state FROM conversation WHERE id=${cv}`)[0]!.state, 'WAITING_FOR_HUMAN');
+  await assert.rejects(db`UPDATE ai_handoff_summary SET state='QUEUED',error_code=NULL,version=version+1 WHERE id=${initialSummary.id}`, /TERMINAL/);
+  await assert.rejects(db`DELETE FROM ai_handoff_summary_history WHERE summary_id=${initialSummary.id}`, /IMMUTABLE/);
+  await assert.rejects(db`INSERT INTO ai_handoff_summary(action_id,request_id,organization_id,branch_id,campaign_id,lead_id,conversation_id,context,context_hash)
+    VALUES(${action.id},${randomUUID()},${org},${branch},${campaign},${lead},${cv},${db.json(initialSummary.context)},'')`, /CURRENT_ADMISSION_REQUIRED/);
+  for (const who of ['second', 'other', 'foreign']) assert.equal((await api('POST', summaryRoot, { requestId: randomUUID() }, who)).statusCode, 404);
+  const rid = randomUUID(), queued = await api('POST', summaryRoot, { requestId: rid }, 'agent'); assert.equal(queued.statusCode, 202, queued.body);
+  assert.equal((await api('POST', summaryRoot, { requestId: rid }, 'agent')).json().id, queued.json().id);
+  let summaryCalls = 0;
+  const summaryAdapters: AIInferenceRegistry = { OPENAI: { simulate: async () => { throw Error('Wrong task'); }, summarize: async input => {
+    summaryCalls++; const data = input.data as { references: { id: string; text: string }[] };
+    assert.equal(input.model, 'synthetic-conversation-model'); assert.deepEqual(Object.keys(data).sort(), ['language', 'purpose', 'references']);
+    assert.ok(!JSON.stringify(data).includes(org));
+    return { decision: 'ANSWER', referenceIds: data.references.slice(-8).map(r => r.id), handoffReason: null };
+  } } };
+  const summaryWorkers = await Promise.all(Array.from({ length: 4 }, () => processOneAIHandoffSummary(db, { adapters: summaryAdapters, retryDelaySeconds: 0 })));
+  assert.equal(summaryWorkers.filter(Boolean).length, 1); assert.equal(summaryCalls, 1);
+  const summaryDone = (await db`SELECT * FROM ai_handoff_summary WHERE id=${queued.json().id}`)[0]!;
+  assert.equal(summaryDone.state, 'COMPLETED'); assert.match(summaryDone.result.answer, /INBOUND \/ CUSTOMER \/ RECEIVED/);
+  assert.deepEqual(summaryDone.result.toolsExecuted, []); assert.equal(summaryDone.result.sendAllowed, false);
+  const packageNow = (await api('GET', review, undefined, 'agent')).json().package;
+  assert.equal(packageNow.summaries[0].stale, false); assert.equal(packageNow.summaries[0].context, undefined);
+  assert.equal(packageNow.awaitingCustomerMessage.id, first.message_id); assert.equal(packageNow.publication.version, 1);
+  assert.equal(packageNow.suggestedNextAction, 'REVIEW_AND_ACCEPT_HUMAN_CONTROL');
+  // A new saved inbound changes the package source and marks historical summaries stale.
+  assert.equal((await receive('handoff-package-new', 'Still waiting for the team')).statusCode, 200); assert.equal(await processOneInboundEvent(db), true);
+  const changed = (await api('GET', review)).json().package; assert.equal(changed.summaries[0].stale, true); assert.equal(changed.awaitingCustomerMessage.body, 'Still waiting for the team');
+  const refresh = async () => { const r = await api('POST', summaryRoot, { requestId: randomUUID() }, 'agent'); assert.equal(r.statusCode, 202, r.body); return r.json().id; };
+  const invalid = await refresh();
+  assert.equal(await processOneAIHandoffSummary(db, { adapters: { OPENAI: { simulate: async () => null, summarize: async () => ({ decision: 'ANSWER', referenceIds: ['invented'], handoffReason: null }) } } }), true);
+  assert.equal((await db`SELECT error_code FROM ai_handoff_summary WHERE id=${invalid}`)[0]!.error_code, 'AI_RESPONSE_INVALID');
+  const retrying = await refresh(); let failOnce = true;
+  const retryAdapters: AIInferenceRegistry = { OPENAI: { ...summaryAdapters.OPENAI!, summarize: async input => { if (failOnce) { failOnce = false; throw new AIInferenceError('AI_RATE_LIMITED', true); } return summaryAdapters.OPENAI!.summarize!(input); } } };
+  assert.equal(await processOneAIHandoffSummary(db, { adapters: retryAdapters, retryDelaySeconds: 0 }), true);
+  assert.equal((await db`SELECT state FROM ai_handoff_summary WHERE id=${retrying}`)[0]!.state, 'QUEUED');
+  assert.equal(await processOneAIHandoffSummary(db, { adapters: retryAdapters }), true);
+  assert.equal((await db`SELECT attempt_count FROM ai_handoff_summary WHERE id=${retrying}`)[0]!.attempt_count, 2);
+  // Revoke the actual refresh session during inference; there is no fabricated employee authority.
+  const revokedSummary = await refresh();
+  assert.equal(await processOneAIHandoffSummary(db, { adapters: { OPENAI: { ...summaryAdapters.OPENAI!, summarize: async input => {
+    await db`UPDATE user_session SET revoked_at=clock_timestamp() WHERE id=${users.agent!.session}`; return summaryAdapters.OPENAI!.summarize!(input);
+  } } } }), true);
+  assert.equal((await db`SELECT error_code FROM ai_handoff_summary WHERE id=${revokedSummary}`)[0]!.error_code, 'AI_HANDOFF_SUMMARY_CONTEXT_CHANGED');
+  const summaryToken = randomBytes(32).toString('hex');
+  users.agent!.session = (await db`INSERT INTO user_session(user_id,token_hash,expires_at) VALUES(${users.agent!.id},${sha256(summaryToken)},now()+interval '1 hour') RETURNING id`)[0]!.id;
+  users.agent!.cookie = 'lop_session=' + summaryToken;
+  // Provider output cannot commit after Published knowledge changes during the HTTP gap.
+  const republished = await refresh();
+  assert.equal(await processOneAIHandoffSummary(db, { adapters: { OPENAI: { ...summaryAdapters.OPENAI!, summarize: async input => {
+    assert.equal((await api('PUT', kr + '/draft', { version: 1, content, reason: 'New publication during summary' })).statusCode, 200);
+    assert.equal((await api('POST', kr + '/publish', { version: 2, requestId: randomUUID(), reason: 'Current Published fence' })).statusCode, 201);
+    return summaryAdapters.OPENAI!.summarize!(input);
+  } } } }), true);
+  assert.equal((await db`SELECT state FROM ai_handoff_summary WHERE id=${republished}`)[0]!.state, 'BLOCKED');
+  // Expired inference cannot overwrite the result of a replacement worker.
+  const expired = await refresh(); let releaseSummary!: () => void, summaryEntered!: () => void;
+  const summaryReady = new Promise<void>(r => { summaryEntered = r; }), summaryRelease = new Promise<void>(r => { releaseSummary = r; });
+  const oldSummaryWorker = processOneAIHandoffSummary(db, { leaseSeconds: 0.1, adapters: { OPENAI: { ...summaryAdapters.OPENAI!, summarize: async input => {
+    summaryEntered(); await summaryRelease; return summaryAdapters.OPENAI!.summarize!(input);
+  } } } });
+  await summaryReady;
+  try {
+    for (let i = 0; i < 50 && !(await db`SELECT lease_until<=clock_timestamp() AS expired FROM ai_handoff_summary WHERE id=${expired}`)[0]!.expired; i++) await new Promise(r => setTimeout(r, 20));
+    assert.equal(await processOneAIHandoffSummary(db, { adapters: summaryAdapters }), true);
+  } finally { releaseSummary(); }
+  assert.equal(await oldSummaryWorker, true);
+  assert.equal((await db`SELECT state FROM ai_handoff_summary WHERE id=${expired}`)[0]!.state, 'COMPLETED');
+  assert.equal((await db`SELECT attempt_count FROM ai_handoff_summary WHERE id=${expired}`)[0]!.attempt_count, 2);
+  await assert.rejects(db`UPDATE ai_handoff_summary SET version=version+1,context='{}' WHERE id=${expired}`, /IMMUTABLE_CONTEXT/);
+  // Completion history/Audit failure rolls back the receipt and is recoverable through an expired durable lease.
+  const auditSummary = await refresh();
+  await db.unsafe(`CREATE FUNCTION test_summary_audit_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='AI_HANDOFF_SUMMARY_COMPLETED' THEN RAISE EXCEPTION 'TEST_SUMMARY_AUDIT_FAILURE';END IF;RETURN NEW;END $$;
+    CREATE TRIGGER test_summary_audit_failure BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION test_summary_audit_failure()`);
+  try { await assert.rejects(processOneAIHandoffSummary(db, { adapters: summaryAdapters, leaseSeconds: 0.5 }), /TEST_SUMMARY_AUDIT_FAILURE/); }
+  finally { await db.unsafe('DROP TRIGGER test_summary_audit_failure ON audit_log; DROP FUNCTION test_summary_audit_failure()'); }
+  assert.equal((await db`SELECT state FROM ai_handoff_summary WHERE id=${auditSummary}`)[0]!.state, 'RUNNING');
+  assert.equal((await db`SELECT count(*)::int AS n FROM ai_handoff_summary_history WHERE summary_id=${auditSummary} AND state='COMPLETED'`)[0]!.n, 0);
+  for (let i = 0; i < 50 && !(await db`SELECT lease_until<=clock_timestamp() AS expired FROM ai_handoff_summary WHERE id=${auditSummary}`)[0]!.expired; i++) await new Promise(r => setTimeout(r, 20));
+  assert.equal(await processOneAIHandoffSummary(db, { adapters: summaryAdapters }), true);
+  // Whole sensitive excerpt omission applies to both payload and extractive output.
+  assert.equal((await receive('handoff-sensitive', 'card_number: ٤٢٤٢٤٢٤٢٤٢٤٢٤٢٤٢')).statusCode, 200); assert.equal(await processOneInboundEvent(db), true);
+  const minimized = await refresh();
+  assert.equal(await processOneAIHandoffSummary(db, { adapters: { OPENAI: { ...summaryAdapters.OPENAI!, summarize: async input => {
+    assert.ok(!JSON.stringify(input.data).includes('card_number')); return summaryAdapters.OPENAI!.summarize!(input);
+  } } } }), true);
+  assert.ok(!(await db`SELECT result FROM ai_handoff_summary WHERE id=${minimized}`)[0]!.result.answer.includes('card_number'));
+  assert.equal(fetchCalls, 0);
   // Only a current authorized employee can accept; observing the queue is not control.
   assert.equal((await api('POST', '/api/conversations/' + cv + '/takeover', { version: current.version, reason: 'Unauthorized acceptance' }, 'second')).statusCode, 404);
   assert.equal((await api('POST', '/api/conversations/' + cv + '/takeover', { version: current.version - 1, reason: 'Stale acceptance' }, 'agent')).statusCode, 409);
@@ -157,6 +254,8 @@ test('Approved customer AI Handoff owns current authority, durable atomic transi
   await db`UPDATE lead SET branch_id=${branch},campaign_id=${campaign},assigned_agent_id=${users.agent!.id},version=version+1 WHERE id=${lead}`;
   await db`UPDATE branch SET active=true WHERE id=${other}`;
   assert.equal((await api('POST', '/api/conversations/' + cv + '/takeover', { version: current.version, reason: 'Accept current human request' }, 'agent')).statusCode, 200);
+  assert.equal((await api('POST', summaryRoot, { requestId: randomUUID() }, 'agent')).statusCode, 409);
+  assert.equal((await api('GET', review, undefined, 'agent')).json().package.refreshAvailable, false);
   const accepted = (await db`SELECT * FROM conversation WHERE id=${cv}`)[0]!; assert.equal(accepted.state, 'HUMAN_ACTIVE'); assert.equal(accepted.controller_user_id, users.agent!.id); assert.equal(accepted.needs_attention_reason, null); assert.equal(accepted.ai_handoff_action_id, null);
   assert.deepEqual((await api('GET', queue)).json().items, []);
   assert.equal((await db`SELECT count(*)::integer AS n FROM conversation_handoff WHERE conversation_id=${cv}`)[0]!.n, 2);
@@ -226,6 +325,13 @@ test('Approved customer AI Handoff owns current authority, durable atomic transi
   await activate(); await assert.rejects(db`UPDATE conversation SET state='WAITING_FOR_HUMAN',controller_type='NONE',controller_user_id=NULL,
     needs_attention_reason='AI_HUMAN_HANDOFF_REQUESTED',version=version+1,ai_handoff_action_id=${action.id} WHERE id=${cv}`, /TRANSITION_PROOF_REQUIRED/);
   const paged = (await api('GET', review + '?limit=1')).json(); assert.equal(paged.items.length, 1); assert.ok(paged.nextCursor); const older = (await api('GET', review + '?limit=1&cursor=' + encodeURIComponent(paged.nextCursor))).json(); assert.notEqual(older.items[0].id, paged.items[0].id);
+  const configVersion = (await api('GET', '/api/ai/campaigns/' + campaign + '/configuration')).json().version;
+  assert.equal((await api('PUT', '/api/ai/campaigns/' + campaign + '/configuration', { version: configVersion, definition: { ...cfg, profiles: { ...cfg.profiles, SUMMARIZATION: null } }, reason: 'Missing summary must not block safe Handoff' })).statusCode, 200);
+  const noSummary = (await inbound('handoff-without-summary'))!; await run(); assert.equal(await processOneAIHumanHandoff(db), true);
+  const noSummaryAction = (await db`SELECT id FROM ai_customer_handoff_action WHERE proposal_id=${noSummary.id}`)[0]!.id;
+  assert.equal((await db`SELECT count(*)::int AS n FROM ai_handoff_summary WHERE action_id=${noSummaryAction}`)[0]!.n, 0);
+  assert.equal((await db`SELECT state FROM conversation WHERE id=${cv}`)[0]!.state, 'WAITING_FOR_HUMAN');
+  assert.equal((await api('GET', review)).json().package.refreshAvailable, false);
   assert.equal((await db`SELECT count(*)::integer AS n FROM conversation_message WHERE direction='OUTBOUND'`)[0]!.n, 0);
   assert.equal((await db`SELECT count(*)::integer AS n FROM payment_record`)[0]!.n, 0); assert.equal(fetchCalls, 0);
 });

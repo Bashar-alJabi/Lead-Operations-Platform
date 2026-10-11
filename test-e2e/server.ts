@@ -15,6 +15,7 @@ import type { ProviderTemplate } from '../src/messaging/templates-provider.js';
 import { renderTemplateUrl } from '../src/messaging/approved-template.js';
 import { processOneInboundEvent } from '../src/messaging/inbound-events.js';
 import { processOneAIHumanHandoff } from '../src/ai/customer-handoff.js';
+import { processOneAIHandoffSummary } from '../src/ai/handoff-summary.js';
 import { processOneTemplateSample } from '../src/media/template-sample-worker.js';
 import { processOneSourceEvaluation } from '../src/sources/evaluation.js';
 import { processOneSourceIntake } from '../src/sources/intake.js';
@@ -257,6 +258,10 @@ app.post('/__test__/ai-copilot-summary',async(request)=>{
 app.post('/__test__/ai-human-handoff',async(request)=>{
   if(typeof request.headers.authorization!=='string' || !safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
   return { processed:await processOneAIHumanHandoff(db) };
+});
+app.post('/__test__/ai-handoff-summary',async(request)=>{
+  if(typeof request.headers.authorization!=='string' || !safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
+  return { processed:await processOneAIHandoffSummary(db,{ retryDelaySeconds:0,adapters:aiInferenceAdapters }) };
 });
 app.post('/__test__/ai-qualification-action',async(request)=>{
   if(typeof request.headers.authorization!=='string' || !safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
