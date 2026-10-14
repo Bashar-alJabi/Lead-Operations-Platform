@@ -1,4 +1,5 @@
 import { useEffect,useState } from 'react';
+import { HandoffClockEditor } from './HandoffClockEditor.js';
 type Api=<T>(path:string,options?:RequestInit)=>Promise<T>;
 type Locale='ar'|'en'|'fr';
 const tasks=['CONVERSATION','SUMMARIZATION','CLASSIFICATION','ANALYSIS'] as const;
@@ -46,6 +47,8 @@ export function CampaignAIConfiguration({ campaignId,branchId,locale,api }:{ cam
   return <section className="panel campaign-ai-configuration" data-campaign-ai-configuration><h3>{t('title')}</h3><p>{t('note')}</p>
     <ConfigEditor key={'branch-'+branchId} scope="BRANCH" id={branchId} branchId={branchId} locale={locale} api={api} onChanged={()=>void load()} />
     <ConfigEditor key={'campaign-'+campaignId} scope="CAMPAIGN" id={campaignId} branchId={branchId} locale={locale} api={api} onChanged={()=>void load()} />
+    <HandoffClockEditor key={'clock-branch-'+branchId} scope="BRANCH" id={branchId} locale={locale} api={api}/>
+    <HandoffClockEditor key={'clock-campaign-'+campaignId} scope="CAMPAIGN" id={campaignId} locale={locale} api={api}/>
     <button disabled={busy} onClick={()=>void load()}>{t('preview')}</button>{error && <p role="alert">{error}</p>}
     {effective && <div data-ai-effective-preview><h4>{t('guardrails')} · {effective.globalGuardrails.version}</h4><p>{t('stops')}</p><p>{t('knowledge')}: {effective.knowledge?.version ?? '—'} · {t('qualification')}: {effective.qualification.version}</p><p>{t('hash')}: <code>{effective.hash}</code></p>
       <h4>{t('effective')}</h4><ul>{tasks.map((task)=><li key={task}>{task} · {effective.sources['profiles.'+task]} · {effective.profiles[task]?.model_id ?? t(effective.profiles[task] ? 'unavailable' : 'unset')} · version {effective.profiles[task]?.profile_version ?? '—'}/{effective.profiles[task]?.connection_version ?? '—'}/{effective.profiles[task]?.grant_version ?? '—'}</li>)}</ul>

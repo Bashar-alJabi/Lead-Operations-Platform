@@ -1,5 +1,9 @@
 # دليل التشغيل والتطوير
 
+## إعداد ساعة Handoff SLA — migration136
+
+من Campaign details افتح **ساعة الاستجابة للتحويل البشري**: Branch default ثم Campaign override. حمّل الإعداد قبل التعديل؛ حدد elapsed أوworking hours أوinherit، وtimezone وتقويمًا موروثًا أوغير مقيد أوأسبوعيًا، ثم reason واحفظ وراجع effective sources/history. `24:00` نهاية فقط؛ قسّم الفترة العابرة لمنتصف الليل إلى يومين. مدة الهدف تُدار في operational configuration الموجودة، لا في Clock editor. Null تعني inheritance، و{} calendar غير مقيدة؛ أيام التقويم الصريح الغائبة مغلقة. الـPreview قراءة فقط؛ مؤقتات deadline والتذكيرات والتصعيد لم تُنفّذ بعد. لا تختبر ذلك بإرسال بيانات عملاء أوتعديل DB يدوي. Manager ضمنفرعها وSuper Admin ضمن Organization؛ Agent ممنوعة. Stale edit409 تتطلب reload؛ فشل القراءة يمسح previous context. [العقد والحدود](ai-handoff-sla-clock.md).
+
 ## إشعارات Handoff داخل المنصة — migration135
 
 افتح **الإشعارات** لمراجعة طلبات Human Handoff الموثقة، وتغيير read/unread ومراجعة سجل القراءة أوفتح Lead ضمن صلاحيتها الحالية. النقطة بجانب زر المركز تعني وجود unread؛ لا تمثل عددًا. تُفحص كل30s وعند تغيير الصفحة/القراءة/التفضيل. إعادة الإسناد تمنع المالك السابق من المركز/history/actions، وHuman acceptance تحفظ الإشعار كتاريخ.

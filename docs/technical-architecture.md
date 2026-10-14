@@ -1,5 +1,9 @@
 # المعمارية التقنية
 
+## إعداد ساعة Handoff SLA — 2026-10-14
+
+Native136 تفصل mode/timezone/calendar عن مدة `handoffSlaMinutes` الموجودة في operational configuration. الوراثة لكل حقل Campaign → Branch → elapsed default/Branch timezone/Branch working hours، مع null للوراثة و{} لتقويم غير مقيد. API/UI وcurrent parent-first scope/real session/CAS/native history/Audit مثبتة. Effective preview تحفظ مصادر القيم والنسخ وتعرض الانفتاح اللحظي وفق DST؛ لا تحسب deadline ولا تمنح timer/action authority. لا تخلط ساعات SLA مع Customer sending window أوUser availability/capacity. العقد في [ai-handoff-sla-clock.md](ai-handoff-sla-clock.md). Durable clock accounting/timers/reminders/escalation وtriggers/full Handoff/AI ما زالت غير مكتملة.
+
 ## Internal Handoff Notifications — 2026-10-14
 
 Native135 تحفظ حدث In-App دائمًا من fresh APPLIED receipt/reception في معاملة Handoff نفسها، مع unique source وimmutable derived time وatomic Audit. إخفاق Audit يلغي المصدر كله ويترك durable job للمحاولة. الجمهور عند القراءة هو current Owner وBranch Managers وOrganization Super Admin، دون تحميل قائمة مستخدمين غير محدودة أومنح ACL من handoffTarget.

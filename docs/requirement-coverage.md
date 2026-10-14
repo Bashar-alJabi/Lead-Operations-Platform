@@ -1,5 +1,14 @@
 # مصفوفة تغطية المتطلبات
 
+## أحدث checkpoint: إعداد ساعة Handoff SLA — 2026-10-14
+
+| المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |
+|---|---|---|
+| 04 §§29/33،05 inheritance،AGENTS §§8/9/15/27–30/38–39: Branch/Campaign SLA clock/timezone/working-hours configuration | Native136، scoped API/UI وstrict JSON/current session/parent/CAS، immutable fresh history وatomic Audit؛ mode/timezone/calendar per-field inheritance وexisting targetMinutes وeffective sources/versions | **176unit و79full Docker PostgreSQL integration** (144s) و**48full Edge Browser E2E** (5.8m)، Backend/Web build/typecheck و001–136 development/test ناجحة. Eight-way CAS وnative forged actor/session/history/definition denial وdisabled Branch وAudit rollback وparent/session lock-wait races وDST repeated/missing local time preview وno-XSS/ar-en-fr/RTL390 مثبتة. بعد إضافة Organization recheck أُعيد Backend build/typecheck وfocused PG/Browser1/1 (1.8s/7.6s)؛ الصورة النهائية فُحصت. **Implemented وMock/Sandbox Verified** لهذه المرحلة فقط |
+| SLA accounting/timer/reminder/escalation وfull Handoff | معاينة الانفتاح اللحظي ليست duration/deadline؛ `previewOnly=true` و`runtimeReady=false` | **غير مكتملة**. التالي bounded native clock accounting وdurable current timers→idempotent Owner reminder/Manager escalation. لا Owner/controller أوnotification/customer action منClock preview |
+
+العقد والحدود في [ai-handoff-sla-clock.md](ai-handoff-sla-clock.md). Live transfer/full activation معطلتان؛ البيانات اصطناعية وHTTP mocks، **Live Verification Pending External Credential/Approval**. Full Notifications/Handoff/AI والمنصة غير مكتملة.
+
 ## أحدث checkpoint: In-App Handoff Notifications — 2026-10-14
 
 | المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |

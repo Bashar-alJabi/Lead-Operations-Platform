@@ -1,5 +1,9 @@
 # خطة التنفيذ
 
+**أحدث checkpoint2026-10-14: إعداد ساعة Handoff SLA.** Native136 وBackend/Authorization/UI/history/Audit منفذة مع Branch/Campaign per-field inheritance، calendar/timezone وeffective sources/versions وDST open-at-preview. مدة الهدف الحالية لا تتكرر. Unit176 وfull Docker PostgreSQL79 وfull Edge Browser48 و001–136 development/test وBackend/Web build/typecheck ناجحة؛ بعد current Organization recheck أعيدت focused PG/Browser1/1 وBackend build/typecheck. الصورة النهائية فُحصت. [العقد](ai-handoff-sla-clock.md).
+
+**التالي بعد حفظ checkpoint:** native bounded elapsed/working duration accounting وfractional endpoints/DST/closed days، ثم durable current waiting timers وidempotent Assigned Owner reminder/Manager escalation عبر Notification boundary. Preview ليست deadline أوauthority. يلي ذلك mandatory/Qualification-completion triggers دون تخفيف original full context بعد own Qualification write، ثم customer sends وبقية AI والـmodules الرئيسية غير المكتملة. لا optional provider refinements.
+
 **أحدث checkpoint2026-10-14: In-App Handoff notifications.** Native135 وactual durable source/immutable event/Audit وbounded current delivery/unread indicator وself status/preferences/CAS/history وGlobal/Branch/Campaign wording/defaults/Preview/UI منفذة. **175unit و78full Docker PostgreSQL integration و47full Edge Browser E2E** علىالواجهةالنهائية وfocused PG/Edge2/2 و001–135development/test وBackend/Web build/typecheck/diff ناجحة. الصورفُحصت. [العقد](internal-handoff-notifications.md). احفظcommit/push قبلالمرحلةالتالية.
 
 **التالي بعد الحفظ:** Branch/Campaign SLA clock/timezone/calendar/working-hours وdurable current timers→Owner reminder/Manager escalation، مع native source/idempotency عبر Notification boundary نفسها. ثم mandatory/Qualification-completion triggers بـatomic proof دون تخفيف original full context بعد own write. Full Handoff/Notifications/AI غير مكتملة؛ لا live/external channel/send/financial authority.

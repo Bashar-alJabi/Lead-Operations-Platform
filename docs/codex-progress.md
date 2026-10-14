@@ -1,5 +1,15 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: إعداد ساعة Handoff SLA — 2026-10-14
+
+استُؤنف من `9fc087e` النظيفة دون reset/discard. Native136 وBackend/DB/Authorization/UI وimmutable history/atomic Audit تنفّذ Branch defaults/Campaign overrides مستقلة لكل mode/timezone/calendar. Null وراثة، و{} تقويم غير مقيد؛ default elapsed وBranch timezone/hours. الهدف يستعمل `handoffSlaMinutes` الموجودة دون تكرار. Effective preview تحفظ sources/versions والانفتاح اللحظي؛ ليست deadline ولا timer/action authority. Current scope/real session بعد parent-first lock وstrict raw JSON/CAS محفوظة. [العقد](ai-handoff-sla-clock.md).
+
+**البوابة ناجحة:** migrations001–136 development/test، Backend/Web build/typecheck، **176/176 unit،79/79 full Docker PostgreSQL integration** (144s)، **48/48 full Edge Browser E2E** (5.8m)، focused PG/Browser1/1. Eight-way CAS وnative forged actor/session/history/definition denial وdisabled Branch وAudit rollback وCampaign parent transfer/session revocation أثناء القفل، repeated/missing DST preview وsafe ar/en/fr/RTL390 مثبتة. بعد البوابة أضيف current Organization check تحت Branch lock؛ أُعيد Backend build/typecheck وfocused PG1/1 (1.8s) وBrowser1/1 (7.6s) بنجاح. Fixture النقل الأولى خالفت Foreign Keys للمستخدمين؛ صُححت إلى Branch فارغة دون تعديل القيود. الصورة النهائية فُحصت؛ Vite790.88KB/gzip225.81KB warning ضمن backlog.
+
+**الحالة:** Clock configuration **Implemented وMock/Sandbox Verified** محليًا فقط؛ SLA duration accounting/timers/reminders/escalation وfull Handoff/Notifications/AI والمنصة غير مكتملة. Live transfer/full activation معطلتان؛ **Live Verification Pending External Credential/Approval**. لا Owner/controller أوCustomer/financial mutation من هذه المرحلة.
+
+**الحفظ:** docs والعقد وcommit/push فقط إلى `codex/full-platform-build`؛ معرف checkpoint في آخر Git commit و`9fc087e` السابقة. لا Feature غير مختبرة أوworker/test متروك عند الحفظ. **الخطوة التالية الدقيقة:** bounded native elapsed/working duration accounting مع fractional endpoints/DST/closed days، ثم trusted durable current waiting timer source/cursor/leases/retries/history وidempotent Assigned Owner reminder/Manager escalation عبر Notification boundary. بعدها mandatory/Qualification-completion Handoff triggers دون تخفيف full context بعد own Qualification write، ثم Customer sends/Central Messaging Policy وبقية AI/Automation/Analytics/import/export/Sheets/Email والمتطلبات الرئيسية. لا optional provider refinements.
+
 ## آخر حالة مستقرة: In-App Handoff Notifications — 2026-10-14
 
 Recovery من `61c4db7` وworking tree نظيفة، دون reset/discard. أُعيد تشغيل Docker PostgreSQL/ClamAV على volumes الحالية، وfocused recovery2/2 ناجحة. Native135 وAPI/UI تحفظ إشعارًا دائمًا من actual trusted Handoff receipt، مع audience الحالية (Owner/Branch Managers/Organization Super Admin)، Centre وunread indicator، self read/unread/preferences وCAS/history/native current session/Audit. الصياغة Global/Branch/Campaign لكل لغة مع Preview وactive fallback وsafe defaults، ولا ACL منtarget أوOwner/Controller mutation أوإرسال خارجي. [العقد](internal-handoff-notifications.md).
