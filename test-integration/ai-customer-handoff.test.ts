@@ -13,6 +13,7 @@ import { processOneAICustomerProposal } from '../src/ai/customer-worker.js';
 import { AIInferenceError, aiInferenceAdapters, type AIInferenceRegistry } from '../src/ai/inference-provider.js';
 import { requestAIHumanHandoff, processOneAIHumanHandoff } from '../src/ai/customer-handoff.js';
 import { processOneAIHandoffSummary } from '../src/ai/handoff-summary.js';
+import { verifyHandoffNotifications } from './notification-scenarios.js';
 const url = process.env.TEST_DATABASE_URL;
 if (!url || new URL(url).pathname !== '/lead_operations_test') throw new Error('Isolated TEST_DATABASE_URL required');
 
@@ -323,6 +324,14 @@ test('Approved customer AI Handoff owns current authority, durable atomic transi
     await tx`UPDATE conversation SET state='WAITING_FOR_HUMAN',controller_type='NONE',controller_user_id=NULL,version=version+1,
       needs_attention_reason='AI_HUMAN_HANDOFF_REQUESTED',ai_handoff_action_id=${receipt.id} WHERE id=${cv}`;
   }), /TRANSITION_PROOF_REQUIRED/);
+  const priorNotificationCount=(await db`SELECT count(*)::int AS n FROM notification_event`)[0]!.n;
+  await db`CREATE FUNCTION reject_notification_source_fixture() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='IN_APP_NOTIFICATION_RECORDED' THEN RAISE EXCEPTION 'NOTIFICATION_SOURCE_AUDIT_FAILURE';END IF;RETURN NEW;END $$`;
+  await db`CREATE TRIGGER reject_notification_source_fixture BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION reject_notification_source_fixture()`;
+  try { await assert.rejects(processOneAIHumanHandoff(db), /NOTIFICATION_SOURCE_AUDIT_FAILURE/); }
+  finally { await db`DROP TRIGGER reject_notification_source_fixture ON audit_log`;await db`DROP FUNCTION reject_notification_source_fixture()`; }
+  assert.equal((await db`SELECT count(*)::int AS n FROM notification_event`)[0]!.n,priorNotificationCount);
+  assert.equal((await db`SELECT count(*)::int AS n FROM ai_customer_handoff_action WHERE proposal_id=${atomic.id}`)[0]!.n,0);
+  assert.equal((await db`SELECT state FROM conversation WHERE id=${cv}`)[0]!.state,'AI_ACTIVE');
   await db`CREATE FUNCTION reject_handoff_audit_fixture() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='AI_HUMAN_HANDOFF_APPLIED' THEN RAISE EXCEPTION 'SYNTHETIC_AUDIT_FAILURE';END IF;RETURN NEW;END $$`;
   await db`CREATE TRIGGER reject_handoff_audit_fixture BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION reject_handoff_audit_fixture()`;
   try { await assert.rejects(processOneAIHumanHandoff(db), /SYNTHETIC_AUDIT_FAILURE/); } finally { await db`DROP TRIGGER reject_handoff_audit_fixture ON audit_log`; await db`DROP FUNCTION reject_handoff_audit_fixture()`; }
@@ -362,6 +371,7 @@ test('Approved customer AI Handoff owns current authority, durable atomic transi
   assert.equal((await db`SELECT count(*)::int AS n FROM ai_handoff_summary WHERE action_id=${noSummaryAction}`)[0]!.n, 0);
   assert.equal((await db`SELECT state FROM conversation WHERE id=${cv}`)[0]!.state, 'WAITING_FOR_HUMAN');
   assert.equal((await api('GET', review)).json().package.refreshAvailable, false);
+  await verifyHandoffNotifications(db,app,{org,branch,other,campaign,lead,cv,action:noSummaryAction,users});
   assert.equal((await db`SELECT count(*)::integer AS n FROM conversation_message WHERE direction='OUTBOUND'`)[0]!.n, 0);
   assert.equal((await db`SELECT count(*)::integer AS n FROM payment_record`)[0]!.n, 0); assert.equal(fetchCalls, 0);
 });

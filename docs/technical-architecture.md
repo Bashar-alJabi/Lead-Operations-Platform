@@ -1,5 +1,13 @@
 # المعمارية التقنية
 
+## Internal Handoff Notifications — 2026-10-14
+
+Native135 تحفظ حدث In-App دائمًا من fresh APPLIED receipt/reception في معاملة Handoff نفسها، مع unique source وimmutable derived time وatomic Audit. إخفاق Audit يلغي المصدر كله ويترك durable job للمحاولة. الجمهور عند القراءة هو current Owner وBranch Managers وOrganization Super Admin، دون تحميل قائمة مستخدمين غير محدودة أومنح ACL من handoffTarget.
+
+تقرأ API identifiers محدودة، ثم Branch→Lead→Campaign→Conversation SHARE وتعيد فحص cookie/scope/session/query. هذا يمنع old-scope delivery بعد reassignment/parent transfer. Indicator تستخدم EXISTS بلا بيانات أوtotal count؛ UI تفحصها كل30s وعند تغييرات القراءة والتفضيل. Events محفوظة بعد Human acceptance أوmute. Read/unread والتفضيلات شخصية مع CAS/native session/history/Audit، ولا توجد mandatory rule مبتكرة لهذا الحدث.
+
+الصياغة Global/Branch/Campaign لكل لغة، مع plain placeholders وcurrent administrative scope/session وimmutable history/Audit وactive fallback. قالب Campaign من Branch قديمة لا يستخدم حتى في multi-Branch view؛ transfer lifecycle النهائية تحتاج نقلًا صريحًا للإعدادات المتأثرة. العقد في [internal-handoff-notifications.md](internal-handoff-notifications.md). Full Notifications/SLA/AI غير مكتملة؛ لا external channel أوCustomer send/Owner/Controller mutation.
+
 ## Handoff reception وoperational working hours — 2026-10-11
 
 Native132–134 تضيف إعداد ساعات Branch/User مصرحًا ومؤرشفًا، مع projection ذرية إلى حقول routing الموجودة وnative current session/scope/CAS/history-time proof وAudit. User ساعاتها تدخل routing القائمة؛ Branch ساعاتها تدخل Handoff availability. Native133 تحسب current recipient من Campaign → Branch → Owner، ضمن current trusted waiting receipt/Lead scope وUser activity/Campaign eligibility وتقاطع ساعات Branch/User. لا Capacity eviction للمالك الحالي ولا Controller/Owner/ACL mutation. Target Agent غير Owner تحتاج existing authorized assignment؛ Manager attention queue تبقى عند عدم التوفّر. Native initial receipt/history تشتق reception evidence مرة واحدة مع نفس المعاملة؛ Current API/UI تفصلها عن current reevaluation وتبقى محكومة بالـLead access. ساعات العمل لا تمنح صلاحية إرسال ولا قبولًا بشريًا. العقد وحدود المرحلة في [ai-handoff-reception-availability.md](ai-handoff-reception-availability.md). SLA والتنبيهات والتصعيد وtriggers/full activation مازالت غير مكتملة.

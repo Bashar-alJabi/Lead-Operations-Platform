@@ -1,5 +1,13 @@
 # دليل التشغيل والتطوير
 
+## إشعارات Handoff داخل المنصة — migration135
+
+افتح **الإشعارات** لمراجعة طلبات Human Handoff الموثقة، وتغيير read/unread ومراجعة سجل القراءة أوفتح Lead ضمن صلاحيتها الحالية. النقطة بجانب زر المركز تعني وجود unread؛ لا تمثل عددًا. تُفحص كل30s وعند تغيير الصفحة/القراءة/التفضيل. إعادة الإسناد تمنع المالك السابق من المركز/history/actions، وHuman acceptance تحفظ الإشعار كتاريخ.
+
+التفضيل الشخصي يفعّل أو يخفي الحدث في المركز دون حذف history أوتعطيل waiting queue. Manager تدير صياغة فرعها وحملاتها من داخل المركز؛ Super Admin تستطيع Organization default أيضًا. اختر scope/resource ولغة الواجهة، حمّل الصياغة، راجع safe default وsample Preview، ثم active/title/body/reason واحفظ. لكل لغة: Campaign→Branch→Organization→default، والقالب inactive يستخدم fallback. النص plain؛ tokens فقط campaign/owner.
+
+Version conflict تتطلب reload. Permission/scope failure تمسح form/history؛ لا تتجاوزها بتعديل DB. Campaign parent transfer لا ترخص old Branch template؛ تحتاج workflow صريحة لنقل الإعدادات والتاريخ. In-App event محفوظة ذريًا من fresh actual Handoff، ولا تحتاج provider credential أوworker إضافية. إخفاق Audit يترك Handoff job قابلة للمحاولة دون duplicate. لا Email/WhatsApp/Customer send هنا، ولا إشعارات autonomous من diagnostic/old receipt. SLA timers/reminders/escalation وبقية events/channels غير مكتملة. Live AI/full activation معطّلتان. [العقد والتحقق](internal-handoff-notifications.md).
+
 ## إعداد ساعات العمل ومراجعة مستلم Handoff — 2026-10-11
 
 من الفروع أو المستخدمين افتح **إعداد ساعات العمل**؛ تُفتح لوحة مستقلة عن الجدول. راجع Branch timezone، ثم اختر عدم التقييد أو فترات الأيام الأسبوعية. الأيام الفارغة مغلقة عند التقييد؛ النهاية غير مشمولة ويمكن أن تكون 24:00. قسّم الفترة العابرة لمنتصف الليل على يومين. احفظ reason وراجع history. Manager تدير Branch وساعات AGENT في فرعها؛ تعديل MANAGER يتطلب Super Admin.409 stale version تتطلب reload ومراجعة، دون overwrite قسري.403/404 تُخفي بيانات الإعداد القديمة. لا تعديل server files أوDB يدويًا لهذا الإعداد.

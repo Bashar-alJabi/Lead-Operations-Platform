@@ -16,6 +16,7 @@ import { AISetup } from './AISetup.js';
 import { AIHumanHandoffQueue } from './AIHumanHandoffQueue.js';
 import { LeadPaymentMethods } from './PaymentMethods.js';
 import { WorkingHoursEditor } from './WorkingHoursEditor.js';
+import { NotificationCenter } from './NotificationCenter.js';
 
 type Role = 'SUPER_ADMIN' | 'MANAGER' | 'AGENT';
 type User = { id: string; organizationId: string; branchId: string | null; role: Role; name: string; email: string };
@@ -28,7 +29,7 @@ type ManagedUser = { id: string; branch_id: string | null; role: Role; name: str
 type EmailConnection = { configured: boolean; id?: string; name?: string; status?: string; hasCredential?: boolean; settings?: { host: string; port: number; secure: boolean; username: string; fromAddress: string } };
 type DeliveryJob = { id: string; kind: string; status: string; attempts: number; max_attempts: number; last_error_code: string | null; email: string; name: string; created_at: string };
 type Locale = 'ar' | 'fr' | 'en';
-type Page = 'leads' | 'contacts' | 'contactReviews' | 'fields' | 'campaigns' | 'branches' | 'users' | 'profile' | 'identityEmail' | 'followups' | 'messagingSetup' | 'metaSources' | 'paymentSetup' | 'aiSetup';
+type Page = 'leads' | 'contacts' | 'contactReviews' | 'fields' | 'campaigns' | 'branches' | 'users' | 'profile' | 'identityEmail' | 'followups' | 'messagingSetup' | 'metaSources' | 'paymentSetup' | 'aiSetup' | 'notifications';
 type AuthMode = 'login' | 'forgot' | 'reset' | 'invite';
 const linkParameters = new URLSearchParams(window.location.hash.slice(1));
 const initialLinkMode: AuthMode = linkParameters.has('invite') ? 'invite' : linkParameters.has('reset') ? 'reset' : 'login';
@@ -75,9 +76,9 @@ const contactLabels = {
   en: { contacts: 'Contacts', contactReviews: 'Match reviews', reviewSaved: 'Saved for review; no lead was created until a contact is selected.' },
 } as const;
 const fieldLabels = { ar: { fields: 'الحقول الديناميكية' }, fr: { fields: 'Champs dynamiques' }, en: { fields: 'Dynamic fields' } } as const;
-const workflowLabels = { ar: { followups: 'المتابعات', messagingSetup: 'إعداد الرسائل',metaSources:'مصادر Meta',paymentSetup:'إعداد الدفع',aiSetup:'إعداد AI' },
-  fr: { followups: 'Suivis', messagingSetup: 'Messagerie',metaSources:'Sources Meta',paymentSetup:'Configuration du paiement',aiSetup:'Configuration IA' },
-  en: { followups: 'Follow-ups', messagingSetup: 'Messaging setup',metaSources:'Meta sources',paymentSetup:'Payment setup',aiSetup:'AI setup' } } as const;
+const workflowLabels = { ar: { followups: 'المتابعات', messagingSetup: 'إعداد الرسائل',metaSources:'مصادر Meta',paymentSetup:'إعداد الدفع',aiSetup:'إعداد AI',notifications:'الإشعارات' },
+  fr: { followups: 'Suivis', messagingSetup: 'Messagerie',metaSources:'Sources Meta',paymentSetup:'Configuration du paiement',aiSetup:'Configuration IA',notifications:'Notifications' },
+  en: { followups: 'Follow-ups', messagingSetup: 'Messaging setup',metaSources:'Meta sources',paymentSetup:'Payment setup',aiSetup:'AI setup',notifications:'Notifications' } } as const;
 type LabelKey = keyof typeof labels.en | keyof typeof profileLabels.en | keyof typeof managementLabels.en |
   keyof typeof identityLabels.en | keyof typeof deliveryLabels.en | keyof typeof contactLabels.en |
   keyof typeof fieldLabels.en | keyof typeof workflowLabels.en;
@@ -101,6 +102,13 @@ function App() {
   const [notice, setNotice] = useState('');
   const [initialized, setInitialized] = useState<boolean | null>(null);
   const [page, setPage] = useState<Page>('leads');
+  const [hasUnreadNotifications,setHasUnreadNotifications]=useState(false),[notificationRevision,setNotificationRevision]=useState(0);
+  useEffect(()=>{
+    let alive=true,sequence=0;setHasUnreadNotifications(false);
+    async function check(){const n=++sequence;try{const value=await api<{hasUnread:boolean}>('/api/notifications/indicator');if(alive&&n===sequence)setHasUnreadNotifications(value.hasUnread);}catch{if(alive&&n===sequence)setHasUnreadNotifications(false);}}
+    if(user){void check();const timer=window.setInterval(()=>void check(),30000);return()=>{alive=false;window.clearInterval(timer);};}
+    return()=>{alive=false;};
+  },[user?.id,user?.role,user?.branchId,page,notificationRevision]);
   const [hoursResource,setHoursResource] = useState<{scope:'BRANCH'|'USER';id:string;name:string}|null>(null);
   useEffect(()=>{setHoursResource(null);},[page,user?.id]);
   const [selectedLead, setSelectedLead] = useState<string | null>(null);
@@ -302,9 +310,9 @@ function App() {
     }
   };
   return <div className="app-shell"><aside className="sidebar"><div className="brand">{t.app}</div><div className="user-block"><strong>{user.name}</strong><span>{user.role.replace('_', ' ')}</span></div>
-    <nav>{(['leads','contacts','contactReviews','followups','campaigns','fields','branches','users','identityEmail','messagingSetup','metaSources','paymentSetup','aiSetup','profile'] as Page[]).filter((item) =>
-      item === 'identityEmail' || item === 'contactReviews' || item === 'messagingSetup' || item === 'metaSources' || item === 'paymentSetup' || item === 'aiSetup' ? canManage : canManage || item === 'leads' || item === 'contacts' || item === 'profile' || item === 'followups').map((item) =>
-      <button key={item} className={page === item ? 'selected' : ''} onClick={() => { setPage(item); setSelectedLead(null); setSelectedCampaign(null); setShowForm(false); setForm({}); setNotice(''); }}>{t[item]}</button>)}</nav>
+    <nav>{(['leads','contacts','contactReviews','followups','campaigns','fields','branches','users','identityEmail','messagingSetup','metaSources','paymentSetup','aiSetup','notifications','profile'] as Page[]).filter((item) =>
+      item === 'identityEmail' || item === 'contactReviews' || item === 'messagingSetup' || item === 'metaSources' || item === 'paymentSetup' || item === 'aiSetup' ? canManage : canManage || item === 'leads' || item === 'contacts' || item === 'profile' || item === 'followups' || item === 'notifications').map((item) =>
+      <button key={item} aria-label={t[item]} className={page === item ? 'selected' : ''} onClick={() => { setPage(item); setSelectedLead(null); setSelectedCampaign(null); setShowForm(false); setForm({}); setNotice(''); }}>{t[item]}{item==='notifications'&&hasUnreadNotifications&&<span role="status" aria-label={locale==='ar'?'إشعارات غير مقروءة':locale==='fr'?'Notifications non lues':'Unread notifications'} style={{marginInlineStart:'.5rem'}}>●</span>}</button>)}</nav>
     <div className="sidebar-bottom">{language}<button onClick={() => { void api('/api/auth/logout', { method: 'POST' }).then(() => setUser(null)); }}>{t.logout}</button></div>
   </aside><main className="content"><header><div><small>Lead Operations</small><h1>{selectedLead ? t.details : t[page]}</h1></div><button className="secondary" onClick={() => void (page === 'identityEmail' ? refreshDeliveryJobs() : page === 'contacts' || page === 'contactReviews' || page === 'fields' ? setWorkspaceRefresh((value) => value + 1) : refresh())} disabled={busy}>{t.retry}</button></header>
     {error && <div role="alert" className="error">{error}</div>}
@@ -333,6 +341,7 @@ function App() {
           .catch((failure) => setError(String(failure))).finally(() => setBusy(false)); }}>{locale === 'ar' ? 'تحميل المزيد' : locale === 'fr' ? 'Afficher plus' : 'Load more'}</button>}
     </section> : page === 'paymentSetup' && canManage ? <PaymentSetup locale={locale} role={user.role as 'SUPER_ADMIN'|'MANAGER'} branches={branches} api={api} />
       : page === 'aiSetup' && canManage ? <AISetup locale={locale} role={user.role as 'SUPER_ADMIN'|'MANAGER'} branches={branches} api={api} />
+      : page === 'notifications' ? <NotificationCenter key={user.id} locale={locale} api={api} user={user} branches={branches} onOpenLead={id=>{setPage('leads');setSelectedLead(id);}} onChanged={()=>setNotificationRevision(n=>n+1)}/>
       : page === 'metaSources' && canManage ? <MetaSourceSetup locale={locale} role={user.role as 'SUPER_ADMIN'|'MANAGER'} branches={branches} api={api} />
       : page === 'messagingSetup' && canManage ? <MessagingSetup locale={locale} role={user.role as 'SUPER_ADMIN'|'MANAGER'}
       branchId={user.branchId} branches={branches} api={api} />

@@ -41,7 +41,24 @@ test('Actual customer AI Handoff transitions durably to Human waiting with scope
     const open = async () => { await page.reload(); await page.getByRole('row').filter({ hasText: 'Browser AI Handoff Action Customer' }).getByRole('button', { name: 'Details', exact: true }).click(); await page.getByRole('heading', { name: 'Customer conversations', exact: true }).locator('..').getByRole('button', { name: 'View messages', exact: true }).click(); };
     await open(); const history = page.locator('[data-ai-customer-history]'), review = page.locator('[data-ai-handoffs]');
     await history.getByRole('button', { name: 'Review AI executions', exact: true }).click(); await expect(history).toContainText('HANDOFF'); await expect(history).toContainText('No action or customer message has been executed.');
-    expect((await execute()).status()).toBe(200); expect((await (await execute()).json()).processed).toBe(false); await open();
+    expect((await execute()).status()).toBe(200); expect((await (await execute()).json()).processed).toBe(false);
+    const notice=(await(await page.request.get('/api/notifications?language=en')).json()).items.find((n:any)=>n.leadId===lead);expect(notice).toBeTruthy();
+    expect((await(await second.request.get('/api/notifications?language=en')).json()).items.some((n:any)=>n.leadId===lead)).toBe(false);
+    expect((await second.request.put('/api/notifications/'+notice.id+'/state',{headers:{origin},data:{version:0,isRead:true}})).status()).toBe(404);
+    await page.getByRole('button',{name:'Notifications',exact:true}).click();const center=page.locator('[data-notification-center]'),notification=page.locator('[data-notification="'+notice.id+'"]');
+    await expect(page.getByLabel('Unread notifications',{exact:true})).toBeVisible();
+    await expect(notification).toContainText('Browser AI Handoff Action Campaign');await expect(notification).toContainText('Waiting for human acceptance');
+    await notification.getByRole('button',{name:'Mark read',exact:true}).click();await expect(notification.getByRole('button',{name:'Mark unread',exact:true})).toBeVisible();
+    await expect(page.getByLabel('Unread notifications',{exact:true})).toHaveCount(0);
+    expect((await page.request.put('/api/notifications/'+notice.id+'/state',{headers:{origin},data:{version:0,isRead:false}})).status()).toBe(409);
+    await notification.getByRole('button',{name:'Mark unread',exact:true}).click();await expect(notification.getByRole('button',{name:'Mark read',exact:true})).toBeVisible();
+    await notification.getByRole('button',{name:'Read status history',exact:true}).click();await expect(center.locator('[data-notification-history]')).toContainText('Version 2');
+    await center.getByLabel('In-App human handoff notifications',{exact:true}).uncheck();await center.getByRole('button',{name:'Save notification preference',exact:true}).click();await expect(notification).toHaveCount(0);
+    expect((await(await manager.request.get('/api/notifications?language=en')).json()).items.some((n:any)=>n.id===notice.id)).toBe(true);
+    await center.getByLabel('In-App human handoff notifications',{exact:true}).check();await center.getByRole('button',{name:'Save notification preference',exact:true}).click();await expect(notification).toContainText('Waiting for human acceptance');
+    await page.route('**/api/notifications?**',route=>route.fulfill({status:403,contentType:'application/json',body:JSON.stringify({error:'NOTIFICATION_ACCESS_REVOKED'})}));
+    await center.getByRole('button',{name:'Refresh notifications',exact:true}).click();await expect(center.getByRole('alert')).toBeVisible();await expect(notification).toHaveCount(0);await expect(center.locator('[data-notification-preferences]')).toHaveCount(0);await page.unroute('**/api/notifications?**');
+    await page.getByRole('button',{name:'Leads',exact:true}).click();await open();
     await manager.reload(); const queue = manager.locator('[data-ai-handoff-queue]'); await queue.getByRole('button', { name: 'Review waiting conversations', exact: true }).click(); await expect(queue).toContainText('Browser AI Handoff Action Customer');
     expect((await (await second.request.get('/api/ai/human-handoff-queue')).json()).items).toEqual([]);
     await queue.getByRole('button', { name: 'Open Lead for review', exact: true }).click(); await expect(manager.getByRole('heading', { name: 'Browser AI Handoff Action Customer', exact: true })).toBeVisible();
@@ -79,6 +96,7 @@ test('Actual customer AI Handoff transitions durably to Human waiting with scope
     await expect(pack.getByRole('button', { name: 'Refresh handoff summary', exact: true })).toHaveCount(0); await expect(pack).toContainText('Historical summary');
     expect((await page.request.post('/api/conversations/' + cv + '/ai-handoff-summary', { headers: { origin }, data: { requestId: randomUUID() } })).status()).toBe(409);
     expect((await (await manager.request.get('/api/ai/human-handoff-queue')).json()).items).toEqual([]);
+    const historicalNotice=(await(await page.request.get('/api/notifications?language=en')).json()).items.find((n:any)=>n.id===notice.id);expect(historicalNotice.waiting).toBe(false);expect(historicalNotice.version).toBe(2);
     // Permission changes between proposal and action block the transition.
     expect((await inbound('Unknown revoked tool', true)).status()).toBe(200); expect((await control({ process: true })).status()).toBe(200);
     expect((await manager.request.put(tools, { headers: { origin }, data: { version: 1, definition: { allowedTools: [] }, reason: 'Revoke before Handoff action' } })).status()).toBe(200);

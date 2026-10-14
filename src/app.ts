@@ -63,6 +63,8 @@ import { registerAICopilotRoutes } from './routes/ai-copilot.js';
 import { registerAICopilotKnowledgeRoutes } from './routes/ai-copilot-knowledge.js';
 import { registerAICustomerHistoryRoutes } from './routes/ai-customer-history.js';
 import { registerWorkingHoursRoutes } from './routes/working-hours.js';
+import { registerNotificationRoutes } from './routes/notifications.js';
+import { registerNotificationTemplateRoutes } from './routes/notification-templates.js';
 import { registerAIToolPolicyRoutes } from './routes/ai-tool-policy.js';
 import { assertAIReadTestTransport } from './ai/read-transport.js';
 import type { AIInferenceRegistry } from './ai/inference-provider.js';
@@ -126,6 +128,8 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   registerAuthRoutes(app, db);
   registerOperationsRoutes(app, db);
   registerWorkingHoursRoutes(app, db);
+  registerNotificationRoutes(app, db);
+  registerNotificationTemplateRoutes(app, db);
   registerContactRoutes(app, db);
   registerFieldRoutes(app, db);
   registerLeadWorkflowRoutes(app, db);
