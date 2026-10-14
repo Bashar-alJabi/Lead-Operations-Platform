@@ -34,6 +34,16 @@ Campaign details تحتوي Branch default وCampaign override منفصلتين�
 
 ## التشغيل التالي
 
+### محرك احتساب المدة — native137
+
+`ai_handoff_clock_slice` و`calculateHandoffDurationSlice` تحسبان مدة فعلية مستقلة عن admission/action authority. المدخلات mode/timezone/calendar محلولة، ونافذة UTC من بداية إلى نهاية مشمولة/مستبعدة. Native validation تمنع calendar/timezone/mode غير صحيحة وnull/infinity أو ترتيبًا عكسيًا.
+
+الاستدعاء يعالج **6 ساعات فعلية كحد تقني للعمل** فقط، ويعيد `processedUntil` و`complete` و`accountedMicroseconds` وalgorithmVersion1. هذا لا يقيّد `handoffSlaMinutes` ولا يعد deadline. Elapsed أوتقويم{} يستعملان الفرق الحقيقي مباشرة. Working calendar تقسم النافذة إلى UTC minute cells محدودة (≤361)، وتقاطع الوقت المحلي الحقيقي داخل كل جزء مع فترات التقويم. ليست تقريبًا إلى الدقيقة: الأجزاء الكسرية محفوظة بدقة PostgreSQL microseconds. تغيّر offset داخل خلية يحدد في الزمن المطلق ويقسم الجزء؛ لا يستعمل inverse conversion لوقت محلي مكرر أوغير موجود. DST المتكرر يُحسب في كل وقوع فعلي، والمفقود لا يولّد وقتًا وهميًا؛ نصف ساعة/تاريخ محلي مفقود/offset تاريخية بالثواني اختُبرت. الحساب يستخدم timezone data في PostgreSQL نفسها، ومستقل عن session TimeZone.
+
+Application Service تمرر timestamp text وتحتفظ بـcursor JSON string كما هي؛ **ممنوع تحويل cursor عبر JavaScript Date** لأن ذلك يفقد microseconds. القيمة لكل slice أقل من2^53؛ جمع catch-up الطويل في timer التالية يجب أن يبقى PostgreSQL bigint أوJavaScript bigint، ولا يجمع target كبيرًا في floating Number. الدفعات قابلة للجمع دون فقد/تكرار عندحدودها، ويجب حفظ progress ذرّيًا مع source/version/proof فيمرحلة المؤقتات.
+
+لا job أوTimer أوNotification أوAudit/action receipt من الحساب وحده؛ `authorityGranted=false`. هذه foundation داخلية غير مكشوفة كAPI عامة، وconfiguration UI المحفوظة لا تدّعي تشغيل timers. قياس catch-up عطلة نهاية الأسبوع11slices نحو77–82ms محليًا دليل على العمل المحدود فقط، **ليس capacity guarantee**. لا SLA runtime completion claim؛ البوابة الشاملة للمرحلة تتوثق في progress/coverage بعد نجاحها.
+
 Durable timer source من trusted actual Handoff receipt/current waiting state، وnative clock accounting وbounded jobs/leases/retries/current scope/controller/owner/source/idempotency؛ ثم Assigned Owner reminder وManager escalation عبر Notification boundary. لا تُشتق سلطة مؤقت أو إرسال من preview أو diagnostic/old receipt. يجب اختبار elapsed/working clocks وDST وأوقات الإغلاق وتغيير الإعداد والتولّي البشري/reassignment والتزامن وAudit rollback قبل إعلان SLA منفذة.
 
 بعد SLA تبقى mandatory/Qualification-completion Handoff triggers ثم Customer sends عبر Central Messaging Policy وبقية AI/Automation/Analytics/import/export/Sheets/Email والقبول النهائي.

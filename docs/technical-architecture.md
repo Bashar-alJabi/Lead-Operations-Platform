@@ -1,5 +1,9 @@
 # المعمارية التقنية
 
+## Bounded Handoff SLA duration accounting — native137
+
+Pure native arithmetic وtyped internal Application Service تحسبان elapsed/working time في UTC slices≤6h، مع local-calendar intersection/offset transition splitting وmicroseconds وDST وقابلية جمع الدفعات. Cursor تبقى native JSON/text؛ لا JavaScript Date أوunbounded per-target loop. Clock inputs محلولة وليست action authority؛ `authorityGranted=false` ولا source/job/event/controller mutation. Timer admission/current guards/history وبجمع bigint وتنبيهات idempotent اعتماد تالي، قبلfull Handoff readiness. [التفاصيل](ai-handoff-sla-clock.md).
+
 ## إعداد ساعة Handoff SLA — 2026-10-14
 
 Native136 تفصل mode/timezone/calendar عن مدة `handoffSlaMinutes` الموجودة في operational configuration. الوراثة لكل حقل Campaign → Branch → elapsed default/Branch timezone/Branch working hours، مع null للوراثة و{} لتقويم غير مقيد. API/UI وcurrent parent-first scope/real session/CAS/native history/Audit مثبتة. Effective preview تحفظ مصادر القيم والنسخ وتعرض الانفتاح اللحظي وفق DST؛ لا تحسب deadline ولا تمنح timer/action authority. لا تخلط ساعات SLA مع Customer sending window أوUser availability/capacity. العقد في [ai-handoff-sla-clock.md](ai-handoff-sla-clock.md). Durable clock accounting/timers/reminders/escalation وtriggers/full Handoff/AI ما زالت غير مكتملة.

@@ -1,5 +1,14 @@
 # مصفوفة تغطية المتطلبات
 
+## أحدث checkpoint: bounded native SLA duration accounting — 2026-10-14
+
+| المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |
+|---|---|---|
+| 04 §§29/33،AGENTS §§15/28/38: elapsed/working Handoff duration أساس للمؤقتات | Native137 وtyped internal Service،UTC slice≤6h/local calendar intersection/offset transition split/microseconds/cursor وalgorithmVersion1؛ existingClock inputs محلولة دون target loop | **176unit و80full Docker PostgreSQL integration** (137.3s) و**48full Edge Browser E2E** (2.1m)،001–137 development/test وBackend build/typecheck وWeb typecheck. نفسWeb source/bundle من0baef3d verified؛focusedPG1/1/independent per-second reference/DST hour-half-hour/skipped date/historic second offset/partial boundary/additivity/closed days/session TZ/large target bound/invalid-infinite-reversed denial مثبتة؛الصورةفُحصت. **Implemented وMock/Sandbox Verified** لهذهfoundation فقط |
+| Actual durable SLA timer/reminder/escalation وfull Handoff | الحساب `authorityGranted=false`،لا worker/job/action/customer change | **غير مكتملة**. التاليtrusted current waiting timer/source/clock/cursor/bigint/history/current guards وidempotent Owner reminder/Manager escalation عبر Notification boundary. Live/full activation معطلتان،ولاFull AI/platform claim |
+
+العقد في [ai-handoff-sla-clock.md](ai-handoff-sla-clock.md). Synthetic/local mocks فقط؛ **Live Verification Pending External Credential/Approval**.
+
 ## أحدث checkpoint: إعداد ساعة Handoff SLA — 2026-10-14
 
 | المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |
