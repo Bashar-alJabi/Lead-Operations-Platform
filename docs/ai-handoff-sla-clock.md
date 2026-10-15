@@ -1,6 +1,6 @@
 # إعداد ساعة Handoff SLA
 
-**تحديث التشغيل2026-10-15:** Native138–140 والعامل المستقل وUI تنفّذ timers فعلية وانتهاءً موثّقًا؛انظر[عقدالتشغيل](ai-handoff-sla-runtime.md). Preview الإعداد نفسها لاتمنحaction authority،وfull runtime readiness وreminders/escalation/activation لمتكتملبعد. وصف14أكتوبر أدناه يخصمرحلةالإعدادوالحسابالمحفوظة.
+**تحديث التشغيل2026-10-15:** Native138–141 والعامل المستقل وUI تنفّذtimers فعلية وانتهاءً موثّقًا وIn-App Owner reminder/Manager escalation؛انظر[عقدالتشغيل](ai-handoff-sla-runtime.md) و[عقدالتنبيه](ai-handoff-sla-notifications.md). Preview الإعداد نفسها لاتمنحaction authority،وfull Handoff runtime/activation لمتكتملبعد. وصف14أكتوبر أدناه يخصمرحلةالإعدادوالحسابالمحفوظة.
 
 ## النطاق والحالة — 2026-10-14
 

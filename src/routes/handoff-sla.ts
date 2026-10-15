@@ -27,7 +27,7 @@ export function registerHandoffSLARoutes(app:FastifyInstance,db:Database){
    const {timer:t}=await access(tx,a,request.params.id,request);
    return {timer:t?{actionId:t.action_id,version:t.version,state:t.state,reason:t.reason_code,startedAt:t.started_at,cursorAt:t.cursor_at,elapsedMicroseconds:t.elapsed_microseconds,
     clock:t.clock,revision:t.revision,updatedAt:t.updated_at,waiting:Boolean(t.waiting),queue:{version:t.queue_version,failureCount:t.failure_count,errorCode:t.error_code,nextRunAt:t.next_run_at},
-    canRetry:a.role!=='AGENT'&&t.waiting&&t.failure_count>0&&!['EXPIRED','CANCELLED'].includes(t.state)}:null,notificationsImplemented:false};
+    canRetry:a.role!=='AGENT'&&t.waiting&&t.failure_count>0&&!['EXPIRED','CANCELLED'].includes(t.state)}:null,notificationsImplemented:true};
   });
  });
  app.get<{Params:{id:string};Querystring:{before?:number;limit?:number}}>(root+'/history',{schema:{params,querystring:{type:'object',additionalProperties:false,properties:{before:{type:'integer',minimum:1},limit:{type:'integer',minimum:1,maximum:50}}}}},async request=>{

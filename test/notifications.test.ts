@@ -19,4 +19,9 @@ test('Notification templates use current active campaign then branch then organi
  assert.equal(effectiveNotificationTemplate(templates,'o','b','c','fr').source,'DEFAULT');
  assert.match(effectiveNotificationTemplate(templates,'o','b','c','fr').title,/humain/);
  assert.equal(effectiveNotificationTemplate(templates,'foreign','other','hidden','ar').source,'DEFAULT');
+ assert.match(effectiveNotificationTemplate(templates,'o','b','c','en','AI_HANDOFF_SLA_EXCEEDED').title,/target exceeded/);
+ assert.match(effectiveNotificationTemplate([],'o','b','c','fr','AI_HANDOFF_SLA_EXCEEDED').title,/dépassé/);
+ templates.push({scope:'BRANCH',resource_id:'b',branch_id:'b',title:'SLA only',body:'SLA body',version:1,active:true,event_type:'AI_HANDOFF_SLA_EXCEEDED'});
+ assert.equal(effectiveNotificationTemplate(templates,'o','b','c','en','AI_HANDOFF_SLA_EXCEEDED').title,'SLA only');
+ assert.notEqual(effectiveNotificationTemplate(templates,'o','b','c','en').title,'SLA only');
 });

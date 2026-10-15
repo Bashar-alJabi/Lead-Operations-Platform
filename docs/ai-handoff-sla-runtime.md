@@ -1,5 +1,7 @@
 # مؤقتات Human Handoff SLA الدائمة
 
+**تحديث Native141:** رُبطتfresh breach بتنبيهOwner/Manager فعليمعpreferences/wording/history/UI مستقلة؛انظر[العقد](ai-handoff-sla-notifications.md). الوصفأدناهيمثلTimer stage138–140؛الخطوةالتاليةالحاليةmandatory/Qualification-completion triggers وبقيةAI،لا إعادةبناءTimer أوNotification baseline المحفوظة.
+
 ## النطاق — 2026-10-15
 
 المصدر: `04-ai-agents-conversations.md` §§29/33 مع AGENTS §§8/15/18/27–30/38 وBranch/Campaign isolation. هذه مرحلة Timer فعلية من المصدر الموثوق إلى احتساب دائم وانتهاء موثّق وUI وتعافٍ؛ ليست اكتمال SLA notifications أوHandoff/AI أوالمنصة. تعتمد على [إعداد الساعة والحساب](ai-handoff-sla-clock.md).

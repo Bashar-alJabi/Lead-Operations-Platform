@@ -1,5 +1,9 @@
 # المعمارية التقنية
 
+## Actual In-App SLA alerts — native141
+
+Fresh native breach/timer/current waiting proof تحفظunique `AI_HANDOFF_SLA_EXCEEDED` event وAudit فينفسexpiry transaction؛Notification Audit rollback تعيدكلprogress وتتركbounded retry. Current Owner/Branch Managers/Org SA audience تتبعLead access الحالية،لاsnapshot owner أوconfigured nonowner target. Event-specific preferences/templates/defaults/history/UI مستقلة؛history key وfresh proof تشملevent type لتجنبتصادمversion1. Native-text Cursor تحفظmicroseconds بديلًا عنDate serialization. [العقد](ai-handoff-sla-notifications.md). هذهSLA In-App baseline محلية؛mandatory/Qualification-completion triggers وfull AI/Notifications/المنصةغيرمكتملة،Live/full activation معطلتان.
+
 ## Durable Handoff SLA timers — native138–140
 
 Unique actual-receipt admission وcurrent waiting/source/parent locks وnative derived bigint/clock/cursor/version/history،معdeferred final expiry proof وimmutable breach وatomic Audit. Dedicated worker مستقل عنinference و`SKIP LOCKED`/short transactions وbounded retry/authorized scoped recovery؛ terminal queue خارجpartial due index،وno-op closed-calendar polls لا تنسخhistory. Startup legacy admission keyset batches مرة محدودة،لاfull waiting scan كلtick. Current policy changes تعيدpending accounting منالأصل دونreset waiting window،والـexpiry التاريخية terminal. API/UI current Lead scope وhistorical observation بعدtakeover. [العقد والحدود](ai-handoff-sla-runtime.md). Owner reminder/Manager escalation event والـtriggers/full Handoff/AI مازالتغيرمكتملة.

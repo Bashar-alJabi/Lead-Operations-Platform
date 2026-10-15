@@ -1,5 +1,11 @@
 # دليل التشغيل والتطوير
 
+## تنبيه تجاوز Handoff SLA — migration141
+
+بعدconfigured target وactual waiting request،`worker:handoff-sla` يثبتbreach ويربطSLA alert داخليًا بنفسtransaction. افتحالإشعارات للمراجعة/read/unread/history؛يصلcurrent Owner ومديروBranch وSAالمؤسسةضمنصلاحياتLead الحالية. Unassigned لا تعيّنموظفًا عشوائيًا. كتمSLA alert منالتفضيلالمستقللايكتمinitial Handoff ولايحذفالتاريخأوقائمةالانتظار؛فشلالقراءةلهReload مستقل. منمحررصياغةالإشعاراتاخترنوعالحدثقبلScope/Language،واضبطSLA wording/Preview/history منفصلة. لاCustomer/Email/WhatsApp send ولاLive AI transfer منهذاالمسار. [العقد](ai-handoff-sla-notifications.md).
+
+عندترقيةبيئةعاملة،أوقفSLA worker مؤقتًا أثناءNative141 ثمأعده بعدتحديثAPI/UI؛هذايمنعتعاملنسخةواجهةقديمةمعevent type الجديدة. تغييرprimary key لـnotification history يحفظالبياناتويحتاجنافذةmigration مناسبةللحجم؛لاreset/history deletion. الإجراءinfrastructure rollout فقط،وليسBusiness-managed setup أونشرًاProduction مصرحًا تلقائيًا.
+
 ## مؤقتات Handoff SLA — migrations138–140
 
 تُضبط target وClock من Campaign details بصلاحيات Branch/Campaign الحالية. لا يحتاج المستخدم التشغيلي CLI أوDB edits لإنشاء timer؛ receipt الفعلية تقبلها ذريًا. Infrastructure تشغّل `npm run worker:handoff-sla` بعدbuild إلىجانب بقيةworkers؛default25jobs/2000ms،وcapacity tuning عبرenv التقنية الموثقة في[العقد](ai-handoff-sla-runtime.md). العامل منفصل عنAI inference ولايحتاجAI credential أوProvider call.
