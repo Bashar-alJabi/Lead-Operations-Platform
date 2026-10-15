@@ -1,5 +1,15 @@
 # مصفوفة تغطية المتطلبات
 
+## أحدث checkpoint: Qualification child Handoff — 2026-10-15
+
+| المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |
+|---|---|---|
+| 04 §§18–20/28–30 و05 §21: Qualified milestone وCampaign Qualification conditions→Human Handoff | Native142 fresh APPLIED answer/history→typed immutable child source/job؛native current typed outcome وexact own-write version delta فقط؛original/current approved Handoff وfull context fences | **176unit/81full Docker PostgreSQL** (146.7s) و**48full Edge Browser** (2.2m)،001–142development/test وBackend/Web build/typecheck. Native/TS parity،typed conditions،false/zero/ALL/ANY،old/forged/retroactive-grant denial،eight workers/Owner race،current config/Field/controller/policy/sender/Branch invalidation،same-TX proof/Audit rollback مثبتة. **Implemented وMock/Sandbox Verified** لهذه المرحلة |
+| Current scoped review/history وField protection وHuman acceptance | DTO `actions[]` metadata وcompatibility `action`؛UI ar/en/fr تعرض actual Qualification/Handoff receipts وsource receipt ID؛same scoped reception/notification/SLA وexplicit Human takeover | Browser actual HMAC→mock→answer→child Handoff→notification→Human acceptance وforeign denial/no-XSS/RTL؛الصورة النهائية فُحصت. لا Customer send أوOwner/financial mutation؛لا sensitive Field values فيmetadata أوunmasked completion |
+| Mandatory Handoff safety وFull AI/platform | Validated HANDOFF التسعة تسلك approved path؛دونoriginal tool admission تتوقف processing Attention. Original admission ثمlater blocked action تحتاج current mandatory safety stop مستقلة؛Repeated Misunderstanding وبقية runtime وCustomer sends وبقيةmodules باقية | **غيرمكتملة**؛التالي current latest-source/same-scope/AI-only safety Attention عندblocked mandatory action دونتجاوزtool/current Human. Live transfer/full activation معطلتان؛التكاملات **Live Verification Pending External Credential/Approval**. لاComplete أوLive claim |
+
+التفاصيل في [ai-qualification-handoff.md](ai-qualification-handoff.md). لا تعديل لمigration مطبقة،ولا replay لhistorical answers. Source data synthetic وHTTP mocks فقط.
+
 ## أحدث checkpoint: actual In-App SLA reminder/escalation — 2026-10-15
 
 | المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |

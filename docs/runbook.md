@@ -1,5 +1,9 @@
 # دليل التشغيل والتطوير
 
+## Qualification child Handoff
+
+بعدNative142،اضبطCampaign Qualification completion/conditions وApproved `updateQualificationField` و`requestHumanHandoff` عبرالواجهةالحالية. `worker:ai` تحفظالإجابةثمchild source/job ثمcurrent guarded Handoff؛راقبExecution history للإجراءين وHandoff queue والـSLA/notifications الحالية. Explicit deny أوتغيّرالسياق لايُصلحبتعديلDB أوreplay old receipt: راجعsource/config/current controller،ومصدرeligible جديدفقط يقبلتنفيذًا جديدًا. الإجابةالمحفوظةقبلblocked Handoff تظلصحيحةوتاريخها محفوظ. Live/full activation معطلتان؛[العقدوالحدود](ai-qualification-handoff.md).
+
 ## تنبيه تجاوز Handoff SLA — migration141
 
 بعدconfigured target وactual waiting request،`worker:handoff-sla` يثبتbreach ويربطSLA alert داخليًا بنفسtransaction. افتحالإشعارات للمراجعة/read/unread/history؛يصلcurrent Owner ومديروBranch وSAالمؤسسةضمنصلاحياتLead الحالية. Unassigned لا تعيّنموظفًا عشوائيًا. كتمSLA alert منالتفضيلالمستقللايكتمinitial Handoff ولايحذفالتاريخأوقائمةالانتظار؛فشلالقراءةلهReload مستقل. منمحررصياغةالإشعاراتاخترنوعالحدثقبلScope/Language،واضبطSLA wording/Preview/history منفصلة. لاCustomer/Email/WhatsApp send ولاLive AI transfer منهذاالمسار. [العقد](ai-handoff-sla-notifications.md).

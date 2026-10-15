@@ -7,10 +7,11 @@ export async function requestAIHumanHandoff(tx: postgres.TransactionSql, proposa
   const existing = (await tx`SELECT id,state FROM ai_customer_handoff_action WHERE proposal_id=${proposalId}`)[0];
   if (existing) return { duplicate: true, actionId: existing.id as string, state: existing.state as string };
   const context = (await tx`SELECT ai_customer_handoff_context(${proposalId}) AS context`)[0]?.context;
-  const p = (await tx`SELECT * FROM ai_customer_proposal WHERE id=${proposalId} FOR SHARE`)[0];
+  const p = (await tx`SELECT p.*,COALESCE(s.context,p.context) AS action_context FROM ai_customer_proposal p
+    LEFT JOIN ai_qualification_handoff_source s ON s.proposal_id=p.id WHERE p.id=${proposalId} FOR SHARE OF p`)[0];
   if (!p) throw new Error('AI_HANDOFF_SOURCE_NOT_FOUND');
   const action = (await tx`INSERT INTO ai_customer_handoff_action(proposal_id,lead_id,campaign_id,conversation_id,state,error_code,context)
-    VALUES(${proposalId},${p.lead_id},${p.campaign_id},${p.conversation_id},${context ? 'APPLIED' : 'BLOCKED'},${context ? null : 'AI_HANDOFF_CONTEXT_CHANGED'},${tx.json(p.context)}) RETURNING *`)[0]!;
+    VALUES(${proposalId},${p.lead_id},${p.campaign_id},${p.conversation_id},${context ? 'APPLIED' : 'BLOCKED'},${context ? null : 'AI_HANDOFF_CONTEXT_CHANGED'},${tx.json(p.action_context)}) RETURNING *`)[0]!;
   if (context) {
     await tx`UPDATE conversation SET state='WAITING_FOR_HUMAN',controller_type='NONE',controller_user_id=NULL,
       needs_attention_reason='AI_HUMAN_HANDOFF_REQUESTED',version=version+1,ai_handoff_action_id=${action.id} WHERE id=${p.conversation_id}`;

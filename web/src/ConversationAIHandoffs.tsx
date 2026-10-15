@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { HandoffReception, type Reception } from './HandoffReception.js';
 import { HandoffSLA } from './HandoffSLA.js';
 type Api = <T>(path: string, options?: RequestInit) => Promise<T>;
-type Result = { items: { id: string; state: string; error_code: string | null; handoff_reason: string; created_at: string; knowledge_version: number; customer_question: string; reception_at_request:Reception|null }[];reception:Reception|null;
+type Result = { items: { id: string; state: string; error_code: string | null; handoff_reason: string; created_at: string; qualification_action_id: string | null; knowledge_version: number; customer_question: string; reception_at_request:Reception|null }[];reception:Reception|null;
   nextCursor: string | null; current: { state: string; controller_type: string; campaign_name: string; source_kind: string };
   qualification: { questions: { id: string; prompt: string; value: unknown; source: string | null }[]; result: { missingQuestionIds: string[] } | null; blockers: string[] };
   package: { summaries: { id: string; state: string; error_code: string | null; stale: boolean; truncated: boolean; completed_at: string | null; knowledge_version: number;
@@ -19,6 +19,7 @@ const packageLabels = {
   fr: { title: 'Dossier de transfert', summary: 'Résumé des preuves IA (cinq derniers)', refresh: 'Actualiser le résumé de transfert', stale: 'Résumé historique : contexte actuel modifié', truncated: 'Source limitée aux 20 derniers extraits ; consultez tout l’historique.', noSummary: 'Aucun résumé disponible. L’acceptation humaine reste disponible indépendamment.', attribution: 'Les extraits conservent leur auteur et état de livraison. Les déclarations de paiement du client ne sont pas vérifiées.', awaiting: 'Dernier message client en attente d’une réponse envoyée', awaitingNote: 'Selon l’historique des messages et livraisons ; cela ne prouve pas qu’une réponse antérieure répondait à la question.', none: 'Aucun message client en attente d’une réponse envoyée.', missing: 'Éléments de qualification manquants', refs: 'Références publiées actuelles', next: 'Prochaine action suggérée', accept: 'Consultez les preuves puis acceptez explicitement le contrôle humain.', respond: 'Consultez les preuves et répondez uniquement en tant que contrôleur humain actuel.', review: 'Consultez le contrôle actuel.', live: 'Le transfert réel de données client est désactivé.' },
 };
 export function ConversationAIHandoffs({ conversationId, locale, api, revision }: { conversationId: string; locale: 'ar' | 'en' | 'fr'; api: Api; revision: string }) {
+  const qualificationAction = { ar: 'إجراء Qualification المصدر', en: 'Source Qualification action', fr: 'Action de qualification source' }[locale];
   const t = labels[locale], p = packageLabels[locale], [value, setValue] = useState<Result | null>(null), [busy, setBusy] = useState(false), [error, setError] = useState(''), sequence = useRef(0);
   useEffect(() => { sequence.current++; setValue(null); setError(''); setBusy(false); return () => { sequence.current++; }; }, [conversationId, revision]);
   async function load(older = false) {
@@ -42,6 +43,7 @@ export function ConversationAIHandoffs({ conversationId, locale, api, revision }
     <HandoffSLA id={conversationId} locale={locale} revision={revision} api={api}/>
     {error && <p role="alert">{error}</p>}{value && <><p>{t.current}: {value.current.state} · {value.current.controller_type}</p><p>{value.current.campaign_name} · {value.current.source_kind}</p>
       {value.reception&&<HandoffReception value={value.reception} locale={locale}/>}{!value.items.length && <p>{t.empty}</p>}{value.items.map(e => <article key={e.id} data-ai-handoff-request><p dir="ltr">{e.handoff_reason} · {e.state}</p><time dateTime={e.created_at}>{new Date(e.created_at).toLocaleString(locale)}</time>
+        {e.qualification_action_id && <p>{qualificationAction}: <span dir="ltr" style={{ overflowWrap: 'anywhere' }}>{e.qualification_action_id}</span></p>}
         {e.reception_at_request&&<HandoffReception value={e.reception_at_request} locale={locale} historical/>}
         {e.error_code && <p dir="ltr" style={{ overflowWrap: 'anywhere' }}>{e.error_code}</p>}<p>{t.version}: {e.knowledge_version}</p><p>{t.question}: <span dir="auto" style={{ display: 'block', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{e.customer_question}</span></p></article>)}
       <div data-ai-handoff-package><h5>{p.title}</h5><p>{p.live}</p><p>{p.next}: {value.package.suggestedNextAction === 'REVIEW_AND_ACCEPT_HUMAN_CONTROL' ? p.accept : value.package.suggestedNextAction === 'REVIEW_AND_RESPOND_AS_CURRENT_CONTROLLER' ? p.respond : p.review}</p>

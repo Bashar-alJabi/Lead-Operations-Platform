@@ -1,5 +1,7 @@
 # تنفيذ AI Qualification
 
+**تحديث Native142:** fresh APPLIED answer/history تستطيعإنشاءtyped child Handoff source عندشرطالحملة وoriginal/current approved Handoff؛[العقد](ai-qualification-handoff.md). Original context تبقىimmutable،ولايتغيرgeneric Qualification guard. Exact own-write delta فقط تمنحchild authority مستقلة،ثمcurrent Handoff worker تعيدكلالفحوص. No old/Human/readonly replay،ولاCustomer/financial action. Full AI/live activation معطلتان.
+
 ## النطاق والسلطة
 
 المصادر: 04 §§6–8/18–20، 05 §§13–17، 02 §§44/48/50 وAGENTS §§8/19–22/26–29. تنفّذ `updateQualificationField` إجابة typed واحدة مرتبطة بسؤال الحملة الحالي وحقلها عند وجود mapping. تعتمد على Published Knowledge وProfile وConnection وgrant وconfiguration الحالية، ضمن Organization/Branch/Campaign/Lead/Conversation وpinned Sender والرسالة الواردة الموثّقة الأحدث. Human writers تحتفظ بسلطة المستخدم وجلسته الفعليتين. هذه الأداة لا ترسل رسالة ولا تغيّر Controller أوPayment أوEnrollment أوcore status أوsecurity.

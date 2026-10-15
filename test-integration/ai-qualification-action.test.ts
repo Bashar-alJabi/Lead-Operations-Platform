@@ -12,6 +12,7 @@ import { emptyQualification } from '../src/ai/qualification.js';
 import { processOneAICustomerProposal } from '../src/ai/customer-worker.js';
 import { AIInferenceError, aiInferenceAdapters, type AIInferenceRegistry } from '../src/ai/inference-provider.js';
 import { collectAIQualificationAnswer, processOneAIQualificationAction } from '../src/ai/customer-qualification.js';
+import { verifyQualificationHandoff } from './qualification-handoff-scenarios.js';
 const url = process.env.TEST_DATABASE_URL;
 if (!url || new URL(url).pathname !== '/lead_operations_test') throw new Error('Isolated TEST_DATABASE_URL required');
 
@@ -190,6 +191,7 @@ test('Actual AI Qualification uses fresh active admission, typed current action 
   await run(qualify()); assert.equal(await processOneAIQualificationAction(db), false);
   assert.equal((await db`SELECT version FROM lead_field_value WHERE lead_id=${lead} AND field_id=${field}`)[0]!.version, beforeOlder);
   assert.equal((await db`SELECT source,version FROM lead_field_value WHERE lead_id=${lead} AND field_id=${budget}`)[0]!.version, 1);
+  await verifyQualificationHandoff(db,app,{ branch,campaign,lead,cv,field,question,sender,users,inbound,activate });
   // First consent INSERT on a shared Contact is fenced even through another Lead.
   const siblingCampaign = (await db`INSERT INTO campaign(organization_id,branch_id,name,status) VALUES(${org},${branch},'Shared Contact scope','ACTIVE') RETURNING id`)[0]!.id;
   const sibling = (await db`INSERT INTO lead(organization_id,branch_id,campaign_id,contact_id,source_kind) VALUES(${org},${branch},${siblingCampaign},${contact},'MANUAL') RETURNING id`)[0]!.id;

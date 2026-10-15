@@ -1,5 +1,9 @@
 # المعمارية التقنية
 
+## Qualification child Handoff — native142
+
+Fresh APPLIED Qualification answer/history تُنشئ typed immutable child source وindexed Handoff job فقط عند شرط الحملة وoriginal approved Handoff admission. Snapshot تقبل exact own-write answer/Field version delta،وتحافظ على كل full current context fences؛لا حذف qualification من generic proof. Current worker/action/transition/history/Audit/reception/notifications/SLA الحالية تُستخدم دونfake Model/Human authority أوOwner/customer/financial mutation. Execution DTO/UI تعرضactual receipts متعددة دونField value leakage. [العقد](ai-qualification-handoff.md). Full runtime/live transfer مازالت معطلة.
+
 ## Actual In-App SLA alerts — native141
 
 Fresh native breach/timer/current waiting proof تحفظunique `AI_HANDOFF_SLA_EXCEEDED` event وAudit فينفسexpiry transaction؛Notification Audit rollback تعيدكلprogress وتتركbounded retry. Current Owner/Branch Managers/Org SA audience تتبعLead access الحالية،لاsnapshot owner أوconfigured nonowner target. Event-specific preferences/templates/defaults/history/UI مستقلة؛history key وfresh proof تشملevent type لتجنبتصادمversion1. Native-text Cursor تحفظmicroseconds بديلًا عنDate serialization. [العقد](ai-handoff-sla-notifications.md). هذهSLA In-App baseline محلية؛mandatory/Qualification-completion triggers وfull AI/Notifications/المنصةغيرمكتملة،Live/full activation معطلتان.

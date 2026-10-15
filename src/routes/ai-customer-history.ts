@@ -59,7 +59,7 @@ export function registerAICustomerHistoryRoutes(app: FastifyInstance, db: Databa
       const session = await currentPaymentSession(tx, actor, request);
       if (!session) throw new HttpError(403, 'AI_HANDOFF_ACCESS_REVOKED');
       const access = await approvedConversationReadContext(tx, actor, request.params.id, session);
-      const rows = await tx`SELECT a.id,a.state,a.error_code,a.handoff_reason,a.created_at,a.context->'knowledge'->'version' AS knowledge_version,
+      const rows = await tx`SELECT a.id,a.state,a.error_code,a.handoff_reason,a.created_at,a.qualification_action_id,a.context->'knowledge'->'version' AS knowledge_version,
           p.message_id,left(m.body,2000) AS customer_question,re.snapshot AS reception_at_request FROM ai_customer_handoff_action a JOIN ai_customer_proposal p ON p.id=a.proposal_id
           LEFT JOIN ai_handoff_reception_event re ON re.action_id=a.id
           JOIN conversation_message m ON m.id=p.message_id AND m.conversation_id=a.conversation_id
@@ -104,6 +104,7 @@ export function registerAICustomerHistoryRoutes(app: FastifyInstance, db: Databa
       const access = await approvedConversationReadContext(tx, actor, request.params.id, session);
       const rows = await tx`SELECT e.*,e.context->'knowledge'->'version' AS knowledge_version,COALESCE(a.id,h.id) AS action_id,COALESCE(a.state,h.state) AS action_state,
         COALESCE(a.error_code,h.error_code) AS action_error,COALESCE(a.created_at,h.created_at) AS action_created_at,COALESCE(a.tool,h.tool) AS action_tool,
+        a.id AS qualification_action_id,h.id AS handoff_id,h.tool AS handoff_tool,h.state AS handoff_state,h.error_code AS handoff_error,h.created_at AS handoff_created_at,
         e.context IS DISTINCT FROM CASE WHEN e.kind='CUSTOMER_PROPOSAL' THEN ai_customer_proposal_context(e.event_id) ELSE ai_customer_inbound_context(e.event_id) END AS stale
         FROM (
           SELECT p.id,p.organization_id,p.branch_id,p.campaign_id,p.lead_id,p.conversation_id,p.message_id,p.event_id,p.state,p.error_code,p.context_hash,p.created_at,p.context,p.result,p.provider_invoked,p.attempt_count,'CUSTOMER_PROPOSAL' AS kind
@@ -120,14 +121,18 @@ export function registerAICustomerHistoryRoutes(app: FastifyInstance, db: Databa
       const items = rows.slice(0, limit), last = items.at(-1);
       await tx`INSERT INTO audit_log(organization_id,branch_id,actor_user_id,action,target_type,target_id,detail)
         VALUES (${actor.organizationId},${access.lead.branch_id},${actor.id},'AI_CUSTOMER_HISTORY_READ','CONVERSATION',${request.params.id},${tx.json({ leadId: access.lead.id, count: items.length })})`;
-      return { items: items.map(e => ({ id: e.id, sourceMessageId: e.message_id, sourceEventId: e.event_id, assistant: 'AI_LEAD_ASSISTANT', state: e.state,
+      return { items: items.map(e => {
+        const action = e.action_id ? { id: e.action_id, tool: e.action_tool, state: e.action_state, errorCode: e.action_error, createdAt: e.action_created_at } : null;
+        const actions = action ? [action] : [];
+        if (e.qualification_action_id && e.handoff_id) actions.push({ id: e.handoff_id, tool: e.handoff_tool, state: e.handoff_state, errorCode: e.handoff_error, createdAt: e.handoff_created_at });
+        return { id: e.id, sourceMessageId: e.message_id, sourceEventId: e.event_id, assistant: 'AI_LEAD_ASSISTANT', state: e.state,
         errorCode: e.error_code, contextHash: e.context_hash, knowledgeVersion: e.knowledge_version, createdAt: e.created_at, stale: e.stale,
         kind: e.kind, attemptCount: e.attempt_count, providerInvoked: e.provider_invoked,
         // A qualification candidate may refer to a Field hidden from this employee. Never expose its value, question or schema here.
         proposal: e.result ? { decision: e.result.decision, handoffReason: e.result.handoffReason,
           answer: e.result.decision === 'ANSWER' ? e.result.referenceIds.map((id: string) => e.context.references.find((r: { id: string; text: string }) => r.id === id)?.text ?? '').join('\n\n') : null } : null,
-        action: e.action_id ? { id: e.action_id, tool: e.action_tool, state: e.action_state, errorCode: e.action_error, createdAt: e.action_created_at } : null,
-        toolsExecuted: e.action_state === 'APPLIED' ? [e.action_tool] : [], sendAllowed: false, mutationsAllowed: false })),
+        action, actions, toolsExecuted: actions.filter(a => a.state === 'APPLIED').map(a => a.tool), sendAllowed: false, mutationsAllowed: false };
+      }),
         nextCursor: rows.length > limit && last ? encodeCursor({ timestamp: last.created_at.toISOString(), id: last.id }) : null,
         liveTransferEnabled: false, runtimeReady: false };
     });

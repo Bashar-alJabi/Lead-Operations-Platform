@@ -87,7 +87,8 @@ export async function processOneAICustomerProposal(db: Database, options: { adap
         WHERE cv.id=${row.conversation_id} AND cv.controller_type='AI' AND cv.state IN ('AI_ACTIVE','AI_WAITING_FOR_LEAD') AND cv.needs_attention_reason IS NULL
           AND ${row.message_id}::uuid=(SELECT id FROM conversation_message WHERE conversation_id=cv.id ORDER BY created_at DESC,id DESC LIMIT 1)
           AND (EXISTS(SELECT 1 FROM ai_customer_action_admission WHERE proposal_id=${row.id})
-            OR EXISTS(SELECT 1 FROM ai_customer_handoff_admission WHERE proposal_id=${row.id}))
+            OR EXISTS(SELECT 1 FROM ai_customer_handoff_admission WHERE proposal_id=${row.id})
+            OR ${state === 'PROPOSED' && result?.decision === 'HANDOFF'})
           AND NOT (${state === 'PROPOSED' && result?.decision === 'HANDOFF'} AND EXISTS(SELECT 1 FROM ai_customer_handoff_admission WHERE proposal_id=${row.id}))
           AND NOT (${state === 'PROPOSED' && result?.decision === 'QUALIFICATION'} AND EXISTS(SELECT 1 FROM ai_customer_action_admission WHERE proposal_id=${row.id}))`;
   });

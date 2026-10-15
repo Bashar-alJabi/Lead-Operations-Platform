@@ -70,7 +70,30 @@ test('Actual customer AI Qualification applies approved typed actions with curre
     expect((await inbound('Qualification fixture: ' + untrusted, true)).status()).toBe(200); expect((await control({ process: true })).status()).toBe(200); expect((await execute()).status()).toBe(200);
     await qual.getByRole('button', { name: 'Reload collected answers', exact: true }).click(); const unmapped = qual.locator(`[data-qualification-question="${free}"]`); await expect(unmapped).toContainText('AI'); await expect(unmapped.getByLabel(textPrompt, { exact: true })).toHaveValue(untrusted);
     await unmapped.getByRole('button', { name: 'Collected answer history', exact: true }).click(); await expect(qual.locator('[data-qualification-history]')).toContainText(untrusted); expect(await qual.locator('img').count()).toBe(0); expect(await page.evaluate(() => Object.hasOwn(window, '__aiQualificationXss'))).toBe(false);
+    // Campaign completion creates a distinct child action, without replaying the old source or dropping Field permissions.
+    const currentTools = await (await manager.request.get(tools)).json(), configRoot = '/api/ai/campaigns/' + campaign + '/qualification', currentConfig = await (await manager.request.get(configRoot)).json();
+    expect((await manager.request.put(tools, { headers: { origin }, data: { version: currentTools.version, definition: { allowedTools: ['updateQualificationField', 'requestHumanHandoff'] }, reason: 'Approve current qualification child handoff' } })).status()).toBe(200);
+    expect((await manager.request.put(configRoot, { headers: { origin }, data: { version: currentConfig.version, definition: { ...currentConfig.definition, handoff: { onCompletion: true, match: 'ALL', conditions: [] } }, reason: 'Explicit completion handoff rule' } })).status()).toBe(200);
+    const handoff = () => manager.request.post('/__test__/ai-human-handoff', { headers: { origin, authorization: 'Bearer ' + fixture.testToken } });
+    expect((await (await handoff()).json()).processed).toBe(false);
+    expect((await inbound('Qualification fixture: ' + untrusted, true)).status()).toBe(200); expect((await control({ process: true })).status()).toBe(200); expect((await execute()).status()).toBe(200);
+    expect((await handoff()).status()).toBe(200); expect((await (await handoff()).json()).processed).toBe(false);
+    await refresh(); const latest = panel.locator('[data-ai-customer-execution]').first();
+    await expect(latest.locator('[data-ai-customer-action]')).toHaveCount(2); await expect(latest).toContainText('updateQualificationField'); await expect(latest).toContainText('requestHumanHandoff');
+    const chained = (await (await page.request.get(root)).json()).items[0]; expect(chained.proposal.decision).toBe('QUALIFICATION'); expect(chained.toolsExecuted).toEqual(['updateQualificationField', 'requestHumanHandoff']); expect(chained.actions.every((a: any) => !a.context && !a.value)).toBe(true);
+    const review = page.locator('[data-ai-handoffs]'); await review.getByRole('button', { name: 'Review handoff requests', exact: true }).click();
+    await expect(review.locator('[data-ai-handoff-request]').first()).toContainText('QUALIFICATION'); await expect(review).toContainText('WAITING_FOR_HUMAN');
+    await expect(review.locator('[data-ai-handoff-request]').first()).toContainText(chained.actions[0].id);
+    expect((await second.request.get('/api/conversations/' + cv + '/ai-handoffs')).status()).toBe(404);
+    expect((await (await page.request.get('/api/notifications?language=en')).json()).items.some((n: any) => n.leadId === lead)).toBe(true);
+    // Refresh current Conversation version before explicit Human acceptance through the existing controls.
+    await page.reload(); await page.getByRole('row').filter({ hasText: 'Browser AI Qualification Action Customer' }).getByRole('button', { name: 'Details', exact: true }).click();
+    await page.getByRole('heading', { name: 'Customer conversations', exact: true }).locator('..').getByRole('button', { name: 'View messages', exact: true }).click();
+    await page.getByLabel('Takeover reason', { exact: true }).fill('Accept the qualification handoff'); await page.getByRole('button', { name: 'Take over conversation', exact: true }).click();
+    await expect(page.locator('[data-ai-handoffs]').getByRole('button', { name: 'Review handoff requests', exact: true })).toBeVisible();
+    const accepted = await (await page.request.get('/api/conversations/' + cv + '/ai-handoffs')).json(); expect(accepted.current.controller_type).toBe('HUMAN');
     expect(((await (await page.request.get('/api/conversations/' + cv + '/messages')).json()).items as { direction: string }[]).every(m => m.direction === 'INBOUND')).toBe(true);
+    await refresh();
     await page.getByRole('combobox', { name: 'Language' }).selectOption('fr'); await expect(qual).toContainText('Qualification du Lead'); await expect(panel).toContainText('Qualification enregistrée');
     await page.getByRole('combobox', { name: 'Language' }).selectOption('ar'); await page.setViewportSize({ width: 390, height: 844 }); await refreshArabic();
     async function refreshArabic() { await panel.getByRole('button', { name: 'مراجعة تنفيذ AI', exact: true }).click(); }
