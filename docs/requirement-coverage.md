@@ -1,5 +1,15 @@
 # مصفوفة تغطية المتطلبات
 
+## أحدث checkpoint: durable Handoff SLA timers — 2026-10-15
+
+| المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |
+|---|---|---|
+| 04 §§29/33،05 inheritance/isolation،AGENTS §§8/15/18/27–30/38–39: actual elapsed/working response monitoring | Native138–140 وactual receipt/current waiting/source/parent locks،native bigint/cursor/revision/history وimmutable breach/deferred final proof/atomic Audit؛dedicated transactional worker/partial due index/bounded retries وlegacy startup admission | **176unit و81full Docker PostgreSQL integration** (141s) و**48full Edge Browser E2E** (2.4m)،001–140development/test وBackend/Web build/typecheck ناجحة. Source/date/total/history forgery denial،concurrent admission/eight workers،closed calendar/config revision/no-op history،same-TX final proof،rollback/dead-letter/session revocation lock race/current scope/Human takeover وCLI smoke مثبتة. **Implemented وMock/Sandbox Verified** لمرحلةTimer فقط |
+| Scoped timer/history/manual recovery UI وBackend enforcement | Current Lead access وreal Session وSA/Manager recovery فقط،version/reason/CAS/native recovery/history/Audit؛historic observation بعدacceptance وnull بعدScope transfer،ar/en/fr/RTL/failed-read clearing | Focused PG1/1 وfull Browser أعلاه؛Browser تنفّذfive failures ثمManager recovery بالواجهة وAgent403/foreign404. بعدتعديلنصClock فقط،Web build/typecheck وfocused Browser2/2 (14s) والصورالنهائيةفُحصت؛لاexact-deadline claim |
+| Actual SLA Owner reminder/Manager escalation وmandatory/Qualification-completion triggers | Breach دائمة موجودة،لكنSLA notification event لمتربطبعد | **غيرمكتملة ومطلوبةتاليًا**؛full SLA/Handoff/Notifications/AI/platform ليستComplete. لاCustomer send/Owner-controller/financial action أوLive transfer؛**Live Verification Pending External Credential/Approval** |
+
+العقد في [ai-handoff-sla-runtime.md](ai-handoff-sla-runtime.md). Source AI synthetic/mocks فقط؛لاLive Provider verification.
+
 ## أحدث checkpoint: bounded native SLA duration accounting — 2026-10-14
 
 | المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |

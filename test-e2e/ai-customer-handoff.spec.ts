@@ -83,6 +83,21 @@ test('Actual customer AI Handoff transitions durably to Human waiting with scope
     expect((await second.request.get(reviewRoot)).status()).toBe(404);expect((await (await second.request.get('/api/ai/human-handoff-queue')).json()).items).toEqual([]);
     expect((await manager.request.put(cfgRoot,{headers:{origin},data:{version:config.version+1,definition:config.definition,reason:'Restore current owner reception'}})).status()).toBe(200);
     await review.getByRole('button',{name:'Review handoff requests',exact:true}).click();await expect(review.locator('[data-handoff-reception="current"]')).toContainText('Current owner available');
+    const sla=review.locator('[data-handoff-sla]'),slaRoot='/api/conversations/'+cv+'/handoff-sla';
+    expect((await second.request.get(slaRoot)).status()).toBe(404);expect((await second.request.get(slaRoot+'/history')).status()).toBe(404);
+    expect((await page.request.post('/__test__/handoff-sla',{headers:{origin},data:{offsetSeconds:120,process:true}})).status()).toBe(403);
+    await sla.getByRole('button',{name:'Review response timer',exact:true}).click();await expect(sla).toContainText('Response target unconfigured');
+    const slaConfig=await(await manager.request.get(cfgRoot)).json();expect((await manager.request.put(cfgRoot,{headers:{origin},data:{version:slaConfig.version,definition:{...slaConfig.definition,handoffSlaMinutes:1},reason:'One-minute response target for synthetic timer'}})).status()).toBe(200);
+    const slaControl=(data:object)=>manager.request.post('/__test__/handoff-sla',{headers:{origin,authorization:'Bearer '+fixture.testToken},data});
+    for(let attempt=0;attempt<5;attempt++)expect((await slaControl({offsetSeconds:120+attempt*60,process:true,failExpiry:true})).status()).toBe(200);
+    const failed=(await(await page.request.get(slaRoot)).json()).timer;expect(failed.queue.failureCount).toBe(5);expect(failed.canRetry).toBe(false);expect((await page.request.post(slaRoot+'/retry',{headers:{origin},data:{version:failed.queue.version,reason:'Agent cannot repair queue'}})).status()).toBe(403);
+    await manager.reload();await manager.getByRole('row').filter({hasText:'Browser AI Handoff Action Customer'}).getByRole('button',{name:'Details',exact:true}).click();await manager.getByRole('heading',{name:'Customer conversations',exact:true}).locator('..').getByRole('button',{name:'View messages',exact:true}).click();const managerSla=manager.locator('[data-handoff-sla]');await managerSla.getByRole('button',{name:'Review response timer',exact:true}).click();await expect(managerSla).toContainText('SLA_STEP_FAILED');
+    expect((await slaControl({offsetSeconds:420,failExpiry:false})).status()).toBe(200);await managerSla.getByLabel('Response timer retry reason',{exact:true}).fill('Reviewed synthetic queue failure <img literal>');await managerSla.getByRole('button',{name:'Retry response timer',exact:true}).click();await expect(managerSla.getByRole('button',{name:'Retry response timer',exact:true})).toHaveCount(0);
+    expect((await slaControl({offsetSeconds:420,process:true})).status()).toBe(200);
+    await sla.getByRole('button',{name:'Review response timer',exact:true}).click();await expect(sla).toContainText('Response target exceeded');
+    await sla.getByRole('button',{name:'Response timer history',exact:true}).click();await expect(sla.locator('article').first()).toContainText('Response target exceeded');
+    const observed=(await(await page.request.get(slaRoot)).json()).timer;expect(observed.waiting).toBe(true);expect(observed.clock.targetMinutes).toBe(1);expect(observed.canRetry).toBe(false);
+    await page.route('**'+slaRoot,route=>route.fulfill({status:403,contentType:'application/json',body:JSON.stringify({error:'HANDOFF_SLA_ACCESS_REVOKED'})}));await sla.getByRole('button',{name:'Review response timer',exact:true}).click();await expect(sla.getByRole('alert')).toBeVisible();await expect(sla.locator('[data-handoff-sla-value]')).toHaveCount(0);await page.unroute('**'+slaRoot);
     expect(await review.locator('img').count()).toBe(0); expect(await page.evaluate(() => Object.hasOwn(window, '__handoffXss'))).toBe(false);
     expect((await second.request.get(reviewRoot)).status()).toBe(404); expect((await second.request.get(root)).status()).toBe(404);
     const entry = (await (await page.request.get(root)).json()).items[0]; expect(entry.toolsExecuted).toEqual(['requestHumanHandoff']); expect(entry.action.context).toBeUndefined(); expect(entry.sendAllowed).toBe(false);
@@ -109,5 +124,6 @@ test('Actual customer AI Handoff transitions durably to Human waiting with scope
     await page.getByRole('combobox', { name: 'Language' }).selectOption('fr'); await review.getByRole('button', { name: 'Consulter les transferts', exact: true }).click(); await expect(review).toContainText('Question client');
     await page.getByRole('combobox', { name: 'Language' }).selectOption('ar'); await page.setViewportSize({ width: 390, height: 844 }); await review.getByRole('button', { name: 'مراجعة طلبات التسليم', exact: true }).click();
     await review.screenshot({ path: '.local/e2e/ai-handoff-action-ar.png' }); expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true); expect(errors).toEqual([]);
-  } finally { await managerContext.close(); await context.close(); await secondContext.close(); }
+    await review.locator('[data-handoff-sla]').getByRole('button',{name:'مراجعة مؤقت الاستجابة',exact:true}).click();await expect(review.locator('[data-handoff-sla]')).toContainText('تجاوز المدة المستهدفة');await review.locator('[data-handoff-sla]').screenshot({path:'.local/e2e/handoff-sla-ar.png'});
+  } finally { await manager.request.post('/__test__/handoff-sla',{headers:{origin,authorization:'Bearer '+fixture.testToken},data:{offsetSeconds:0,failExpiry:false}}).catch(()=>undefined);await managerContext.close(); await context.close(); await secondContext.close(); }
 });

@@ -15,6 +15,7 @@ import type { ProviderTemplate } from '../src/messaging/templates-provider.js';
 import { renderTemplateUrl } from '../src/messaging/approved-template.js';
 import { processOneInboundEvent } from '../src/messaging/inbound-events.js';
 import { processOneAIHumanHandoff } from '../src/ai/customer-handoff.js';
+import { processOneHandoffSLATimer } from '../src/ai/handoff-sla.js';
 import { processOneAIHandoffSummary } from '../src/ai/handoff-summary.js';
 import { processOneTemplateSample } from '../src/media/template-sample-worker.js';
 import { processOneSourceEvaluation } from '../src/sources/evaluation.js';
@@ -105,6 +106,8 @@ globalThis.fetch=async(target,init)=> { if(String(target)===testPayPalCertUrl)re
 process.env.APP_ORIGIN = 'http://127.0.0.1:4100';
 process.env.CREDENTIAL_ENCRYPTION_KEY = randomBytes(32).toString('hex');
 const db = createDatabase(connectionUrl);
+await db`CREATE OR REPLACE FUNCTION ai_handoff_sla_now() RETURNS timestamptz LANGUAGE sql VOLATILE AS $$ SELECT clock_timestamp() $$`;
+await db`DROP TRIGGER IF EXISTS reject_sla_browser ON audit_log`;await db`DROP FUNCTION IF EXISTS reject_sla_browser_fixture()`;
 const password = randomBytes(24).toString('hex'); const testToken = randomBytes(32).toString('hex');
 const hash = await passwordHash(password);
 await db.begin(async (tx) => { await tx`SET LOCAL client_min_messages TO warning`;
@@ -258,6 +261,18 @@ app.post('/__test__/ai-copilot-summary',async(request)=>{
 app.post('/__test__/ai-human-handoff',async(request)=>{
   if(typeof request.headers.authorization!=='string' || !safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
   return { processed:await processOneAIHumanHandoff(db) };
+});
+app.post<{Body:{offsetSeconds:number;process?:boolean;failExpiry?:boolean}}>('/__test__/handoff-sla',{schema:{body:{type:'object',additionalProperties:false,required:['offsetSeconds'],properties:{offsetSeconds:{type:'integer',minimum:0,maximum:2592000},process:{type:'boolean'},failExpiry:{type:'boolean'}}}}},async request=>{
+ if(typeof request.headers.authorization!=='string'||!safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
+ // Test server already requires an isolated reset-enabled DB; no production route or live time override.
+ await db`CREATE TABLE IF NOT EXISTS e2e_sla_clock(singleton boolean PRIMARY KEY DEFAULT true CHECK(singleton),offset_seconds integer NOT NULL)`;
+ await db`INSERT INTO e2e_sla_clock(offset_seconds) VALUES(${request.body.offsetSeconds}) ON CONFLICT(singleton) DO UPDATE SET offset_seconds=excluded.offset_seconds`;
+ await db`CREATE OR REPLACE FUNCTION ai_handoff_sla_now() RETURNS timestamptz LANGUAGE sql VOLATILE AS $$ SELECT clock_timestamp()+make_interval(secs=>COALESCE((SELECT offset_seconds FROM e2e_sla_clock WHERE singleton),0)) $$`;
+ if(request.body.failExpiry!==undefined){
+  await db`DROP TRIGGER IF EXISTS reject_sla_browser ON audit_log`;await db`DROP FUNCTION IF EXISTS reject_sla_browser_fixture()`;
+  if(request.body.failExpiry){await db`CREATE FUNCTION reject_sla_browser_fixture() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='AI_HANDOFF_SLA_EXCEEDED' THEN RAISE EXCEPTION 'SYNTHETIC_BROWSER_SLA_FAILURE';END IF;RETURN NEW;END $$`;await db`CREATE TRIGGER reject_sla_browser BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION reject_sla_browser_fixture()`;}
+ }
+ let processed=0;if(request.body.process)for(let n=0;n<30;n++){if(!await processOneHandoffSLATimer(db))break;processed++;}return {processed};
 });
 app.post('/__test__/ai-handoff-summary',async(request)=>{
   if(typeof request.headers.authorization!=='string' || !safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');

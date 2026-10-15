@@ -14,6 +14,7 @@ import { AIInferenceError, aiInferenceAdapters, type AIInferenceRegistry } from 
 import { requestAIHumanHandoff, processOneAIHumanHandoff } from '../src/ai/customer-handoff.js';
 import { processOneAIHandoffSummary } from '../src/ai/handoff-summary.js';
 import { verifyHandoffNotifications } from './notification-scenarios.js';
+import { verifyHandoffSLATimers } from './handoff-sla-scenarios.js';
 const url = process.env.TEST_DATABASE_URL;
 if (!url || new URL(url).pathname !== '/lead_operations_test') throw new Error('Isolated TEST_DATABASE_URL required');
 
@@ -372,6 +373,10 @@ test('Approved customer AI Handoff owns current authority, durable atomic transi
   assert.equal((await db`SELECT state FROM conversation WHERE id=${cv}`)[0]!.state, 'WAITING_FOR_HUMAN');
   assert.equal((await api('GET', review)).json().package.refreshAvailable, false);
   await verifyHandoffNotifications(db,app,{org,branch,other,campaign,lead,cv,action:noSummaryAction,users});
+  await verifyHandoffSLATimers(db,app,{org,branch,other,campaign,lead,cv,action:noSummaryAction,users,newHandoff:async()=>{
+    await activate();await inbound(randomUUID(),'Another trusted human request');await run();assert.equal(await processOneAIHumanHandoff(db),true);
+    return (await db`SELECT ai_handoff_action_id FROM conversation WHERE id=${cv}`)[0]!.ai_handoff_action_id;
+  }});
   assert.equal((await db`SELECT count(*)::integer AS n FROM conversation_message WHERE direction='OUTBOUND'`)[0]!.n, 0);
   assert.equal((await db`SELECT count(*)::integer AS n FROM payment_record`)[0]!.n, 0); assert.equal(fetchCalls, 0);
 });

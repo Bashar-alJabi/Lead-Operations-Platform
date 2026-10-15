@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { HandoffReception, type Reception } from './HandoffReception.js';
+import { HandoffSLA } from './HandoffSLA.js';
 type Api = <T>(path: string, options?: RequestInit) => Promise<T>;
 type Result = { items: { id: string; state: string; error_code: string | null; handoff_reason: string; created_at: string; knowledge_version: number; customer_question: string; reception_at_request:Reception|null }[];reception:Reception|null;
   nextCursor: string | null; current: { state: string; controller_type: string; campaign_name: string; source_kind: string };
@@ -38,6 +39,7 @@ export function ConversationAIHandoffs({ conversationId, locale, api, revision }
     finally { if (sequence.current === s) setBusy(false); }
   }
   return <section className="panel" data-ai-handoffs><h4>{t.title}</h4><p>{t.note}</p><button disabled={busy} onClick={() => void load()}>{t.read}</button>
+    <HandoffSLA id={conversationId} locale={locale} revision={revision} api={api}/>
     {error && <p role="alert">{error}</p>}{value && <><p>{t.current}: {value.current.state} · {value.current.controller_type}</p><p>{value.current.campaign_name} · {value.current.source_kind}</p>
       {value.reception&&<HandoffReception value={value.reception} locale={locale}/>}{!value.items.length && <p>{t.empty}</p>}{value.items.map(e => <article key={e.id} data-ai-handoff-request><p dir="ltr">{e.handoff_reason} · {e.state}</p><time dateTime={e.created_at}>{new Date(e.created_at).toLocaleString(locale)}</time>
         {e.reception_at_request&&<HandoffReception value={e.reception_at_request} locale={locale} historical/>}

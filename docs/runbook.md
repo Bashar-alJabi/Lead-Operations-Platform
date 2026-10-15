@@ -1,5 +1,11 @@
 # دليل التشغيل والتطوير
 
+## مؤقتات Handoff SLA — migrations138–140
+
+تُضبط target وClock من Campaign details بصلاحيات Branch/Campaign الحالية. لا يحتاج المستخدم التشغيلي CLI أوDB edits لإنشاء timer؛ receipt الفعلية تقبلها ذريًا. Infrastructure تشغّل `npm run worker:handoff-sla` بعدbuild إلىجانب بقيةworkers؛default25jobs/2000ms،وcapacity tuning عبرenv التقنية الموثقة في[العقد](ai-handoff-sla-runtime.md). العامل منفصل عنAI inference ولايحتاجAI credential أوProvider call.
+
+من Lead→Conversation→مؤقت الاستجابة حمّل آخرملاحظة/history. UNCONFIGURED تحتاج target صحيحة،والـPAUSED معالجةمعلقة حتىعودةBranch/Lead eligible؛لا policy-clock reset. EXPIRED ملاحظةتجاوز فعلية لاcustomer/financial action أوexact deadline. عندSLA_STEP_FAILED وخمسfailures،Manager/SA المخوّلة تراجعسببالفشل وتشغّلretry منالواجهة معreason وCAS؛لاAgent أوتعديلSQL يدوي. التاريخيبقىبعدHuman acceptance معwaiting=false. إشعاراتSLA/reminders/escalation لمتربطبعد؛next step عبرNotification boundary. Live/full activation معطلتان.
+
 ## حساب مدة Handoff SLA — migration137
 
 محرك الحساب الداخلي لا يتطلب credential أوإعدادًا إضافيًا؛ يستخدم Clock configuration الحالية عبر caller محلول في المرحلة التالية. لا تشغّله عبرSQL يدوي لتأكيد SLA أوإنشاء تنبيه. Six-hour slice حد عمل تقني؛ target الطويلة لا تُرفض بسببه. `complete=false` تعني استكمالًا من`processedUntil` المحفوظة بدقة microseconds، لاretry منالبداية. لا JavaScript Date للcursor؛ الجمع الطويل bigint. وجود helper لا يعني وجود timer/Reminder/Escalation worker؛ هذه مازالت الخطوة التالية وتبقى full activation معطلة. [العقد](ai-handoff-sla-clock.md).

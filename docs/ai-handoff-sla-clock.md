@@ -1,5 +1,7 @@
 # إعداد ساعة Handoff SLA
 
+**تحديث التشغيل2026-10-15:** Native138–140 والعامل المستقل وUI تنفّذ timers فعلية وانتهاءً موثّقًا؛انظر[عقدالتشغيل](ai-handoff-sla-runtime.md). Preview الإعداد نفسها لاتمنحaction authority،وfull runtime readiness وreminders/escalation/activation لمتكتملبعد. وصف14أكتوبر أدناه يخصمرحلةالإعدادوالحسابالمحفوظة.
+
 ## النطاق والحالة — 2026-10-14
 
 هذه مرحلة إعداد وقراءة فعلية مع Backend وDB وAuthorization وUI وHistory/Audit، وهي اعتماد لتشغيل SLA وليست تنفيذًا للمؤقتات. `runtimeReady=false` و`previewOnly=true` في المعاينة. لا تنشئ موعد انتهاء أو Reminder أو Escalation، ولا تمنح AI سلطة إرسال أو إعادة التحكم. Live transfer وfull activation تبقيان معطلتين.

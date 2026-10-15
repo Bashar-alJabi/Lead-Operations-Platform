@@ -1,5 +1,9 @@
 # المعمارية التقنية
 
+## Durable Handoff SLA timers — native138–140
+
+Unique actual-receipt admission وcurrent waiting/source/parent locks وnative derived bigint/clock/cursor/version/history،معdeferred final expiry proof وimmutable breach وatomic Audit. Dedicated worker مستقل عنinference و`SKIP LOCKED`/short transactions وbounded retry/authorized scoped recovery؛ terminal queue خارجpartial due index،وno-op closed-calendar polls لا تنسخhistory. Startup legacy admission keyset batches مرة محدودة،لاfull waiting scan كلtick. Current policy changes تعيدpending accounting منالأصل دونreset waiting window،والـexpiry التاريخية terminal. API/UI current Lead scope وhistorical observation بعدtakeover. [العقد والحدود](ai-handoff-sla-runtime.md). Owner reminder/Manager escalation event والـtriggers/full Handoff/AI مازالتغيرمكتملة.
+
 ## Bounded Handoff SLA duration accounting — native137
 
 Pure native arithmetic وtyped internal Application Service تحسبان elapsed/working time في UTC slices≤6h، مع local-calendar intersection/offset transition splitting وmicroseconds وDST وقابلية جمع الدفعات. Cursor تبقى native JSON/text؛ لا JavaScript Date أوunbounded per-target loop. Clock inputs محلولة وليست action authority؛ `authorityGranted=false` ولا source/job/event/controller mutation. Timer admission/current guards/history وبجمع bigint وتنبيهات idempotent اعتماد تالي، قبلfull Handoff readiness. [التفاصيل](ai-handoff-sla-clock.md).
