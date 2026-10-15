@@ -1,5 +1,7 @@
 # Qualification → Human Handoff
 
+**تحديث Native143:** gap الخاصة بـlater blocked mandatory HANDOFF عولجت بـ[إيقاف موثق مستقل](ai-mandatory-handoff-safety.md) دون تخفيف الصلاحيات. Qualification child لا تستخدم هذا الاستثناء؛بقية Full AI/runtime كما في progress/coverage.
+
 ## المتطلبات والقرار
 
 المصادر: 04 §§6–8/18–20/28–30 و05 §21 و02 §50 وAGENTS §§8/15/18–29/38–39. شرط الحملة المعرّف، لا تفسير النموذج لكلمة Qualified، يحدد التحويل. `handoff.onCompletion` و`handoff.conditions` الحالية تُقيّم من القيم typed الحالية. لا Roles أوصلاحيات تجارية جديدة، ولا Owner assignment أوCustomer send أوPayment/Enrollment mutation.

@@ -15,6 +15,7 @@ import { requestAIHumanHandoff, processOneAIHumanHandoff } from '../src/ai/custo
 import { processOneAIHandoffSummary } from '../src/ai/handoff-summary.js';
 import { verifyHandoffNotifications } from './notification-scenarios.js';
 import { verifyHandoffSLATimers } from './handoff-sla-scenarios.js';
+import { verifyMandatoryHandoffSafety } from './mandatory-handoff-safety-scenarios.js';
 const url = process.env.TEST_DATABASE_URL;
 if (!url || new URL(url).pathname !== '/lead_operations_test') throw new Error('Isolated TEST_DATABASE_URL required');
 
@@ -302,7 +303,8 @@ test('Approved customer AI Handoff owns current authority, durable atomic transi
   ] as const) {
     await activate(); const pending = (await inbound('fence-' + name))!; await run(); await change(); const before = (await db`SELECT state,version FROM conversation WHERE id=${cv}`)[0]!;
     assert.equal(await processOneAIHumanHandoff(db), true); assert.equal((await db`SELECT error_code FROM ai_customer_handoff_action WHERE proposal_id=${pending.id}`)[0]!.error_code, 'AI_HANDOFF_CONTEXT_CHANGED');
-    assert.deepEqual((await db`SELECT state,version FROM conversation WHERE id=${cv}`)[0], before); await undo();
+    assert.deepEqual((await db`SELECT state,version FROM conversation WHERE id=${cv}`)[0], name === 'human' ? before : { state: 'AI_HANDOFF_REQUIRED', version: before.version + 1 });
+    assert.equal((await db`SELECT count(*)::integer AS n FROM ai_handoff_safety_stop s JOIN ai_customer_handoff_action a ON a.id=s.action_id WHERE a.proposal_id=${pending.id}`)[0]!.n, name === 'human' ? 0 : 1); await undo();
   }
   await activate(); const publication = (await inbound('publication'))!; await run(); const draft = (await api('GET', kr)).json().draft;
   assert.equal((await api('PUT', kr + '/draft', { version: draft.version, content: { ...draft.content, sections: { ...draft.content.sections, prices: 'New version' } }, reason: 'Publish before handoff' })).statusCode, 200);
@@ -365,6 +367,8 @@ test('Approved customer AI Handoff owns current authority, durable atomic transi
   await activate(); await assert.rejects(db`UPDATE conversation SET state='WAITING_FOR_HUMAN',controller_type='NONE',controller_user_id=NULL,
     needs_attention_reason='AI_HUMAN_HANDOFF_REQUESTED',version=version+1,ai_handoff_action_id=${action.id} WHERE id=${cv}`, /TRANSITION_PROOF_REQUIRED/);
   const paged = (await api('GET', review + '?limit=1')).json(); assert.equal(paged.items.length, 1); assert.ok(paged.nextCursor); const older = (await api('GET', review + '?limit=1&cursor=' + encodeURIComponent(paged.nextCursor))).json(); assert.notEqual(older.items[0].id, paged.items[0].id);
+  await verifyMandatoryHandoffSafety(db,app,{ org,branch,other,campaign,lead,cv,users,inbound,activate,grant,run });
+  await activate();
   const configVersion = (await api('GET', '/api/ai/campaigns/' + campaign + '/configuration')).json().version;
   assert.equal((await api('PUT', '/api/ai/campaigns/' + campaign + '/configuration', { version: configVersion, definition: { ...cfg, profiles: { ...cfg.profiles, SUMMARIZATION: null } }, reason: 'Missing summary must not block safe Handoff' })).statusCode, 200);
   const noSummary = (await inbound('handoff-without-summary'))!; await run(); assert.equal(await processOneAIHumanHandoff(db), true);

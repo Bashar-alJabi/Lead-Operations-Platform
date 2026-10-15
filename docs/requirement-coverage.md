@@ -1,5 +1,15 @@
 # مصفوفة تغطية المتطلبات
 
+## أحدث checkpoint: mandatory blocked-action safety — 2026-10-15
+
+| المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |
+|---|---|---|
+| 04 §§7/28 و05 §21 وAGENTS §§19/22–24: tool denial لا يجيز استمرارموضوعيتطلبHuman | Native143 fresh BLOCKED mandatory source→current same-scope/latest-source/pin/AI-only processing Attention وimmutable safety receipt/Activity/Audit ذرية؛APPLIED tool proof لمتتغير | **176unit/81full Docker PostgreSQL** (164.5s) و**48full Edge Browser** (4.2m)،001–143development/test وBackend/Web build/typecheck. Human/newer/foreign/provider-attention preservation،old/APPLIED/forged proof denial،Audit rollback/eight workers وno fabricated Handoff/notification/SLA مثبتة. **Implemented وMock/Sandbox Verified** لهذه safety stage |
+| Scoped DTO/History/UI وHuman review | `safetyStopped` منactual receipt فقط؛toolsExecuted لا تعتبرBLOCKED تطبيقًا؛current Lead/Field/scope authorization وar/en/fr/plain text/RTL | Browser actual stop بعدrevocation وno fake notification وexplicit Human acceptance؛PG diagnostic inbound بلاreactivation وhistory immutability/foreign denial. Focused PG1/1 وBrowser2/2 أيضًا ناجحتان؛الصورةالنهائيةفُحصت |
+| AGENTS §§16/28/32/38–39: full AI job operability/bقيةtriggers/customer sends/modules | Qualification/Handoff rollback سليمة لكنNative121/125 local action queues مازالت بلاbounded failures/backoff/dead-letter/recovery UI؛generic tick catch قدتكررفشلpoison job. Repeated Misunderstanding وCustomer sends/بقيةAI/modules لمتكتمل | **غيرمكتملة**؛التاليaction queue reliability/recovery ثمcurrent observed misunderstanding threshold ثمCustomer sends/Central Messaging Policy وبقيةالمتطلبات. Live transfer/full activation معطلتان،التكاملات **Live Verification Pending External Credential/Approval**؛لاComplete أوLive claim |
+
+التفاصيل في [ai-mandatory-handoff-safety.md](ai-mandatory-handoff-safety.md). Source data synthetic وHTTP mocks فقط؛لاmigration مطبقة معدلة أوold receipt replay.
+
 ## أحدث checkpoint: Qualification child Handoff — 2026-10-15
 
 | المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |

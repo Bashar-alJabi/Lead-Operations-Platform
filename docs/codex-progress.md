@@ -1,5 +1,15 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: mandatory Handoff safety Attention — 2026-10-15
+
+استُؤنف من `957a855` النظيفة والمرفوعة دون reset/discard. Native143 والـBackend/DB guards/Authorization/DTO/UI منفذة: original approved mandatory HANDOFF تبقى BLOCKED عند تغير السياق،معfresh immutable safety-stop proof وAudit/Activity وprocessing Attention فقط عندما يبقى المصدر الأحدث ونفس Org/Branch/Campaign/Lead/Conversation/pin وController=AI بلاattention أخرى. Full original Handoff proof لم تتغير؛لاHuman override أوOwner/financial mutation أوAPPLIED Handoff/notification/SLA مزيفة. [العقد](ai-mandatory-handoff-safety.md).
+
+**البوابة ناجحة:** migrations001–143 development/test وfinal Backend/Web build/typecheck و**176/176 unit،81/81 full Docker PostgreSQL integration** (164.5s)،**48/48 full Edge Browser E2E** (4.2m). Focused PG1/1 (13.3s) وBrowser2/2 (38.3s) ناجحة أيضًا. Current/Human/newer/foreign/provider attention/native forgery/history/Audit rollback/eight workers وعدمreactivation ثمexplicit Human acceptance مثبتة. Browser تثبتactual stop بعدtool revocation وscoped history وno fabricated notification وHuman acceptance وar/en/fr/RTL؛الصورةالنهائية فُحصت. صُحح ترتيبfixtures كيلا تستعملجلساتتلغيهااختباراتسابقة. Vite801.27KB/gzip228.68KB warning ضمنbacklog؛لاmigration مطبقة معدلة.
+
+**الحالة والحفظ:** هذه safety stage **Implemented وMock/Sandbox Verified** محليًا؛Full Handoff/AI/Notifications/platform غيرمكتملة. Live transfer/full activation معطلتان،والتكاملاتالخارجية **Live Verification Pending External Credential/Approval**. progress/coverage/plan/architecture/runbook والعقد معcommit/push فقط إلى `codex/full-platform-build`؛المعرف فيآخرGit commit والسابقة `957a855`. لا Feature قيدالتعديل عندحفظهذهcheckpoint.
+
+**الخطوة التالية الدقيقة بحسب الاعتماد:** bounded local Qualification/Handoff action retries/backoff/dead-letter وcurrent-session scoped recovery/history/UI. `src/ai-worker.ts` تعيد tick بعدSQL failure،وNative121/125 action jobs بلاfailure counter؛poison local action قد تؤخر بقيةAI steps،رغمأنrollback/core Lead isolation سليمة. يجبعلاجفجوةoperability هذه دونإعادةقبولold/context-revoked receipts أوfake Human authority. بعدها actual Repeated Misunderstanding observation/count/policy threshold (لاmodel-supplied counter)،ثمCustomer sends/Central Messaging Policy وinitial contact/returning/follow-up وبقيةAI/Copilot/Operations/Form/evaluations،ثمAutomation/Notifications/Analytics/import/export/Sheets/Email وبقيةالمتطلبات. لاoptional provider refinements.
+
 ## آخر حالة مستقرة: Qualification → Handoff بإثبات كتابة محدد — 2026-10-15
 
 Recovery من `e3baf2c` النظيفة دون reset/discard. Native142 والـService/DB guards/Authorization/UI منفذة: fresh APPLIED answer/history → exact own-write delta child source → current approved durable Handoff. شرط completion/conditions من القيم typed الحالية، وoriginal/current Handoff admission، ولا إعادة قبول للـHuman/readonly/old receipts أو تخفيف للفحص العام. Qualification وHandoff تظهران بإجراءين مستقلين، مع source receipt ID وField masking. Validated mandatory HANDOFF دون original tool admission تتوقف في processing Attention دون تجاوز منع الأداة. [العقد](ai-qualification-handoff.md).

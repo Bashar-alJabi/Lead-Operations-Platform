@@ -1,5 +1,9 @@
 # دليل التشغيل والتطوير
 
+## Mandatory Handoff safety review
+
+Native143 تعملمع`worker:ai` الحالية بلاsetup جديد. عندBLOCKED mandatory Handoff،راجعExecution history: `safetyStopped=true` تعنيأنالردالآلي أُوقف للمراجعةفيذلكالوقت،ولا تعنيتطبيقHandoff أوإشعار/SLA. أصلحconfig/tool denial وفقصلاحياتك،ثمراجعواطلبHuman takeover صريحًا؛لاتُعدتشغيلold receipt ولا تعدّلDB. Current Human/newer/foreign source/provider blocker لايُستبدل. فشلAudit يبقيjob قابلةلإعادةالمحاولةذريًا. [العقد](ai-mandatory-handoff-safety.md).
+
 ## Qualification child Handoff
 
 بعدNative142،اضبطCampaign Qualification completion/conditions وApproved `updateQualificationField` و`requestHumanHandoff` عبرالواجهةالحالية. `worker:ai` تحفظالإجابةثمchild source/job ثمcurrent guarded Handoff؛راقبExecution history للإجراءين وHandoff queue والـSLA/notifications الحالية. Explicit deny أوتغيّرالسياق لايُصلحبتعديلDB أوreplay old receipt: راجعsource/config/current controller،ومصدرeligible جديدفقط يقبلتنفيذًا جديدًا. الإجابةالمحفوظةقبلblocked Handoff تظلصحيحةوتاريخها محفوظ. Live/full activation معطلتان؛[العقدوالحدود](ai-qualification-handoff.md).

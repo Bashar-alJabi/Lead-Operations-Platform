@@ -1,5 +1,9 @@
 # المعمارية التقنية
 
+## Mandatory Handoff blocked-action safety — native143
+
+Original validated HANDOFF تظل BLOCKED عندتغيّرfull context؛لاapproved tool bypass. Native fresh-action guard توقفالردالآلي للمراجعةفقط عندcurrent latest source/exact scope/pin وAI-only active control دونattention أخرى،وتسجلimmutable safety receipt وActivity/Audit ذريًا معjob/action. لاHandoff receipt APPLIED أوnotification/SLA أوOwner/customer/financial mutation. DTO/UI تميّزactual safety stop تاريخيةعنBLOCKED action التيلمتغيرCurrent Human/newer/foreign/provider-blocked state. [العقد](ai-mandatory-handoff-safety.md). Live/full activation معطلتان.
+
 ## Qualification child Handoff — native142
 
 Fresh APPLIED Qualification answer/history تُنشئ typed immutable child source وindexed Handoff job فقط عند شرط الحملة وoriginal approved Handoff admission. Snapshot تقبل exact own-write answer/Field version delta،وتحافظ على كل full current context fences؛لا حذف qualification من generic proof. Current worker/action/transition/history/Audit/reception/notifications/SLA الحالية تُستخدم دونfake Model/Human authority أوOwner/customer/financial mutation. Execution DTO/UI تعرضactual receipts متعددة دونField value leakage. [العقد](ai-qualification-handoff.md). Full runtime/live transfer مازالت معطلة.

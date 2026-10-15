@@ -1,5 +1,7 @@
 # تنفيذ طلب Human Handoff من Customer AI
 
+**تحديث Native143:** fresh BLOCKED mandatory action قد تحفظ safety-stop receipt مستقلة وprocessing Attention إذا بقي المصدر الحالي ونطاقه وAI control بلا حجب آخر. APPLIED Handoff proof لا تتغير،ولا ينشأ Human controller أوnotification/SLA من الطلب المحجوب. Human/newer/foreign/provider attention تبقى محفوظة. [العقد](ai-mandatory-handoff-safety.md). وصف BLOCKED بلا تغيير في المرحلة125 أدناه هو baseline السابقة؛current safety receipt تميز حالة الإيقاف الفعلية.
+
 **تحديث Native142:** Qualification child source/condition/current proof وmulti-action UI منفذة؛[العقد الحالي](ai-qualification-handoff.md). لا تتغير سلطة direct HANDOFF الأصلية. بدل مطابقةoriginal context بعد own Qualification write،تطابق child context المشتقة بدقة؛كلباقيfences تبقىكاملة. أسبابHANDOFF التسعةمثبتة،وvalidated HANDOFF دونtool admission تتوقفprocessing Attention. Full mandatory/runtime/customer sends مازالتغيرمكتملة؛Live/full activation معطلتان.
 
 ## نطاق هذه المرحلة

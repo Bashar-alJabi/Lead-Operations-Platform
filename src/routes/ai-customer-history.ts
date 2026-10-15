@@ -104,7 +104,7 @@ export function registerAICustomerHistoryRoutes(app: FastifyInstance, db: Databa
       const access = await approvedConversationReadContext(tx, actor, request.params.id, session);
       const rows = await tx`SELECT e.*,e.context->'knowledge'->'version' AS knowledge_version,COALESCE(a.id,h.id) AS action_id,COALESCE(a.state,h.state) AS action_state,
         COALESCE(a.error_code,h.error_code) AS action_error,COALESCE(a.created_at,h.created_at) AS action_created_at,COALESCE(a.tool,h.tool) AS action_tool,
-        a.id AS qualification_action_id,h.id AS handoff_id,h.tool AS handoff_tool,h.state AS handoff_state,h.error_code AS handoff_error,h.created_at AS handoff_created_at,
+        a.id AS qualification_action_id,h.id AS handoff_id,h.tool AS handoff_tool,h.state AS handoff_state,h.error_code AS handoff_error,h.created_at AS handoff_created_at,stop.action_id IS NOT NULL AS safety_stopped,
         e.context IS DISTINCT FROM CASE WHEN e.kind='CUSTOMER_PROPOSAL' THEN ai_customer_proposal_context(e.event_id) ELSE ai_customer_inbound_context(e.event_id) END AS stale
         FROM (
           SELECT p.id,p.organization_id,p.branch_id,p.campaign_id,p.lead_id,p.conversation_id,p.message_id,p.event_id,p.state,p.error_code,p.context_hash,p.created_at,p.context,p.result,p.provider_invoked,p.attempt_count,'CUSTOMER_PROPOSAL' AS kind
@@ -114,6 +114,7 @@ export function registerAICustomerHistoryRoutes(app: FastifyInstance, db: Databa
           FROM ai_customer_inbound_execution b WHERE b.conversation_id=${request.params.id} AND NOT EXISTS(SELECT 1 FROM ai_customer_proposal p WHERE p.event_id=b.event_id)
         ) e LEFT JOIN ai_customer_action a ON a.proposal_id=e.id AND e.kind='CUSTOMER_PROPOSAL'
         LEFT JOIN ai_customer_handoff_action h ON h.proposal_id=e.id AND e.kind='CUSTOMER_PROPOSAL'
+        LEFT JOIN ai_handoff_safety_stop stop ON stop.action_id=h.id
         WHERE e.conversation_id=${request.params.id} AND e.lead_id=${access.lead.id}
           AND e.organization_id=${actor.organizationId} AND e.branch_id=${access.lead.branch_id} AND e.campaign_id=${access.lead.campaign_id}
           AND (${cursor?.timestamp ?? null}::timestamptz IS NULL OR (e.created_at,e.id)<(${cursor?.timestamp ?? null}::timestamptz,${cursor?.id ?? null}::uuid))
@@ -122,9 +123,9 @@ export function registerAICustomerHistoryRoutes(app: FastifyInstance, db: Databa
       await tx`INSERT INTO audit_log(organization_id,branch_id,actor_user_id,action,target_type,target_id,detail)
         VALUES (${actor.organizationId},${access.lead.branch_id},${actor.id},'AI_CUSTOMER_HISTORY_READ','CONVERSATION',${request.params.id},${tx.json({ leadId: access.lead.id, count: items.length })})`;
       return { items: items.map(e => {
-        const action = e.action_id ? { id: e.action_id, tool: e.action_tool, state: e.action_state, errorCode: e.action_error, createdAt: e.action_created_at } : null;
+        const action = e.action_id ? { id: e.action_id, tool: e.action_tool, state: e.action_state, errorCode: e.action_error, createdAt: e.action_created_at, safetyStopped: !e.qualification_action_id && e.safety_stopped } : null;
         const actions = action ? [action] : [];
-        if (e.qualification_action_id && e.handoff_id) actions.push({ id: e.handoff_id, tool: e.handoff_tool, state: e.handoff_state, errorCode: e.handoff_error, createdAt: e.handoff_created_at });
+        if (e.qualification_action_id && e.handoff_id) actions.push({ id: e.handoff_id, tool: e.handoff_tool, state: e.handoff_state, errorCode: e.handoff_error, createdAt: e.handoff_created_at, safetyStopped: e.safety_stopped });
         return { id: e.id, sourceMessageId: e.message_id, sourceEventId: e.event_id, assistant: 'AI_LEAD_ASSISTANT', state: e.state,
         errorCode: e.error_code, contextHash: e.context_hash, knowledgeVersion: e.knowledge_version, createdAt: e.created_at, stale: e.stale,
         kind: e.kind, attemptCount: e.attempt_count, providerInvoked: e.provider_invoked,

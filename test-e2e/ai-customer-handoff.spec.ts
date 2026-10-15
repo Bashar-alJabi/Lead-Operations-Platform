@@ -120,15 +120,23 @@ test('Actual customer AI Handoff transitions durably to Human waiting with scope
     // Permission changes between proposal and action block the transition.
     expect((await inbound('Unknown revoked tool', true)).status()).toBe(200); expect((await control({ process: true })).status()).toBe(200);
     expect((await manager.request.put(tools, { headers: { origin }, data: { version: 1, definition: { allowedTools: [] }, reason: 'Revoke before Handoff action' } })).status()).toBe(200);
+    const noticesBeforeStop = (await (await page.request.get('/api/notifications?language=en')).json()).items.length;
     expect((await execute()).status()).toBe(200); await open(); await history.getByRole('button', { name: 'Review AI executions', exact: true }).click(); await expect(history.locator('[data-ai-customer-action]').first()).toContainText('BLOCKED'); await expect(history).toContainText('AI_HANDOFF_CONTEXT_CHANGED');
     await review.getByRole('button', { name: 'Review handoff requests', exact: true }).click(); await expect(review.locator('[data-ai-handoff-request]').first()).toContainText('BLOCKED');
+    await expect(history.locator('[data-ai-safety-stop]').first()).toContainText('automatic replies were stopped for review');
+    const safety = (await (await page.request.get(root)).json()).items[0]; expect(safety.action.safetyStopped).toBe(true); expect(safety.toolsExecuted).toEqual([]);
+    expect((await (await page.request.get(reviewRoot)).json()).current.state).toBe('AI_HANDOFF_REQUIRED');
+    expect((await (await page.request.get('/api/notifications?language=en')).json()).items.length).toBe(noticesBeforeStop);
     // Failed reads clear previously authorized data.
     await page.route('**/api/conversations/*/ai-handoffs**', route => route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: 'AI_HANDOFF_ACCESS_REVOKED' }) }));
     await review.getByRole('button', { name: 'Review handoff requests', exact: true }).click(); await expect(review.getByRole('alert')).toBeVisible(); await expect(review.locator('[data-ai-handoff-request]')).toHaveCount(0); await page.unroute('**/api/conversations/*/ai-handoffs**');
     expect(((await (await page.request.get('/api/conversations/' + cv + '/messages')).json()).items as { direction: string }[]).every(m => m.direction === 'INBOUND')).toBe(true);
+    await page.getByLabel('Takeover reason', { exact: true }).fill('Explicit acceptance after mandatory safety stop'); await page.getByRole('button', { name: 'Take over conversation', exact: true }).click();
+    expect((await (await page.request.get(reviewRoot)).json()).current.controller_type).toBe('HUMAN');
     await page.getByRole('combobox', { name: 'Language' }).selectOption('fr'); await review.getByRole('button', { name: 'Consulter les transferts', exact: true }).click(); await expect(review).toContainText('Question client');
     await page.getByRole('combobox', { name: 'Language' }).selectOption('ar'); await page.setViewportSize({ width: 390, height: 844 }); await review.getByRole('button', { name: 'مراجعة طلبات التسليم', exact: true }).click();
     await review.screenshot({ path: '.local/e2e/ai-handoff-action-ar.png' }); expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true); expect(errors).toEqual([]);
+    await history.getByRole('button', { name: 'مراجعة تنفيذ AI', exact: true }).click(); await expect(history.locator('[data-ai-safety-stop]').first()).toContainText('أُوقف الرد الآلي للمراجعة'); await history.screenshot({ path: '.local/e2e/ai-mandatory-stop-ar.png' });
     await review.locator('[data-handoff-sla]').getByRole('button',{name:'مراجعة مؤقت الاستجابة',exact:true}).click();await expect(review.locator('[data-handoff-sla]')).toContainText('تجاوز المدة المستهدفة');await review.locator('[data-handoff-sla]').screenshot({path:'.local/e2e/handoff-sla-ar.png'});
   } finally { await manager.request.post('/__test__/handoff-sla',{headers:{origin,authorization:'Bearer '+fixture.testToken},data:{offsetSeconds:0,failExpiry:false}}).catch(()=>undefined);await managerContext.close(); await context.close(); await secondContext.close(); }
 });
