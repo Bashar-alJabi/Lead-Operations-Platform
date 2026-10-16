@@ -32,4 +32,6 @@ Proposal error أوقرار غير QUALIFICATION حين توجد admission ول�
 
 ## التحقق
 
+**تحديث تشغيل Native144:** `worker:ai` تستخدم Queue مستقلة مع bounded failures/backoff/dead-letter وcurrent-session recovery وscoped history/UI. فشل الخطوة يعيد جميع آثار Domain داخل savepoint قبل حفظ technical failure؛ Direct Domain Service تبقى transactional وتعيد الخطأ. Original admission وcurrent authority لم تتغير. التفاصيل في [ai-local-action-queues.md](ai-local-action-queues.md).
+
 الاختبارات تغطي actual HMAC inbound→queue→managed synthetic proposal→durable typed action→Lead UI/history، default live-off، diagnostic/old source rejection، duplicate/multiple workers، current Human ownership/controller/policy/Field/pin/Branch/Profile/Published fences، mapped/unmapped/Currency values، Human override، native forgery/deferred atomic proof/Audit rollback، hidden Field/foreign scope وعدم send/Payment/Enrollment. تُسجَّل نتائج البوابة النهائية بعد تشغيلها في progress/coverage.

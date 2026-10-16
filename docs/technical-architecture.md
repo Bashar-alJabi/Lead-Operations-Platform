@@ -1,5 +1,9 @@
 # المعمارية التقنية
 
+## Bounded local AI action queues — Native144
+
+Technical Queue منفصلة لكل Qualification/Handoff Job، مع source uniqueness وnative scope/current due guard وQueue-first lock order وpartial due indexes. Savepoint وimmediate deferred proofs تمنع partial Domain effects؛ native failures/backoff/dead-letter وimmutable history وreal-session scoped CAS recovery/UI وbounded startup admission تحافظ على original authority. لا Provider I/O أوfake employee أوold receipt replay. [العقد](ai-local-action-queues.md). Core Lead services مستقلة، وLive/full activation تبقى معطلة.
+
 ## Mandatory Handoff blocked-action safety — native143
 
 Original validated HANDOFF تظل BLOCKED عندتغيّرfull context؛لاapproved tool bypass. Native fresh-action guard توقفالردالآلي للمراجعةفقط عندcurrent latest source/exact scope/pin وAI-only active control دونattention أخرى،وتسجلimmutable safety receipt وActivity/Audit ذريًا معjob/action. لاHandoff receipt APPLIED أوnotification/SLA أوOwner/customer/financial mutation. DTO/UI تميّزactual safety stop تاريخيةعنBLOCKED action التيلمتغيرCurrent Human/newer/foreign/provider-blocked state. [العقد](ai-mandatory-handoff-safety.md). Live/full activation معطلتان.

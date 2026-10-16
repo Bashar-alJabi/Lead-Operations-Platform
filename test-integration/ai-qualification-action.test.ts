@@ -13,6 +13,7 @@ import { processOneAICustomerProposal } from '../src/ai/customer-worker.js';
 import { AIInferenceError, aiInferenceAdapters, type AIInferenceRegistry } from '../src/ai/inference-provider.js';
 import { collectAIQualificationAnswer, processOneAIQualificationAction } from '../src/ai/customer-qualification.js';
 import { verifyQualificationHandoff } from './qualification-handoff-scenarios.js';
+import { verifyLocalAIActionQueue } from './local-action-queue-scenarios.js';
 const url = process.env.TEST_DATABASE_URL;
 if (!url || new URL(url).pathname !== '/lead_operations_test') throw new Error('Isolated TEST_DATABASE_URL required');
 
@@ -164,7 +165,7 @@ test('Actual AI Qualification uses fresh active admission, typed current action 
   await assert.rejects(db`INSERT INTO ai_customer_action(proposal_id,lead_id,campaign_id,conversation_id,state,context) VALUES(${atomic.id},${lead},${campaign},${cv},'APPLIED',${db.json(atomic.context)})`, /ATOMIC_ANSWER_REQUIRED/);
   await db`CREATE FUNCTION reject_synthetic_ai_action_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='AI_CUSTOMER_TOOL_APPLIED' THEN RAISE EXCEPTION 'synthetic action audit failure';END IF;RETURN NEW;END $$`;
   await db`CREATE TRIGGER reject_synthetic_ai_action_audit BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION reject_synthetic_ai_action_audit()`;
-  try { await assert.rejects(processOneAIQualificationAction(db), /synthetic action audit failure/); assert.equal((await db`SELECT count(*)::integer AS n FROM ai_customer_action WHERE proposal_id=${atomic.id}`)[0]!.n, 0); }
+  try { await assert.rejects(db.begin(tx => collectAIQualificationAnswer(tx, atomic.id)), /synthetic action audit failure/); assert.equal((await db`SELECT count(*)::integer AS n FROM ai_customer_action WHERE proposal_id=${atomic.id}`)[0]!.n, 0); }
   finally { await db`DROP TRIGGER reject_synthetic_ai_action_audit ON audit_log`; await db`DROP FUNCTION reject_synthetic_ai_action_audit()`; }
   assert.equal(await processOneAIQualificationAction(db), true); assert.equal((await db`SELECT state FROM ai_customer_action WHERE proposal_id=${atomic.id}`)[0]!.state, 'APPLIED');
   // Native typing rejects forged values independently; shared normalization covers full application semantics.
@@ -192,6 +193,7 @@ test('Actual AI Qualification uses fresh active admission, typed current action 
   assert.equal((await db`SELECT version FROM lead_field_value WHERE lead_id=${lead} AND field_id=${field}`)[0]!.version, beforeOlder);
   assert.equal((await db`SELECT source,version FROM lead_field_value WHERE lead_id=${lead} AND field_id=${budget}`)[0]!.version, 1);
   await verifyQualificationHandoff(db,app,{ branch,campaign,lead,cv,field,question,sender,users,inbound,activate });
+  await verifyLocalAIActionQueue(db,app,'QUALIFICATION',{org,branch,campaign,lead,cv,users,activate,run:()=>run(qualify()),pending:async()=>{await activate();const p=await inbound(randomUUID(),'Yes, interested');await run(qualify());return p;}});
   // First consent INSERT on a shared Contact is fenced even through another Lead.
   const siblingCampaign = (await db`INSERT INTO campaign(organization_id,branch_id,name,status) VALUES(${org},${branch},'Shared Contact scope','ACTIVE') RETURNING id`)[0]!.id;
   const sibling = (await db`INSERT INTO lead(organization_id,branch_id,campaign_id,contact_id,source_kind) VALUES(${org},${branch},${siblingCampaign},${contact},'MANUAL') RETURNING id`)[0]!.id;

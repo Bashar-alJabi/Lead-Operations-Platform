@@ -1,5 +1,15 @@
 # مصفوفة تغطية المتطلبات
 
+## أحدث checkpoint: bounded local AI action queues — 2026-10-16
+
+| المتطلب ومصدره | التنفيذ الحالي | الإثبات وحدود الحالة |
+|---|---|---|
+| AGENTS §§15–16/28/32/38 و04/05: bounded retries وfailure isolation وrecovery | Native144 وworker savepoint مع deferred proofs؛ خمس failures وbackoff ثم dead-letter؛ الـJob والآثار التشغيلية ذرية؛ startup admission محدودة للمصادر الأصلية المعلقة | **176unit/82full Docker PostgreSQL** (206.5s) و**48full Edge Browser** (6.0m)، وmigrations001–144 development/test وBackend/Web build/typecheck ناجحة. Focused PG **3/3** وBrowser **2/2** أيضًا ناجحة. **Implemented وMock/Sandbox Verified** لهذه operability stage |
+| AGENTS §§8/19–24/26–27: current authority وscoped operational setup/history | current-session Manager/SA recovery مع version CAS وسبب وAudit؛ صلاحيات المصدر الأصلية والسياق الحالي لا تتغير؛ Agent read-only وHistory metadata دون قيم حساسة؛ واجهة ar/en/fr | negative/rollback/eight-worker/independent-source/revocation/scope transfer وmicrosecond pagination وlegacy/CLI مثبتة. Browser تثبت dead-letter→authorized retry→actual single action/history، وAgent denial وfailed-read clearing وplain text/no-XSS؛ صور ar/390px فُحصت دون overflow |
+| 04 §28 و05 §21 وبقية AI/platform | Repeated Misunderstanding observation/count الفعلية وCustomer sends/initial contact/returning/follow-up وبقية AI/Automation/Analytics والوحدات الرئيسية باقية | **غير مكتملة**. التالي actual current observations وapp-computed policy threshold مع Handoff، ثم Customer sends عبر Central Messaging Policy. Live/full activation معطلتان؛ لا Complete أوLive claim |
+
+العقد في [ai-local-action-queues.md](ai-local-action-queues.md). البيانات اصطناعية وHTTP mocks فقط؛التكاملات الخارجية **Live Verification Pending External Credential/Approval**.
+
 ## أحدث checkpoint: mandatory blocked-action safety — 2026-10-15
 
 | المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |

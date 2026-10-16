@@ -1,5 +1,15 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: bounded local AI action queues — 2026-10-16
+
+استُؤنف من `061507f` النظيفة دون reset/discard. أُعيد تشغيل PostgreSQL/ClamAV عبر Docker Compose على volumes الحالية بعد توقفهما؛الفشل الأول `ECONNREFUSED` بيئي. Native144 مطبقة في development/test،والـworker وAuthorization/API وHistory وواجهة Conversation منفذة. Queue مستقلة لكل Qualification/Handoff مع خمس محاولات فاشلة وbackoff وdead-letter،وsavepoint rollback وcurrent-session recovery وbounded startup admission للمصادر القديمة المعلقة فقط. لا صلاحية Domain جديدة أوSource replay أوHuman identity مصطنعة.
+
+**البوابة ناجحة:** migrations001–144 development/test وfinal Backend/Web build/typecheck، و**176/176 unit،82/82 full Docker PostgreSQL integration** (206.5s)، و**48/48 full Edge Browser E2E** (6.0m). Focused PG **3/3** (41.5s) وBrowser **2/2** (47.8s) ناجحة أيضًا. الاختبارات تثبت خمسة failures دون آثار جزئية، وثمانية workers واستردادات متزامنة، وجلسة ملغاة أثناء انتظار lock، وManager وSuper Admin وAgent/foreign denial، وscope transfer وstale context، وAudit rollback، وlegacy admission ومؤشرات pagination متساوية بالـmicrosecond، وCLI startup/shutdown. صور ar/390px للنوعين فُحصت دون overflow. صُحح ترتيب fixtures الإضافية كي لا تغير فرضية audience الوحيدة أوتعيد استخدام جلسات ألغتها اختبارات سابقة. Vite806.82KB/gzip229.90KB warning ضمن backlog؛ لا migration مطبقة معدلة.
+
+**الحالة والحفظ:** هذه operability stage **Implemented وMock/Sandbox Verified** محليًا. Full AI/Handoff/platform غير مكتملة؛ Live transfer/full activation معطلتان، والتكاملات الخارجية **Live Verification Pending External Credential/Approval**. progress/coverage/plan/architecture/runbook والعقود مع commit/push فقط إلى `codex/full-platform-build`؛ معرف checkpoint في آخر Git commit والسابقة `061507f`. لا Feature غير مثبتة عند حفظ هذه المرحلة.
+
+**الخطوة التالية الدقيقة بحسب الاعتماد:** actual Repeated Misunderstanding observations المرتبطة بمصادر واردة موثقة، مع app-computed count وcurrent policy threshold وdurable approved Handoff وscoped history/UI وnegative/concurrency/Browser tests، دون model-supplied counter أوold receipt replay. بعدها Customer sends عبر Central Messaging Policy، ثم initial contact/returning/follow-up وبقية AI/Copilot/Operations/Form/evaluations، ثم Automation/Notifications/Analytics/import/export/Sheets/Email وبقية المتطلبات الرئيسية. لا optional provider refinements.
+
 ## آخر حالة مستقرة: mandatory Handoff safety Attention — 2026-10-15
 
 استُؤنف من `957a855` النظيفة والمرفوعة دون reset/discard. Native143 والـBackend/DB guards/Authorization/DTO/UI منفذة: original approved mandatory HANDOFF تبقى BLOCKED عند تغير السياق،معfresh immutable safety-stop proof وAudit/Activity وprocessing Attention فقط عندما يبقى المصدر الأحدث ونفس Org/Branch/Campaign/Lead/Conversation/pin وController=AI بلاattention أخرى. Full original Handoff proof لم تتغير؛لاHuman override أوOwner/financial mutation أوAPPLIED Handoff/notification/SLA مزيفة. [العقد](ai-mandatory-handoff-safety.md).

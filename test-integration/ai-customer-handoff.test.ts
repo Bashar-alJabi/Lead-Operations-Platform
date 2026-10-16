@@ -16,6 +16,7 @@ import { processOneAIHandoffSummary } from '../src/ai/handoff-summary.js';
 import { verifyHandoffNotifications } from './notification-scenarios.js';
 import { verifyHandoffSLATimers } from './handoff-sla-scenarios.js';
 import { verifyMandatoryHandoffSafety } from './mandatory-handoff-safety-scenarios.js';
+import { verifyLocalAIActionQueue } from './local-action-queue-scenarios.js';
 const url = process.env.TEST_DATABASE_URL;
 if (!url || new URL(url).pathname !== '/lead_operations_test') throw new Error('Isolated TEST_DATABASE_URL required');
 
@@ -330,14 +331,14 @@ test('Approved customer AI Handoff owns current authority, durable atomic transi
   const priorNotificationCount=(await db`SELECT count(*)::int AS n FROM notification_event`)[0]!.n;
   await db`CREATE FUNCTION reject_notification_source_fixture() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='IN_APP_NOTIFICATION_RECORDED' THEN RAISE EXCEPTION 'NOTIFICATION_SOURCE_AUDIT_FAILURE';END IF;RETURN NEW;END $$`;
   await db`CREATE TRIGGER reject_notification_source_fixture BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION reject_notification_source_fixture()`;
-  try { await assert.rejects(processOneAIHumanHandoff(db), /NOTIFICATION_SOURCE_AUDIT_FAILURE/); }
+  try { await assert.rejects(db.begin(tx => requestAIHumanHandoff(tx, atomic.id)), /NOTIFICATION_SOURCE_AUDIT_FAILURE/); }
   finally { await db`DROP TRIGGER reject_notification_source_fixture ON audit_log`;await db`DROP FUNCTION reject_notification_source_fixture()`; }
   assert.equal((await db`SELECT count(*)::int AS n FROM notification_event`)[0]!.n,priorNotificationCount);
   assert.equal((await db`SELECT count(*)::int AS n FROM ai_customer_handoff_action WHERE proposal_id=${atomic.id}`)[0]!.n,0);
   assert.equal((await db`SELECT state FROM conversation WHERE id=${cv}`)[0]!.state,'AI_ACTIVE');
   await db`CREATE FUNCTION reject_handoff_audit_fixture() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='AI_HUMAN_HANDOFF_APPLIED' THEN RAISE EXCEPTION 'SYNTHETIC_AUDIT_FAILURE';END IF;RETURN NEW;END $$`;
   await db`CREATE TRIGGER reject_handoff_audit_fixture BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION reject_handoff_audit_fixture()`;
-  try { await assert.rejects(processOneAIHumanHandoff(db), /SYNTHETIC_AUDIT_FAILURE/); } finally { await db`DROP TRIGGER reject_handoff_audit_fixture ON audit_log`; await db`DROP FUNCTION reject_handoff_audit_fixture()`; }
+  try { await assert.rejects(db.begin(tx => requestAIHumanHandoff(tx, atomic.id)), /SYNTHETIC_AUDIT_FAILURE/); } finally { await db`DROP TRIGGER reject_handoff_audit_fixture ON audit_log`; await db`DROP FUNCTION reject_handoff_audit_fixture()`; }
   assert.equal((await db`SELECT state FROM ai_customer_handoff_job WHERE proposal_id=${atomic.id}`)[0]!.state, 'QUEUED'); assert.equal((await db`SELECT state FROM conversation WHERE id=${cv}`)[0]!.state, 'AI_ACTIVE');
   assert.equal(await processOneAIHumanHandoff(db), true);
   // Unassigned remains unassigned; Manager attention and acceptance require no invented Bank/AI/employee account.
@@ -381,6 +382,10 @@ test('Approved customer AI Handoff owns current authority, durable atomic transi
     await activate();await inbound(randomUUID(),'Another trusted human request');await run();assert.equal(await processOneAIHumanHandoff(db),true);
     return (await db`SELECT ai_handoff_action_id FROM conversation WHERE id=${cv}`)[0]!.ai_handoff_action_id;
   }});
+  // Independent queue-progress fixtures add another legitimate Lead/audience. Run after the single-Lead notification scenarios.
+  // Earlier scenarios revoke their real sessions; create new test sessions without reviving the revoked cookies.
+  for(const name of ['manager','agent']){const token=randomBytes(32).toString('hex');const session=(await db`INSERT INTO user_session(user_id,token_hash,expires_at) VALUES(${users[name]!.id},${sha256(token)},clock_timestamp()+interval '1 hour') RETURNING id`)[0]!.id;users[name]={...users[name]!,session,cookie:'lop_session='+token};}
+  await verifyLocalAIActionQueue(db,app,'HANDOFF',{org,branch,campaign,lead,cv,users,activate,run,pending:async()=>{await grant();await activate();const p=await inbound(randomUUID(),'Unknown local failure');await run();return p;}});
   assert.equal((await db`SELECT count(*)::integer AS n FROM conversation_message WHERE direction='OUTBOUND'`)[0]!.n, 0);
   assert.equal((await db`SELECT count(*)::integer AS n FROM payment_record`)[0]!.n, 0); assert.equal(fetchCalls, 0);
 });

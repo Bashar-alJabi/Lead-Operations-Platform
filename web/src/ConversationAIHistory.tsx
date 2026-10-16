@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { AIActionJobs } from './AIActionJobs.js';
 type Action = { id: string; tool: string; state: string; errorCode: string | null; createdAt: string; safetyStopped: boolean };
 type Entry = { id: string; sourceMessageId: string; state: string; errorCode: string | null; knowledgeVersion: number | null; createdAt: string; stale: boolean; attemptCount: number; providerInvoked: boolean; action: Action | null; actions: Action[]; proposal: { decision: string; handoffReason: string | null; answer: string | null } | null };
 type Result = { items: Entry[]; nextCursor: string | null };
@@ -8,7 +9,7 @@ const labels = {
   ar: { title: 'سجل تنفيذ AI للعملاء', read: 'مراجعة تنفيذ AI', more: 'تنفيذات أقدم', empty: 'لا توجد تنفيذات AI للعملاء ذات مصدر وارد موثّق.', note: 'نقل البيانات الحي إلى AI معطّل. الاقتراح المحفوظ أو السجل المحجوب لا يمنح إذنًا لإرسال رسالة أو تنفيذ إجراء أو تأكيد دفع.', source: 'الرسالة المصدر', version: 'إصدار المعرفة المنشورة', unavailable: 'غير متاح', stale: 'تغيّر السياق الحالي. أثر التنفيذ الأصلي محفوظ.', attempts: 'المحاولات', proposed: 'الخطوة التالية المقترحة', pending: 'لم يُنفّذ أي إجراء أو إرسال للعميل.' },
   fr: { title: 'Historique des exécutions IA client', read: 'Consulter les exécutions IA', more: 'Exécutions précédentes', empty: 'Aucune exécution IA client avec source authentifiée.', note: 'Le transfert de données IA en direct est désactivé. Une proposition ou une trace bloquée ne permet aucun message, action ou confirmation de paiement.', source: 'Message source', version: 'Version des connaissances publiées', unavailable: 'Indisponible', stale: 'Le contexte actuel a changé. La trace originale est conservée.', attempts: 'Tentatives', proposed: 'Étape suivante proposée', pending: 'Aucune action ni aucun message client exécuté.' },
 };
-export function ConversationAIHistory({ conversationId, locale, api }: { conversationId: string; locale: 'ar' | 'en' | 'fr'; api: Api }) {
+export function ConversationAIHistory({ conversationId, locale, api, revision }: { conversationId: string; locale: 'ar' | 'en' | 'fr'; api: Api; revision: string }) {
   const handoffApplied = { ar: 'طُلب موظف بإجراء AI مصرح به. راجع التحكم الحالي بالمحادثة؛ لم يُنفّذ إرسال تلقائي أو تغيير للمالك.', en: 'An authorized AI action requested a human. Review current conversation control; no automatic send or owner change was performed.', fr: 'Une action IA autorisée a demandé un humain. Consultez le contrôle actuel ; aucun envoi automatique ni changement de propriétaire effectué.' }[locale];
   const handoffBlocked = { ar: 'حُجب طلب الموظف لأن السياق تغيّر؛ لم تتغير المحادثة.', en: 'The handoff request was blocked because context changed; the conversation was unchanged.', fr: 'La demande humaine a été bloquée après changement de contexte ; conversation inchangée.' }[locale];
   const safetyStopped = { ar: 'حُجب طلب الموظف، وأُوقف الرد الآلي للمراجعة. لم يُطبّق Handoff أو تغيير للمالك؛ راجع التحكم الحالي.', en: 'The handoff request was blocked, and automatic replies were stopped for review. No handoff or owner change was applied; review current control.', fr: 'Transfert bloqué et réponses automatiques arrêtées pour révision. Aucun transfert ni changement de propriétaire appliqué ; consultez le contrôle actuel.' }[locale];
@@ -26,6 +27,7 @@ export function ConversationAIHistory({ conversationId, locale, api }: { convers
     finally { if (sequence.current === s) setBusy(false); }
   }
   return <section className="panel" data-ai-customer-history><h4>{t.title}</h4><p>{t.note}</p><button disabled={busy} onClick={() => void load()}>{t.read}</button>
+    <AIActionJobs id={conversationId} locale={locale} revision={revision} api={api} />
     {error && <p role="alert">{error}</p>}{value && !value.items.length && <p>{t.empty}</p>}
     {value?.items.map(e => <article key={e.id} data-ai-customer-execution><p><time dateTime={e.createdAt}>{new Date(e.createdAt).toLocaleString(locale)}</time> · {e.state}</p>
       {e.errorCode && <p dir="ltr" style={{ overflowWrap: 'anywhere' }}>{e.errorCode}</p>}<p>{t.attempts}: {e.attemptCount}</p><p>{t.source}: <span dir="ltr" style={{ overflowWrap: 'anywhere' }}>{e.sourceMessageId}</span></p><p>{t.version}: {e.knowledgeVersion ?? t.unavailable}</p>

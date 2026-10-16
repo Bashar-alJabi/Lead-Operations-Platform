@@ -111,7 +111,7 @@ export async function verifyQualificationHandoff(db: Database, app: FastifyInsta
   await db`CREATE FUNCTION reject_qualification_handoff_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
     IF NEW.action='AI_HUMAN_HANDOFF_APPLIED' THEN RAISE EXCEPTION 'synthetic child handoff audit failure';END IF;RETURN NEW;END $$`;
   await db`CREATE TRIGGER reject_qualification_handoff_audit BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION reject_qualification_handoff_audit()`;
-  try { await assert.rejects(processOneAIHumanHandoff(db), /synthetic child handoff audit failure/);
+  try { await assert.rejects(db.begin(tx => requestAIHumanHandoff(tx, fresh.id)), /synthetic child handoff audit failure/);
     assert.equal((await db`SELECT state FROM ai_customer_handoff_job WHERE proposal_id=${fresh.id}`)[0]!.state, 'QUEUED');
     assert.equal((await db`SELECT count(*)::integer AS n FROM ai_customer_handoff_action WHERE proposal_id=${fresh.id}`)[0]!.n, 0);
   } finally { await db`DROP TRIGGER reject_qualification_handoff_audit ON audit_log`; await db`DROP FUNCTION reject_qualification_handoff_audit()`; }

@@ -336,7 +336,7 @@ export function LeadConversations({ leadId, lifecycle, role, actorId, locale, ap
       {!messages.length && <p>{t.noMessages}</p>}
       <ConversationSummarySource key={selectedId} conversationId={selectedId} locale={locale} api={api} humanActive={selected?.controller_type==='HUMAN' && selected?.state==='HUMAN_ACTIVE'} revision={messages.map(m=>m.id+':'+m.delivery_state).join(',')} />
       <ConversationCampaignKnowledge key={'knowledge-'+selectedId} conversationId={selectedId} locale={locale} api={api} humanActive={selected?.controller_type==='HUMAN' && selected?.state==='HUMAN_ACTIVE'} />
-      <ConversationAIHistory key={'ai-history-'+selectedId} conversationId={selectedId} locale={locale} api={api} />
+      <ConversationAIHistory key={'ai-history-'+selectedId} conversationId={selectedId} locale={locale} api={api} revision={[selected?.version,selected?.state,selected?.controller_type,...messages.map(m=>m.id+':'+m.delivery_state)].join(',')} />
       <ConversationAIHandoffs key={'ai-handoffs-'+selectedId} conversationId={selectedId} locale={locale} api={api}
         revision={[selected?.version,selected?.state,selected?.controller_type,...messages.map(m=>m.id+':'+m.delivery_state)].join(',')} />
       <ul className="conversation-messages">{messages.map((message) => <li key={message.id} id={'message-'+message.id}>

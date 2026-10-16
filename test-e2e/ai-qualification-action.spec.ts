@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { emptyKnowledge } from '../src/ai/knowledge.js';
 import { emptyAIOperationalConfig } from '../src/ai/operational-config.js';
+import { verifyActionRecoveryUI } from './local-action-recovery.js';
 test('Actual customer AI Qualification applies approved typed actions with current permissions, separate receipts and safe Lead UI', async ({ browser }) => {
   const fixture = JSON.parse(await readFile(resolve('.local/e2e/fixture.json'), 'utf8')) as { password: string; testToken: string }, origin = 'http://127.0.0.1:4100';
   const managerContext = await browser.newContext({ extraHTTPHeaders: { 'x-e2e-rate-scope': randomUUID() } }), context = await browser.newContext({ extraHTTPHeaders: { 'x-e2e-rate-scope': randomUUID() } }), secondContext = await browser.newContext({ extraHTTPHeaders: { 'x-e2e-rate-scope': randomUUID() } });
@@ -48,6 +49,7 @@ test('Actual customer AI Qualification applies approved typed actions with curre
     await page.getByRole('heading', { name: 'Customer conversations', exact: true }).locator('..').getByRole('button', { name: 'View messages', exact: true }).click();
     const panel = page.locator('[data-ai-customer-history]'), refresh = () => panel.getByRole('button', { name: 'Review AI executions', exact: true }).click();
     await refresh(); await expect(panel).toContainText('QUALIFICATION'); await expect(panel).toContainText('No action or customer message has been executed.');
+    await verifyActionRecoveryUI({manager,page,cv,kind:'QUALIFICATION',leadName:'Browser AI Qualification Action Customer',token:fixture.testToken,execute});
     expect((await execute()).status()).toBe(200); expect((await (await execute()).json()).processed).toBe(false);
     await refresh(); await expect(panel.locator('[data-ai-customer-action]')).toContainText('APPLIED'); await expect(panel).toContainText('No customer message was sent.');
     const qr = '/api/leads/' + lead + '/qualification', qual = page.locator('[data-lead-qualification]'), mapped = qual.locator(`[data-qualification-question="${question}"]`);

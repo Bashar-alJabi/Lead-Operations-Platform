@@ -107,6 +107,8 @@ process.env.APP_ORIGIN = 'http://127.0.0.1:4100';
 process.env.CREDENTIAL_ENCRYPTION_KEY = randomBytes(32).toString('hex');
 const db = createDatabase(connectionUrl);
 await db`CREATE OR REPLACE FUNCTION ai_handoff_sla_now() RETURNS timestamptz LANGUAGE sql VOLATILE AS $$ SELECT clock_timestamp() $$`;
+await db`CREATE OR REPLACE FUNCTION ai_local_action_now() RETURNS timestamptz LANGUAGE sql VOLATILE AS $$ SELECT clock_timestamp() $$`;
+await db`DROP TRIGGER IF EXISTS e2e_reject_local_action ON lead_qualification_answer_history`;await db`DROP TRIGGER IF EXISTS e2e_reject_local_action ON notification_event`;await db`DROP FUNCTION IF EXISTS e2e_reject_local_action_fixture()`;
 await db`DROP TRIGGER IF EXISTS reject_sla_browser ON audit_log`;await db`DROP FUNCTION IF EXISTS reject_sla_browser_fixture()`;
 const password = randomBytes(24).toString('hex'); const testToken = randomBytes(32).toString('hex');
 const hash = await passwordHash(password);
@@ -261,6 +263,29 @@ app.post('/__test__/ai-copilot-summary',async(request)=>{
 app.post('/__test__/ai-human-handoff',async(request)=>{
   if(typeof request.headers.authorization!=='string' || !safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
   return { processed:await processOneAIHumanHandoff(db) };
+});
+app.post<{Body:{conversationId:string;kind:'QUALIFICATION'|'HANDOFF';offsetSeconds:number;failStep?:boolean}}>('/__test__/ai-local-action',{
+ schema:{body:{type:'object',additionalProperties:false,required:['conversationId','kind','offsetSeconds'],properties:{conversationId:{type:'string',format:'uuid'},kind:{enum:['QUALIFICATION','HANDOFF']},offsetSeconds:{type:'integer',minimum:0,maximum:600},failStep:{type:'boolean'}}}},
+},async request=>{
+ if(typeof request.headers.authorization!=='string'||!safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
+ const target=(await db`SELECT cv.id FROM conversation cv JOIN lead l ON l.id=cv.lead_id WHERE cv.id=${request.body.conversationId} AND l.organization_id=${org} AND cv.connection_id=${connection}`)[0];
+ if(!target)throw new HttpError(404,'SYNTHETIC_CONVERSATION_NOT_FOUND');
+ // Isolated Browser DB only. Neither this clock nor failure control is imported by the product.
+ await db`CREATE TABLE IF NOT EXISTS e2e_local_action_clock(singleton boolean PRIMARY KEY DEFAULT true CHECK(singleton),offset_seconds integer NOT NULL)`;
+ await db`INSERT INTO e2e_local_action_clock(offset_seconds) VALUES(${request.body.offsetSeconds}) ON CONFLICT(singleton) DO UPDATE SET offset_seconds=excluded.offset_seconds`;
+ await db`CREATE OR REPLACE FUNCTION ai_local_action_now() RETURNS timestamptz LANGUAGE sql VOLATILE AS $$ SELECT clock_timestamp()+make_interval(secs=>COALESCE((SELECT offset_seconds FROM e2e_local_action_clock WHERE singleton),0)) $$`;
+ await db`CREATE TABLE IF NOT EXISTS e2e_local_action_failure(conversation_id uuid NOT NULL,kind text NOT NULL,enabled boolean NOT NULL,PRIMARY KEY(conversation_id,kind))`;
+ if(request.body.failStep!==undefined)await db`INSERT INTO e2e_local_action_failure VALUES(${target.id},${request.body.kind},${request.body.failStep}) ON CONFLICT(conversation_id,kind) DO UPDATE SET enabled=excluded.enabled`;
+ await db`CREATE OR REPLACE FUNCTION e2e_reject_local_action_fixture() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+   IF TG_TABLE_NAME='lead_qualification_answer_history' THEN
+     IF EXISTS(SELECT 1 FROM ai_customer_action a JOIN e2e_local_action_failure f ON f.conversation_id=a.conversation_id AND f.kind='QUALIFICATION' AND f.enabled WHERE a.id=(NEW.snapshot->>'ai_action_id')::uuid) THEN RAISE EXCEPTION 'NeverExposeBrowserSQLSecret_123';END IF;
+   ELSE
+     IF EXISTS(SELECT 1 FROM ai_customer_handoff_action a JOIN e2e_local_action_failure f ON f.conversation_id=a.conversation_id AND f.kind='HANDOFF' AND f.enabled WHERE a.id=NEW.source_id) THEN RAISE EXCEPTION 'NeverExposeBrowserSQLSecret_123';END IF;
+   END IF;RETURN NEW;END $$`;
+ await db`DROP TRIGGER IF EXISTS e2e_reject_local_action ON lead_qualification_answer_history`;await db`DROP TRIGGER IF EXISTS e2e_reject_local_action ON notification_event`;
+ await db`CREATE TRIGGER e2e_reject_local_action BEFORE INSERT ON lead_qualification_answer_history FOR EACH ROW EXECUTE FUNCTION e2e_reject_local_action_fixture()`;
+ await db`CREATE TRIGGER e2e_reject_local_action BEFORE INSERT ON notification_event FOR EACH ROW EXECUTE FUNCTION e2e_reject_local_action_fixture()`;
+ return {configured:true};
 });
 app.post<{Body:{offsetSeconds:number;process?:boolean;failExpiry?:boolean}}>('/__test__/handoff-sla',{schema:{body:{type:'object',additionalProperties:false,required:['offsetSeconds'],properties:{offsetSeconds:{type:'integer',minimum:0,maximum:2592000},process:{type:'boolean'},failExpiry:{type:'boolean'}}}}},async request=>{
  if(typeof request.headers.authorization!=='string'||!safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');

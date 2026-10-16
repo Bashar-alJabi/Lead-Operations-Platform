@@ -1,5 +1,9 @@
 # دليل التشغيل والتطوير
 
+## Local AI action recovery — Native144
+
+شغّل `worker:ai` المعتادة بعد migrations؛ startup تستوعب existing pending Qualification/Handoff Jobs بدفعات محدودة. في Lead→Conversation→AI history، افتح **وظائف إجراءات AI المحلية** لمراجعة failure count/next eligibility/dead-letter والتاريخ؛ Completed مخفية افتراضيًا ويمكن إظهارها. بعد إصلاح المشكلة التقنية، يكتب Manager/Super Admin المخوّل سببًا ويطلب retry من الواجهة. الأصل والصلاحيات والسياق تُفحص مجددًا؛ تغير السياق يمنع إحياء مصدر قديم، ويمكن المراجعة والقبول البشري وفق صلاحيات Conversation الحالية. لا تعدل DB أوcounter يدويًا. Logs structured بلا raw SQL/secret، وdead-letter توقف الوظيفة تلقائيًا بعد خمس failures مسجلة. [العقد والحدود](ai-local-action-queues.md).
+
 ## Mandatory Handoff safety review
 
 Native143 تعملمع`worker:ai` الحالية بلاsetup جديد. عندBLOCKED mandatory Handoff،راجعExecution history: `safetyStopped=true` تعنيأنالردالآلي أُوقف للمراجعةفيذلكالوقت،ولا تعنيتطبيقHandoff أوإشعار/SLA. أصلحconfig/tool denial وفقصلاحياتك،ثمراجعواطلبHuman takeover صريحًا؛لاتُعدتشغيلold receipt ولا تعدّلDB. Current Human/newer/foreign source/provider blocker لايُستبدل. فشلAudit يبقيjob قابلةلإعادةالمحاولةذريًا. [العقد](ai-mandatory-handoff-safety.md).

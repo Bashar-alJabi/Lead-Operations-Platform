@@ -67,6 +67,7 @@ import { registerNotificationRoutes } from './routes/notifications.js';
 import { registerNotificationTemplateRoutes } from './routes/notification-templates.js';
 import { registerAIHandoffClockRoutes } from './routes/ai-handoff-clock.js';
 import { registerHandoffSLARoutes } from './routes/handoff-sla.js';
+import { registerAIActionJobRoutes } from './routes/ai-action-jobs.js';
 import { registerAIToolPolicyRoutes } from './routes/ai-tool-policy.js';
 import { assertAIReadTestTransport } from './ai/read-transport.js';
 import type { AIInferenceRegistry } from './ai/inference-provider.js';
@@ -134,6 +135,7 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   registerNotificationTemplateRoutes(app, db);
   registerAIHandoffClockRoutes(app, db);
   registerHandoffSLARoutes(app, db);
+  registerAIActionJobRoutes(app, db);
   registerContactRoutes(app, db);
   registerFieldRoutes(app, db);
   registerLeadWorkflowRoutes(app, db);

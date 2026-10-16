@@ -1,8 +1,10 @@
 import type postgres from 'postgres';
 import type { Database } from '../db.js';
+import { lockLocalAIAction, processOneLocalAIAction } from './local-action-queue.js';
 
 // No employee identity, no readonly proposal as authority, no model-supplied user/owner.
 export async function requestAIHumanHandoff(tx: postgres.TransactionSql, proposalId: string) {
+  await lockLocalAIAction(tx, 'HANDOFF', proposalId);
   await tx`SELECT proposal_id FROM ai_customer_handoff_job WHERE proposal_id=${proposalId} FOR UPDATE`;
   const existing = (await tx`SELECT id,state FROM ai_customer_handoff_action WHERE proposal_id=${proposalId}`)[0];
   if (existing) return { duplicate: true, actionId: existing.id as string, state: existing.state as string };
@@ -23,11 +25,5 @@ export async function requestAIHumanHandoff(tx: postgres.TransactionSql, proposa
 
 // Short local transaction: restart-safe queue; no lock is held across external I/O.
 export async function processOneAIHumanHandoff(db: Database): Promise<boolean> {
-  return db.begin(async tx => {
-    const pending = (await tx`SELECT proposal_id FROM ai_customer_handoff_job WHERE state='QUEUED'
-      ORDER BY created_at,proposal_id FOR UPDATE SKIP LOCKED LIMIT 1`)[0];
-    if (!pending) return false;
-    await requestAIHumanHandoff(tx, pending.proposal_id as string);
-    return true;
-  });
+  return processOneLocalAIAction(db, 'HANDOFF', requestAIHumanHandoff);
 }

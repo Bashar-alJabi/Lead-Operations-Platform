@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type { Database } from '../src/db.js';
-import { processOneAIHumanHandoff } from '../src/ai/customer-handoff.js';
+import { processOneAIHumanHandoff, requestAIHumanHandoff } from '../src/ai/customer-handoff.js';
 
 export async function verifyMandatoryHandoffSafety(db: Database, app: FastifyInstance, f: {
   org: string; branch: string; other: string; campaign: string; lead: string; cv: string;
@@ -20,7 +20,7 @@ export async function verifyMandatoryHandoffSafety(db: Database, app: FastifyIns
     IF NEW.action='AI_MANDATORY_HANDOFF_STOPPED' THEN RAISE EXCEPTION 'synthetic mandatory stop audit failure';END IF;RETURN NEW;END $$`;
   await db`CREATE TRIGGER reject_mandatory_stop_audit BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION reject_mandatory_stop_audit()`;
   try {
-    await assert.rejects(processOneAIHumanHandoff(db), /synthetic mandatory stop audit failure/);
+    await assert.rejects(db.begin(tx => requestAIHumanHandoff(tx, p.id)), /synthetic mandatory stop audit failure/);
     assert.equal((await rows(p.id)).length, 0); assert.equal((await db`SELECT state FROM ai_customer_handoff_job WHERE proposal_id=${p.id}`)[0]!.state, 'QUEUED');
     assert.deepEqual((await db`SELECT version,state FROM conversation WHERE id=${cv}`)[0], before);
   } finally { await db`DROP TRIGGER reject_mandatory_stop_audit ON audit_log`; await db`DROP FUNCTION reject_mandatory_stop_audit()`; }

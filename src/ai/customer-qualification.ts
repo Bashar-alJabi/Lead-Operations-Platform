@@ -1,10 +1,12 @@
 import type postgres from 'postgres';
 import type { Database } from '../db.js';
 import { normalizeQualificationAnswer } from './qualification-answers.js';
+import { lockLocalAIAction, processOneLocalAIAction } from './local-action-queue.js';
 
 // Autonomous current authority, never a Human Principal or a readonly/Copilot result.
 // Native admission and action guards own parent/current dependency locks and atomic proof.
 export async function collectAIQualificationAnswer(tx: postgres.TransactionSql, proposalId: string) {
+  await lockLocalAIAction(tx, 'QUALIFICATION', proposalId);
   await tx`SELECT proposal_id FROM ai_customer_action_job WHERE proposal_id=${proposalId} FOR UPDATE`;
   const existing = (await tx`SELECT id,state FROM ai_customer_action WHERE proposal_id=${proposalId}`)[0];
   if (existing) return { duplicate: true, actionId: existing.id as string, state: existing.state as string };
@@ -40,11 +42,5 @@ export async function collectAIQualificationAnswer(tx: postgres.TransactionSql, 
 
 // Durable pending admission survives process restarts; all local writes commit together.
 export async function processOneAIQualificationAction(db: Database): Promise<boolean> {
-  return db.begin(async tx => {
-    const pending = (await tx`SELECT proposal_id FROM ai_customer_action_job WHERE state='QUEUED'
-      ORDER BY created_at,proposal_id FOR UPDATE SKIP LOCKED LIMIT 1`)[0];
-    if (!pending) return false;
-    await collectAIQualificationAnswer(tx, pending.proposal_id as string);
-    return true;
-  });
+  return processOneLocalAIAction(db, 'QUALIFICATION', collectAIQualificationAnswer);
 }

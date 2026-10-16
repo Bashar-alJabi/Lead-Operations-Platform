@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { emptyKnowledge } from '../src/ai/knowledge.js';
 import { emptyAIOperationalConfig } from '../src/ai/operational-config.js';
+import { verifyActionRecoveryUI } from './local-action-recovery.js';
 test('Actual customer AI Handoff transitions durably to Human waiting with scoped review and explicit acceptance', async ({ browser }) => {
   const fixture = JSON.parse(await readFile(resolve('.local/e2e/fixture.json'), 'utf8')) as { password: string; testToken: string }, origin = 'http://127.0.0.1:4100';
   const managerContext = await browser.newContext({ extraHTTPHeaders: { 'x-e2e-rate-scope': randomUUID() } }), context = await browser.newContext({ extraHTTPHeaders: { 'x-e2e-rate-scope': randomUUID() } }), secondContext = await browser.newContext({ extraHTTPHeaders: { 'x-e2e-rate-scope': randomUUID() } });
@@ -41,6 +42,7 @@ test('Actual customer AI Handoff transitions durably to Human waiting with scope
     const open = async () => { await page.reload(); await page.getByRole('row').filter({ hasText: 'Browser AI Handoff Action Customer' }).getByRole('button', { name: 'Details', exact: true }).click(); await page.getByRole('heading', { name: 'Customer conversations', exact: true }).locator('..').getByRole('button', { name: 'View messages', exact: true }).click(); };
     await open(); const history = page.locator('[data-ai-customer-history]'), review = page.locator('[data-ai-handoffs]');
     await history.getByRole('button', { name: 'Review AI executions', exact: true }).click(); await expect(history).toContainText('HANDOFF'); await expect(history).toContainText('No action or customer message has been executed.');
+    await verifyActionRecoveryUI({manager,page,cv,kind:'HANDOFF',leadName:'Browser AI Handoff Action Customer',token:fixture.testToken,execute});
     expect((await execute()).status()).toBe(200); expect((await (await execute()).json()).processed).toBe(false);
     const notice=(await(await page.request.get('/api/notifications?language=en')).json()).items.find((n:any)=>n.leadId===lead);expect(notice).toBeTruthy();
     expect((await(await second.request.get('/api/notifications?language=en')).json()).items.some((n:any)=>n.leadId===lead)).toBe(false);
