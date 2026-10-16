@@ -56,7 +56,8 @@ globalThis.fetch=async(target,init)=> { if(String(target)===testPayPalCertUrl)re
     if(body.text.format.name==='customer_proposal') {
       const message=data.messages.find((m:{ id:string })=>m.id===data.currentMessageId)?.text ?? '';
       if(message.includes('Provider failure'))return new Response('private synthetic customer failure',{ status:401 });
-      const proposal=message.startsWith('Qualification fixture:') ? { decision:'QUALIFICATION',referenceIds:[],questionId:data.questions[0]?.id,answerValue:data.questions[0]?.type==='BOOLEAN' ? true : message.slice('Qualification fixture:'.length).trim(),sourceQuote:message,handoffReason:null }
+      const proposal=message.startsWith('Misunderstanding fixture:') ? { decision:'HANDOFF',referenceIds:[],questionId:null,answerValue:null,sourceQuote:message,handoffReason:'REPEATED_MISUNDERSTANDING' }
+        : message.startsWith('Qualification fixture:') ? { decision:'QUALIFICATION',referenceIds:[],questionId:data.questions[0]?.id,answerValue:data.questions[0]?.type==='BOOLEAN' ? true : message.slice('Qualification fixture:'.length).trim(),sourceQuote:message,handoffReason:null }
         : { decision:message.includes('Unknown') || message.includes('Ignore') ? 'HANDOFF' : 'ANSWER',referenceIds:message.includes('Unknown') || message.includes('Ignore') ? [] : ['section:prices'],questionId:null,answerValue:null,sourceQuote:null,handoffReason:message.includes('Unknown') || message.includes('Ignore') ? 'UNKNOWN_ANSWER' : null };
       return new Response(JSON.stringify({ status:'completed',output:[{ type:'message',role:'assistant',status:'completed',content:[{ type:'output_text',text:JSON.stringify(proposal) }] }] }));
     }

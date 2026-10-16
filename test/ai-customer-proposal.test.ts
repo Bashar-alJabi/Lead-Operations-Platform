@@ -32,8 +32,20 @@ test('Customer Responses adapter has a separate structured proposal operation, s
     assert.equal(String(target), 'https://api.openai.com/v1/responses'); const body = JSON.parse(init!.body as string);
     assert.equal(init!.redirect, 'error'); assert.equal(body.store, false); assert.deepEqual(body.tools, []); assert.equal(body.input[0].content, customerProposalSystemInstruction);
     assert.equal(body.text.format.name, 'customer_proposal'); assert.equal(body.text.format.strict, true); assert.ok(body.text.format.schema.properties.decision.enum.includes('QUALIFICATION'));
+    assert.equal(body.text.format.schema.additionalProperties, false); assert.ok(body.text.format.schema.properties.handoffReason.anyOf[1].enum.includes('REPEATED_MISUNDERSTANDING')); assert.equal(Object.hasOwn(body.text.format.schema.properties, 'count'), false);
     assert.equal(JSON.stringify(body).includes('SyntheticSecretOnly'), false);
     return new Response(JSON.stringify({ status: 'completed', output: [{ type: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: JSON.stringify(proposed) }] }] }));
   };
   assert.deepEqual(await openAIInferenceAdapter.proposeCustomer!({ credential: 'SyntheticSecretOnly123456', model: 'Synthetic-model', maxOutputTokens: 1024, data: customerProviderInput(evidence, { language: null, tone: null, prohibitedClaims: [] }) }), proposed);
+});
+
+test('Repeated misunderstanding is an evidenced classification, never a model-supplied counter or threshold', () => {
+  const p = { ...empty, decision: 'HANDOFF', handoffReason: 'REPEATED_MISUNDERSTANDING', sourceQuote: 'Yes I am interested.' };
+  assert.deepEqual(validateCustomerProposal(p, evidence), p);
+  for (const bad of [{ ...p, sourceQuote: null }, { ...p, sourceQuote: '' }, { ...p, sourceQuote: 'invented' }, { ...p, count: 999 },
+    { ...p, threshold: 0 }, { ...p, answerValue: 2 }, { ...p, handoffReason: 'UNKNOWN_ANSWER' }]) assert.throws(() => validateCustomerProposal(bad, evidence));
+  assert.throws(() => validateCustomerProposal(p, { ...evidence, sourceMessageId: 'other' }));
+  assert.throws(() => validateCustomerProposal(p, { ...evidence, messages: [{ ...evidence.messages[0]!, speaker: 'HUMAN' }] }));
+  const safe = customerSafeEvidence({ ...evidence, messages: [{ id: 'source', speaker: 'CUSTOMER', text: 'api_key=SECRET' }] });
+  assert.throws(() => validateCustomerProposal({ ...p, sourceQuote: 'api_key=SECRET' }, safe));
 });

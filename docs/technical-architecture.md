@@ -1,5 +1,9 @@
 # المعمارية التقنية
 
+## Repeated Misunderstanding — Native145–146
+
+Classification ذات current authenticated source quote تصبح immutable observation عند fresh inference completion فقط. Application/native ordinal وeffective policy threshold لكل exact Conversation version/scope يحددان فتح same approved durable Handoff؛ لا model counter أوold/diagnostic replay. Original/current action guards وNative144 queue باقية. Scoped execution history تعرض historical criterion منفصلة عن action الحالية. [العقد](ai-misunderstanding-runtime.md).
+
 ## Bounded local AI action queues — Native144
 
 Technical Queue منفصلة لكل Qualification/Handoff Job، مع source uniqueness وnative scope/current due guard وQueue-first lock order وpartial due indexes. Savepoint وimmediate deferred proofs تمنع partial Domain effects؛ native failures/backoff/dead-letter وimmutable history وreal-session scoped CAS recovery/UI وbounded startup admission تحافظ على original authority. لا Provider I/O أوfake employee أوold receipt replay. [العقد](ai-local-action-queues.md). Core Lead services مستقلة، وLive/full activation تبقى معطلة.

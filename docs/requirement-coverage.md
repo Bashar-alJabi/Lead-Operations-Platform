@@ -1,5 +1,15 @@
 # مصفوفة تغطية المتطلبات
 
+## أحدث checkpoint: Repeated Misunderstanding — 2026-10-16
+
+| المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |
+|---|---|---|
+| 04 §28 و05 §21 وAGENTS §§19–29: observed misunderstanding→policy→approved Human Handoff | Native145–146 وsource-quote validation وnative immutable observations/app-computed ordinal/threshold، ثم same original-admitted durable Handoff؛ scoped historical UI | **177unit/82full Docker PostgreSQL** (185.2s) و**48full Edge Browser** (6.4m)، و001–146 development/test وBackend/Web build/typecheck ناجحة. Inheritance/override/null parity،concurrent workers/duplicate webhook،old/diagnostic/forged source وretroactive grant denial،scope transfer،policy revocation،Audit rollback وHuman takeover أثناء inference مثبتة. **Implemented وMock/Sandbox Verified** لهذه baseline |
+| Data integrity وUI/history وprovider independence | source/message unique وper-Conversation-version/scope episode وclosed schema بلا model count/threshold؛ history DTO metadata فقط وar/en/fr/plain text وnative microsecond pagination | Browser تثبت 1→2→3→actual Handoff→Human acceptance وfailed-read clear وforeign denial/no send/no-XSS؛ الصورة العربية النهائية عند count3 فُحصت. UI locale regression وfixture HTTP timing صُححتا وأعيد التحقق. Focused PG1/1 وBrowser3/3 أيضًا ناجحة |
+| Customer sends/Central Messaging Policy وبقية AI/platform | `sendConversationMessage` customer runtime غير منفذة؛ current outbound enqueue/worker تعتمد Human Principal وتمنع non-Human dispatch. Initial/returning/follow-up/transition وAI الأوسع والوحدات الرئيسية باقية | **غير مكتملة**. التالي typed AI source authority وnative immutable action/message/outbox وcentral policy عند enqueue/dispatch بلا fake Human، مع UI/negative/integration/Browser gates. Live/full activation معطلتان؛ لا Complete أوLive claim |
+
+العقد في [ai-misunderstanding-runtime.md](ai-misunderstanding-runtime.md). لا Customer sends أوPayment/Enrollment mutations؛ البيانات اصطناعية وHTTP mocks فقط، والتكاملات الخارجية **Live Verification Pending External Credential/Approval**.
+
 ## أحدث checkpoint: bounded local AI action queues — 2026-10-16
 
 | المتطلب ومصدره | التنفيذ الحالي | الإثبات وحدود الحالة |

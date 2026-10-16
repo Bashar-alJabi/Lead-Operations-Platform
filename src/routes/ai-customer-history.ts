@@ -102,9 +102,10 @@ export function registerAICustomerHistoryRoutes(app: FastifyInstance, db: Databa
       const session = await currentPaymentSession(tx, actor, request);
       if (!session) throw new HttpError(403, 'AI_HISTORY_ACCESS_REVOKED');
       const access = await approvedConversationReadContext(tx, actor, request.params.id, session);
-      const rows = await tx`SELECT e.*,e.context->'knowledge'->'version' AS knowledge_version,COALESCE(a.id,h.id) AS action_id,COALESCE(a.state,h.state) AS action_state,
+      const rows = await tx`SELECT e.*,e.created_at::text AS cursor_at,e.context->'knowledge'->'version' AS knowledge_version,COALESCE(a.id,h.id) AS action_id,COALESCE(a.state,h.state) AS action_state,
         COALESCE(a.error_code,h.error_code) AS action_error,COALESCE(a.created_at,h.created_at) AS action_created_at,COALESCE(a.tool,h.tool) AS action_tool,
         a.id AS qualification_action_id,h.id AS handoff_id,h.tool AS handoff_tool,h.state AS handoff_state,h.error_code AS handoff_error,h.created_at AS handoff_created_at,stop.action_id IS NOT NULL AS safety_stopped,
+        o.ordinal::text AS misunderstanding_count,o.threshold AS misunderstanding_threshold,o.handoff_required AS misunderstanding_required,o.conversation_version AS misunderstanding_version,
         e.context IS DISTINCT FROM CASE WHEN e.kind='CUSTOMER_PROPOSAL' THEN ai_customer_proposal_context(e.event_id) ELSE ai_customer_inbound_context(e.event_id) END AS stale
         FROM (
           SELECT p.id,p.organization_id,p.branch_id,p.campaign_id,p.lead_id,p.conversation_id,p.message_id,p.event_id,p.state,p.error_code,p.context_hash,p.created_at,p.context,p.result,p.provider_invoked,p.attempt_count,'CUSTOMER_PROPOSAL' AS kind
@@ -115,9 +116,10 @@ export function registerAICustomerHistoryRoutes(app: FastifyInstance, db: Databa
         ) e LEFT JOIN ai_customer_action a ON a.proposal_id=e.id AND e.kind='CUSTOMER_PROPOSAL'
         LEFT JOIN ai_customer_handoff_action h ON h.proposal_id=e.id AND e.kind='CUSTOMER_PROPOSAL'
         LEFT JOIN ai_handoff_safety_stop stop ON stop.action_id=h.id
+        LEFT JOIN ai_misunderstanding_observation o ON o.proposal_id=e.id AND e.kind='CUSTOMER_PROPOSAL'
         WHERE e.conversation_id=${request.params.id} AND e.lead_id=${access.lead.id}
           AND e.organization_id=${actor.organizationId} AND e.branch_id=${access.lead.branch_id} AND e.campaign_id=${access.lead.campaign_id}
-          AND (${cursor?.timestamp ?? null}::timestamptz IS NULL OR (e.created_at,e.id)<(${cursor?.timestamp ?? null}::timestamptz,${cursor?.id ?? null}::uuid))
+          AND (${cursor?.timestamp ?? null}::text::timestamptz IS NULL OR (e.created_at,e.id)<(${cursor?.timestamp ?? null}::text::timestamptz,${cursor?.id ?? null}::uuid))
         ORDER BY e.created_at DESC,e.id DESC LIMIT ${limit + 1}`;
       const items = rows.slice(0, limit), last = items.at(-1);
       await tx`INSERT INTO audit_log(organization_id,branch_id,actor_user_id,action,target_type,target_id,detail)
@@ -132,9 +134,11 @@ export function registerAICustomerHistoryRoutes(app: FastifyInstance, db: Databa
         // A qualification candidate may refer to a Field hidden from this employee. Never expose its value, question or schema here.
         proposal: e.result ? { decision: e.result.decision, handoffReason: e.result.handoffReason,
           answer: e.result.decision === 'ANSWER' ? e.result.referenceIds.map((id: string) => e.context.references.find((r: { id: string; text: string }) => r.id === id)?.text ?? '').join('\n\n') : null } : null,
+        misunderstanding: e.misunderstanding_count ? { count: e.misunderstanding_count, threshold: e.misunderstanding_threshold,
+          handoffRequired: e.misunderstanding_required, conversationVersion: e.misunderstanding_version } : null,
         action, actions, toolsExecuted: actions.filter(a => a.state === 'APPLIED').map(a => a.tool), sendAllowed: false, mutationsAllowed: false };
       }),
-        nextCursor: rows.length > limit && last ? encodeCursor({ timestamp: last.created_at.toISOString(), id: last.id }) : null,
+        nextCursor: rows.length > limit && last ? encodeCursor({ timestamp: last.cursor_at, id: last.id }) : null,
         liveTransferEnabled: false, runtimeReady: false };
     });
   });

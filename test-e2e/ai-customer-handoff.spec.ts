@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { emptyKnowledge } from '../src/ai/knowledge.js';
 import { emptyAIOperationalConfig } from '../src/ai/operational-config.js';
 import { verifyActionRecoveryUI } from './local-action-recovery.js';
+import { verifyMisunderstandingUI } from './misunderstanding-flow.js';
 test('Actual customer AI Handoff transitions durably to Human waiting with scoped review and explicit acceptance', async ({ browser }) => {
   const fixture = JSON.parse(await readFile(resolve('.local/e2e/fixture.json'), 'utf8')) as { password: string; testToken: string }, origin = 'http://127.0.0.1:4100';
   const managerContext = await browser.newContext({ extraHTTPHeaders: { 'x-e2e-rate-scope': randomUUID() } }), context = await browser.newContext({ extraHTTPHeaders: { 'x-e2e-rate-scope': randomUUID() } }), secondContext = await browser.newContext({ extraHTTPHeaders: { 'x-e2e-rate-scope': randomUUID() } });
@@ -140,5 +141,6 @@ test('Actual customer AI Handoff transitions durably to Human waiting with scope
     await review.screenshot({ path: '.local/e2e/ai-handoff-action-ar.png' }); expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true); expect(errors).toEqual([]);
     await history.getByRole('button', { name: 'مراجعة تنفيذ AI', exact: true }).click(); await expect(history.locator('[data-ai-safety-stop]').first()).toContainText('أُوقف الرد الآلي للمراجعة'); await history.screenshot({ path: '.local/e2e/ai-mandatory-stop-ar.png' });
     await review.locator('[data-handoff-sla]').getByRole('button',{name:'مراجعة مؤقت الاستجابة',exact:true}).click();await expect(review.locator('[data-handoff-sla]')).toContainText('تجاوز المدة المستهدفة');await review.locator('[data-handoff-sla]').screenshot({path:'.local/e2e/handoff-sla-ar.png'});
+    await verifyMisunderstandingUI({manager,page,second,campaign,cv,open,inbound,infer:()=>control({process:true}),execute});expect(errors).toEqual([]);
   } finally { await manager.request.post('/__test__/handoff-sla',{headers:{origin,authorization:'Bearer '+fixture.testToken},data:{offsetSeconds:0,failExpiry:false}}).catch(()=>undefined);await managerContext.close(); await context.close(); await secondContext.close(); }
 });

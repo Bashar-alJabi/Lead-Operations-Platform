@@ -1,5 +1,9 @@
 # دليل التشغيل والتطوير
 
+## Repeated Misunderstanding
+
+من Branch AI behavior defaults أوCampaign AI behavior policy اضبط **عدد سوء الفهم قبل التحويل**؛ Campaign handoff object تتجاوز Branch object وفق inheritance الحالية. Null تعني عدم تأخير Handoff لتصنيف repeated misunderstanding مثبت المصدر، كما في Preview. راجع Conversation→Customer AI execution history لرؤية العدد والحد وقت الملاحظة، ثم actual Handoff receipt/current controller. لا تعدل counter أوتعيد receipt قديمة؛ مشاكل تنفيذ الأداة تُراجع عبر Native144 action jobs. [العقد](ai-misunderstanding-runtime.md). Live/full activation معطلتان.
+
 ## Local AI action recovery — Native144
 
 شغّل `worker:ai` المعتادة بعد migrations؛ startup تستوعب existing pending Qualification/Handoff Jobs بدفعات محدودة. في Lead→Conversation→AI history، افتح **وظائف إجراءات AI المحلية** لمراجعة failure count/next eligibility/dead-letter والتاريخ؛ Completed مخفية افتراضيًا ويمكن إظهارها. بعد إصلاح المشكلة التقنية، يكتب Manager/Super Admin المخوّل سببًا ويطلب retry من الواجهة. الأصل والصلاحيات والسياق تُفحص مجددًا؛ تغير السياق يمنع إحياء مصدر قديم، ويمكن المراجعة والقبول البشري وفق صلاحيات Conversation الحالية. لا تعدل DB أوcounter يدويًا. Logs structured بلا raw SQL/secret، وdead-letter توقف الوظيفة تلقائيًا بعد خمس failures مسجلة. [العقد والحدود](ai-local-action-queues.md).
