@@ -2,18 +2,19 @@ import type { Database } from '../db.js';
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { HttpError, type Principal } from '../security.js';
-import type { SendAuthor } from './policy.js';
-import { checkCurrentOutbound, lockOutboundScope } from './outbound-policy.js';
+import { checkOutboundAuthorityPolicy, lockOutboundAuthority, type OutboundPolicyAuthority } from './authority.js';
 import { approvedBodyTemplate,templateMediaSnapshot } from './approved-template.js';
 import { mediaCaptionAllowed } from '../media/outbound-policy.js';
 
-export type OutboundRequest = { actor: Principal; conversationId: string; author: SendAuthor;
+export type OutboundRequest = { actor: Principal; conversationId: string; author: 'HUMAN';
   body?: string; templateId?: string; templateParameters?: string[]; templateHeaderParameter?:string; templateUrlParameter?:string; attachmentId?: string; idempotencyKey: string };
 
-// Every caller, including future AI and automation tools, must enter here with an authorized principal.
+// Human entry point. Automated writers require their own immutable source/action authority and shared policy.
 export async function enqueueOutboundMessage(db: Database, input: OutboundRequest): Promise<{
   id: string; deliveryState: string; existing: boolean;
 }> {
+  if (input.author !== 'HUMAN') throw new HttpError(403, 'AUTOMATED_OUTBOUND_AUTHORITY_REQUIRED');
+  const authority: OutboundPolicyAuthority = { kind: 'HUMAN', principal: input.actor };
   const kind = input.templateId ? 'TEMPLATE' : input.attachmentId ? 'ATTACHMENT' : 'TEXT';
   if (input.attachmentId && (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(input.attachmentId)
     || (!input.templateId && (input.templateParameters !== undefined || input.templateHeaderParameter!==undefined || input.templateUrlParameter!==undefined)))) throw new HttpError(400, 'ATTACHMENT_INPUT_INVALID');
@@ -25,7 +26,7 @@ export async function enqueueOutboundMessage(db: Database, input: OutboundReques
   if (kind === 'TEXT' && (input.templateParameters !== undefined || input.templateHeaderParameter!==undefined || input.templateUrlParameter!==undefined))
     throw new HttpError(400, 'TEMPLATE_PARAMETERS_NOT_ALLOWED');
   const outcome = await db.begin(async (tx) => {
-    const locked = await lockOutboundScope(tx, input.actor, input.conversationId);
+    const locked = await lockOutboundAuthority(tx, authority, input.conversationId);
     const { scope, conversation } = locked;
     const prior = (await tx`SELECT id, body, message_kind, template_id, template_snapshot, attachment_id,
         author_type, author_user_id, delivery_state
@@ -53,7 +54,7 @@ export async function enqueueOutboundMessage(db: Database, input: OutboundReques
       throw new HttpError(400,'MEDIA_CAPTION_NOT_SUPPORTED');
     if (attachment && (await tx`SELECT 1 FROM conversation_message WHERE attachment_id = ${attachment.id}`).length)
       throw new HttpError(409, 'ATTACHMENT_ALREADY_USED');
-    const decision = await checkCurrentOutbound(tx, locked, input.actor, input.author,
+    const decision = await checkOutboundAuthorityPolicy(tx, locked,
       undefined, input.templateId, attachment?.media_kind);
     if (!decision.allowed) return { blocked: decision.reason } as const;
     const messageId=randomUUID();

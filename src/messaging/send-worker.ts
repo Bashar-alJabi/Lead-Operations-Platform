@@ -3,7 +3,7 @@ import type postgres from 'postgres';
 import { isDeepStrictEqual } from 'node:util';
 import { openSecret } from '../credentials.js';
 import { HttpError, type Principal } from '../security.js';
-import { checkCurrentOutbound, lockOutboundScope } from './outbound-policy.js';
+import { checkOutboundAuthorityPolicy, lockOutboundAuthority } from './authority.js';
 import { approvedBodyTemplate, parseTextTemplate,type TemplateMediaKind } from './approved-template.js';
 import { metaWhatsAppSendAdapter, ProviderSendError, type MessagingConnectionConfig,
   type MessagingCredentials, type MessagingSendAdapter, type SendTextInput,
@@ -148,8 +148,9 @@ async function prepare(db: Database, claimed: Claimed, media?: LoadedMedia, medi
         .filter((value): value is Date => value instanceof Date)
         .reduce<Date | null>((latest, value) => !latest || value > latest ? value : latest, null);
       if (until && until > new Date()) return { deferredUntil: until };
-      const locked = await lockOutboundScope(tx, actor, message.conversation_id);
-      const decision = await checkCurrentOutbound(tx, locked, actor, 'HUMAN',
+      const authority = { kind: 'HUMAN' as const, principal: actor };
+      const locked = await lockOutboundAuthority(tx, authority, message.conversation_id);
+      const decision = await checkOutboundAuthorityPolicy(tx, locked,
         claimed.messageId, message.template_id, media?.mediaKind);
       if (!decision.allowed) return { blocked: decision.reason };
       if (decision.provider !== 'META_WHATSAPP_CLOUD') return { blocked: 'PROVIDER_SEND_NOT_SUPPORTED' };

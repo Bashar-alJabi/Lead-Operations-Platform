@@ -1,5 +1,15 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: سلطة AI في Central Messaging Policy — 2026-10-17
+
+Recovery من `0972c9e` النظيفة دون reset/discard. Docker services كانت متوقفة؛ شُغّلت PostgreSQL/ClamAV على volumes الحالية. Baseline Handoff وHuman outbound recovery ناجحتان. المجموعة الحالية كبيرة: أول مرحلة مستقلة هي fresh authenticated send admission وtyped Human/AI policy scope بلا fake employee، مع منع Human enqueue من استقبال author آلي؛ بعدها actual immutable send action/message/outbox وworker dispatch/UI. Policy admission ليست إذن إرسال أوإثبات اكتمال `sendConversationMessage`.
+
+**البوابة ناجحة على آخر الكود:** Native001–147 مطبقة على development/test؛ **178/178 unit،82/82 full Docker PostgreSQL integration** (155.2s)،و**48/48 full Edge Browser E2E** (2.3m)،وBackend/Web build/typecheck وdiff check ناجحة. Focused unit/PG2/2 ناجحتان أيضًا؛Handoff PG الموسعة ضمنfull suite تشملactual history frequency/maxAttempts وsource freshness/immutability/no-backfill وeight-way inspection وrevocation/consent/DNC وHuman takeover/foreign access/Owner version/pinned disable/window/default live-off دونmessage/send job. PostgreSQL/ClamAV healthy؛Vite chunk808.58KB/gzip230.36KB warning معروفةفيbacklog. [العقد](ai-outbound-authority.md).
+
+**الحالة والحفظ:** مرحلة policy authority الداخلية **Implemented وMock/Sandbox Verified**؛ `sendConversationMessage` وAI/platform **غير مكتملة**. progress/coverage/plan/architecture/runbook والعقد تُحفظ بـcommit/push إلى `codex/full-platform-build` فقط؛ المرجع السابق0972c9e. لاgate فاشلة أوUI جديدة غيرمختبرة.
+
+**الخطوة التالية الدقيقة:** actual validated ANSWER/QUESTION content/action/message/outbox proof وdurable bounded local execution،ثمexact own-message context delta وtyped AI dispatch عبرCentral Policy وprovider-mock/idempotency/retries/UNKNOWN/handoff races وscoped Conversation history/UI. لا fake employee أوold source revival. بعدهاinitial/returning/follow-up/transition وبقيةAI ثمالوحدات الرئيسية. Live AI transfer/send/full activation معطلة؛synthetic/HTTP mocks فقط وLive Verification Pending External Credential/Approval.
+
 ## آخر حالة مستقرة: Repeated Misunderstanding runtime — 2026-10-16
 
 استُؤنف من checkpoint `a3a7efb` النظيفة والمرفوعة دون reset/discard. Native145–146 وshared source-quote validation وnative immutable observation/app-computed ordinal/current policy threshold وscoped historical DTO/UI منفذة. الحلقة هي exact Conversation version وOrg/Branch/Campaign scope؛ لا model count أوold/diagnostic source replay. Branch handoff object تورثها Campaign أوتتجاوزها وفق العقد الحالي، وnull تبقى early handoff وفق Behavior Preview دون رقم business مخترع. بلوغ الشرط يفتح same original-admitted durable Handoff مع full current guards وNative144 retries. [العقد](ai-misunderstanding-runtime.md).

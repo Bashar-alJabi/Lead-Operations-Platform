@@ -1,5 +1,9 @@
 # دليل التشغيل والتطوير
 
+## AI send-policy admission — Native147
+
+طبّق migrations المعتادة؛ لا backfill أوmanual replay للمصادر السابقة. Approved Tools UI تدير `sendConversationMessage`،لكن runtime والإرسال الفعلي لم يُفعّلا بهذه المرحلة. Human messaging القائمة تعمل كالمعتاد؛ لا تستخدم Human enqueue لتجاوز source authority عبرauthor آلي. `AI_SEND_ADMISSION_CONTEXT_CHANGED` تعني غياب مصدر أصلي حالي صالح للفحص؛ تغيّرgrant/consent/control/scope يحتاج مصدرًا جديدًا،ولا تعدلsnapshot لإحياء القديم. Live AI transfer تبقى معطلة. [العقد](ai-outbound-authority.md).
+
 ## Repeated Misunderstanding
 
 من Branch AI behavior defaults أوCampaign AI behavior policy اضبط **عدد سوء الفهم قبل التحويل**؛ Campaign handoff object تتجاوز Branch object وفق inheritance الحالية. Null تعني عدم تأخير Handoff لتصنيف repeated misunderstanding مثبت المصدر، كما في Preview. راجع Conversation→Customer AI execution history لرؤية العدد والحد وقت الملاحظة، ثم actual Handoff receipt/current controller. لا تعدل counter أوتعيد receipt قديمة؛ مشاكل تنفيذ الأداة تُراجع عبر Native144 action jobs. [العقد](ai-misunderstanding-runtime.md). Live/full activation معطلتان.

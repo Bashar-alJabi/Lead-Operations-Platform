@@ -1,5 +1,14 @@
 # مصفوفة تغطية المتطلبات
 
+## أحدث checkpoint: AI outbound policy authority — 2026-10-17
+
+| المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |
+|---|---|---|
+| 04 Approved Tools/AI scope و05 Central Messaging Policy وAGENTS §§17–24 | Native147 fresh immutable authenticated send-policy admission وfull current-context factory وtyped Human/AI scope؛ Human entry ترفضautomated author قبلI/O؛السياسةالموجودةمشتركةدونfake employee | **178unit/82full Docker PostgreSQL** (155.2s) و**48full Edge Browser** (2.3m)،و001–147development/test وBackend/Web build/typecheck/diff check ناجحة. source freshness/immutability/no-backfill وgrant/consent revoke-restore وDNC وeight-way inspection وwrong Conversation/Agent/Branch/Organization وHuman takeover/Owner version/pinned disable/window وactual history frequency/maxAttempts مثبتة. **Implemented وMock/Sandbox Verified** لهذهالمرحلةالداخلية |
+| Actual customer send/tool/runtime وUI/history | لاMessage/action/outbox أوAI dispatch جديدة؛ Human flows محميةبالـfull regression وdefault AI live-off مثبتة | **غيرمكتملة**. التاليimmutable content/action/message/outbox وbounded worker ثمexact own-message context وtyped AI dispatch وprovider-mock/UNKNOWN/retries/handoff/UI gates؛لااعتبارadmission أوPROPOSED إذنإرسال. Initial/returning/follow-up/transition وبقيةAI والمنصةباقية |
+
+[العقد](ai-outbound-authority.md). Live transfer/full activation معطلتان؛البياناتاصطناعيةوHTTP mocks فقط و**Live Verification Pending External Credential/Approval**.
+
 ## أحدث checkpoint: Repeated Misunderstanding — 2026-10-16
 
 | المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |

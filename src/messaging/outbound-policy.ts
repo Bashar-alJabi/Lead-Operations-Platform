@@ -3,7 +3,8 @@ import { HttpError, type Principal } from '../security.js';
 import { evaluateSend, type SendAuthor } from './policy.js';
 import { resolveConfiguredSender } from './sender-resolution.js';
 
-export async function lockOutboundScope(tx: postgres.TransactionSql, actor: Principal, conversationId: string) {
+type ApprovedScope = { organizationId: string; branchId: string; campaignId: string; leadId: string };
+async function loadOutboundScope(tx: postgres.TransactionSql, conversationId: string, actor: Principal | null, approved: ApprovedScope | null) {
   const scope = (await tx`SELECT l.id AS lead_id, l.organization_id, l.branch_id, l.campaign_id,
       l.contact_id, l.assigned_agent_id, l.lifecycle, ct.phone_normalized,
       b.active AS branch_active, b.timezone, b.messaging_window,
@@ -11,10 +12,11 @@ export async function lockOutboundScope(tx: postgres.TransactionSql, actor: Prin
     FROM conversation cv JOIN lead l ON l.id = cv.lead_id
     LEFT JOIN contact ct ON ct.id = l.contact_id JOIN branch b ON b.id = l.branch_id
     JOIN campaign ca ON ca.id = l.campaign_id
-    WHERE cv.id = ${conversationId} AND l.organization_id = ${actor.organizationId}
-      AND (${actor.role === 'SUPER_ADMIN'} OR
-        (${actor.role === 'MANAGER'} AND l.branch_id = ${actor.branchId}) OR
-        (${actor.role === 'AGENT'} AND l.assigned_agent_id = ${actor.id}))
+    WHERE cv.id = ${conversationId} AND l.organization_id = ${actor?.organizationId ?? approved?.organizationId ?? null}
+      AND ((${actor !== null} AND (${actor?.role === 'SUPER_ADMIN'} OR
+        (${actor?.role === 'MANAGER'} AND l.branch_id = ${actor?.branchId ?? null}) OR
+        (${actor?.role === 'AGENT'} AND l.assigned_agent_id = ${actor?.id ?? null}))) OR
+        (${approved !== null} AND l.id=${approved?.leadId ?? null} AND l.branch_id=${approved?.branchId ?? null} AND l.campaign_id=${approved?.campaignId ?? null}))
     FOR UPDATE OF l`)[0];
   if (!scope) throw new HttpError(404, 'CONVERSATION_NOT_FOUND');
   await tx`SELECT id FROM contact WHERE id = ${scope.contact_id} FOR SHARE`;
@@ -24,10 +26,21 @@ export async function lockOutboundScope(tx: postgres.TransactionSql, actor: Prin
   return { scope, conversation };
 }
 
+export function lockOutboundScope(tx: postgres.TransactionSql, actor: Principal, conversationId: string) {
+  return loadOutboundScope(tx, conversationId, actor, null);
+}
+
+// A source can be inspected before inference; this is not an execution receipt or permission to enqueue a message.
+export async function lockAIOutboundPolicyScope(tx: postgres.TransactionSql, proposalId: string, conversationId: string) {
+  const context = (await tx`SELECT ai_customer_send_admission_context(${proposalId}) AS context`)[0]?.context;
+  if (!context || context.scope.conversationId !== conversationId) throw new HttpError(409, 'AI_SEND_ADMISSION_CONTEXT_CHANGED');
+  return loadOutboundScope(tx, conversationId, null, context.scope as ApprovedScope);
+}
+
 export type LockedOutboundScope = Awaited<ReturnType<typeof lockOutboundScope>>;
 
 export async function checkCurrentOutbound(tx: postgres.TransactionSql, locked: LockedOutboundScope,
-  actor: Principal, author: SendAuthor, excludeMessageId?: string, templateId?: string | null, mediaKind?: string) {
+  actor: Pick<Principal, 'id'> | null, author: SendAuthor, excludeMessageId?: string, templateId?: string | null, mediaKind?: string) {
   const { scope, conversation } = locked;
   if (!scope.contact_id) return { allowed: false as const, reason: 'CONTACT_REQUIRED' };
   if (!scope.branch_active || scope.campaign_status !== 'ACTIVE' || scope.messaging_config?.enabled !== true)
@@ -74,7 +87,7 @@ export async function checkCurrentOutbound(tx: postgres.TransactionSql, locked: 
     WHERE c.lead_id = ${scope.lead_id} AND m.direction = 'OUTBOUND'
       AND m.author_type IN ('AI','AUTOMATION','FOLLOW_UP')
       AND (${excludeMessageId ?? null}::uuid IS NULL OR m.id <> ${excludeMessageId ?? null}::uuid)`)[0] : null;
-  const decision = evaluateSend({ author, actorUserId: actor.id,
+  const decision = evaluateSend({ author, actorUserId: actor?.id,
     controllerType: conversation.controller_type, controllerUserId: conversation.controller_user_id,
     conversationState: conversation.state, consentStatus: consent?.status ?? 'UNKNOWN',
     doNotContact: consent?.do_not_contact ?? false, consentRequired: true,

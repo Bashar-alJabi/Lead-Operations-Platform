@@ -18,6 +18,7 @@ import { verifyHandoffSLATimers } from './handoff-sla-scenarios.js';
 import { verifyMandatoryHandoffSafety } from './mandatory-handoff-safety-scenarios.js';
 import { verifyLocalAIActionQueue } from './local-action-queue-scenarios.js';
 import { verifyMisunderstanding } from './misunderstanding-scenarios.js';
+import { verifyAIOutboundAuthority } from './ai-outbound-authority-scenarios.js';
 const url = process.env.TEST_DATABASE_URL;
 if (!url || new URL(url).pathname !== '/lead_operations_test') throw new Error('Isolated TEST_DATABASE_URL required');
 
@@ -388,6 +389,7 @@ test('Approved customer AI Handoff owns current authority, durable atomic transi
   for(const name of ['manager','agent']){const token=randomBytes(32).toString('hex');const session=(await db`INSERT INTO user_session(user_id,token_hash,expires_at) VALUES(${users[name]!.id},${sha256(token)},clock_timestamp()+interval '1 hour') RETURNING id`)[0]!.id;users[name]={...users[name]!,session,cookie:'lop_session='+token};}
   await verifyLocalAIActionQueue(db,app,'HANDOFF',{org,branch,campaign,lead,cv,users,activate,run,pending:async()=>{await grant();await activate();const p=await inbound(randomUUID(),'Unknown local failure');await run();return p;}});
   await verifyMisunderstanding(db,app,{org,branch,other,campaign,lead,cv,users,activate,grant,inbound,receive,adapters});
+  await verifyAIOutboundAuthority(db,app,{org,branch,other,campaign,lead,contact,cv,sender,users,activate,inbound});
   assert.equal((await db`SELECT count(*)::integer AS n FROM conversation_message WHERE direction='OUTBOUND'`)[0]!.n, 0);
   assert.equal((await db`SELECT count(*)::integer AS n FROM payment_record`)[0]!.n, 0); assert.equal(fetchCalls, 0);
 });

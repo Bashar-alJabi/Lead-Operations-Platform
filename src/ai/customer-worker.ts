@@ -30,6 +30,8 @@ export async function enqueueCustomerProposal(tx: postgres.TransactionSql, event
     await tx`INSERT INTO ai_customer_action_admission(proposal_id,event_id,context) VALUES(${proposal.id},${eventId},${tx.json(context)})`;
   if (proposal && (await tx`SELECT ai_handoff_admissible(${tx.json(context)}) AS allowed`)[0]!.allowed)
     await tx`INSERT INTO ai_customer_handoff_admission(proposal_id,event_id,context) VALUES(${proposal.id},${eventId},${tx.json(context)})`;
+  if (proposal && (await tx`SELECT ai_send_admissible(${tx.json(context)}) AS allowed`)[0]!.allowed)
+    await tx`INSERT INTO ai_customer_send_admission(proposal_id,event_id,context) VALUES(${proposal.id},${eventId},${tx.json(context)})`;
   return proposal;
 }
 export async function processOneAICustomerProposal(db: Database, options: { adapters?: AIInferenceRegistry; leaseSeconds?: number; retryDelaySeconds?: number } = {}): Promise<boolean> {

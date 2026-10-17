@@ -1,5 +1,9 @@
 # المعمارية التقنية
 
+## AI outbound policy authority — Native147
+
+Fresh authenticated Proposal تحمل immutable send-policy admission منفصلة عن Human session وactual action. DB تستخرج current exact scope تحت parent/dependency locks؛ typed authority مرتبطة بالنطاق المقفول تستخدم Central Policy نفسها دون employee Principal مصطنعة. Human enqueue ترفض automated author،وdispatch تبقى Human-only؛ لا activation أوMessage/Outbox/Provider I/O. [العقد والحدود](ai-outbound-authority.md). التالي actual content/action/message/outbox proof وexact own-message context ثمdispatch/UI/tests؛ Admission وحدها ليست Feature مكتملة.
+
 ## Repeated Misunderstanding — Native145–146
 
 Classification ذات current authenticated source quote تصبح immutable observation عند fresh inference completion فقط. Application/native ordinal وeffective policy threshold لكل exact Conversation version/scope يحددان فتح same approved durable Handoff؛ لا model counter أوold/diagnostic replay. Original/current action guards وNative144 queue باقية. Scoped execution history تعرض historical criterion منفصلة عن action الحالية. [العقد](ai-misunderstanding-runtime.md).
