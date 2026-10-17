@@ -1,5 +1,16 @@
 # مصفوفة تغطية المتطلبات
 
+## أحدث checkpoint: authenticated AI replies — 2026-10-17
+
+| المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |
+|---|---|---|
+| 04 Approved Tools/Conversations و05 Central Messaging Policy وAGENTS §§17–24 | Native148–149: fresh validated ANSWER/QUESTION→durable SEND queue→current authority/policy→immutable approved content/action/message/outbox/Activity/Audit، ثم exact own-message dispatch بلاfake employee | **178unit/83full Docker PostgreSQL** (222.9s) و**49full Edge Browser** (5.7m)، و001–149development/test وBackend/Web build/typecheck/diff check ناجحة. **Implemented وMock/Sandbox Verified** لهذهinbound-reply baseline |
+| AGENTS §§8/15–16/19–29/38: security، failure، idempotency، history | native content/outbox/extra-write/PREPARED proof، current source/config/consent/controller وlease margin بعدparent waits؛ bounded local failure/recovery؛ provider retry وUNKNOWN no-replay | 8workers، actual parent-lock/lease race بصفرI/O، forged/missing proof وAudit rollback، in-flight Human takeover دونreactivation، new inbound/consent revoke وUNKNOWN Attention retention، default live-off قبلdecryption وproduction test denial مثبتة. Legacy AI/Human metric separation محفوظة معnew INSERT guard فعالة |
+| 03/04/06: UI وإعداد وتشغيل آمن | actual Action/message/delivery history، SEND dead-letter/current Manager recovery/CAS/history، Agent read-only، scope-safe DTO دونcontext/secrets، ar/en/fr/plain text | Browser تثبت five failures→authorized recovery→one QUEUED reply→SENT وconsent block/Agent denial/failed-read clearing/no-XSS/390px. الصورة النهائية فُحصت. Focused PG3/3 وreply Browser1/1 وShared profile Browser1/1 ناجحة؛ full regressions أُصلحت وأعيدت دونتخفيفProduction auth أوbusiness assertions |
+| Full AI tool/runtime/platform وLive verification | post-Qualification continuation وinitial/returning/follow-up/transition وبقية AI/Copilot/Operations/Form/evaluations والوحدات الرئيسية باقية | **غير مكتملة**؛ لاComplete للـAI أوالمنصة. Live transfer/send/full activation معطلة، و**Live Verification Pending External Credential/Approval**. التالي fresh own-write Qualification child source وpriority للحandoff ثمinitial contact |
+
+[العقد والحدود](ai-customer-replies.md). المرجع السابق `686c1ec`؛ الحالية تُحفظ معالكود علىالفرع الحالي فقط.
+
 ## أحدث checkpoint: AI outbound policy authority — 2026-10-17
 
 | المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |

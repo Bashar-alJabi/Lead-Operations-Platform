@@ -1,5 +1,7 @@
 # سلطة AI في فحص Central Messaging Policy
 
+**التطور الحالي:** هذه الوثيقة تحفظ مرحلةNative147. Native148 تضيف actual reply action/message/outbox و`AI_ACTION` dispatch وSEND local jobs؛راجع [العقد الحالي](ai-customer-replies.md). وصفHuman-only dispatch وSend-only diagnostic أدناه يخصcheckpoint147 السابقة،ولايلغيالقيودالحاليةللـlive/full activation.
+
 ## نطاق المرحلة — Native147
 
 هذه مرحلة داخلية من `sendConversationMessage` المطلوبة في 04 و05 وAGENTS §§17–24. تفصل سلطة المصدر الآلي عن صلاحيات الموظف، وتستخدم سياسة الإرسال الموجودة نفسها. لا تنشئ Message أوAction receipt أوOutbox، ولا تجعل الأداة أوCustomer runtime مكتملتين. Live AI transfer وCustomer activation تبقيان معطلتين.

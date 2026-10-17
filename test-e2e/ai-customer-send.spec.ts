@@ -1,0 +1,64 @@
+import { test, expect, type Page } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { emptyKnowledge } from '../src/ai/knowledge.js';
+import { emptyAIOperationalConfig } from '../src/ai/operational-config.js';
+import { verifyActionRecoveryUI } from './local-action-recovery.js';
+
+test('AI replies use signed sources, approved content, durable native queues and scoped delivery history with Human takeover and safe localized UI', async ({ browser }) => {
+  const f = JSON.parse(await readFile(resolve('.local/e2e/fixture.json'), 'utf8')) as { password: string; testToken: string }, origin = 'http://127.0.0.1:4100';
+  const managerContext = await browser.newContext({ extraHTTPHeaders: { 'x-e2e-rate-scope': randomUUID() } }), agentContext = await browser.newContext({ extraHTTPHeaders: { 'x-e2e-rate-scope': randomUUID() } });
+  const manager = await managerContext.newPage(), page = await agentContext.newPage(), errors: string[] = [];
+  page.on('pageerror', e => errors.push(e.message)); page.on('console', m => { if (m.type() === 'error' && /same key|unique.*key/i.test(m.text())) errors.push(m.text()); });
+  const login = async (p: Page, user: string) => { await p.goto('/'); await p.getByRole('combobox', { name: 'Language' }).selectOption('en'); await p.getByLabel('Email', { exact: true }).fill(user + '@browser.test'); await p.getByLabel('Password', { exact: true }).fill(f.password); await p.getByRole('button', { name: 'Sign in', exact: true }).click(); await expect(p.getByRole('button', { name: 'Sign out', exact: true })).toBeVisible(); };
+  const headers = { origin }, fixtureHeaders = { origin, authorization: 'Bearer ' + f.testToken };
+  try {
+    await login(manager, 'manager'); await login(page, 'agent');
+    const me = await (await manager.request.get('/api/auth/me')).json(), agent = await (await page.request.get('/api/auth/me')).json();
+    const campaignResponse = await manager.request.post('/api/campaigns', { headers, data: { name: 'Browser AI Reply Campaign', branchId: me.branchId, routingMethod: 'MANUAL' } }); expect(campaignResponse.status()).toBe(201); const campaign = (await campaignResponse.json()).id;
+    expect((await manager.request.post('/api/campaigns/' + campaign + '/activate', { headers })).status()).toBe(200);
+    const leadName = 'Browser AI Reply Customer', leadResponse = await manager.request.post('/api/leads', { headers, data: { branchId: me.branchId, campaignId: campaign, contact: { name: leadName, phone: '+15556667780' } } }); expect(leadResponse.status()).toBe(201); const lead = (await leadResponse.json()).id;
+    const lv = (await (await manager.request.get('/api/leads/' + lead)).json()).lead.version;
+    expect((await manager.request.post('/api/leads/' + lead + '/assignment', { headers, data: { version: lv, agentId: agent.id, reason: 'Scoped reply conversation' } })).status()).toBe(200);
+    const opened = await page.request.post('/api/leads/' + lead + '/conversations', { headers }); expect(opened.status()).toBe(201); const cv = (await opened.json()).id;
+    const kr = '/api/ai/campaigns/' + campaign + '/knowledge', approved = 'Approved AI reply 100 EUR <img src=x onerror="window.__aiReplyXss=1">';
+    const content = { ...emptyKnowledge(), sections: { ...emptyKnowledge().sections, prices: approved } };
+    expect((await manager.request.put(kr + '/draft', { headers, data: { version: 0, content, reason: 'Synthetic published source' } })).status()).toBe(200);
+    expect((await manager.request.post(kr + '/publish', { headers, data: { version: 1, requestId: randomUUID(), reason: 'Approve reply knowledge' } })).status()).toBe(201);
+    const made = await manager.request.post('/api/ai/connections', { headers, data: { name: 'Browser AI Reply', branchId: me.branchId, provider: 'OPENAI', credential: 'BrowserSyntheticAI_Reply123456', reason: 'Synthetic HTTP fixture' } }); expect(made.status()).toBe(201); const connection = (await made.json()).id;
+    expect((await manager.request.post('/api/ai/connections/' + connection + '/test', { headers, data: { version: 1 } })).status()).toBe(200);
+    const profile = await manager.request.post('/api/ai/profiles', { headers, data: { connectionId: connection, name: 'Reply model', task: 'CONVERSATION', modelId: 'Browser-synthetic-model-a', maxOutputTokens: 1024, active: true, reason: 'Synthetic conversation task' } }); expect(profile.status()).toBe(201);
+    expect((await manager.request.put('/api/ai/campaigns/' + campaign + '/configuration', { headers, data: { version: 0, definition: { ...emptyAIOperationalConfig(), profiles: { ...emptyAIOperationalConfig().profiles, CONVERSATION: (await profile.json()).id } }, reason: 'Isolated approved context' } })).status()).toBe(200);
+    expect((await manager.request.put('/api/ai/campaigns/' + campaign + '/tool-policy', { headers, data: { version: 0, definition: { allowedTools: ['sendConversationMessage'] }, reason: 'Explicit reply tool approval' } })).status()).toBe(200);
+    const cr = '/api/leads/' + lead + '/messaging-consent';
+    const consent = async (status: 'GRANTED'|'UNKNOWN') => { const v = (await (await manager.request.get(cr)).json()).version; expect((await manager.request.put(cr, { headers, data: { version: v, status, doNotContact: false, evidence: status === 'GRANTED' ? 'Synthetic explicit evidence' : null, source: 'Synthetic fixture' } })).status()).toBe(200); };
+    await consent('GRANTED');
+    const control = (data: object) => manager.request.post('/__test__/ai-customer-proposal', { headers: fixtureHeaders, data: { conversationId: cv, ...data } });
+    const enabled = await control({ enable: true, messaging: true }); expect(enabled.status(), await enabled.text()).toBe(200);
+    const inbound = () => manager.request.post('/__test__/ai-customer-inbound', { headers: fixtureHeaders, data: { conversationId: cv, body: 'What is the approved reply?', aiControl: true } });
+    const execute = () => manager.request.post('/__test__/ai-customer-send', { headers: fixtureHeaders });
+    const dispatch = () => manager.request.post('/__test__/ai-customer-send', { headers: fixtureHeaders, data: { dispatch: true } });
+    expect((await page.request.post('/__test__/ai-customer-send')).status()).toBe(403);
+    expect((await inbound()).status()).toBe(200); expect((await control({ process: true })).status()).toBe(200);
+    await page.reload(); await page.getByRole('row').filter({ hasText: leadName }).getByRole('button', { name: 'Details', exact: true }).click();
+    const messages = page.getByRole('heading', { name: 'Customer conversations', exact: true }).locator('..'); await messages.getByRole('button', { name: 'View messages', exact: true }).click();
+    const panel = page.locator('[data-ai-customer-history]'), read = () => panel.getByRole('button', { name: 'Review AI executions', exact: true }).click();
+    await verifyActionRecoveryUI({ manager, page, cv, kind: 'SEND', leadName, token: f.testToken, execute });
+    await read(); const firstAction = panel.locator('[data-ai-customer-action]').first(); await expect(firstAction).toContainText('sendConversationMessage'); await expect(firstAction).toContainText('QUEUED'); await expect(firstAction).toContainText('queuing alone does not mean sent or received');
+    expect((await dispatch()).status()).toBe(200); await read(); await expect(firstAction).toContainText('SENT');
+    await messages.getByRole('button', { name: 'View messages', exact: true }).click(); await expect(messages.locator('li').filter({ hasText: approved })).toContainText('SENT');
+    await read(); await expect(panel).toContainText(approved); expect(await panel.locator('img').count()).toBe(0); expect(await page.evaluate(() => Object.hasOwn(window, '__aiReplyXss'))).toBe(false);
+    await page.getByRole('combobox', { name: 'Language' }).selectOption('fr'); await panel.getByRole('button', { name: 'Consulter les exécutions IA', exact: true }).click(); await expect(panel).toContainText('Une réponse IA autorisée');
+    await page.getByRole('combobox', { name: 'Language' }).selectOption('ar'); await page.setViewportSize({ width: 390, height: 844 }); await panel.getByRole('button', { name: 'مراجعة تنفيذ AI', exact: true }).click(); await expect(panel).toContainText('الإدراج وحده لا يعني الإرسال');
+    await panel.screenshot({ path: '.local/e2e/ai-customer-send-ar.png' }); expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+    await page.getByRole('combobox', { name: 'Language' }).selectOption('en');
+    await page.route('**/api/conversations/*/ai-customer-executions*', r => r.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: 'AI_HISTORY_ACCESS_REVOKED' }) })); await read(); await expect(panel.getByRole('alert')).toBeVisible(); await expect(panel.locator('[data-ai-customer-action]')).toHaveCount(0); await page.unroute('**/api/conversations/*/ai-customer-executions*');
+    await consent('UNKNOWN'); expect((await inbound()).status()).toBe(200); expect((await control({ process: true })).status()).toBe(200); expect((await execute()).status()).toBe(200);
+    await read(); await expect(panel.locator('[data-ai-customer-action]').first()).toContainText('CONSENT_REQUIRED'); await expect(panel.locator('[data-ai-customer-action]').first()).toContainText('this action queued no customer reply');
+    const state = (await (await page.request.get('/api/leads/' + lead + '/conversations')).json()).items[0];
+    expect((await page.request.post('/api/conversations/' + cv + '/takeover', { headers, data: { version: state.version, reason: 'Human reviews blocked AI send' } })).status()).toBe(200);
+    const secondContext = await browser.newContext({ extraHTTPHeaders: { 'x-e2e-rate-scope': randomUUID() } }), second = await secondContext.newPage(); try { await login(second, 'second'); expect((await second.request.get('/api/conversations/' + cv + '/ai-customer-executions')).status()).toBe(404); } finally { await secondContext.close(); }
+    expect(errors).toEqual([]);
+  } finally { await managerContext.close(); await agentContext.close(); }
+});

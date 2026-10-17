@@ -3,7 +3,8 @@ import type postgres from 'postgres';
 import { isDeepStrictEqual } from 'node:util';
 import { openSecret } from '../credentials.js';
 import { HttpError, type Principal } from '../security.js';
-import { checkOutboundAuthorityPolicy, lockOutboundAuthority } from './authority.js';
+import { checkOutboundAuthorityPolicy, lockOutboundAuthority, type OutboundPolicyAuthority } from './authority.js';
+import { assertAITestTransport } from '../ai/read-transport.js';
 import { approvedBodyTemplate, parseTextTemplate,type TemplateMediaKind } from './approved-template.js';
 import { metaWhatsAppSendAdapter, ProviderSendError, type MessagingConnectionConfig,
   type MessagingCredentials, type MessagingSendAdapter, type SendTextInput,
@@ -110,6 +111,10 @@ async function finishWithoutSend(db: Database, claimed: Claimed, code: string): 
     if (code.startsWith('TEMPLATE_')) await tx`UPDATE conversation
       SET needs_attention_reason = ${code}
       WHERE id = (SELECT conversation_id FROM conversation_message WHERE id = ${claimed.messageId})`;
+    await tx`UPDATE conversation cv SET state='AI_HANDOFF_REQUIRED',needs_attention_reason='AI_CUSTOMER_SEND_BLOCKED'
+      FROM conversation_message m WHERE m.id=${claimed.messageId} AND m.ai_send_action_id IS NOT NULL AND cv.id=m.conversation_id
+        AND cv.controller_type='AI' AND cv.state IN ('AI_ACTIVE','AI_WAITING_FOR_LEAD') AND cv.needs_attention_reason IS NULL
+        AND (SELECT id FROM conversation_message WHERE conversation_id=cv.id ORDER BY created_at DESC,id DESC LIMIT 1)=m.id`;
     await tx`UPDATE background_job SET status = 'DEAD', locked_until = NULL, last_error_code = ${code},
       updated_at = now() WHERE id = ${claimed.jobId}`;
     await auditWorkerEvent(tx, claimed.messageId, 'OUTBOUND_MESSAGE_BLOCKED', { reason: code });
@@ -121,21 +126,26 @@ type Prepared = { kind: 'TEXT'; input: SendTextInput; connectionId: string }
   | { kind: 'TEMPLATE'; input: SendTemplateInput; connectionId: string;mediaUpload?:UploadMediaInput }
   | { kind: 'ATTACHMENT'; input: UploadMediaInput; connectionId: string };
 type LoadedMedia = Pick<UploadMediaInput, 'bytes'|'mime'|'mediaKind'|'filename'> & { attachmentId:string;sha256:string;sizeBytes:number };
-async function prepare(db: Database, claimed: Claimed, media?: LoadedMedia, mediaDispatch = false): Promise<Prepared | { blocked: string } |
+async function prepare(db: Database, claimed: Claimed, media?: LoadedMedia, mediaDispatch = false, aiTestTransport = false): Promise<Prepared | { blocked: string } |
   { deferredUntil: Date | null }> {
   const message = (await db`SELECT m.conversation_id, m.connection_id, m.sender_id, m.author_type,
       m.author_user_id, m.body, m.delivery_state, m.message_kind, m.template_id,
-      m.template_snapshot,m.attachment_id, u.organization_id, u.branch_id, u.role,
+      m.template_snapshot,m.attachment_id,m.ai_send_action_id, u.organization_id, u.branch_id, u.role,
       u.name, u.email, u.active
     FROM conversation_message m LEFT JOIN user_account u ON u.id = m.author_user_id
     WHERE m.id = ${claimed.messageId}`)[0];
   if (!message || message.delivery_state !== 'QUEUED') return { blocked: 'MESSAGE_NOT_QUEUED' };
-  if (message.author_type !== 'HUMAN' || !message.active || !message.author_user_id)
+  if (message.author_type === 'AI' && !aiTestTransport) return { blocked: 'AI_LIVE_DATA_TRANSFER_DISABLED' };
+  if (message.author_type !== 'AI' && (message.author_type !== 'HUMAN' || !message.active || !message.author_user_id))
     return { blocked: 'AUTHOR_NO_LONGER_AUTHORIZED' };
-  const actor: Principal = { id: message.author_user_id, organizationId: message.organization_id,
-    branchId: message.branch_id, role: message.role, name: message.name, email: message.email };
+  if (message.author_type === 'AI' && !message.ai_send_action_id) return { blocked: 'AI_SEND_ACTION_REQUIRED' };
+  const authority: OutboundPolicyAuthority = message.author_type === 'AI' ? { kind: 'AI_ACTION', actionId: message.ai_send_action_id }
+    : { kind: 'HUMAN', principal: { id: message.author_user_id, organizationId: message.organization_id,
+      branchId: message.branch_id, role: message.role, name: message.name, email: message.email } satisfies Principal };
   try {
     return await db.begin(async (tx) => {
+      // AI parent/context locks precede Connection locks, matching configuration and native action writers.
+      const aiLocked = authority.kind === 'AI_ACTION' ? await lockOutboundAuthority(tx, authority, message.conversation_id) : null;
       const readiness = (await tx`SELECT c.status, c.cooldown_until AS connection_cooldown,
           s.active, s.operator_enabled, s.health, s.cooldown_until AS sender_cooldown
         FROM integration_connection c JOIN messaging_sender s ON s.connection_id = c.id
@@ -148,8 +158,7 @@ async function prepare(db: Database, claimed: Claimed, media?: LoadedMedia, medi
         .filter((value): value is Date => value instanceof Date)
         .reduce<Date | null>((latest, value) => !latest || value > latest ? value : latest, null);
       if (until && until > new Date()) return { deferredUntil: until };
-      const authority = { kind: 'HUMAN' as const, principal: actor };
-      const locked = await lockOutboundAuthority(tx, authority, message.conversation_id);
+      const locked = aiLocked ?? await lockOutboundAuthority(tx, authority, message.conversation_id);
       const decision = await checkOutboundAuthorityPolicy(tx, locked,
         claimed.messageId, message.template_id, media?.mediaKind);
       if (!decision.allowed) return { blocked: decision.reason };
@@ -198,6 +207,8 @@ async function prepare(db: Database, claimed: Claimed, media?: LoadedMedia, medi
         input: { ...common, body: message.body }, connectionId: message.connection_id as string };
     });
   } catch (error) {
+    if (error instanceof Error && error.message === 'AI_SEND_CURRENT_DISPATCH_LEASE_REQUIRED') return { blocked: 'AI_SEND_DISPATCH_LEASE_EXPIRED' };
+    if (error instanceof Error && error.message === 'AI_SEND_CURRENT_ATTEMPT_REQUIRED') return { blocked: 'AI_SEND_DISPATCH_CONTEXT_CHANGED' };
     if (error instanceof HttpError) return { blocked: error.code === 'CONVERSATION_NOT_FOUND'
       ? 'AUTHOR_NO_LONGER_AUTHORIZED' : error.code==='TEMPLATE_MEDIA_INVALID' ? 'TEMPLATE_CHANGED' : error.code };
     throw error;
@@ -239,6 +250,10 @@ async function finishAttempt(db: Database, claimed: Claimed, connectionId: strin
         WHERE id = ${claimed.senderId}`;
       await auditWorkerEvent(tx, claimed.messageId, 'OUTBOUND_MESSAGE_SENT',
         { attempt: claimed.attemptNo });
+      await tx`UPDATE conversation cv SET state='AI_WAITING_FOR_LEAD' FROM conversation_message m,ai_customer_send_action a
+        WHERE m.id=${claimed.messageId} AND m.ai_send_action_id=a.id AND cv.id=m.conversation_id AND cv.controller_type='AI'
+          AND cv.state='AI_ACTIVE' AND cv.needs_attention_reason IS NULL AND cv.version=(a.context->'conversation'->>'version')::integer
+          AND (SELECT id FROM conversation_message WHERE conversation_id=cv.id ORDER BY created_at DESC,id DESC LIMIT 1)=m.id`;
     } else {
       const retry = result.kind === 'RETRYABLE' && claimed.attemptNo < job.max_attempts;
       const unknown = result.kind === 'UNKNOWN';
@@ -279,7 +294,9 @@ async function finishAttempt(db: Database, claimed: Claimed, connectionId: strin
 }
 
 export async function processOneMessagingJob(db: Database,
-  adapter: MessagingSendAdapter = metaWhatsAppSendAdapter, options: { mediaStorage?: MediaStorage } = {}): Promise<boolean> {
+  adapter: MessagingSendAdapter = metaWhatsAppSendAdapter, options: { mediaStorage?: MediaStorage; syntheticAI?: true } = {}): Promise<boolean> {
+  if (options.syntheticAI && adapter === metaWhatsAppSendAdapter) throw new Error('AI_SEND_EXPLICIT_TEST_ADAPTER_REQUIRED');
+  const aiTestTransport = await assertAITestTransport(db, options.syntheticAI === true);
   const claimed = await claimOne(db);
   if (!claimed) return false;
   if (claimed.recovered) return true;
@@ -312,7 +329,7 @@ export async function processOneMessagingJob(db: Database,
       return true;
     }
   }
-  const prepared = await prepare(db, claimed, media);
+  const prepared = await prepare(db, claimed, media, false, aiTestTransport);
   if ('deferredUntil' in prepared) {
     await deferClaim(db, claimed, prepared.deferredUntil);
     return true;
@@ -338,7 +355,7 @@ export async function processOneMessagingJob(db: Database,
       return true;
     }
     // Uploading a private provider asset is retryable. Re-check all rules immediately before customer dispatch.
-    const dispatch = await prepare(db, claimed, media, true);
+    const dispatch = await prepare(db, claimed, media, true, aiTestTransport);
     if ('deferredUntil' in dispatch) { await deferClaim(db, claimed, dispatch.deferredUntil); return true; }
     if ('blocked' in dispatch) { await finishWithoutSend(db, claimed, dispatch.blocked); return true; }
     if (dispatch.kind==='TEXT' || dispatch.kind !== prepared.kind || dispatch.input.externalSenderId !== prepared.input.externalSenderId) {

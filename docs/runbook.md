@@ -1,5 +1,11 @@
 # دليل التشغيل والتطوير
 
+## Customer AI reply intents — Native148–149
+
+بعدmigrations شغّل `worker:ai` و`worker:messaging` المعتادتين. لا historical send backfill. Live inference/AI sends معطلة افتراضيًا؛هذهbaseline مثبتةsynthetic mocks فقط. Lead→Conversation→AI history تعرضAction/message ID وحالةالتسليم؛APPLIED تعنيqueued intent. راجع SEND local action jobs وسببفشلها،ويستطيعManager/SA إعادةمحاولةمحليةمصرحًابهابعدالإصلاح عبرالواجهةوالسبب،دونتغييرالمصدرأومنحأداة. `AI_CUSTOMER_SEND_BLOCKED` يحتاجمراجعةوقديستلزمHuman takeover؛UNKNOWN لايُعادإرسالها. لاmanual DB recovery أوenv live switch. [العقدوالحدود](ai-customer-replies.md).
+
+`AI_SEND_DISPATCH_LEASE_EXPIRED` تعنيأنworker لمتبدأprovider I/O لأنانتظارالأقفالتركهامشlease غيركافٍ. راجعDB contention والتحكمالحالي؛الرسالةالتاريخيةتبقىفاشلةولاينشأretry آليلـUNKNOWN أوold source. `SEND_OUTCOME_UNKNOWN` تبقىNeeds Attention حتىلووصلتCustomer message جديدة،ولايمسحهاHuman takeover عادي.
+
 ## AI send-policy admission — Native147
 
 طبّق migrations المعتادة؛ لا backfill أوmanual replay للمصادر السابقة. Approved Tools UI تدير `sendConversationMessage`،لكن runtime والإرسال الفعلي لم يُفعّلا بهذه المرحلة. Human messaging القائمة تعمل كالمعتاد؛ لا تستخدم Human enqueue لتجاوز source authority عبرauthor آلي. `AI_SEND_ADMISSION_CONTEXT_CHANGED` تعني غياب مصدر أصلي حالي صالح للفحص؛ تغيّرgrant/consent/control/scope يحتاج مصدرًا جديدًا،ولا تعدلsnapshot لإحياء القديم. Live AI transfer تبقى معطلة. [العقد](ai-outbound-authority.md).

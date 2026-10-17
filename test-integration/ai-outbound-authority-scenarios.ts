@@ -110,10 +110,11 @@ export async function verifyAIOutboundAuthority(db: Database, app: FastifyInstan
     }), (e: unknown) => e === rollback);
   }
   await db`UPDATE campaign SET messaging_policy='{}',version=version+1 WHERE id=${campaign}`;
-  // The original Send-only runtime is still diagnostic: policy admission must not turn it on.
-  await grant(['sendConversationMessage']); const diagnostic = await source(); assert.ok(diagnostic);
-  assert.equal((await db`SELECT count(*)::int AS n FROM ai_customer_send_admission WHERE proposal_id=${diagnostic.id}`)[0]!.n, 0);
-  await grant(['requestHumanHandoff','sendConversationMessage']); await stale(diagnostic.id);
+  // Send-only may now admit a current reply source; default transport still cannot invoke AI or send.
+  await grant(['sendConversationMessage']); const sendOnly = await source(); assert.ok(sendOnly);
+  assert.equal((await db`SELECT count(*)::int AS n FROM ai_customer_send_admission WHERE proposal_id=${sendOnly.id}`)[0]!.n, 1);
+  assert.ok((await inspect(sendOnly.id)).allowed);
+  await grant(['requestHumanHandoff','sendConversationMessage']); await stale(sendOnly.id);
   const liveOff = await source(); assert.ok((await inspect(liveOff.id)).allowed); await drain(); await stale(liveOff.id);
   assert.equal((await db`SELECT state FROM ai_customer_proposal WHERE id=${liveOff.id}`)[0]!.state, 'BLOCKED');
   assert.equal((await db`SELECT count(*)::int AS n FROM conversation_message WHERE direction='OUTBOUND'`)[0]!.n, 0);

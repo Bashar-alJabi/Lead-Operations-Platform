@@ -102,8 +102,9 @@ export function registerAICustomerHistoryRoutes(app: FastifyInstance, db: Databa
       const session = await currentPaymentSession(tx, actor, request);
       if (!session) throw new HttpError(403, 'AI_HISTORY_ACCESS_REVOKED');
       const access = await approvedConversationReadContext(tx, actor, request.params.id, session);
-      const rows = await tx`SELECT e.*,e.created_at::text AS cursor_at,e.context->'knowledge'->'version' AS knowledge_version,COALESCE(a.id,h.id) AS action_id,COALESCE(a.state,h.state) AS action_state,
-        COALESCE(a.error_code,h.error_code) AS action_error,COALESCE(a.created_at,h.created_at) AS action_created_at,COALESCE(a.tool,h.tool) AS action_tool,
+      const rows = await tx`SELECT e.*,e.created_at::text AS cursor_at,e.context->'knowledge'->'version' AS knowledge_version,COALESCE(a.id,h.id,s.id) AS action_id,COALESCE(a.state,h.state,s.state) AS action_state,
+        COALESCE(a.error_code,h.error_code,s.error_code) AS action_error,COALESCE(a.created_at,h.created_at,s.created_at) AS action_created_at,COALESCE(a.tool,h.tool,s.tool) AS action_tool,
+        s.message_id AS send_message_id,sm.delivery_state AS send_delivery_state,
         a.id AS qualification_action_id,h.id AS handoff_id,h.tool AS handoff_tool,h.state AS handoff_state,h.error_code AS handoff_error,h.created_at AS handoff_created_at,stop.action_id IS NOT NULL AS safety_stopped,
         o.ordinal::text AS misunderstanding_count,o.threshold AS misunderstanding_threshold,o.handoff_required AS misunderstanding_required,o.conversation_version AS misunderstanding_version,
         e.context IS DISTINCT FROM CASE WHEN e.kind='CUSTOMER_PROPOSAL' THEN ai_customer_proposal_context(e.event_id) ELSE ai_customer_inbound_context(e.event_id) END AS stale
@@ -115,6 +116,8 @@ export function registerAICustomerHistoryRoutes(app: FastifyInstance, db: Databa
           FROM ai_customer_inbound_execution b WHERE b.conversation_id=${request.params.id} AND NOT EXISTS(SELECT 1 FROM ai_customer_proposal p WHERE p.event_id=b.event_id)
         ) e LEFT JOIN ai_customer_action a ON a.proposal_id=e.id AND e.kind='CUSTOMER_PROPOSAL'
         LEFT JOIN ai_customer_handoff_action h ON h.proposal_id=e.id AND e.kind='CUSTOMER_PROPOSAL'
+        LEFT JOIN ai_customer_send_action s ON s.proposal_id=e.id AND e.kind='CUSTOMER_PROPOSAL'
+        LEFT JOIN conversation_message sm ON sm.id=s.message_id AND sm.conversation_id=s.conversation_id
         LEFT JOIN ai_handoff_safety_stop stop ON stop.action_id=h.id
         LEFT JOIN ai_misunderstanding_observation o ON o.proposal_id=e.id AND e.kind='CUSTOMER_PROPOSAL'
         WHERE e.conversation_id=${request.params.id} AND e.lead_id=${access.lead.id}
@@ -125,9 +128,10 @@ export function registerAICustomerHistoryRoutes(app: FastifyInstance, db: Databa
       await tx`INSERT INTO audit_log(organization_id,branch_id,actor_user_id,action,target_type,target_id,detail)
         VALUES (${actor.organizationId},${access.lead.branch_id},${actor.id},'AI_CUSTOMER_HISTORY_READ','CONVERSATION',${request.params.id},${tx.json({ leadId: access.lead.id, count: items.length })})`;
       return { items: items.map(e => {
-        const action = e.action_id ? { id: e.action_id, tool: e.action_tool, state: e.action_state, errorCode: e.action_error, createdAt: e.action_created_at, safetyStopped: !e.qualification_action_id && e.safety_stopped } : null;
+        const action = e.action_id ? { id: e.action_id, tool: e.action_tool, state: e.action_state, errorCode: e.action_error, createdAt: e.action_created_at, safetyStopped: !e.qualification_action_id && e.safety_stopped,
+          messageId: e.send_message_id ?? null, deliveryState: e.send_delivery_state ?? null } : null;
         const actions = action ? [action] : [];
-        if (e.qualification_action_id && e.handoff_id) actions.push({ id: e.handoff_id, tool: e.handoff_tool, state: e.handoff_state, errorCode: e.handoff_error, createdAt: e.handoff_created_at, safetyStopped: e.safety_stopped });
+        if (e.qualification_action_id && e.handoff_id) actions.push({ id: e.handoff_id, tool: e.handoff_tool, state: e.handoff_state, errorCode: e.handoff_error, createdAt: e.handoff_created_at, safetyStopped: e.safety_stopped, messageId: null, deliveryState: null });
         return { id: e.id, sourceMessageId: e.message_id, sourceEventId: e.event_id, assistant: 'AI_LEAD_ASSISTANT', state: e.state,
         errorCode: e.error_code, contextHash: e.context_hash, knowledgeVersion: e.knowledge_version, createdAt: e.created_at, stale: e.stale,
         kind: e.kind, attemptCount: e.attempt_count, providerInvoked: e.provider_invoked,

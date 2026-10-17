@@ -175,10 +175,19 @@ test('dynamic field definitions, bindings, values, history, and role scope', asy
   const firstHuman = new Date(base - 2 * 3600_000);
   const inbound = new Date(base - 3600_000);
   const reply = new Date(base - 3000_000);
+  // Isolated pre-148 historical fixture: legacy records remain readable without retroactive action receipts.
+  // Transactional DDL restores the one new INSERT guard even on rollback; every other guard remains active.
+  await db.begin(async tx => {
+    await tx`ALTER TABLE conversation_message DISABLE TRIGGER ai_send_message_guard`;
+    await tx`INSERT INTO conversation_message(conversation_id,connection_id,sender_id,direction,author_type,body,delivery_state,sent_at)
+      VALUES(${conversation[0]!.id},${connection[0]!.id},${sender[0]!.id},'OUTBOUND','AI','Legacy AI initial','SENT',${firstAi})`;
+    await tx`ALTER TABLE conversation_message ENABLE TRIGGER ai_send_message_guard`;
+  });
+  await assert.rejects(db`INSERT INTO conversation_message(conversation_id,connection_id,sender_id,direction,author_type,body,delivery_state)
+    VALUES(${conversation[0]!.id},${connection[0]!.id},${sender[0]!.id},'OUTBOUND','AI','Unproven new send','QUEUED')`, /FRESH_MESSAGE_PROOF_REQUIRED/);
   await db`INSERT INTO conversation_message (conversation_id, connection_id, sender_id, direction, author_type,
       author_user_id, body, delivery_state, sent_at)
-    VALUES (${conversation[0]!.id}, ${connection[0]!.id}, ${sender[0]!.id}, 'OUTBOUND', 'AI', NULL, 'AI initial', 'SENT', ${firstAi}),
-      (${conversation[0]!.id}, ${connection[0]!.id}, ${sender[0]!.id}, 'OUTBOUND', 'HUMAN', ${agentId}, 'Human initial', 'SENT', ${firstHuman}),
+    VALUES (${conversation[0]!.id}, ${connection[0]!.id}, ${sender[0]!.id}, 'OUTBOUND', 'HUMAN', ${agentId}, 'Human initial', 'SENT', ${firstHuman}),
       (${conversation[0]!.id}, ${connection[0]!.id}, ${sender[0]!.id}, 'OUTBOUND', 'HUMAN', ${agentId}, 'Human reply', 'SENT', ${reply})`;
   await db`INSERT INTO conversation_message (conversation_id, connection_id, sender_id, direction, author_type, body, delivery_state, received_at)
     VALUES (${conversation[0]!.id}, ${connection[0]!.id}, ${sender[0]!.id}, 'INBOUND', 'CUSTOMER', 'Question', 'RECEIVED', ${inbound})`;

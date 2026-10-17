@@ -7,7 +7,7 @@ import { createDatabase } from '../src/db.js';
 import { sealSecret,openOpaque } from '../src/credentials.js';
 import { passwordHash, safeTokenEqual, HttpError } from '../src/security.js';
 import { processOneMessagingJob } from '../src/messaging/send-worker.js';
-import { ProviderSendError } from '../src/messaging/providers.js';
+import { ProviderSendError,metaWhatsAppSendAdapter } from '../src/messaging/providers.js';
 import { requireLocalE2ETarget } from './guard.js';
 import { metaMediaCapabilities } from '../src/media/meta-outbound.js';
 import { localMediaStorage } from '../src/media/storage.js';
@@ -34,6 +34,7 @@ import { processOneAISimulation,processOneAICopilotSummary } from '../src/ai/sim
 import { aiInferenceAdapters } from '../src/ai/inference-provider.js';
 import { processOneAICustomerProposal } from '../src/ai/customer-worker.js';
 import { processOneAIQualificationAction } from '../src/ai/customer-qualification.js';
+import { processOneAICustomerSend } from '../src/ai/customer-send.js';
 import { stripeCurrencyPrecision,PaymentCheckoutError,type CheckoutSnapshot,type PaymentCheckoutAdapter } from '../src/payments/checkout-provider.js';
 import { paypalPaymentEvents } from '../src/payments/webhook-profile.js';
 import { testPayPalCertificate,testPayPalCertUrl } from '../test/paypal-test-support.js';
@@ -47,7 +48,13 @@ const connectionUrl = requireLocalE2ETarget(process.env.TEST_DATABASE_URL,proces
 const paypalTransport=syntheticPayPalFinancialTransport();
 const almaPayments=new Map<string,{ intentId:string;merchant:string;amount:number;plan:{ installments_count:number;deferred_months:number;deferred_days:number };captured:boolean }>();
 let almaLoseResponse=false;let almaReadFailure=false;let almaWrites=0;
+let aiSendCalls=0;
 globalThis.fetch=async(target,init)=> { if(String(target)===testPayPalCertUrl)return new Response(testPayPalCertificate);
+  if(String(target)==='https://graph.facebook.com/v25.0/15550001111/messages') {
+    if(init?.method!=='POST' || new Headers(init.headers).get('authorization')!=='Bearer test-fake-token-not-a-real-account')throw new Error('UNEXPECTED_AI_SEND_REQUEST');
+    const payload=JSON.parse(init.body as string);if(payload.type!=='text' || typeof payload.text?.body!=='string')throw new Error('UNEXPECTED_AI_SEND_CONTENT');
+    aiSendCalls++;return new Response(JSON.stringify({messages:[{id:'wamid.synthetic-ai-browser-'+aiSendCalls}]}));
+  }
   if(String(target)==='https://api.openai.com/v1/responses') {
     if(init?.method!=='POST' || init.redirect!=='error')throw new Error('UNEXPECTED_AI_INFERENCE_REQUEST');
     if(!new Headers(init.headers).get('authorization')?.startsWith('Bearer BrowserSyntheticAI_'))return new Response('private synthetic failure',{ status:401 });
@@ -57,6 +64,7 @@ globalThis.fetch=async(target,init)=> { if(String(target)===testPayPalCertUrl)re
       const message=data.messages.find((m:{ id:string })=>m.id===data.currentMessageId)?.text ?? '';
       if(message.includes('Provider failure'))return new Response('private synthetic customer failure',{ status:401 });
       const proposal=message.startsWith('Misunderstanding fixture:') ? { decision:'HANDOFF',referenceIds:[],questionId:null,answerValue:null,sourceQuote:message,handoffReason:'REPEATED_MISUNDERSTANDING' }
+        : message.startsWith('Question fixture:') ? {decision:'QUESTION',referenceIds:[],questionId:data.questions[0]?.id,answerValue:null,sourceQuote:null,handoffReason:null}
         : message.startsWith('Qualification fixture:') ? { decision:'QUALIFICATION',referenceIds:[],questionId:data.questions[0]?.id,answerValue:data.questions[0]?.type==='BOOLEAN' ? true : message.slice('Qualification fixture:'.length).trim(),sourceQuote:message,handoffReason:null }
         : { decision:message.includes('Unknown') || message.includes('Ignore') ? 'HANDOFF' : 'ANSWER',referenceIds:message.includes('Unknown') || message.includes('Ignore') ? [] : ['section:prices'],questionId:null,answerValue:null,sourceQuote:null,handoffReason:message.includes('Unknown') || message.includes('Ignore') ? 'UNKNOWN_ANSWER' : null };
       return new Response(JSON.stringify({ status:'completed',output:[{ type:'message',role:'assistant',status:'completed',content:[{ type:'output_text',text:JSON.stringify(proposal) }] }] }));
@@ -109,7 +117,7 @@ process.env.CREDENTIAL_ENCRYPTION_KEY = randomBytes(32).toString('hex');
 const db = createDatabase(connectionUrl);
 await db`CREATE OR REPLACE FUNCTION ai_handoff_sla_now() RETURNS timestamptz LANGUAGE sql VOLATILE AS $$ SELECT clock_timestamp() $$`;
 await db`CREATE OR REPLACE FUNCTION ai_local_action_now() RETURNS timestamptz LANGUAGE sql VOLATILE AS $$ SELECT clock_timestamp() $$`;
-await db`DROP TRIGGER IF EXISTS e2e_reject_local_action ON lead_qualification_answer_history`;await db`DROP TRIGGER IF EXISTS e2e_reject_local_action ON notification_event`;await db`DROP FUNCTION IF EXISTS e2e_reject_local_action_fixture()`;
+await db`DROP TRIGGER IF EXISTS e2e_reject_local_action ON lead_qualification_answer_history`;await db`DROP TRIGGER IF EXISTS e2e_reject_local_action ON notification_event`;await db`DROP TRIGGER IF EXISTS e2e_reject_local_action ON audit_log`;await db`DROP FUNCTION IF EXISTS e2e_reject_local_action_fixture()`;
 await db`DROP TRIGGER IF EXISTS reject_sla_browser ON audit_log`;await db`DROP FUNCTION IF EXISTS reject_sla_browser_fixture()`;
 const password = randomBytes(24).toString('hex'); const testToken = randomBytes(32).toString('hex');
 const hash = await passwordHash(password);
@@ -265,8 +273,8 @@ app.post('/__test__/ai-human-handoff',async(request)=>{
   if(typeof request.headers.authorization!=='string' || !safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
   return { processed:await processOneAIHumanHandoff(db) };
 });
-app.post<{Body:{conversationId:string;kind:'QUALIFICATION'|'HANDOFF';offsetSeconds:number;failStep?:boolean}}>('/__test__/ai-local-action',{
- schema:{body:{type:'object',additionalProperties:false,required:['conversationId','kind','offsetSeconds'],properties:{conversationId:{type:'string',format:'uuid'},kind:{enum:['QUALIFICATION','HANDOFF']},offsetSeconds:{type:'integer',minimum:0,maximum:600},failStep:{type:'boolean'}}}},
+app.post<{Body:{conversationId:string;kind:'QUALIFICATION'|'HANDOFF'|'SEND';offsetSeconds:number;failStep?:boolean}}>('/__test__/ai-local-action',{
+ schema:{body:{type:'object',additionalProperties:false,required:['conversationId','kind','offsetSeconds'],properties:{conversationId:{type:'string',format:'uuid'},kind:{enum:['QUALIFICATION','HANDOFF','SEND']},offsetSeconds:{type:'integer',minimum:0,maximum:600},failStep:{type:'boolean'}}}},
 },async request=>{
  if(typeof request.headers.authorization!=='string'||!safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
  const target=(await db`SELECT cv.id FROM conversation cv JOIN lead l ON l.id=cv.lead_id WHERE cv.id=${request.body.conversationId} AND l.organization_id=${org} AND cv.connection_id=${connection}`)[0];
@@ -280,12 +288,16 @@ app.post<{Body:{conversationId:string;kind:'QUALIFICATION'|'HANDOFF';offsetSecon
  await db`CREATE OR REPLACE FUNCTION e2e_reject_local_action_fixture() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
    IF TG_TABLE_NAME='lead_qualification_answer_history' THEN
      IF EXISTS(SELECT 1 FROM ai_customer_action a JOIN e2e_local_action_failure f ON f.conversation_id=a.conversation_id AND f.kind='QUALIFICATION' AND f.enabled WHERE a.id=(NEW.snapshot->>'ai_action_id')::uuid) THEN RAISE EXCEPTION 'NeverExposeBrowserSQLSecret_123';END IF;
+   ELSIF TG_TABLE_NAME='audit_log' THEN
+     IF NEW.action='AI_CUSTOMER_SEND_QUEUED' AND EXISTS(SELECT 1 FROM ai_customer_send_action a JOIN e2e_local_action_failure f ON f.conversation_id=a.conversation_id AND f.kind='SEND' AND f.enabled WHERE a.id::text=NEW.target_id) THEN RAISE EXCEPTION 'NeverExposeBrowserSQLSecret_123';END IF;
    ELSE
      IF EXISTS(SELECT 1 FROM ai_customer_handoff_action a JOIN e2e_local_action_failure f ON f.conversation_id=a.conversation_id AND f.kind='HANDOFF' AND f.enabled WHERE a.id=NEW.source_id) THEN RAISE EXCEPTION 'NeverExposeBrowserSQLSecret_123';END IF;
    END IF;RETURN NEW;END $$`;
  await db`DROP TRIGGER IF EXISTS e2e_reject_local_action ON lead_qualification_answer_history`;await db`DROP TRIGGER IF EXISTS e2e_reject_local_action ON notification_event`;
+ await db`DROP TRIGGER IF EXISTS e2e_reject_local_action ON audit_log`;
  await db`CREATE TRIGGER e2e_reject_local_action BEFORE INSERT ON lead_qualification_answer_history FOR EACH ROW EXECUTE FUNCTION e2e_reject_local_action_fixture()`;
  await db`CREATE TRIGGER e2e_reject_local_action BEFORE INSERT ON notification_event FOR EACH ROW EXECUTE FUNCTION e2e_reject_local_action_fixture()`;
+ await db`CREATE TRIGGER e2e_reject_local_action BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION e2e_reject_local_action_fixture()`;
  return {configured:true};
 });
 app.post<{Body:{offsetSeconds:number;process?:boolean;failExpiry?:boolean}}>('/__test__/handoff-sla',{schema:{body:{type:'object',additionalProperties:false,required:['offsetSeconds'],properties:{offsetSeconds:{type:'integer',minimum:0,maximum:2592000},process:{type:'boolean'},failExpiry:{type:'boolean'}}}}},async request=>{
@@ -308,12 +320,17 @@ app.post('/__test__/ai-qualification-action',async(request)=>{
   if(typeof request.headers.authorization!=='string' || !safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
   return { processed:await processOneAIQualificationAction(db) };
 });
-app.post<{ Body:{ conversationId:string;enable?:boolean;process?:boolean } }>('/__test__/ai-customer-proposal',{ schema:{ body:{ type:'object',additionalProperties:false,required:['conversationId'],properties:{ conversationId:{ type:'string',format:'uuid' },enable:{ type:'boolean' },process:{ type:'boolean' } } } } },async(request)=>{
+app.post<{Body:{dispatch?:boolean}}>('/__test__/ai-customer-send',async(request)=>{
+  if(typeof request.headers.authorization!=='string' || !safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
+  return {processed:request.body?.dispatch ? await processOneMessagingJob(db,{...metaWhatsAppSendAdapter},{syntheticAI:true}) : await processOneAICustomerSend(db)};
+});
+app.post<{ Body:{ conversationId:string;enable?:boolean;process?:boolean;messaging?:boolean } }>('/__test__/ai-customer-proposal',{ schema:{ body:{ type:'object',additionalProperties:false,required:['conversationId'],properties:{ conversationId:{ type:'string',format:'uuid' },enable:{ type:'boolean' },process:{ type:'boolean' },messaging:{type:'boolean'} } } } },async(request)=>{
   if(typeof request.headers.authorization!=='string' || !safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
   const target=(await db`SELECT l.campaign_id FROM conversation cv JOIN lead l ON l.id=cv.lead_id WHERE cv.id=${request.body.conversationId} AND l.organization_id=${org} AND cv.connection_id=${connection}`)[0];
   if(!target)throw new HttpError(404,'SYNTHETIC_CONVERSATION_NOT_FOUND');
   // Explicit isolated fixture only; no production readiness, activation or live transport switch.
   if(request.body.enable)await db`UPDATE campaign SET ai_config=jsonb_set(ai_config,'{enabled}','true') WHERE id=${target.campaign_id}`;
+  if(request.body.messaging)await db`UPDATE campaign SET messaging_config='{"enabled":true}' WHERE id=${target.campaign_id}`;
   return { processed:request.body.process ? await processOneAICustomerProposal(db,{ adapters:aiInferenceAdapters,retryDelaySeconds:0 }) : false };
 });
 app.post<{ Body:{ conversationId:string;body:string;aiControl?:boolean } }>('/__test__/ai-customer-inbound',{ schema:{ body:{ type:'object',additionalProperties:false,required:['conversationId','body'],properties:{ conversationId:{ type:'string',format:'uuid' },body:{ type:'string',minLength:1,maxLength:2000 },aiControl:{ type:'boolean' } } } } },async(request)=>{

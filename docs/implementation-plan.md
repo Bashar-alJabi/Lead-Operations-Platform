@@ -1,5 +1,9 @@
 # خطة التنفيذ
 
+**أحدث checkpoint2026-10-17: authenticated AI replies.** Native148–149 وactual content/action/message/outbox/own-message proof وbounded SEND queue/current typed dispatch/default live-off وscoped UI منفذة. **178unit/83full Docker PostgreSQL/49full Edge Browser** و001–149development/test وBackend/Web build/typecheck/diff check ناجحة. Focused PG3/3 وreply Browser1/1 وShared profile Browser1/1 ناجحة أيضًا؛ الصورة العربية فُحصت. [العقد](ai-customer-replies.md). احفظcommit/push هذهbaseline؛ full AI/tool/readiness والمنصةباقية.
+
+**الاعتماد التالي:** closed-loop Qualification reply continuation منactual current own-write receipt وexact Native142 delta،معoriginal Send grant وcurrent outcome/Handoff priority؛دونfake inbound أوتعديلproposal الأصلية. ثمinitial-contact trusted Lead intake source وowner/availability/initial-handoff rule،ثمreturning/follow-up/approved transition عبرpolicy/outbox نفسها،وبقيةAI/Copilot/Operations/Form/evaluations،ثمAutomation/Notifications/Analytics/import/export/Sheets/Email والمتطلباتالرئيسيةالباقية.
+
 **أحدث checkpoint2026-10-17: AI outbound policy authority.** Native147 وfresh original send admission وtyped Human/AI policy scope وHuman-only enqueue boundary منفذة. **178unit/82full Docker PostgreSQL/48full Edge Browser** و001–147development/test وBackend/Web build/typecheck/diff check ناجحة. [العقد](ai-outbound-authority.md). احفظcommit/push هذه المرحلة الداخلية؛ليست اكتمال `sendConversationMessage`.
 
 **الاعتماد التالي:** actual validated ANSWER/QUESTION content/action/message/outbox proof وdurable bounded local execution،ثم exact own-message current context وtyped AI dispatch عبرCentral Policy وprovider mocks/UNKNOWN/retries/handoff races وscoped Conversation history/UI. لا fake Human Principal أوتخفيف current source ولاLive activation. Initial/returning/follow-up/transition وبقية AI ثمالوحدات الرئيسية اللاحقة باقية.

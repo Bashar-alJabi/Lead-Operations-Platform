@@ -1,6 +1,6 @@
 import type postgres from 'postgres';
 import type { Database } from '../db.js';
-export type LocalAIActionKind = 'QUALIFICATION' | 'HANDOFF';
+export type LocalAIActionKind = 'QUALIFICATION' | 'HANDOFF' | 'SEND';
 
 export async function lockLocalAIAction(tx: postgres.TransactionSql, kind: LocalAIActionKind, proposalId: string) {
   await tx`SELECT id FROM ai_local_action_queue WHERE kind=${kind} AND proposal_id=${proposalId} FOR UPDATE`;

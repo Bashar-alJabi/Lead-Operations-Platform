@@ -48,7 +48,7 @@ test('real browser composes, recovers a confirmed failure, shows history and enf
   const message=()=>panel.locator('li').filter({ has:page.getByText(body,{ exact:true }) });
   await expect(message()).toContainText('QUEUED');
   const failed=await control(page,{ process:true,mode:'reject' });
-  expect(failed.providerCalls).toBe(1); expect(failed.messages).toHaveLength(1);
+  expect(failed.providerCalls).toBe(1); expect(failed.messages.filter((m:{conversation_id:string})=>m.conversation_id===fixture.conversationId)).toHaveLength(1);
   await panel.getByRole('button',{ name:'View messages',exact:true }).click();
   await message().getByRole('button',{ name:'Send details and attempts',exact:true }).click();
   await expect(message()).toContainText('REJECTED');
@@ -58,7 +58,7 @@ test('real browser composes, recovers a confirmed failure, shows history and enf
   await message().getByRole('button',{ name:'Requeue the saved message',exact:true }).click();
   await expect(message()).toContainText('QUEUED');
   const accepted=await control(page,{ process:true,mode:'accept' });
-  expect(accepted.providerCalls).toBe(2); expect(accepted.messages).toHaveLength(1); expect(accepted.recoveries).toBe(1);
+  expect(accepted.providerCalls).toBe(2); expect(accepted.messages.filter((m:{conversation_id:string})=>m.conversation_id===fixture.conversationId)).toHaveLength(1); expect(accepted.recoveries).toBe(1);
   await panel.getByRole('button',{ name:'View messages',exact:true }).click();
   await message().getByRole('button',{ name:'Send details and attempts',exact:true }).click();
   await expect(message()).toContainText('ACKNOWLEDGED'); await expect(message()).toContainText('Browser confirmed failure fixed');
@@ -100,7 +100,7 @@ test('real browser composes, recovers a confirmed failure, shows history and enf
   await expect(unknown).toContainText('UNKNOWN');
   await unknown.getByRole('button',{ name:'Send details and attempts',exact:true }).click();
   await expect(unknown.getByRole('button',{ name:'Requeue the saved message',exact:true })).toHaveCount(0);
-  const priorId=accepted.messages[0].id;
+  const priorId=accepted.messages.find((m:{conversation_id:string})=>m.conversation_id===fixture.conversationId).id;
   await control(page,{ assigned:'second' });
   const denied=await page.request.get(`/api/conversations/${fixture.conversationId}/messages/${priorId}/attempts`);
   expect(denied.status()).toBe(404); expect(await denied.text()).not.toContain('Browser saved customer reply');
@@ -1722,7 +1722,10 @@ test('Shared AI profiles require explicit admin Branch use, omit credentials and
     await grant.getByLabel('AI use branch',{ exact:true }).selectOption(lead.branch_id);await grant.getByLabel('Shared AI use reason',{ exact:true }).fill('Approve Branch shared use <img literal>');await grant.getByRole('button',{ name:'Save shared AI use',exact:true }).click();await expect(grant.locator(`[data-ai-grant="${lead.branch_id}"]`)).toContainText('ACTIVE');
     await usable.getByRole('button',{ name:'Refresh AI grants',exact:true }).click();const p=usable.locator(`[data-ai-usable-profile="${profile.id}"]`);await expect(p).toContainText('SHARED');await expect(p).toContainText('catalog: AVAILABLE');await expect(usable.locator('img')).toHaveCount(0);expect(await panel.textContent()).not.toContain(key);expect(await usable.textContent()).not.toContain(key);
     expect((await manager.request.get('/api/ai/connections/'+c.id+'/models')).status()).toBe(404);expect((await manager.request.get('/api/ai/connections/'+c.id+'/branch-use')).status()).toBe(403);await expect(manager.locator('[data-ai-shared-use]')).toHaveCount(0);await expect(usable.getByRole('button',{ name:'Edit AI profile',exact:true })).toHaveCount(0);
-    await panel.getByLabel('AI setup reason',{ exact:true }).fill('Disable shared runtime temporarily');await row.getByRole('button',{ name:'Disable AI connection',exact:true }).click();await usable.getByRole('button',{ name:'Refresh AI grants',exact:true }).click();await expect(p).toContainText('catalog: UNAVAILABLE');
+    await panel.getByLabel('AI setup reason',{ exact:true }).fill('Disable shared runtime temporarily');
+    const disabled=page.waitForResponse(r=>r.request().method()==='POST' && r.url().endsWith('/api/ai/connections/'+c.id+'/disable'));
+    await row.getByRole('button',{ name:'Disable AI connection',exact:true }).click();expect((await disabled).status()).toBe(200);await expect(row).toContainText('DISABLED');
+    await usable.getByRole('button',{ name:'Refresh AI grants',exact:true }).click();await expect(p).toContainText('catalog: UNAVAILABLE');
     await row.getByRole('button',{ name:'AI configuration and test history',exact:true }).click();await grant.locator(`[data-ai-grant="${lead.branch_id}"]`).getByRole('button',{ name:'Edit AI grant',exact:true }).click();await grant.getByRole('checkbox').uncheck();await grant.getByLabel('Shared AI use reason',{ exact:true }).fill('Revoke Branch shared use');await grant.getByRole('button',{ name:'Save shared AI use',exact:true }).click();await expect(grant).toContainText('REVOKED');await expect(grant).toContainText('Approve Branch shared use <img literal>');
     await usable.getByRole('button',{ name:'Refresh AI grants',exact:true }).click();await expect(p).toHaveCount(0);await expect(grant.locator('img')).toHaveCount(0);
     await page.getByRole('combobox',{ name:'Language' }).selectOption('fr');await expect(grant).toContainText('Usage de connexion IA partagée');await page.getByRole('combobox',{ name:'Language' }).selectOption('ar');await page.setViewportSize({ width:390,height:844 });await expect(grant).toContainText('إتاحة اتصال AI المشترك للفروع');await grant.screenshot({ path:'.local/e2e/ai-shared-use-ar.png' });expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);expect(errors).toEqual([]);

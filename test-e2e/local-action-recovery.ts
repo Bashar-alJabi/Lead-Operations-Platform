@@ -1,5 +1,5 @@
 import { expect, type APIResponse, type Page } from '@playwright/test';
-export async function verifyActionRecoveryUI(f: { manager: Page; page: Page; cv: string; kind: 'QUALIFICATION' | 'HANDOFF'; leadName: string; token: string; execute: () => Promise<APIResponse> }) {
+export async function verifyActionRecoveryUI(f: { manager: Page; page: Page; cv: string; kind: 'QUALIFICATION' | 'HANDOFF' | 'SEND'; leadName: string; token: string; execute: () => Promise<APIResponse> }) {
   const { manager, page, cv, kind } = f, origin = 'http://127.0.0.1:4100';
   const control = (offsetSeconds: number, failStep?: boolean) => manager.request.post('/__test__/ai-local-action', { headers: { origin, authorization: 'Bearer ' + f.token }, data: { conversationId: cv, kind, offsetSeconds, failStep } });
   const root = '/api/conversations/' + cv + '/ai-action-jobs';

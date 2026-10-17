@@ -78,6 +78,7 @@ export function registerAIActionJobRoutes(app: FastifyInstance, db: Database) {
       if (q.state === 'COMPLETED' || q.failure_count === 0) throw new HttpError(409, 'AI_ACTION_RECOVERY_UNAVAILABLE');
       if (q.version !== request.body.version) throw new HttpError(409, 'AI_ACTION_JOB_VERSION_CONFLICT');
       const current = q.kind === 'QUALIFICATION' ? (await tx`SELECT ai_customer_action_context(${q.proposal_id}) AS ctx`)[0]?.ctx
+        : q.kind === 'SEND' ? (await tx`SELECT ai_customer_send_admission_context(${q.proposal_id}) AS ctx`)[0]?.ctx
         : (await tx`SELECT ai_customer_handoff_context(${q.proposal_id}) AS ctx`)[0]?.ctx;
       if (!current) throw new HttpError(409, 'AI_ACTION_RECOVERY_CONTEXT_CHANGED');
       await tx`UPDATE ai_local_action_queue SET operation='HUMAN_RETRY',version=version+1,actor_id=${actor.id},session_id=${session},reason=${reason} WHERE id=${q.id}`;

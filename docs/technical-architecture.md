@@ -1,5 +1,9 @@
 # المعمارية التقنية
 
+## Authenticated AI replies — Native148–149
+
+Fresh validated ANSWER/QUESTION completion→native SEND Job→bounded Native144 queue→current original authority/Central Policy→immutable content/action/Message/Outbox/Activity/Audit معdeferred proof. Typed `AI_ACTION` dispatch تستخدم exact own-message-only delta ثمالسياسةنفسها،دونfake employee أوتخفيفNative147. Native149 تمنعPREPARED منclaim فقدتcurrent Job/attempt/Sender lease أوهامشHTTP،حتىبعدانتظارparent locks. Default AI send تبقى live-off قبلcredentials؛explicit isolated synthetic HTTP adapters فقط للاختبارات. History/UI تميزqueue عنdelivery وHuman takeover محفوظةحتىلوACK لاحقة. [العقد](ai-customer-replies.md). Initial/returning/follow-up/transition وfull AI/platform باقية.
+
 ## AI outbound policy authority — Native147
 
 Fresh authenticated Proposal تحمل immutable send-policy admission منفصلة عن Human session وactual action. DB تستخرج current exact scope تحت parent/dependency locks؛ typed authority مرتبطة بالنطاق المقفول تستخدم Central Policy نفسها دون employee Principal مصطنعة. Human enqueue ترفض automated author،وdispatch تبقى Human-only؛ لا activation أوMessage/Outbox/Provider I/O. [العقد والحدود](ai-outbound-authority.md). التالي actual content/action/message/outbox proof وexact own-message context ثمdispatch/UI/tests؛ Admission وحدها ليست Feature مكتملة.
