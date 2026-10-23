@@ -1,5 +1,9 @@
 # المعمارية التقنية
 
+## الحالة الأحدث: Initial Contact الفعلية — Native158–163
+
+إعداد أول رسالة معتمدة من Campaign ثم fresh intake وdurable bounded worker وtyped initial authority وatomic Conversation/action/message/outbox وcurrent centralized dispatch منفذة. live-off باقية، والاختبارات تستخدم synthetic HTTP mocks فقط. [العقد الحالي](ai-initial-contact.md) يحدّث أوصاف المراحل التاريخية أدناه. [مراجعة جميع فجوات المنصة وترتيب الاعتماديات](platform-gap-review.md) تقدم Notifications/Automation/Analytics/Import/Export والتكاملات على تحسينات AI الاختيارية.
+
 ## Initial AI intake admission — Native154–157
 
 Initial Contact لها مصدر مستقل من fresh actual `lead_intake_receipt` داخل transaction الإدخال بعد Routing؛ لا fabricated inbound/proposal ولا إحياءتاريخ قديم. Native canonical snapshot تضم current Published Knowledge/Profile/Connection/Branch entitlement/configuration/Tools/Fields وOwner/working-hours availability وexplicit initialContactWithoutAgent/Branch attention fallback وdeterministic sender. Immutable admission تحافظ علىblocked reason وAudit معLead، وdeferred exact-context proof تحميatomicity. Current helper تعيد current dependency locks ومطابقةscope والrecipient/version/hash المحليين دونقيمPII؛ النقل أوتغييرالإعدادات يبطل السياق. Read/UI محدودة تتبعcurrent Lead ACL وتبين أنالقبول ليسsend أوتشغيلRuntime. هذه prerequisite؛ لاqueued initial job أوactual first send حتىإعدادالمحتوى/template والسياسةوالـoutbox. Live/full activation مغلقة. [العقد والاختبارات والحدود](ai-initial-admission.md).
@@ -699,3 +703,6 @@ Central Messaging تبقىالمرجعالوحيدللtimezone/window/frequency/
 ## AI behavior policies — checkpoint102
 
 Formality/disclosure/handoff operational defaults وCampaign overrides لهاversioned strict source منفصلة عنPublished Knowledge؛returning-contact rule Campaign-only. Null inheritance وexplicit empty guidance تظلdeterministic،وتستخدمTone/brand guidance القائمةبلامصدرمكرر. Effective hash تتبعcurrent Branch/Campaign policy versions/sources وmandatoryhandoff triggers. Native102 current active Session/account/scope locks وidentity/version/shape/history/Audit guards؛لاwrite منhypothetical policy preview. تفاصيلالعقد وحدودcurrent-context proof وactual runtime في`ai-behavior-policy.md`.
+# Initial Contact الفعلية — Native158–163
+
+إضافة initial-message policy/version/history منداخل Campaign،مرتبطة بـcurrent approved template/binding/Sender/Published Knowledge/disclosure/language. fresh intake context تحملapproval؛Native job guard لا تقبلمصدرًاقديمًا. Branch-first bounded local worker ثم typed approved initial authority تمر بنفس Central Messaging Policy. immutable Conversation/action/message/outbox/deferred proof تحفظatomicity،ثمmessaging worker يعيدcurrent authority والlease قبلI/O. provider-independent core محفوظة،ولاfake inbound/User. Live AI transport معطلة،والتحققsynthetic HTTP mocks فقط. [العقد والتشغيل والحدود](ai-initial-contact.md). هذهbaseline لا تكمل بقيةAI/Notifications/Automation/Analytics/import/export/Sheets.

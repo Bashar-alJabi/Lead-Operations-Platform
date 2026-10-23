@@ -1,5 +1,11 @@
 # دليل التشغيل والتطوير
 
+## Initial Contact الفعلية — Native158–163
+
+بعد migrations المعتادة شغّل `worker:ai` و`worker:messaging`. من Campaign workspace جهّز Published Knowledge وProfile/Tools/behavior والمراسلة، ثم اعتمد approved text template والمعاملات والسبب عبرإعداد Initial Message. راجعpreview وready،ثمcurrent Campaign activation checks. Lead جديدة موثوقة ومسموح بها فقط تدخلjob؛لاbackfill أوSQL replay لadmission قديمة. إعدادالقالب لا يرسلشيئًا.
+
+منLead→مراجعة مصدر الإنشاء راجع job/action/message/delivery/error. QUEUED/APPLIED ليستتسليمًا؛SENT موثقةبـprovider ACK. بعد BLOCKED أوHuman takeover راجعسببالمنع واتبعالمسارالبشري المصرح به،دونتغييرsnapshot أوتجاوزConsent. local job bounded backoff ثمDEAD_LETTER بعدخمسfailures؛UI recovery لهذهjob غيرمنفذة بعد،ولاmanual DB repair. UNKNOWN لاreplay. Source AI flow يتطلبpolicyصريحة؛Source Messaging دونAI مازالتخاضعةلقيدreadiness السابق. Live AI send/transfer تبقىمعطلةحتىالموافقاتوالضوابط؛لاenv bypass. [العقد](ai-initial-contact.md).
+
 ## مراجعة قبول Initial AI وقت الإنشاء — Native154–157
 
 منLead details اختر«مراجعة مصدر الإنشاء». إذا وُجد تقييمInitial AI فراجعhistorical state وأسبابالمنع ونسخةالمعرفة وavailability وسياسةالسماحبدونموظف وSender resolution. ADMITTED تخصإعداداتالقبول وقتالإنشاءفقط؛ Runtime/send لمتبدأ،ولا يُفهممنهاConsent أوDelivery. BLOCKED تحتفظ بالـLead ونتيجةRouting؛صححconfiguration منواجهاتAI/Messaging الحالية للمصادرالجديدة. لاSQLتعديلللسجلولاbackfill/replay للـreceipt القديمة. null تعنيلاadmission محفوظة،ولايُستنتجقبول منالإعداداتالحالية.

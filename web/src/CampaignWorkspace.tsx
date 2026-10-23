@@ -5,6 +5,7 @@ import { CampaignKnowledge } from './CampaignKnowledge';
 import { CampaignQualification } from './CampaignQualification';
 import { CampaignAIFollowupPolicy } from './CampaignAIFollowupPolicy';
 import { CampaignAIBehaviorPolicy } from './CampaignAIBehaviorPolicy';
+import {CampaignAIInitialMessage} from './CampaignAIInitialMessage';
 import { CampaignAIConfiguration } from './CampaignAIConfiguration';
 import { CampaignAITools } from './CampaignAITools';
 import { CampaignAISimulation } from './CampaignAISimulation';
@@ -142,6 +143,7 @@ export function CampaignWorkspace({ id, locale, api, onBack, onChanged }: {
     <CampaignQualification key={'qualification-'+id} campaignId={id} locale={locale} api={api} />
     <CampaignAIFollowupPolicy key={'ai-followup-'+id} campaignId={id} locale={locale} api={api} />
     <CampaignAIBehaviorPolicy key={'ai-behavior-'+id} campaignId={id} branchId={campaign.branch_id} locale={locale} api={api} />
+    <CampaignAIInitialMessage key={'ai-initial-'+id} campaignId={id} locale={locale} api={api}/>
     <CampaignAIConfiguration key={'ai-config-'+id} campaignId={id} branchId={campaign.branch_id} locale={locale} api={api} />
     <CampaignAITools key={'ai-tools-'+id} campaignId={id} branchId={campaign.branch_id} locale={locale} api={api} />
     <CampaignAISimulation key={'ai-simulation-'+id} campaignId={id} locale={locale} api={api} />

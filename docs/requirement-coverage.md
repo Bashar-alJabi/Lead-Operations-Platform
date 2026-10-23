@@ -1,5 +1,16 @@
 # مصفوفة تغطية المتطلبات
 
+## أحدث checkpoint: Initial AI Contact end-to-end — 2026-10-23
+
+| المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |
+|---|---|---|
+|04 §11 و05 §18 و06 §12: Initial Contact الفعلية|Native158–163 وmanaged approved first-template policy/version/history/Published Knowledge وfresh manual/Source intake→durable initial job→Conversation/action/message/outbox→central policy/dispatch→signed customer reply→existing AI reply|**178unit/87full Docker PG** (178.0s)،**53full Edge Browser** (3.8m)،migrations001–163 development/test وBackend/Web build/typecheck/diff check ناجحة؛focused PG/Browser والصورةالعربية390px مثبتة. **Implemented وMock/Sandbox Verified** لهذهbaseline|
+|AGENTS §§8/15–17/19–29 و06 security/failure|fresh-only/current source+grant+scope+recipient+config/version fences،native immutable atomic proofs/Audit،consent/controller/pin/CMP،bounded local failures وUNKNOWN no-replay|actual managed activation/manual/Source flows،four concurrent intakes،consent denial/Human takeover/current policy change/Audit rollback/retry وforged Conversation denial مثبتة؛لاfake inbound أوHuman أوfinancial writes|
+|03 UI/setup و06 permissions|Campaign initial-message editor/preview/reason وLead scoped runtime/delivery/error history بـar/en/fr/RTL|Browser تثبتactual setup/activation/queued→sent وliveTransferEnabled=false وno overflow/pageerrors؛full Browser أصلحتtest login bucket isolation فقط دونProduction limits|
+|06 §§4/12/19/25–29: نطاقالمنصة وحالةLive|[مراجعةكلModules](platform-gap-review.md) تربطالحسابات/CRM/Routing/Sources/Messaging/AI/Payments/Notification/Automation/Analytics/Import/Export/Sheets/Email/UX/Security/operability بالمنفذوالفجوات|**المنصةغيرمكتملة**. Automation/Analytics/Import/Export/Sheets غيرمنفذة؛Notifications جزئية؛بقيةAI وacceptance باقية. liveAI معطلة وكلProviders **Live Verification Pending External Credential/Approval**؛لاSandbox account خارجي أوLive claim|
+
+[عقد Initial Contact](ai-initial-contact.md). local initial-job dead-letter recovery UI باقية،وSource Messaging-enabled/AI-disabled gate لمتُرفع بعدرفضالتوسيعالتلقائي لعدمإثباتالجاهزية. التاليNotifications التشغيلية ثمAutomation/Analytics والبياناتوالتكاملات،قبلAI refinements. الصفوفالتاليةسجلcheckpoints تاريخي؛عبارات«لاRuntime/activation» فيprerequisite لا تصفbaseline الجديدة.
+
 ## أحدث checkpoint: Initial AI intake admission — 2026-10-23
 
 | المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |

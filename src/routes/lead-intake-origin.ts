@@ -23,13 +23,17 @@ export function registerLeadIntakeOriginRoutes(app: FastifyInstance, db: Databas
       const admission = receipt ? (await tx`SELECT id,state,blockers,created_at,context->'knowledge'->'version' AS knowledge_version,
         context->'availability'->'ownerAvailable' AS owner_available,context->'effective'->'handoff'->'initialContactWithoutAgent' AS without_agent,
         context->'sender'->>'reason' AS sender_reason FROM ai_initial_admission WHERE receipt_id=${receipt.id}`)[0] : null;
+      const runtime=admission?(await tx`SELECT j.state AS job_state,j.failure_count,j.error_code AS job_error,a.id AS action_id,a.state AS action_state,a.error_code,a.conversation_id,a.message_id,m.delivery_state,m.last_error_code
+        FROM ai_initial_job j LEFT JOIN ai_initial_send_action a ON a.admission_id=j.admission_id LEFT JOIN conversation_message m ON m.id=a.message_id WHERE j.admission_id=${admission.id}`)[0]??null:null;
       await tx`INSERT INTO audit_log(organization_id,branch_id,actor_user_id,action,target_type,target_id)
         VALUES(${actor.organizationId},${lead.branch_id},${actor.id},'LEAD_INTAKE_ORIGIN_READ','LEAD',${lead.id})`;
       return { origin: receipt ? { id: receipt.id, originKind: receipt.origin_kind, sourceKind: receipt.source_kind, createdAt: receipt.created_at,
         routing: { method: receipt.routing.method, reason: receipt.routing.reason, ownerId: receipt.routing.ownerId },
         initialAI: admission ? { id: admission.id, state: admission.state, blockers: admission.blockers, createdAt: admission.created_at,
           knowledgeVersion: admission.knowledge_version, ownerAvailable: admission.owner_available, initialContactWithoutAgent: admission.without_agent,
-          senderReason: admission.sender_reason, runtimeStarted: false, sendAuthorized: false, liveTransferEnabled: false } : null } : null };
+          senderReason: admission.sender_reason, runtimeStarted:runtime!==null,sendAuthorized:runtime?.action_state==='APPLIED',liveTransferEnabled:false,
+          runtime:runtime?{jobState:runtime.job_state,failureCount:runtime.failure_count,errorCode:runtime.error_code??runtime.job_error??runtime.last_error_code,
+            actionState:runtime.action_state,conversationId:runtime.conversation_id,messageId:runtime.message_id,deliveryState:runtime.delivery_state}:null } : null } : null };
     });
   });
 }

@@ -35,6 +35,7 @@ import { aiInferenceAdapters } from '../src/ai/inference-provider.js';
 import { processOneAICustomerProposal } from '../src/ai/customer-worker.js';
 import { processOneAIQualificationAction } from '../src/ai/customer-qualification.js';
 import { processOneAICustomerSend } from '../src/ai/customer-send.js';
+import {processOneAIInitialContact} from '../src/ai/initial-contact.js';
 import { stripeCurrencyPrecision,PaymentCheckoutError,type CheckoutSnapshot,type PaymentCheckoutAdapter } from '../src/payments/checkout-provider.js';
 import { paypalPaymentEvents } from '../src/payments/webhook-profile.js';
 import { testPayPalCertificate,testPayPalCertUrl } from '../test/paypal-test-support.js';
@@ -52,7 +53,7 @@ let aiSendCalls=0;
 globalThis.fetch=async(target,init)=> { if(String(target)===testPayPalCertUrl)return new Response(testPayPalCertificate);
   if(String(target)==='https://graph.facebook.com/v25.0/15550001111/messages') {
     if(init?.method!=='POST' || new Headers(init.headers).get('authorization')!=='Bearer test-fake-token-not-a-real-account')throw new Error('UNEXPECTED_AI_SEND_REQUEST');
-    const payload=JSON.parse(init.body as string);if(payload.type!=='text' || typeof payload.text?.body!=='string')throw new Error('UNEXPECTED_AI_SEND_CONTENT');
+    const payload=JSON.parse(init.body as string);if(payload.type==='text' ? typeof payload.text?.body!=='string' : payload.type!=='template'||typeof payload.template?.name!=='string'||typeof payload.template?.language?.code!=='string')throw new Error('UNEXPECTED_AI_SEND_CONTENT');
     aiSendCalls++;return new Response(JSON.stringify({messages:[{id:'wamid.synthetic-ai-browser-'+aiSendCalls}]}));
   }
   if(String(target)==='https://api.openai.com/v1/responses') {
@@ -150,7 +151,7 @@ await db`INSERT INTO connection_secret (connection_id,ciphertext,nonce,auth_tag)
   VALUES (${connection},${secret.ciphertext},${secret.nonce},${secret.authTag})`;
 const sender = (await db`INSERT INTO messaging_sender
   (organization_id,connection_id,external_sender_id,display_name,health,operator_enabled,capabilities)
-  VALUES (${org},${connection},'15550001111','Browser Sender','HEALTHY',true,${db.json({ text:true,...metaMediaCapabilities() })}) RETURNING id`)[0]!.id;
+  VALUES (${org},${connection},'15550001111','Browser Sender','HEALTHY',true,${db.json({ text:true,template:true,...metaMediaCapabilities() })}) RETURNING id`)[0]!.id;
 await db`UPDATE branch SET default_sender_id=${sender} WHERE id=${branch}`;
 const contact = (await db`INSERT INTO contact (organization_id,name,phone,phone_normalized)
   VALUES (${org},'Browser Customer','+15550002222','+15550002222') RETURNING id`)[0]!.id;
@@ -246,9 +247,9 @@ const app = await buildApp(db, { logger:false,globalRateLimitMax:10000,mediaStor
   messagingSendAdapter:{ sendText:async()=> { throw new Error('Unexpected operational freeform send'); },
     sendTemplate:async()=>({ providerMessageId:'wamid.browser-operational' }) },
   messagingTemplateAdapter:{
-    list:async(config)=>config.wabaId==='987654321' ? templates : [],
+    list:async(config)=>['987654321','123456789'].includes(config.wabaId) ? templates : [],
     create:async(config,_credentials,input)=> {
-      if (config.wabaId!=='987654321') throw new Error('Unexpected test connection');
+      if (!['987654321','123456789'].includes(config.wabaId)) throw new Error('Unexpected test connection');
       const template:ProviderTemplate={ externalId:String(8000+templates.length),name:input.name,language:input.language,
         category:input.category,status:'PENDING',components:[
           ...(input.mediaHeader ? [{ type:'HEADER',format:input.mediaHeader.format,example:{ header_handle:[input.mediaHeader.handle] } }] : []),
@@ -332,6 +333,10 @@ app.post<{Body:{campaignId:string;enabled:boolean}}>('/__test__/ai-initial-intak
 app.post<{Body:{dispatch?:boolean}}>('/__test__/ai-customer-send',async(request)=>{
   if(typeof request.headers.authorization!=='string' || !safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
   return {processed:request.body?.dispatch ? await processOneMessagingJob(db,{...metaWhatsAppSendAdapter},{syntheticAI:true}) : await processOneAICustomerSend(db)};
+});
+app.post('/__test__/ai-initial-process',async request=>{
+ if(typeof request.headers.authorization!=='string'||!safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
+ return {processed:await processOneAIInitialContact(db)};
 });
 app.post<{ Body:{ conversationId:string;enable?:boolean;process?:boolean;messaging?:boolean } }>('/__test__/ai-customer-proposal',{ schema:{ body:{ type:'object',additionalProperties:false,required:['conversationId'],properties:{ conversationId:{ type:'string',format:'uuid' },enable:{ type:'boolean' },process:{ type:'boolean' },messaging:{type:'boolean'} } } } },async(request)=>{
   if(typeof request.headers.authorization!=='string' || !safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');

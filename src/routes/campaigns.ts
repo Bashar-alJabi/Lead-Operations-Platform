@@ -5,6 +5,7 @@ import { decodeCursor, encodeCursor } from '../pagination.js';
 import { HttpError, principalFromRequest, requireBranch, requireRole, type Principal } from '../security.js';
 import { sourceCampaignIssues } from '../sources/readiness.js';
 import { recheckSourceActor } from '../sources/catalog-sync.js';
+import {initialCampaignIssues} from '../ai/initial-readiness.js';
 
 const idParam = { type: 'object', additionalProperties: false, required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } as const;
 const routingMethods = ['MANUAL', 'ROUND_ROBIN', 'WEIGHTED', 'PERFORMANCE'] as const;
@@ -54,8 +55,9 @@ async function readiness(sql: Database | postgres.TransactionSql, campaign: post
   // Performance scoring requires human-only metrics and a configured sample/fallback policy.
   if (campaign.routing_method === 'PERFORMANCE') issues.push('PERFORMANCE_ROUTING_NOT_READY');
   issues.push(...await sourceCampaignIssues(sql as Database,campaign,lock));
-  if (campaign.messaging_config?.enabled) issues.push('MESSAGING_CONFIGURATION_NOT_READY');
-  if (campaign.ai_config?.enabled) issues.push('AI_CONFIGURATION_NOT_READY');
+  // The first-contact flow is implemented and verified by ai-initial-contact integration and Browser E2E.
+  // Fail closed on its current scoped configuration. This never enables the separate live transport gate.
+  issues.push(...await initialCampaignIssues(sql,campaign));
   return issues;
 }
 

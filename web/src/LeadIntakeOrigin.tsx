@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 type Origin = { id: string; originKind: 'HUMAN_MANUAL'|'SOURCE'; sourceKind: string; createdAt: string; routing: { method: string; reason: string; ownerId: string | null };
   initialAI: { id: string; state: 'ADMITTED'|'BLOCKED'; blockers: string[]; createdAt: string; knowledgeVersion: number | null;
-    ownerAvailable: boolean | null; initialContactWithoutAgent: boolean | null; senderReason: string | null } | null };
+    ownerAvailable: boolean | null; initialContactWithoutAgent: boolean | null; senderReason: string | null;
+    runtime?:{jobState:string;failureCount:number;errorCode:string|null;actionState:string|null;conversationId:string|null;messageId:string|null;deliveryState:string|null}|null } | null };
 type Api = <T>(path: string, options?: RequestInit) => Promise<T>;
 const labels = {
   ar: { title: 'مصدر إنشاء Lead', read: 'مراجعة مصدر الإنشاء', empty: 'لا يتوفر سجل إنشاء موثّق لهذه Lead.', manual: 'إدخال يدوي بواسطة مستخدم مخوّل', source: 'استقبال من مصدر مرتبط', at: 'وقت توثيق الإنشاء', routing: 'التوزيع عند الإنشاء', owner: 'المالك عند الإنشاء', unassigned: 'دون مالك', note: 'هذا سجل تاريخي. قد يكون المالك الحالي مختلفًا.' },
@@ -30,7 +31,9 @@ export function LeadIntakeOrigin({ leadId, revision, locale, api }: { leadId: st
       <p>{t.at}: <time dateTime={o.createdAt}>{new Date(o.createdAt).toLocaleString(locale)}</time></p><p>{t.routing}: {o.routing.method} · {o.routing.reason}</p>
       <p style={{ overflowWrap: 'anywhere' }}>{t.owner}: {o.routing.ownerId ?? t.unassigned}</p><p>{t.note}</p>
       {a && <div data-initial-ai-admission><h4>{aiLabels.title}</h4><p>{a.state === 'ADMITTED' ? aiLabels.admitted : aiLabels.blocked}</p>
-        <p>{aiLabels.pending}</p><p>{aiLabels.knowledge}: {a.knowledgeVersion ?? '—'}</p><p style={{ overflowWrap: 'anywhere' }}>{aiLabels.sender}: {a.senderReason ?? unassessed}</p>
+        {!a.runtime&&<p>{aiLabels.pending}</p>}{a.runtime&&<div data-initial-ai-runtime><p>{a.runtime.jobState} · {a.runtime.actionState??'—'} · {a.runtime.deliveryState??'—'}</p>
+          <p>{ {ar:'الإدراج في قائمة الإرسال لا يثبت التسليم.',en:'Queuing does not prove delivery.',fr:'La mise en file ne prouve pas la livraison.'}[locale]}</p>{a.runtime.errorCode&&<p style={{overflowWrap:'anywhere'}}>{a.runtime.errorCode}</p>}</div>}
+        <p>{aiLabels.knowledge}: {a.knowledgeVersion ?? '—'}</p><p style={{ overflowWrap: 'anywhere' }}>{aiLabels.sender}: {a.senderReason ?? unassessed}</p>
         <p>{aiLabels.availability}: {a.ownerAvailable === true ? aiLabels.yes : a.ownerAvailable === false ? aiLabels.no : unassessed}</p><p>{aiLabels.without}: {a.initialContactWithoutAgent === true ? aiLabels.yes : a.initialContactWithoutAgent === false ? aiLabels.no : unassessed}</p>
         {a.ownerAvailable === false && <p>{aiLabels.fallback}</p>}{a.blockers.length > 0 && <ul>{a.blockers.map(reason => <li key={reason} style={{ overflowWrap: 'anywhere' }}>{reason === 'AI_INITIAL_DEPENDENCY_BUSY' ? busyReason : reason}</li>)}</ul>}</div>}
     </div>}

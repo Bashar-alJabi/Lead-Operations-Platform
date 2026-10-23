@@ -1,5 +1,7 @@
 # قبول Initial AI من إنشاء Lead الموثوق
 
+**تحديث Native158–163:** هذا العقد يصف prerequisite الأصلية وحدودها وقت154–157. [Initial Contact الفعلية](ai-initial-contact.md) تضيف approved initial-message context وfresh-only job/Conversation/action/outbox/dispatch وUI. عبارات «لا Runtime/إرسال» وSource/full activation gate أدناه تخص تلك المرحلة التاريخية؛الحالة الحالية وحدودlive-off فيالعقد الأحدث وprogress/coverage. لا تتغير admissions القديمة ولا تستمد سلطة جديدة بأثر رجعي.
+
 ## النطاق والحدود
 
 هذه مرحلة prerequisite لـInitial Contact في 04 §11 و05 §18. Native154–157 تنشئ `ai_initial_admission` تلقائيًا عند INSERT الفعلي لـ`lead_intake_receipt`، داخل transaction إنشاء Lead وبعد Routing، فقط إذا كانت AI مفعلة للحملة وقت الإنشاء. لا backfill ولا polling لمصادر قديمة. Lead أنشئت مع AI معطلة لا تكتسب admission بعد التفعيل، وقرار BLOCKED لا يتحول إلى ADMITTED بعد إصلاح الإعدادات.

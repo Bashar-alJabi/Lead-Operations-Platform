@@ -112,7 +112,7 @@ async function finishWithoutSend(db: Database, claimed: Claimed, code: string): 
       SET needs_attention_reason = ${code}
       WHERE id = (SELECT conversation_id FROM conversation_message WHERE id = ${claimed.messageId})`;
     await tx`UPDATE conversation cv SET state='AI_HANDOFF_REQUIRED',needs_attention_reason='AI_CUSTOMER_SEND_BLOCKED'
-      FROM conversation_message m WHERE m.id=${claimed.messageId} AND m.ai_send_action_id IS NOT NULL AND cv.id=m.conversation_id
+      FROM conversation_message m WHERE m.id=${claimed.messageId} AND (m.ai_send_action_id IS NOT NULL OR m.ai_initial_action_id IS NOT NULL) AND cv.id=m.conversation_id
         AND cv.controller_type='AI' AND cv.state IN ('AI_ACTIVE','AI_WAITING_FOR_LEAD') AND cv.needs_attention_reason IS NULL
         AND (SELECT id FROM conversation_message WHERE conversation_id=cv.id ORDER BY created_at DESC,id DESC LIMIT 1)=m.id`;
     await tx`UPDATE background_job SET status = 'DEAD', locked_until = NULL, last_error_code = ${code},
@@ -130,7 +130,7 @@ async function prepare(db: Database, claimed: Claimed, media?: LoadedMedia, medi
   { deferredUntil: Date | null }> {
   const message = (await db`SELECT m.conversation_id, m.connection_id, m.sender_id, m.author_type,
       m.author_user_id, m.body, m.delivery_state, m.message_kind, m.template_id,
-      m.template_snapshot,m.attachment_id,m.ai_send_action_id, u.organization_id, u.branch_id, u.role,
+      m.template_snapshot,m.attachment_id,m.ai_send_action_id,m.ai_initial_action_id, u.organization_id, u.branch_id, u.role,
       u.name, u.email, u.active
     FROM conversation_message m LEFT JOIN user_account u ON u.id = m.author_user_id
     WHERE m.id = ${claimed.messageId}`)[0];
@@ -138,14 +138,14 @@ async function prepare(db: Database, claimed: Claimed, media?: LoadedMedia, medi
   if (message.author_type === 'AI' && !aiTestTransport) return { blocked: 'AI_LIVE_DATA_TRANSFER_DISABLED' };
   if (message.author_type !== 'AI' && (message.author_type !== 'HUMAN' || !message.active || !message.author_user_id))
     return { blocked: 'AUTHOR_NO_LONGER_AUTHORIZED' };
-  if (message.author_type === 'AI' && !message.ai_send_action_id) return { blocked: 'AI_SEND_ACTION_REQUIRED' };
-  const authority: OutboundPolicyAuthority = message.author_type === 'AI' ? { kind: 'AI_ACTION', actionId: message.ai_send_action_id }
+  if (message.author_type === 'AI' && !message.ai_send_action_id && !message.ai_initial_action_id) return { blocked: 'AI_SEND_ACTION_REQUIRED' };
+  const authority: OutboundPolicyAuthority = message.author_type === 'AI' ? message.ai_initial_action_id ? {kind:'AI_INITIAL_ACTION',actionId:message.ai_initial_action_id} : { kind: 'AI_ACTION', actionId: message.ai_send_action_id }
     : { kind: 'HUMAN', principal: { id: message.author_user_id, organizationId: message.organization_id,
       branchId: message.branch_id, role: message.role, name: message.name, email: message.email } satisfies Principal };
   try {
     return await db.begin(async (tx) => {
       // AI parent/context locks precede Connection locks, matching configuration and native action writers.
-      const aiLocked = authority.kind === 'AI_ACTION' ? await lockOutboundAuthority(tx, authority, message.conversation_id) : null;
+      const aiLocked = authority.kind !== 'HUMAN' ? await lockOutboundAuthority(tx, authority, message.conversation_id) : null;
       const readiness = (await tx`SELECT c.status, c.cooldown_until AS connection_cooldown,
           s.active, s.operator_enabled, s.health, s.cooldown_until AS sender_cooldown
         FROM integration_connection c JOIN messaging_sender s ON s.connection_id = c.id
@@ -253,6 +253,10 @@ async function finishAttempt(db: Database, claimed: Claimed, connectionId: strin
       await tx`UPDATE conversation cv SET state='AI_WAITING_FOR_LEAD' FROM conversation_message m,ai_customer_send_action a
         WHERE m.id=${claimed.messageId} AND m.ai_send_action_id=a.id AND cv.id=m.conversation_id AND cv.controller_type='AI'
           AND cv.state='AI_ACTIVE' AND cv.needs_attention_reason IS NULL AND cv.version=(a.context->'conversation'->>'version')::integer
+          AND (SELECT id FROM conversation_message WHERE conversation_id=cv.id ORDER BY created_at DESC,id DESC LIMIT 1)=m.id`;
+      await tx`UPDATE conversation cv SET state='AI_WAITING_FOR_LEAD' FROM conversation_message m,ai_initial_send_action a
+        WHERE m.id=${claimed.messageId} AND m.ai_initial_action_id=a.id AND cv.id=m.conversation_id AND cv.ai_initial_admission_id=a.admission_id
+          AND cv.controller_type='AI' AND cv.state='AI_ACTIVE' AND cv.needs_attention_reason IS NULL AND cv.version=1
           AND (SELECT id FROM conversation_message WHERE conversation_id=cv.id ORDER BY created_at DESC,id DESC LIMIT 1)=m.id`;
     } else {
       const retry = result.kind === 'RETRYABLE' && claimed.attemptNo < job.max_attempts;

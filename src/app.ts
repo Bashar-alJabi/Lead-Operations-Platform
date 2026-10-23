@@ -12,6 +12,7 @@ import { registerContactRoutes } from './routes/contacts.js';
 import { registerFieldRoutes } from './routes/fields.js';
 import { registerLeadWorkflowRoutes } from './routes/lead-workflow.js';
 import { registerLeadIntakeOriginRoutes } from './routes/lead-intake-origin.js';
+import {registerAIInitialMessageRoutes} from './routes/ai-initial-message.js';
 import { registerLeadViewRoutes } from './routes/lead-views.js';
 import { registerMessagingSetupRoutes } from './routes/messaging-setup.js';
 import { registerMessagingTestSendRoutes } from './routes/messaging-test-send.js';
@@ -141,6 +142,7 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   registerFieldRoutes(app, db);
   registerLeadWorkflowRoutes(app, db);
   registerLeadIntakeOriginRoutes(app, db);
+  registerAIInitialMessageRoutes(app,db);
   registerLeadViewRoutes(app, db);
   registerMessagingSetupRoutes(app, db, options.messagingAdapter);
   registerMessagingTestSendRoutes(app, db, options.messagingSendAdapter);

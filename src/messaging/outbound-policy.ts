@@ -43,6 +43,14 @@ export async function lockAIOutboundDispatchScope(tx: postgres.TransactionSql, a
   return loadOutboundScope(tx, conversationId, null, context.scope as ApprovedScope);
 }
 
+export async function lockInitialOutboundScope(tx:postgres.TransactionSql,id:string,conversationId:string,dispatch:boolean){
+  const context=dispatch?(await tx`SELECT ai_initial_dispatch_context(${id}) AS context`)[0]?.context
+    :(await tx`SELECT ai_initial_execution_context(${id},${conversationId}) AS context`)[0]?.context;
+  if(!context)throw new HttpError(409,'AI_INITIAL_CONTEXT_CHANGED');
+  if(dispatch&&context.scope.conversationId!==conversationId)throw new HttpError(409,'AI_INITIAL_CONTEXT_CHANGED');
+  return loadOutboundScope(tx,conversationId,null,context.scope as ApprovedScope);
+}
+
 export type LockedOutboundScope = Awaited<ReturnType<typeof lockOutboundScope>>;
 
 export async function checkCurrentOutbound(tx: postgres.TransactionSql, locked: LockedOutboundScope,

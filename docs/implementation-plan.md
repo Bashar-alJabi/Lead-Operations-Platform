@@ -1,5 +1,16 @@
 # خطة التنفيذ
 
+## الأولوية الحالية بعد Initial Contact — 2026-10-23
+
+Native158–163 أكملت baseline Initial Contact الفعلية؛178unit/87full Docker PG/53full Edge Browser و001–163 وBackend/Web build/typecheck ناجحة. [العقد](ai-initial-contact.md). [مراجعة جميع فجوات المنصة](platform-gap-review.md) هي تقييم الاعتماديات الحالي؛الخطوات الأقدم أدناه تحفظ تاريخها ولا تفرض الاستمرار في AI قبل بقيةالوحدات.
+
+1. Notifications التشغيلية: fresh Lead/Assignment/Reassignment ثمFollow-up/Payment/Enrollment/attention/errors،نفسcurrent-scoped Centre/preferences/wording/history،ثمmanaged external channels. كلجزءمتكاملومختبرومحفوظcheckpoint.
+2. Automation typed Trigger→Conditions→Actions وdurable executions/causation/idempotency/loop limits/current authorization،تستعملApplication Services وNotification service المثبتة.
+3. trusted scoped Analytics/Dashboard/Conversion/per-currency/Human metrics وdrilldown،ثمPerformance routing التيتعتمدعلىHuman facts.
+4. Search/Bulk/Import/Export،ثمGoogle Sheets وEmail integration المتبقية،ثمبقيةRequired AI/CRM/UX/security/load/restore/acceptance. لا إسقاطمتطلب أوoptional AI/provider polish قبلcore.
+
+Live transfer/send معطلة؛Mock/Sandbox Verified فقط،ولاmerge أوdeployment. تحفظكلمرحلةمستقرةمعprogress/coverage وcommit/push إلىcodex/full-platform-build فقط. الخطوةالأولىالتاليةمحددة: Lead/Assignment In-App notifications end-to-end.
+
 **أحدث checkpoint2026-10-23: Initial AI intake admission.** Native154–157 وfresh non-inbound source/configuration/Published Knowledge/Profile/Branch entitlement/Tools/Fields/Owner availability/Sender وimmutable Audit/scoped API/Lead UI منفذة. recipient/scope fences وbounded dependency contention تحفظLead دونfalse readiness؛actual lock race500 قبل157 صارت201 وBLOCKED busy source بعده. **178unit/86full Docker PG/52full Edge Browser** و001–157 development/test وBackend/Web build/typecheck/diff check ناجحة علىآخرالكود؛focused157 PG2/2 والصورةالعربية النهائية مُثبتتان. [العقد](ai-initial-admission.md). Initial Contact/full AI/platform غيرمكتملة؛لاqueue أوsend/activation منadmission وحدها.
 
 **الاعتماد التالي الدقيق:** approved campaign-specific initial content/template setup منداخلواجهةالمنصة،معversion/hash داخلcanonical admission context قبلenqueue؛old admissions بلاالإثباتالجديد لا تُعادإحياؤها. ثمfresh admission-derived durable bounded initial job وcurrent approved authority وCentral Policy/consent/window/template/health/frequency وatomic initial Conversation/action/message/outbox/current dispatch وfailure/recovery/UI/evaluations. لاcustomer inbound/proposal مصطنعة،ولاsource timestamp كـopt-in أو24h Messaging window،ولاSource/full activation قبلbaseline كاملة. بعدهاreturning/follow-up/transition وبقيةAI/Copilot/Operations/Form/evaluations ثمAutomation/Notifications/Analytics/import/export/Sheets/Email وبقيةالمتطلبات. لاoptional provider refinements.

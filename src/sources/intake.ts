@@ -33,8 +33,10 @@ export async function intakeSource(tx:postgres.TransactionSql,connection:Record<
   let failure=outcome.errorCode;let contactId:string|null=null;
   const prepared=outcome.prepared;
   if (!failure && prepared!.campaign.status!=='ACTIVE') failure='SOURCE_CAMPAIGN_INACTIVE';
-  // Dispatch dependencies are enabled only when their required campaign flows are implemented and ready.
-  if (!failure && (prepared!.campaign.messaging_config?.enabled || prepared!.campaign.ai_config?.enabled)) failure='SOURCE_CAMPAIGN_FLOW_NOT_READY';
+    // The first-contact runtime now has integration + Browser verification. Keep the setup gate for unconfigured flows.
+    // Once explicitly configured, current AI/provider failure is recorded by fresh admission without losing the Lead.
+    if (!failure && (prepared!.campaign.messaging_config?.enabled || prepared!.campaign.ai_config?.enabled)
+      && !(prepared!.campaign.ai_config?.enabled && (await tx`SELECT 1 FROM ai_initial_message_policy WHERE campaign_id=${prepared!.campaign.id}`).length)) failure='SOURCE_CAMPAIGN_FLOW_NOT_READY';
   if (!failure) {
     const normalized=normalizeSourceContact(prepared!.contact);await lockSourceIdentities(db,submission.organization_id,normalized);
     const matches=normalized ? await tx`SELECT c.id FROM contact c WHERE ${identityPredicate(db,submission.organization_id,normalized)} ORDER BY c.id LIMIT 2 FOR UPDATE` : [];
