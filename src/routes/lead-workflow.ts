@@ -233,7 +233,8 @@ export function registerLeadWorkflowRoutes(app: FastifyInstance, db: Database): 
       if (Object.keys(request.body).length === 1) throw new HttpError(400, 'FOLLOW_UP_NO_CHANGES');
       const status = request.body.status ?? item.status;
       const before = { dueAt: item.due_at.toISOString(), note: item.note, priority: item.priority, owner: item.owner_user_id, status: item.status };
-      const changed = await tx`UPDATE follow_up SET due_at = ${request.body.dueAt ?? item.due_at},
+      // Preserve native timestamp precision when only note/owner/priority/status changes.
+      const changed = await tx`UPDATE follow_up SET due_at = CASE WHEN ${request.body.dueAt === undefined} THEN due_at ELSE ${request.body.dueAt ?? null}::timestamptz END,
         note = ${request.body.note === undefined ? item.note : request.body.note.trim()},
         priority = ${request.body.priority ?? item.priority}, owner_user_id = ${owner}, status = ${status},
         completed_by = ${status === 'COMPLETED' ? actor.id : null}, completed_at = ${status === 'COMPLETED' ? new Date() : null},

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import {FollowUpNotificationStatus} from './FollowUpNotifications.js';
 
 type Api = <T>(path: string, options?: RequestInit) => Promise<T>;
 type Locale = 'ar'|'fr'|'en';
@@ -107,7 +108,7 @@ export function LeadWorkflow({ lead, role, locale, api, onChanged }: {
       <div className="table-scroll"><table><thead><tr><th>{t.due}</th><th>{t.priority}</th><th>{t.note}</th><th></th></tr></thead><tbody>
         {followups.map((item) => <tr key={item.id}><td>{time(item.due_at)}<small>{item.status === 'OPEN' ?
           new Date(item.due_at) < new Date() ? t.overdue : t.upcoming : item.status === 'COMPLETED' ? t.completed : t.cancelled}</small></td>
-          <td>{item.priority}</td><td>{item.note ?? '—'}</td><td>{item.status === 'OPEN' && <div className="actions">
+          <td>{item.priority}</td><td>{item.note ?? '—'}</td><td><FollowUpNotificationStatus api={api} locale={locale} taskId={item.id} role={role}/>{item.status === 'OPEN' && <div className="actions">
             <button className="link" disabled={busy} onClick={() => { setEditing(editing === item.id ? null : item.id); setEditDueAt(localInput(item.due_at)); setEditTaskNote(item.note ?? ''); setEditPriority(item.priority); }}>{t.edit}</button>
             <button className="link" disabled={busy} onClick={() => void mutate(`/api/followups/${item.id}`, 'PATCH', { version: item.version, status: 'COMPLETED' })}>{t.complete}</button>
             {role !== 'AGENT' && <button className="link" disabled={busy} onClick={() => void mutate(`/api/followups/${item.id}`, 'PATCH', { version: item.version, status: 'CANCELLED' })}>{t.cancel}</button>}

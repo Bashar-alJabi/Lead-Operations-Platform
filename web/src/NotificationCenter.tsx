@@ -2,6 +2,7 @@ import {useEffect,useRef,useState} from 'react';
 import {NotificationTemplates} from './NotificationTemplates.js';
 import {SLANotificationPreference} from './SLANotificationPreference.js';
 import {LeadNotificationPreferences} from './LeadNotificationPreferences.js';
+import {FollowUpNotificationPreference} from './FollowUpNotifications.js';
 export type NotificationApi=<T>(path:string,options?:RequestInit)=>Promise<T>;
 export type NotificationLocale='ar'|'en'|'fr';
 const words={
@@ -9,7 +10,7 @@ const words={
  ar:{title:'الإشعارات',refresh:'تحديث الإشعارات',more:'إشعارات أقدم',empty:'لا إشعارات في هذه الصفحة.',unread:'غير المقروءة فقط',read:'تحديد كمقروء',markUnread:'تحديد كغير مقروء',open:'فتح الفرصة',history:'سجل حالة القراءة',waiting:'بانتظار قبول موظف',past:'طلب تحويل بشري سابق',preferences:'تفضيلات الإشعارات',enabled:'إشعارات التحويل البشري داخل المنصة',save:'حفظ تفضيل الإشعارات',note:'تؤثر التفضيلات على مركز إشعاراتك. تُحفظ الأحداث وحالة القراءة، وتبقى قائمة التحويل البشري متاحة. إعادة الإسناد تزيل الوصول من المالك السابق فورًا.',version:'الإصدار',readStatus:'مقروء',unreadStatus:'غير مقروء'},
  fr:{title:'Notifications',refresh:'Actualiser les notifications',more:'Notifications précédentes',empty:'Aucune notification sur cette page.',unread:'Non lues uniquement',read:'Marquer comme lue',markUnread:'Marquer comme non lue',open:'Ouvrir le prospect',history:'Historique de lecture',waiting:'En attente de prise en charge humaine',past:'Demande de transfert précédente',preferences:'Préférences de notification',enabled:'Notifications de transfert humain dans la plateforme',save:'Enregistrer la préférence',note:'Les préférences affectent votre centre de notifications. Les événements et les états de lecture sont conservés. La file de transfert reste disponible. La réattribution retire immédiatement l’accès du propriétaire précédent.',version:'Version',readStatus:'Lue',unreadStatus:'Non lue'},
 };
-type Item={id:string;eventType:string;leadId:string;createdAt:string;version:number;isRead:boolean;waiting:boolean;title:string;body:string};
+type Item={id:string;eventType:string;leadId:string;createdAt:string;version:number;isRead:boolean;waiting:boolean;title:string;body:string;followUp:{id:string;observedDueAt:string;currentDueAt:string;status:'OPEN'|'COMPLETED'|'CANCELLED';currentlyDue:boolean}|null};
 type Feed={items:Item[];nextCursor:string|null};
 type Preference={enabled:boolean;version:number};
 type History={items:{version:number;is_read:boolean;created_at:string}[];nextVersion:number|null};
@@ -35,7 +36,8 @@ export function NotificationCenter({locale,api,user,branches,onOpenLead,onChange
   <label><input type="checkbox" checked={unreadOnly} disabled={busy} onChange={e=>setUnreadOnly(e.target.checked)}/>{t.unread}</label>
   {error&&<p role="alert">{error}</p>}{feed&&<>{!feed.items.length&&<p>{t.empty}</p>}{feed.items.map(item=><article className="panel" key={item.id} data-notification={item.id} style={{minWidth:0,overflowWrap:'anywhere'}}>
    <h3 dir="auto">{item.title}</h3><p dir="auto" style={{whiteSpace:'pre-wrap'}}>{item.body}</p><time dateTime={item.createdAt}>{new Date(item.createdAt).toLocaleString(locale)}</time>
-   <p>{item.isRead?t.readStatus:t.unreadStatus} · {item.eventType.startsWith('LEAD_')?{ar:'حدث تشغيلي محفوظ',en:'Recorded operational event',fr:'Événement opérationnel enregistré'}[locale]:item.waiting?t.waiting:item.eventType==='AI_HANDOFF_SLA_EXCEEDED'?{ar:'تنبيه استجابة سابق',en:'Historical response alert',fr:'Alerte de réponse historique'}[locale]:t.past}</p>
+   <p>{item.isRead?t.readStatus:t.unreadStatus} · {item.eventType==='FOLLOW_UP_DUE'?item.followUp?.currentlyDue?{ar:'متابعة مستحقة حاليًا',en:'Currently due follow-up',fr:'Suivi actuellement arrivé à échéance'}[locale]:{ar:'تنبيه استحقاق سابق؛ راجع حالة المهمة الحالية',en:'Historical due notice; check the current task',fr:'Notification d’échéance historique ; vérifiez la tâche actuelle'}[locale]:item.eventType.startsWith('LEAD_')?{ar:'حدث تشغيلي محفوظ',en:'Recorded operational event',fr:'Événement opérationnel enregistré'}[locale]:item.waiting?t.waiting:item.eventType==='AI_HANDOFF_SLA_EXCEEDED'?{ar:'تنبيه استجابة سابق',en:'Historical response alert',fr:'Alerte de réponse historique'}[locale]:t.past}</p>
+   {item.followUp&&<p>{{ar:'الموعد المرصود',en:'Observed due time',fr:'Échéance observée'}[locale]}: {new Date(item.followUp.observedDueAt).toLocaleString(locale)} · {{ar:'الموعد الحالي',en:'Current due time',fr:'Échéance actuelle'}[locale]}: {new Date(item.followUp.currentDueAt).toLocaleString(locale)} · {{OPEN:{ar:'مفتوحة',en:'Open',fr:'Ouverte'},COMPLETED:{ar:'مكتملة',en:'Completed',fr:'Terminée'},CANCELLED:{ar:'ملغاة',en:'Cancelled',fr:'Annulée'}}[item.followUp.status]?.[locale]}</p>}
    <button disabled={busy} onClick={()=>void change('/api/notifications/'+item.id+'/state',{version:item.version,isRead:!item.isRead})}>{item.isRead?t.markUnread:t.read}</button>
    <button disabled={busy} onClick={()=>onOpenLead(item.leadId)}>{t.open}</button><button disabled={busy} onClick={()=>void readHistory(item.id)}>{t.history}</button>
   </article>)}{feed.nextCursor&&<button disabled={busy} onClick={()=>void read(feed.nextCursor!)}>{t.more}</button>}</>}
@@ -45,5 +47,6 @@ export function NotificationCenter({locale,api,user,branches,onOpenLead,onChange
   {user.role!=='AGENT'&&<NotificationTemplates locale={locale} api={api} user={{...user,role:user.role}} branches={branches}/>}
   <SLANotificationPreference locale={locale} api={api} userId={user.id} onChanged={()=>{onChanged();void read();}}/>
   <LeadNotificationPreferences locale={locale} api={api} userId={user.id} onChanged={()=>{onChanged();void read();}}/>
+  <FollowUpNotificationPreference locale={locale} api={api} userId={user.id} onChanged={()=>{onChanged();void read();}}/>
  </section>;
 }

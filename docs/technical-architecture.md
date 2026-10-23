@@ -1,5 +1,9 @@
 # المعمارية التقنية
 
+## إشعارات استحقاق المهام — Native165
+
+جدول تشغيل دائم لكل Follow-up، ورصد immutable من current OPEN task وDB clock، وحدث واحد لكل task/due instant داخل نفس transaction التي تحفظ Audit. الفشل محلي bounded ثم DEAD_LETTER، مع current-authorized CAS recovery وسجل وواجهة. لا customer send أو AI inference. قراءة المرشحين محدودة ومفهرسة بـstatement_timestamp، والإثبات النهائي بـclock_timestamp تحت parent/task/queue locks. نفس In-App Centre والتفضيلات والصياغة الحالية، مع اشتراط current task owner وLead owner للـAgent. تاريخ الحدث محفوظ وcurrent due/status مستقلان عنه. [العقد والتشغيل وحدود الإثبات](follow-up-notifications.md). بقية أنواع الإشعارات والقنوات وAutomation/Analytics ما زالت مطلوبة.
+
 ## إشعارات Lead والإسناد — Native164
 
 توسيع notification_event الحالية بمصادر fresh intake receipt وassignment history،معimmutable native source/scope/time proof وUNIQUEevent/source وatomic Audit،دونfan-out لكلuser أوqueue غيرضروريةلـIn-App. Conversation اختياريةللأحداثالجديدة فقط،وHandoff/SLA تحتفظبـFK/guards الأصلية. Centre/preferences/wording/history الحالية تعيدcurrent Lead access وSession؛تغييرالمالك يسحبالوصولالسابق دونحذفالتاريخ. [العقد والاختبارات](lead-assignment-notifications.md). بقيةNotifications والقنوات وAutomation مازالتناقصة؛هذهليستgeneric event bus أوNotification module كاملة.

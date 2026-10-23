@@ -1,5 +1,19 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: إشعارات المتابعات المستحقة — 2026-10-23
+
+استؤنف من `3020f9a` النظيفة والمرفوعة. أوقفت عمليتا Preview وحاويتها وشبكتها فقط،وتحررت5174/3300/55432 مع حفظ ملفاتها وvolume بياناتها الاصطناعية. PostgreSQL/ClamAV للتطوير كانتا متوقفتين مسبقًا؛شُغّلتا للاختبارات مع حفظ volumes وأصبحتا healthy. لم تُعد المعاينة ولم تُحذف بياناتها أو بيانات التطوير/الاختبار.
+
+Native165 وdurable bounded worker وcurrent DB-clock OPEN task observation،وunique task/due وnative proof/immutable source/atomic Audit وcurrent task-owner+Lead scope/Session وCentre/preferences/wording/history وfailure/recovery API/UI مكتملة لهذه baseline. [العقد](follow-up-notifications.md). الإشعار مستقل عن customer messaging أوAI follow-up؛الحدث التاريخي لا يدّعي أن المهمة ما زالت مستحقة.
+
+**البوابة النهائية ناجحة على آخر الكود:** migrations001–165 development/test،Backend/Web build/typecheck وdiff check،**178/178unit و92/92full Docker PostgreSQL integration** (218.0s) و**56/56full Edge Browser E2E** (3.0m). Focused PG3/3 وBrowser2/2 سبقت البوابة،والـfull PG تشمل regression رابعًا لدقة الموعد. الصورة العربية390px فُحصت دونoverflow/XSS/duplicate keys. Vite830.92KB/gzip236.85KB warning باقية ضمن backlog؛الأزمنة المحلية ليست capacity guarantee.
+
+**الإثبات والإصلاحات:** ثماني workers وread CAS وrecovery requests،future/complete/cancel/reschedule وactual parent-lock wait،current task+Lead ownership/reassignment/foreign scope/session denial،independent preferences/wording/history،native forgery/immutability denial،Audit rollback وخمس retries ثمDEAD_LETTER واستعادة مخولة وcompiled worker startup. إصلاح PATCH يحتفظ بدقة due_at داخل PostgreSQL عند غياب موعد جديد،فلا يولد note edit تنبيهًا ثانيًا بسبب microsecond rounding. صُححت fixtures لأسماء الجداول وقفل Branch الذي منع FK Audit،وOrigin لطلبات Browser control دون تغيير CSRF أو تخفيف الاختبارات. Full PG91/91 الأولية سبقت precision fix؛النتيجة المعتمدة النهائية92/92 تشملها. لم تُعدّل migration مطبقة.
+
+**الحالة والحفظ:** هذا الجزء **Implemented وPostgreSQL/Local Browser Verified**؛Notifications والمنصة غير مكتملتين. لا external Provider أوcredential أوcustomer/financial mutation ناتجة عن إشعار المتابعة. AI/Providers تبقى Mock/Sandbox Verified محليًا و**Live Verification Pending External Credential/Approval**،والاستخدام الحي معطل. تُحفظ هذه الحالة وcoverage/gap-review/plan/architecture/runbook والعقد مع الكود في commit/push للفرع الحالي فقط. لا feature قيد التنفيذ أوgate فاشلة عند هذا الحفظ.
+
+**الخطوة التالية الدقيقة:** إشعارات Payment وEnrollment داخل المنصة من actual trusted Payment CONFIRMED transition وfresh Enrollment فقط، مع native source/scope/time/immutability/idempotency وcurrent Lead access وCentre/preferences/wording/history/Backend/UI/PG/Browser. Native التالية166. لا event من success page أوcustomer claim أوAlma IPN أوcheckout/capture ACK،ولا إعادة تنفيذ financial providers. يليها attention/Integration-System events والقنوات المفعلة وmandatory policies،ثمAutomation وtrusted Analytics/Search-Bulk/Import-Export/Google Sheets/Email وبقية المتطلبات وفق [المراجعة الشاملة](platform-gap-review.md). لا تحسينات AI/provider اختيارية.
+
 ## آخر حالة مستقرة: إشعارات Lead والإسناد داخل المنصة — 2026-10-23
 
 استؤنف من `5495e9f` المحفوظة والمرفوعة، بعد إكمال Initial Contact ومراجعة جميع فجوات المنصة. Native164 تضيف أحداث `LEAD_CREATED` و`LEAD_ASSIGNED` و`LEAD_REASSIGNED` إلى مركز الإشعارات الحالي، من fresh intake receipt وactual assignment history فقط. Backend وDB guards وcurrent Lead/Branch/Organization/Session authorization والتفضيلات والصياغة وسجل القراءة والواجهة بـar/en/fr مكتملة لهذا الجزء. [العقد](lead-assignment-notifications.md).

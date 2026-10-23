@@ -1,5 +1,13 @@
 # خطة التنفيذ
 
+## أحدث checkpoint: Follow-up due In-App — Native165
+
+DB-clock current OPEN task وdurable worker/observation وnative task/due dedup وcurrent task+Lead ACL وCentre/preferences/wording/history وfailure/recovery API/UI مكتملة لهذه baseline. **178unit/92full Docker PG/56full Edge Browser** و001–165development/test وBackend/Web build/typecheck/diff check ناجحة. [العقد](follow-up-notifications.md). لاNotifications كاملة أوAI follow-up send من هذا الجزء. تُحفظ commit/push قبل أي مجموعة جديدة.
+
+**التالي الدقيق:** إشعارات Payment وEnrollment داخل المنصة من actual trusted Payment CONFIRMED transition وfresh Enrollment فقط، مع native source/scope/time/immutability/idempotency وcurrent Lead access وCentre/preferences/wording/history/Backend/UI/PG/Browser. Native التالية166. لا event من success page أوcustomer claim أوAlma IPN أوcheckout/capture ACK،ولا إعادة تنفيذ financial providers. يليها attention/Integration-System events والقنوات المفعلة وmandatory policies،ثمAutomation وtrusted Analytics/Search-Bulk/Import-Export/Google Sheets/Email وبقية المتطلبات وفق [المراجعة الشاملة](platform-gap-review.md). لا تحسينات AI/provider اختيارية.
+
+الأقسام التالية تاريخ checkpoints؛ترتيب الاعتماد الحالي أعلاه وplatform-gap-review.
+
 ## أحدث checkpoint: إشعارات Lead والإسناد — Native164
 
 أحداث New Lead/Assigned/Reassigned منfresh receipt/history معnative immutable proof وcurrent ACL وCentre/preferences/wording/read history وUI مكتملةلهذاالجزء. **178unit/88full Docker PG/54full Edge Browser** و001–164 وBackend/Web build/typecheck/diff check ناجحة. [العقد](lead-assignment-notifications.md). حفظcommit/push لهذهالمرحلة يسبقأيعملجديد؛Notifications الكاملة والمنصة مازالتناقصة.

@@ -16,6 +16,7 @@ import { renderTemplateUrl } from '../src/messaging/approved-template.js';
 import { processOneInboundEvent } from '../src/messaging/inbound-events.js';
 import { processOneAIHumanHandoff } from '../src/ai/customer-handoff.js';
 import { processOneHandoffSLATimer } from '../src/ai/handoff-sla.js';
+import {processOneFollowUpNotification} from '../src/follow-up-notifications.js';
 import { processOneAIHandoffSummary } from '../src/ai/handoff-summary.js';
 import { processOneTemplateSample } from '../src/media/template-sample-worker.js';
 import { processOneSourceEvaluation } from '../src/sources/evaluation.js';
@@ -262,6 +263,22 @@ const app = await buildApp(db, { logger:false,globalRateLimitMax:10000,mediaStor
     },
   } });
 app.get('/',async (_request,reply)=>reply.type('text/html').send(await readFile(resolve('dist-web/index.html'))));
+app.post<{Body:{failTaskId?:string;fail?:boolean;process?:boolean}}>('/__test__/follow-up-notifications',{
+ schema:{body:{type:'object',additionalProperties:false,properties:{failTaskId:{type:'string',format:'uuid'},fail:{type:'boolean'},process:{type:'boolean'}}}},
+},async request=>{
+ if(typeof request.headers.authorization!=='string'||!safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
+ if(request.body.failTaskId){
+  if(!(await db`SELECT 1 FROM follow_up f JOIN lead l ON l.id=f.lead_id WHERE f.id=${request.body.failTaskId} AND l.organization_id=${org}`).length)throw new HttpError(404,'SYNTHETIC_TASK_NOT_FOUND');
+  await db`CREATE TABLE IF NOT EXISTS e2e_follow_up_notification_failure(follow_up_id uuid PRIMARY KEY REFERENCES follow_up(id),enabled boolean NOT NULL)`;
+  await db`INSERT INTO e2e_follow_up_notification_failure VALUES(${request.body.failTaskId},${request.body.fail??false}) ON CONFLICT(follow_up_id) DO UPDATE SET enabled=excluded.enabled`;
+  await db`CREATE OR REPLACE FUNCTION e2e_reject_follow_up_notice() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+   IF NEW.action='IN_APP_NOTIFICATION_RECORDED' AND NEW.target_type='FOLLOW_UP' AND EXISTS(SELECT 1 FROM e2e_follow_up_notification_failure WHERE follow_up_id::text=NEW.target_id AND enabled) THEN RAISE EXCEPTION 'NeverExposeBrowserSQLSecret_123';END IF;RETURN NEW;END $$`;
+  await db`DROP TRIGGER IF EXISTS e2e_reject_follow_up_notice ON audit_log`;
+  await db`CREATE TRIGGER e2e_reject_follow_up_notice BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION e2e_reject_follow_up_notice()`;
+ }
+ let processed=0;if(request.body.process)for(let n=0;n<25&&await processOneFollowUpNotification(db);n++)processed++;
+ return {processed};
+});
 app.post('/__test__/ai-simulation',async(request)=>{
   if(typeof request.headers.authorization!=='string' || !safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
   return { processed:await processOneAISimulation(db,{ retryDelaySeconds:0,adapters:aiInferenceAdapters }) };

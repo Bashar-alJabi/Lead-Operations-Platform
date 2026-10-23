@@ -2,8 +2,8 @@ import { HttpError } from './security.js';
 
 export type NotificationLanguage = 'ar'|'en'|'fr';
 export const notificationEvent = 'AI_HANDOFF_REQUESTED' as const;
-export type NotificationEventType=typeof notificationEvent|'AI_HANDOFF_SLA_EXCEEDED'|'LEAD_CREATED'|'LEAD_ASSIGNED'|'LEAD_REASSIGNED';
-export const notificationEvents:readonly NotificationEventType[]=[notificationEvent,'AI_HANDOFF_SLA_EXCEEDED','LEAD_CREATED','LEAD_ASSIGNED','LEAD_REASSIGNED'];
+export type NotificationEventType=typeof notificationEvent|'AI_HANDOFF_SLA_EXCEEDED'|'LEAD_CREATED'|'LEAD_ASSIGNED'|'LEAD_REASSIGNED'|'FOLLOW_UP_DUE';
+export const notificationEvents:readonly NotificationEventType[]=[notificationEvent,'AI_HANDOFF_SLA_EXCEEDED','LEAD_CREATED','LEAD_ASSIGNED','LEAD_REASSIGNED','FOLLOW_UP_DUE'];
 export function requireNotificationBodyTypes(value:unknown,flag:string,strings:readonly string[]=[]):void {
  if(!value||typeof value!=='object'||Array.isArray(value))throw new HttpError(400,'INVALID_NOTIFICATION_REQUEST');
  const body=value as Record<string,unknown>;
@@ -16,6 +16,11 @@ export const notificationDefaults = {
  fr:{title:'Suivi humain demandé — {{campaign}}',body:'La conversation nécessite un suivi humain. Ouvrez le prospect pour consulter les détails.',owner:'Non attribué'},
 } as const;
 export const notificationDefaultsByEvent:Record<NotificationEventType,Record<NotificationLanguage,{title:string;body:string;owner:string}>>={
+ FOLLOW_UP_DUE:{
+  ar:{...notificationDefaults.ar,title:'موعد متابعة مستحق — {{campaign}}',body:'رُصد استحقاق مهمة متابعة. راجع حالتها وموعدها الحاليين قبل العمل؛ يُحفظ هذا التنبيه حتى بعد الإكمال أو إعادة الجدولة.'},
+  en:{...notificationDefaults.en,title:'Follow-up due — {{campaign}}',body:'A follow-up task was observed due. Check its current status and schedule before acting; this notice is retained after completion or rescheduling.'},
+  fr:{...notificationDefaults.fr,title:'Suivi arrivé à échéance — {{campaign}}',body:'Une tâche de suivi a atteint son échéance. Vérifiez son état et son échéance actuels ; cette notification reste conservée après la clôture ou la reprogrammation.'},
+ },
  LEAD_CREATED:{
   ar:{...notificationDefaults.ar,title:'فرصة جديدة — {{campaign}}',body:'وصلت فرصة جديدة إلى الحملة. افتح الفرصة لمراجعة بياناتها ومالكها الحالي.'},
   en:{...notificationDefaults.en,title:'New lead — {{campaign}}',body:'A new lead arrived in this campaign. Open the lead to review its details and current owner.'},
