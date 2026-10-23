@@ -1,3 +1,4 @@
+import {assertFinancialNotifications} from '../test/financial-notification-support.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID,randomBytes } from 'node:crypto';
@@ -185,4 +186,5 @@ test('PayPal actual adapter completes scoped durable issuance/capture/trusted fi
     await signed(o);await drain();const p=(await db`SELECT state FROM payment_record WHERE intent_id=${o.intentId}`)[0]!;assert.equal(p.state,'CONFIRMED');assert.equal(await countEnrollment(),4);
     await db`UPDATE user_session SET revoked_at=NULL WHERE id=${users.agent!.session}`;
   });
+  await assertFinancialNotifications(db);
 });

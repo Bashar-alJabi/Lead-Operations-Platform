@@ -1,8 +1,20 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: إشعارات Payment وEnrollment — 2026-10-23
+
+استؤنف بعد حفظ ورفع `5db4a3b` النظيفة؛Native166 تحفظ PAYMENT_CONFIRMED وENROLLMENT_CONFIRMED كمصدرين منفصلين من actual trusted financial records فقط،مع native source/scope/time/fresh proof وFK/shape/unique/immutability وatomic Audit. نفسcurrent Lead ACL وCentre/preferences/scoped wording/read history والواجهة بـar/en/fr. [العقد](financial-notifications.md). لا تغيير لـfinancial confirmation/reconciliation أوProvider adapters،ولاevent منsuccess page/customer claim/receipt upload/checkout-capture ACK/Alma IPN.
+
+**البوابة النهائية ناجحة:** migrations001–166 development/test،Backend/Web build/typecheck وdiff check،**178/178unit و93/93full Docker PostgreSQL integration** (248.5s) و**57/57full Edge Browser E2E** (7.8m). Focused financial PG22/22 وBrowser1/1 ناجحة أيضًا،وصورةArabic390px فُحصت دونoverflow/XSS/duplicate keys. Vite832.23KB/gzip237.19KB warning باقية ضمنbacklog؛الأزمنة المحلية ليستcapacity guarantee. لاgate فاشلة أوFeature قيد التنفيذ عند هذا الحفظ.
+
+**حدود الإثبات:** actual financial domain workflows لـStripe معadapter test double،وPayPal/Alma actual HTTP adapters معmocks،وBank authorized manual/signed synthetic feed. بعدduplicate/out-of-order/failure/UNKNOWN/rotation/requester disable cases،يوجدحدث واحدلكلconfirmed Payment ولكلEnrollment. السيناريو الجديد يثبتثمانيapprovals/read CAS وnative forgery/immutability/current scope/session denial وAudit failure فيإشعارEnrollment ترجعPayment وإشعارها وEnrollment وBank confirmation كلها. UI تثبتفصلالحدثين/التفضيلين/الصياغة وhistory/failed-read clearing وcurrent owner revocation،دونFake Bank API أوسندعميلكإثباتدفع.
+
+**الحالة والحفظ:** هذهbaseline **Implemented وMock/PostgreSQL/Local Browser Verified**،وليستNotifications أوPlatform Complete. Providers/AI **Live Verification Pending External Credential/Approval** والاستخدام الحي معطل؛لاSandbox account خارجي استُعمل أوLive claim. Preview السابقة مازالت متوقفة وملفاتها وvolume بياناتها محفوظة،وحاويتا تطويرPostgreSQL/ClamAV محفوظتان. progress/coverage/gap-review/plan/architecture/runbook والعقد تُحفظ معالكود فيcommit/push للفرعالحالي فقط.
+
+**الخطوة التالية الدقيقة:** Conversation Needs Attention In-App: occurrence immutable من actual current conversation.needs_attention_reason transition،مع منع تكرار نفس reason بلا انتقال جديد،وcurrent-vs-historical state وcurrent Lead/Branch/Organization/Session ACL،ثمCentre/preferences/wording/history وBackend/native/PG/Browser. Native التالية167؛لا Controller أوsender migration أوresend/unblock من الإشعار،ولا إعادة إرسال UNKNOWN. بعده unresolved/Lead attention وIntegration-System alerts من scope مثبت دون تخمين Lead،والقنوات المفعلة/mandatory policies،ثمAutomation typed rules/current services/idempotency/loop guards وtrusted Analytics/Search-Bulk/Import-Export/Google Sheets/Email وبقية المتطلبات وفق [المراجعة الشاملة](platform-gap-review.md). لا AI/provider refinements اختيارية.
+
 ## آخر حالة مستقرة: إشعارات المتابعات المستحقة — 2026-10-23
 
-استؤنف من `3020f9a` النظيفة والمرفوعة. أوقفت عمليتا Preview وحاويتها وشبكتها فقط،وتحررت5174/3300/55432 مع حفظ ملفاتها وvolume بياناتها الاصطناعية. PostgreSQL/ClamAV للتطوير كانتا متوقفتين مسبقًا؛شُغّلتا للاختبارات مع حفظ volumes وأصبحتا healthy. لم تُعد المعاينة ولم تُحذف بياناتها أو بيانات التطوير/الاختبار.
+استؤنف من `3020f9a` النظيفة والمرفوعة. أوقفت عمليتا Preview وحاويتها وشبكتها فقط،وتحررت5174/3300/55432 مع حفظ ملفاتها وvolume بياناتها الاصطناعية. PostgreSQL/ClamAV للتطوير كانتا متوقفتين مسبقًا؛شُغّلتا للاختبارات مع حفظ volumes وأصبحتا healthy. لم تُعد المعاينة وبياناتها محفوظة. أوامر إيقاف Preview لم تستهدف بيانات أوvolumes التطوير/الاختبار؛بوابات fixtures اللاحقة استعملت قاعدة الاختبار المعزولة المعتادة.
 
 Native165 وdurable bounded worker وcurrent DB-clock OPEN task observation،وunique task/due وnative proof/immutable source/atomic Audit وcurrent task-owner+Lead scope/Session وCentre/preferences/wording/history وfailure/recovery API/UI مكتملة لهذه baseline. [العقد](follow-up-notifications.md). الإشعار مستقل عن customer messaging أوAI follow-up؛الحدث التاريخي لا يدّعي أن المهمة ما زالت مستحقة.
 

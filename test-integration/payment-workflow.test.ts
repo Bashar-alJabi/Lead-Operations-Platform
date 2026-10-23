@@ -1,3 +1,4 @@
+import {assertFinancialNotifications} from '../test/financial-notification-support.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { validatePaymentCredentials } from '../src/payments/providers.js';
@@ -243,4 +244,5 @@ test('Durable payment issuance and trusted confirmation preserve authorization, 
       db`UPDATE payment_receipt_attempt SET credential_repair_id=NULL WHERE event_id=${event.id} AND number=6`])await assert.rejects(mutation);
     for(const hidden of [replacement,key,'ciphertext',accountRef])assert.equal((await api('GET',cr+'/webhook-events')).body.includes(hidden),false);
   });
+  await assertFinancialNotifications(db);
 });

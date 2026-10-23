@@ -1,5 +1,11 @@
 # دليل التشغيل والتطوير
 
+## إشعارات تأكيد الدفع والتسجيل — Native166
+
+من Notifications راجع«تأكيد دفع» و«تأكيد تسجيل» كحدثين منفصلين،ثم افتح Lead لمراجعة المصدر والمبلغ والدفع والتسجيل المرتبطين. الحدث لا يحل محل financial record. اختر كل نوع مستقلًا من مجموعة التفضيلات المالية،وللإدارة wording editor الحالي معdefaults واللغة/النطاق/history. تغيير مالك Lead يسحب وصول Agent السابق ولا يحذف الأحداث.
+
+لا worker جديدة لـIn-App financial notices؛تحفظ مع المعاملة المالية الموثوقة نفسها. فشل Notification/Audit يلغي المعاملة ويستعمل نفس مسار recovery/retry المالي الموثق بعد إصلاح السبب،دون تكرار financial POST أوUNKNOWN replay أوSQL insert. لا تحاول تأكيد عميل من success page أوIPN أورفع إيصال لإظهار إشعار. Bank authorized manual reconciliation تبقى مختلفة عن trusted feed؛التفاصيل داخل Lead والسجل المالي. [العقد وحدود المصدر والتحقق](financial-notifications.md).
+
 ## إشعارات المتابعات المستحقة — Native165
 
 بعد migrations والبناء شغّل `npm run worker:notifications` ببيئة التطوير المعتادة وقاعدة التطوير، كعملية مستقلة. لا حاجة لتشغيل Preview أو AI/Messaging workers لهذا النوع. worker تقرأ المهام الحالية المفتوحة المستحقة، وتعيد الفحص قبل حفظ الإشعار؛تعطلها يؤخر الرصد ويحفظ الجدول على DB. الإعدادات والحدود في[العقد](follow-up-notifications.md). لا تستعمل قاعدة الاختبار للمعاينة ولا تحذف أي volumes.

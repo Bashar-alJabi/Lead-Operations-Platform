@@ -1,5 +1,9 @@
 # المعمارية التقنية
 
+## إشعارات التأكيد المالي — Native166
+
+AFTER trusted Payment→CONFIRMED transition وfresh Enrollment تحفظ حدثين منفصلين داخل نفس transaction المالية وAudit. لا source من callback غير موثوق أوcustomer claim أوACK،ولا صلاحية مالية منNotification. Native source/scope/time/own-row proof وFK/shape وunique event/source تحفظ provider independence وimmutable history. نفس current Lead ACL وCentre/preferences/wording/history،بلا recipient fan-out أوCustomer Conversation أوworker إضافية للإرسال الداخلي. [العقد وحدود scope/التحقق](financial-notifications.md). القنوات المفعلة وattention/System alerts وmandatory policies ثمAutomation/Analytics ما زالت مطلوبة.
+
 ## إشعارات استحقاق المهام — Native165
 
 جدول تشغيل دائم لكل Follow-up، ورصد immutable من current OPEN task وDB clock، وحدث واحد لكل task/due instant داخل نفس transaction التي تحفظ Audit. الفشل محلي bounded ثم DEAD_LETTER، مع current-authorized CAS recovery وسجل وواجهة. لا customer send أو AI inference. قراءة المرشحين محدودة ومفهرسة بـstatement_timestamp، والإثبات النهائي بـclock_timestamp تحت parent/task/queue locks. نفس In-App Centre والتفضيلات والصياغة الحالية، مع اشتراط current task owner وLead owner للـAgent. تاريخ الحدث محفوظ وcurrent due/status مستقلان عنه. [العقد والتشغيل وحدود الإثبات](follow-up-notifications.md). بقية أنواع الإشعارات والقنوات وAutomation/Analytics ما زالت مطلوبة.

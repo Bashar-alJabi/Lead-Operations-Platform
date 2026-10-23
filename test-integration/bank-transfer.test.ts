@@ -135,3 +135,43 @@ test('Bank signed feed uses durable independent reconciliation, exact original e
   assert.equal((await api('GET',`/api/payments/bank-accounts/${accountId}/events`,undefined,'agent')).statusCode,403);
   assert.equal((await api('GET',`/api/payments/bank-accounts/${accountId}/events`,undefined,'other')).statusCode,404);
 });
+
+test('Financial notifications require actual trusted Payment and separate Enrollment, roll back atomically and retain current scoped personal preferences/wording/history',async t=>{
+ const f=await fixture(t),{db,api,lead,branch,users}=f,r=await f.request(),path=`/api/leads/${lead}/bank-transfers/${r.id}/confirm`,proof=f.approval(r);
+ const feed=async(who='manager')=>{const response=await api('GET','/api/notifications?language=en&limit=50',undefined,who);assert.equal(response.statusCode,200,response.body);return response.json().items.filter((n:any)=>n.eventType==='PAYMENT_CONFIRMED'||n.eventType==='ENROLLMENT_CONFIRMED') as {id:string;eventType:string;paymentId:string;enrollmentId:string|null;title:string;version:number}[];};
+ assert.deepEqual(await feed(),[]);assert.equal((await api('POST',path,{...proof,bankVerified:false})).statusCode,400);assert.deepEqual(await feed(),[]);
+ await db`CREATE FUNCTION reject_financial_notice_fixture() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='IN_APP_NOTIFICATION_RECORDED' AND NEW.detail->>'eventType'='ENROLLMENT_CONFIRMED' THEN RAISE EXCEPTION 'FINANCIAL_NOTICE_AUDIT_FAILURE';END IF;RETURN NEW;END $$`;
+ await db`CREATE TRIGGER reject_financial_notice_fixture BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION reject_financial_notice_fixture()`;
+ try{assert.equal((await api('POST',path,proof)).statusCode,500);
+  for(const table of ['bank_transfer_confirmation','payment_record','enrollment','notification_event'])assert.equal((await db.unsafe('SELECT count(*)::int AS n FROM '+table))[0]!.n,0);
+ }finally{await db`DROP TRIGGER reject_financial_notice_fixture ON audit_log`;await db`DROP FUNCTION reject_financial_notice_fixture()`;}
+ const approvals=await Promise.all(Array.from({length:8},()=>api('POST',path,proof)));assert.ok(approvals.every(n=>n.statusCode===200));
+ const paid=approvals[0]!.json(),items=await feed();assert.deepEqual(items.map(n=>n.eventType).sort(),['ENROLLMENT_CONFIRMED','PAYMENT_CONFIRMED']);
+ assert.ok(items.every(n=>n.paymentId===paid.payment_id));assert.equal(items.find(n=>n.eventType==='ENROLLMENT_CONFIRMED')!.enrollmentId,paid.enrollment_id);
+ assert.equal(items.find(n=>n.eventType==='PAYMENT_CONFIRMED')!.enrollmentId,null);assert.equal((await feed('agent')).length,2);
+ for(const who of ['second','other','foreign']){
+  assert.deepEqual(await feed(who),[]);assert.equal((await api('GET','/api/notifications/'+items[0]!.id+'/history',undefined,who)).statusCode,404);
+  assert.equal((await api('PUT','/api/notifications/'+items[0]!.id+'/state',{version:0,isRead:true},who)).statusCode,404);
+ }
+ for(const event of ['PAYMENT_CONFIRMED','ENROLLMENT_CONFIRMED']){
+  const root='/api/notification-templates/'+event+'/BRANCH/'+branch+'/en',body={version:0,title:event+' {{campaign}}',body:'Current owner {{owner}} <img literal>',active:true,reason:'Approved financial wording'};
+  assert.equal((await api('PUT',root,body,'agent')).statusCode,403);assert.equal((await api('PUT',root,body,'other')).statusCode,404);assert.equal((await api('PUT',root,body)).statusCode,200);
+  assert.equal((await api('GET',root+'/history')).json().items.length,1);
+ }
+ assert.ok((await feed()).every(n=>n.title.startsWith(n.eventType)));
+ const pref='/api/notification-preferences/PAYMENT_CONFIRMED';assert.equal((await api('PUT',pref,{version:0,enabled:false},'agent')).statusCode,200);
+ assert.deepEqual((await feed('agent')).map(n=>n.eventType),['ENROLLMENT_CONFIRMED']);assert.equal((await feed()).length,2);
+ assert.equal((await api('PUT',pref,{version:1,enabled:true},'agent')).statusCode,200);
+ const event=items[0]!,reads=await Promise.all(Array.from({length:8},()=>api('PUT','/api/notifications/'+event.id+'/state',{version:0,isRead:true},'agent')));
+ assert.equal(reads.filter(n=>n.statusCode===200).length,1);assert.equal(reads.filter(n=>n.statusCode===409).length,7);
+ assert.equal((await api('GET','/api/notifications/'+event.id+'/history',undefined,'agent')).json().items.length,1);
+ for(const type of ['PAYMENT_CONFIRMED','ENROLLMENT_CONFIRMED'])await assert.rejects(db`INSERT INTO notification_event(event_type,payment_id,enrollment_id) VALUES(${type},${paid.payment_id},${paid.enrollment_id})`,/FRESH_OPERATION_REQUIRED/);
+ await assert.rejects(db`UPDATE notification_event SET created_at=clock_timestamp() WHERE id=${event.id}`,/IMMUTABLE/);
+ await assert.rejects(db`DELETE FROM notification_event WHERE id=${event.id}`,/IMMUTABLE/);
+ assert.equal((await api('POST','/api/leads/'+lead+'/assignment',{version:1,agentId:users.second!.id,reason:'Financial notice reassignment'})).statusCode,200);
+ assert.equal((await feed('agent')).length,0);assert.equal((await feed('second')).length,2);
+ assert.equal((await api('PUT','/api/notifications/'+event.id+'/state',{version:1,isRead:false},'agent')).statusCode,404);
+ assert.equal((await api('GET','/api/notifications/'+event.id+'/history',undefined,'agent')).statusCode,404);
+ await db`UPDATE user_session SET revoked_at=clock_timestamp() WHERE id=${users.manager!.session}`;
+ assert.equal((await api('GET','/api/notifications')).statusCode,401);
+});

@@ -24,7 +24,7 @@ test('Notification templates use current active campaign then branch then organi
  templates.push({scope:'BRANCH',resource_id:'b',branch_id:'b',title:'SLA only',body:'SLA body',version:1,active:true,event_type:'AI_HANDOFF_SLA_EXCEEDED'});
  assert.equal(effectiveNotificationTemplate(templates,'o','b','c','en','AI_HANDOFF_SLA_EXCEEDED').title,'SLA only');
  assert.notEqual(effectiveNotificationTemplate(templates,'o','b','c','en').title,'SLA only');
- for(const event of ['LEAD_CREATED','LEAD_ASSIGNED','LEAD_REASSIGNED','FOLLOW_UP_DUE'] as const){
+ for(const event of ['LEAD_CREATED','LEAD_ASSIGNED','LEAD_REASSIGNED','FOLLOW_UP_DUE','PAYMENT_CONFIRMED','ENROLLMENT_CONFIRMED'] as const){
   assert.equal(effectiveNotificationTemplate(templates,'o','b','c','en',event).source,'DEFAULT');
   assert.notEqual(effectiveNotificationTemplate([],'o','b','c','fr',event).title,effectiveNotificationTemplate([],'o','b','c','en',event).title);
  }

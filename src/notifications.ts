@@ -2,8 +2,8 @@ import { HttpError } from './security.js';
 
 export type NotificationLanguage = 'ar'|'en'|'fr';
 export const notificationEvent = 'AI_HANDOFF_REQUESTED' as const;
-export type NotificationEventType=typeof notificationEvent|'AI_HANDOFF_SLA_EXCEEDED'|'LEAD_CREATED'|'LEAD_ASSIGNED'|'LEAD_REASSIGNED'|'FOLLOW_UP_DUE';
-export const notificationEvents:readonly NotificationEventType[]=[notificationEvent,'AI_HANDOFF_SLA_EXCEEDED','LEAD_CREATED','LEAD_ASSIGNED','LEAD_REASSIGNED','FOLLOW_UP_DUE'];
+export type NotificationEventType=typeof notificationEvent|'AI_HANDOFF_SLA_EXCEEDED'|'LEAD_CREATED'|'LEAD_ASSIGNED'|'LEAD_REASSIGNED'|'FOLLOW_UP_DUE'|'PAYMENT_CONFIRMED'|'ENROLLMENT_CONFIRMED';
+export const notificationEvents:readonly NotificationEventType[]=[notificationEvent,'AI_HANDOFF_SLA_EXCEEDED','LEAD_CREATED','LEAD_ASSIGNED','LEAD_REASSIGNED','FOLLOW_UP_DUE','PAYMENT_CONFIRMED','ENROLLMENT_CONFIRMED'];
 export function requireNotificationBodyTypes(value:unknown,flag:string,strings:readonly string[]=[]):void {
  if(!value||typeof value!=='object'||Array.isArray(value))throw new HttpError(400,'INVALID_NOTIFICATION_REQUEST');
  const body=value as Record<string,unknown>;
@@ -16,6 +16,16 @@ export const notificationDefaults = {
  fr:{title:'Suivi humain demandé — {{campaign}}',body:'La conversation nécessite un suivi humain. Ouvrez le prospect pour consulter les détails.',owner:'Non attribué'},
 } as const;
 export const notificationDefaultsByEvent:Record<NotificationEventType,Record<NotificationLanguage,{title:string;body:string;owner:string}>>={
+ PAYMENT_CONFIRMED:{
+  ar:{...notificationDefaults.ar,title:'تأكيد دفع — {{campaign}}',body:'حُفظ دفع مؤكد من مصدر معتمد. راجع سجل الدفع في الفرصة للمبلغ ومصدر التأكيد؛ التسجيل سجل منفصل.'},
+  en:{...notificationDefaults.en,title:'Payment confirmed — {{campaign}}',body:'A confirmed payment was recorded from an authorized source. Review the lead payment history for its amount and confirmation source; enrollment is a separate record.'},
+  fr:{...notificationDefaults.fr,title:'Paiement confirmé — {{campaign}}',body:'Un paiement confirmé a été enregistré depuis une source autorisée. Consultez son montant et sa source dans le prospect ; l’inscription est un enregistrement distinct.'},
+ },
+ ENROLLMENT_CONFIRMED:{
+  ar:{...notificationDefaults.ar,title:'تأكيد تسجيل — {{campaign}}',body:'حُفظ تسجيل مستقل مرتبط بدفع مؤكد. افتح الفرصة لمراجعة سجل التسجيل والدفع المرتبط به.'},
+  en:{...notificationDefaults.en,title:'Enrollment confirmed — {{campaign}}',body:'A separate enrollment record was saved against a confirmed payment. Open the lead to review the enrollment and its linked payment.'},
+  fr:{...notificationDefaults.fr,title:'Inscription confirmée — {{campaign}}',body:'Une inscription distincte a été enregistrée pour un paiement confirmé. Consultez l’inscription et le paiement lié dans le prospect.'},
+ },
  FOLLOW_UP_DUE:{
   ar:{...notificationDefaults.ar,title:'موعد متابعة مستحق — {{campaign}}',body:'رُصد استحقاق مهمة متابعة. راجع حالتها وموعدها الحاليين قبل العمل؛ يُحفظ هذا التنبيه حتى بعد الإكمال أو إعادة الجدولة.'},
   en:{...notificationDefaults.en,title:'Follow-up due — {{campaign}}',body:'A follow-up task was observed due. Check its current status and schedule before acting; this notice is retained after completion or rescheduling.'},

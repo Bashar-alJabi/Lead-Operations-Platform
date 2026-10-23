@@ -1,5 +1,13 @@
 # خطة التنفيذ
 
+## أحدث checkpoint: Financial In-App — Native166
+
+Payment/Enrollment notice sources منفصلة منtrusted actual records،معnative immutable proof/unique/atomic Audit وcurrent Lead ACL وCentre/preferences/wording/history وUI. **178unit/93full Docker PG/57full Edge Browser** و001–166development/test وBackend/Web build/typecheck/diff check ناجحة. [العقد](financial-notifications.md). تحفظcommit/push قبلأيعملجديد؛Notifications والمنصة غيرمكتملتين.
+
+**التالي الدقيق:** Conversation Needs Attention In-App: occurrence immutable من actual current conversation.needs_attention_reason transition،مع منع تكرار نفس reason بلا انتقال جديد،وcurrent-vs-historical state وcurrent Lead/Branch/Organization/Session ACL،ثمCentre/preferences/wording/history وBackend/native/PG/Browser. Native التالية167؛لا Controller أوsender migration أوresend/unblock من الإشعار،ولا إعادة إرسال UNKNOWN. بعده unresolved/Lead attention وIntegration-System alerts من scope مثبت دون تخمين Lead،والقنوات المفعلة/mandatory policies،ثمAutomation typed rules/current services/idempotency/loop guards وtrusted Analytics/Search-Bulk/Import-Export/Google Sheets/Email وبقية المتطلبات وفق [المراجعة الشاملة](platform-gap-review.md). لا AI/provider refinements اختيارية.
+
+الأقسام التالية تاريخcheckpoints؛الأولوية الحالية أعلاه وفيplatform-gap-review.
+
 ## أحدث checkpoint: Follow-up due In-App — Native165
 
 DB-clock current OPEN task وdurable worker/observation وnative task/due dedup وcurrent task+Lead ACL وCentre/preferences/wording/history وfailure/recovery API/UI مكتملة لهذه baseline. **178unit/92full Docker PG/56full Edge Browser** و001–165development/test وBackend/Web build/typecheck/diff check ناجحة. [العقد](follow-up-notifications.md). لاNotifications كاملة أوAI follow-up send من هذا الجزء. تُحفظ commit/push قبل أي مجموعة جديدة.

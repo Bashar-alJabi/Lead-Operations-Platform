@@ -1,3 +1,4 @@
+import {assertFinancialNotifications} from '../test/financial-notification-support.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes,randomUUID } from 'node:crypto';
@@ -377,4 +378,5 @@ test('Alma durable one-write and independent native proof enforce concurrency, c
   assert.equal((await db`SELECT state FROM payment_record WHERE intent_id=${waiting}`)[0]!.state,'CONFIRMED');assert.equal((await api('POST',recover,repairBody)).statusCode,409);
   assert.equal((await db`SELECT count(*)::int n FROM payment_confirmation`)[0]!.n,0);
   assert.equal((await db`SELECT count(*)::int n FROM payment_record`)[0]!.n,4);assert.equal((await db`SELECT count(*)::int n FROM enrollment`)[0]!.n,4);
+  await assertFinancialNotifications(db);
 });
