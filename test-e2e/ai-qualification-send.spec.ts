@@ -1,0 +1,81 @@
+import { test, expect, type Page } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { emptyKnowledge } from '../src/ai/knowledge.js';
+import { emptyAIOperationalConfig } from '../src/ai/operational-config.js';
+import { emptyQualification } from '../src/ai/qualification.js';
+
+test('Actual Qualification receipts continue with approved questions and distinct scoped message actions', async ({ browser }) => {
+  const f = JSON.parse(await readFile(resolve('.local/e2e/fixture.json'), 'utf8')) as { password: string; testToken: string }, origin = 'http://127.0.0.1:4100';
+  const managerContext = await browser.newContext({ extraHTTPHeaders: { 'x-e2e-rate-scope': randomUUID() } }), agentContext = await browser.newContext({ extraHTTPHeaders: { 'x-e2e-rate-scope': randomUUID() } });
+  const manager = await managerContext.newPage(), page = await agentContext.newPage(), errors: string[] = [];
+  page.on('pageerror', e => errors.push(e.message)); page.on('console', m => { if (m.type() === 'error' && /same key|unique.*key/i.test(m.text())) errors.push(m.text()); });
+  const login = async (p: Page, user: string) => { await p.goto('/'); await p.getByRole('combobox', { name: 'Language' }).selectOption('en'); await p.getByLabel('Email', { exact: true }).fill(user + '@browser.test'); await p.getByLabel('Password', { exact: true }).fill(f.password); await p.getByRole('button', { name: 'Sign in', exact: true }).click(); await expect(p.getByRole('button', { name: 'Sign out', exact: true })).toBeVisible(); };
+  const headers = { origin }, fixtureHeaders = { origin, authorization: 'Bearer ' + f.testToken };
+  try {
+    await login(manager, 'manager'); await login(page, 'agent');
+    const me = await (await manager.request.get('/api/auth/me')).json(), agent = await (await page.request.get('/api/auth/me')).json();
+    const campaignResponse = await manager.request.post('/api/campaigns', { headers, data: { name: 'Browser Qualification Reply Campaign', branchId: me.branchId, routingMethod: 'MANUAL' } }); expect(campaignResponse.status()).toBe(201); const campaign = (await campaignResponse.json()).id;
+    expect((await manager.request.post('/api/campaigns/' + campaign + '/activate', { headers })).status()).toBe(200);
+    const leadName = 'Browser Qualification Reply Customer', leadResponse = await manager.request.post('/api/leads', { headers, data: { branchId: me.branchId, campaignId: campaign, contact: { name: leadName, phone: '+15556667781' } } }); expect(leadResponse.status()).toBe(201); const lead = (await leadResponse.json()).id;
+    const lv = (await (await manager.request.get('/api/leads/' + lead)).json()).lead.version;
+    expect((await manager.request.post('/api/leads/' + lead + '/assignment', { headers, data: { version: lv, agentId: agent.id, reason: 'Scoped reply conversation' } })).status()).toBe(200);
+    const opened = await page.request.post('/api/leads/' + lead + '/conversations', { headers }); expect(opened.status()).toBe(201); const cv = (await opened.json()).id;
+    const kr = '/api/ai/campaigns/' + campaign + '/knowledge', approved = 'Approved AI reply 100 EUR <img src=x onerror="window.__aiReplyXss=1">';
+    const content = { ...emptyKnowledge(), sections: { ...emptyKnowledge().sections, prices: approved } };
+    expect((await manager.request.put(kr + '/draft', { headers, data: { version: 0, content, reason: 'Synthetic published source' } })).status()).toBe(200);
+    expect((await manager.request.post(kr + '/publish', { headers, data: { version: 1, requestId: randomUUID(), reason: 'Approve reply knowledge' } })).status()).toBe(201);
+    const made = await manager.request.post('/api/ai/connections', { headers, data: { name: 'Browser Qualification Reply', branchId: me.branchId, provider: 'OPENAI', credential: 'BrowserSyntheticAI_Reply123456', reason: 'Synthetic HTTP fixture' } }); expect(made.status()).toBe(201); const connection = (await made.json()).id;
+    expect((await manager.request.post('/api/ai/connections/' + connection + '/test', { headers, data: { version: 1 } })).status()).toBe(200);
+    const profile = await manager.request.post('/api/ai/profiles', { headers, data: { connectionId: connection, name: 'Reply model', task: 'CONVERSATION', modelId: 'Browser-synthetic-model-a', maxOutputTokens: 1024, active: true, reason: 'Synthetic conversation task' } }); expect(profile.status()).toBe(201);
+    expect((await manager.request.put('/api/ai/campaigns/' + campaign + '/configuration', { headers, data: { version: 0, definition: { ...emptyAIOperationalConfig(), profiles: { ...emptyAIOperationalConfig().profiles, CONVERSATION: (await profile.json()).id } }, reason: 'Isolated approved context' } })).status()).toBe(200);
+    expect((await manager.request.put('/api/ai/campaigns/' + campaign + '/tool-policy', { headers, data: { version: 0, definition: { allowedTools: ['updateQualificationField', 'sendConversationMessage', 'requestHumanHandoff'] }, reason: 'Explicit reply tool approval' } })).status()).toBe(200);
+    const q1 = randomUUID(), q2 = randomUUID(), prompt = 'Approved next question <img src=x onerror="window.__qualificationReplyXss=1">?';
+    const definition = { ...emptyQualification(), enabled: true, questions: [
+      { id: q1, prompt: 'Approved first question?', fieldId: null, required: true }, { id: q2, prompt, fieldId: null, required: true }] };
+    expect((await manager.request.put('/api/ai/campaigns/' + campaign + '/qualification', { headers, data: { version: 0, definition, reason: 'Ordered approved Qualification questions' } })).status()).toBe(200);
+    const cr = '/api/leads/' + lead + '/messaging-consent', consent = async (status: 'GRANTED'|'UNKNOWN') => {
+      const v = (await (await manager.request.get(cr)).json()).version;
+      expect((await manager.request.put(cr, { headers, data: { version: v, status, doNotContact: false, evidence: status === 'GRANTED' ? 'Synthetic explicit evidence' : null, source: 'Synthetic fixture' } })).status()).toBe(200);
+    };
+    await consent('GRANTED');
+    const control = (data: object) => manager.request.post('/__test__/ai-customer-proposal', { headers: fixtureHeaders, data: { conversationId: cv, ...data } });
+    expect((await control({ enable: true, messaging: true })).status()).toBe(200);
+    const inbound = () => manager.request.post('/__test__/ai-customer-inbound', { headers: fixtureHeaders, data: { conversationId: cv, body: 'Qualification fixture: Private synthetic answer', aiControl: true } });
+    const qualify = () => manager.request.post('/__test__/ai-qualification-action', { headers: fixtureHeaders });
+    const execute = () => manager.request.post('/__test__/ai-customer-send', { headers: fixtureHeaders });
+    const dispatch = () => manager.request.post('/__test__/ai-customer-send', { headers: fixtureHeaders, data: { dispatch: true } });
+    expect((await inbound()).status()).toBe(200); expect((await control({ process: true })).status()).toBe(200);
+    expect((await qualify()).status()).toBe(200); expect((await execute()).status()).toBe(200);
+    await page.reload(); await page.getByRole('row').filter({ hasText: leadName }).getByRole('button', { name: 'Details', exact: true }).click();
+    const messages = page.getByRole('heading', { name: 'Customer conversations', exact: true }).locator('..'); await messages.getByRole('button', { name: 'View messages', exact: true }).click();
+    const panel = page.locator('[data-ai-customer-history]'), read = () => panel.getByRole('button', { name: 'Review AI executions', exact: true }).click();
+    await read(); const entry = panel.locator('[data-ai-customer-execution]').first(), actions = entry.locator('[data-ai-customer-action]');
+    await expect(actions).toHaveCount(2); await expect(actions.nth(0)).toContainText('updateQualificationField'); await expect(actions.nth(0)).not.toContainText('QUEUED');
+    await expect(actions.nth(1)).toContainText('sendConversationMessage'); await expect(actions.nth(1)).toContainText('QUEUED');
+    await expect(entry.locator('[data-ai-customer-proposal]')).toContainText('QUALIFICATION'); await expect(entry).not.toContainText('Private synthetic answer');
+    const history = (await (await page.request.get('/api/conversations/' + cv + '/ai-customer-executions')).json()).items[0];
+    expect(history.action.messageId).toBeNull(); expect(history.actions[1].qualificationActionId).toBe(history.action.id);
+    expect(history.toolsExecuted).toEqual(['updateQualificationField', 'sendConversationMessage']); expect(history.actions[1].deliveryState).toBe('QUEUED');
+    expect((await dispatch()).status()).toBe(200); await read(); await expect(actions.nth(1)).toContainText('SENT');
+    await messages.getByRole('button', { name: 'View messages', exact: true }).click(); await expect(messages.locator('li').filter({ hasText: prompt })).toContainText('SENT');
+    expect(await messages.locator('img').count()).toBe(0); expect(await page.evaluate(() => Object.hasOwn(window, '__qualificationReplyXss'))).toBe(false);
+    await page.getByRole('combobox', { name: 'Language' }).selectOption('fr'); await panel.getByRole('button', { name: 'Consulter les exécutions IA', exact: true }).click(); await expect(actions.nth(1)).toContainText('Une réponse IA autorisée');
+    await page.getByRole('combobox', { name: 'Language' }).selectOption('ar'); await page.setViewportSize({ width: 390, height: 844 }); await panel.getByRole('button', { name: 'مراجعة تنفيذ AI', exact: true }).click();
+    await expect(actions).toHaveCount(2); await expect(actions.nth(0)).toContainText('حُفظت إجابة Qualification'); await expect(actions.nth(1)).toContainText('الإدراج وحده لا يعني الإرسال');
+    await panel.screenshot({ path: '.local/e2e/ai-qualification-send-ar.png' }); expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+    await page.getByRole('combobox', { name: 'Language' }).selectOption('en');
+    await consent('UNKNOWN'); expect((await inbound()).status()).toBe(200); expect((await control({ process: true })).status()).toBe(200);
+    expect((await qualify()).status()).toBe(200); expect((await execute()).status()).toBe(200); await read();
+    const blocked = panel.locator('[data-ai-customer-execution]').first().locator('[data-ai-customer-action]');
+    await expect(blocked).toHaveCount(2); await expect(blocked.nth(0)).toContainText('APPLIED'); await expect(blocked.nth(0)).not.toContainText('CONSENT_REQUIRED'); await expect(blocked.nth(1)).toContainText('CONSENT_REQUIRED');
+    const state = (await (await page.request.get('/api/leads/' + lead + '/conversations')).json()).items[0];
+    expect((await page.request.post('/api/conversations/' + cv + '/takeover', { headers, data: { version: state.version, reason: 'Human reviews blocked continuation' } })).status()).toBe(200);
+    const secondContext = await browser.newContext({ extraHTTPHeaders: { 'x-e2e-rate-scope': randomUUID() } }), second = await secondContext.newPage();
+    try { await login(second, 'second'); expect((await second.request.get('/api/conversations/' + cv + '/ai-customer-executions')).status()).toBe(404); } finally { await secondContext.close(); }
+    await page.route('**/api/conversations/*/ai-customer-executions*', r => r.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: 'AI_HISTORY_ACCESS_REVOKED' }) }));
+    await read(); await expect(panel.getByRole('alert')).toBeVisible(); await expect(panel.locator('[data-ai-customer-action]')).toHaveCount(0);
+    expect(errors).toEqual([]);
+  } finally { await managerContext.close(); await agentContext.close(); }
+});

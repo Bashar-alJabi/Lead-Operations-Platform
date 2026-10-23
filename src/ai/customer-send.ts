@@ -15,6 +15,8 @@ export async function enqueueAICustomerReply(tx: postgres.TransactionSql, propos
   if (prior) return { duplicate: true, actionId: prior.id as string, state: prior.state as string, messageId: prior.message_id as string | null };
   const p = (await tx`SELECT * FROM ai_customer_proposal WHERE id=${proposalId} FOR SHARE`)[0];
   if (!p) throw new Error('AI_SEND_SOURCE_NOT_FOUND');
+  const sourceContext = (await tx`SELECT ai_customer_send_source_context(${proposalId}) AS context`)[0]?.context;
+  if (!sourceContext) throw new Error('AI_SEND_SOURCE_NOT_FOUND');
   let content: postgres.JSONValue | null = null, error: string | null = null;
   try {
     const locked = await lockOutboundAuthority(tx, { kind: 'AI_ADMISSION', proposalId }, p.conversation_id);
@@ -31,9 +33,9 @@ export async function enqueueAICustomerReply(tx: postgres.TransactionSql, propos
   } catch (e) { if (e instanceof HttpError) error = e.code; else throw e; }
   const id = randomUUID(), messageId = error ? null : randomUUID();
   const a = (await tx`INSERT INTO ai_customer_send_action(id,proposal_id,lead_id,campaign_id,conversation_id,state,error_code,message_id,context,content)
-    VALUES(${id},${proposalId},${p.lead_id},${p.campaign_id},${p.conversation_id},${error ? 'BLOCKED' : 'APPLIED'},${error},${messageId},${tx.json(p.context)},${content ? tx.json(content) : null}) RETURNING state`)[0]!;
+    VALUES(${id},${proposalId},${p.lead_id},${p.campaign_id},${p.conversation_id},${error ? 'BLOCKED' : 'APPLIED'},${error},${messageId},${tx.json(sourceContext)},${content ? tx.json(content) : null}) RETURNING state`)[0]!;
   if (messageId) {
-    const body = (content as { body: string }).body, cv = p.context.conversation;
+    const body = (content as { body: string }).body, cv = sourceContext.conversation;
     await tx`INSERT INTO conversation_message(id,conversation_id,connection_id,sender_id,direction,author_type,body,delivery_state,idempotency_key,ai_send_action_id)
       VALUES(${messageId},${p.conversation_id},${cv.connectionId},${cv.senderId},'OUTBOUND','AI',${body},'QUEUED',${id},${id})`;
     const job = (await tx`INSERT INTO background_job(queue,kind,payload,idempotency_key)

@@ -1,5 +1,11 @@
 # دليل التشغيل والتطوير
 
+## Qualification continuation — Native150–152
+
+راقب Qualification وSend فيCustomer AI execution history كإجرائين مستقلين. APPLIED للإجابة لا يعني إرسالًا؛ APPLIED للإرسال نية فيالطابور فقط. History/Activity/Audit تربط Send بالـqualification_action_id دون عرض قيم Fields المخفية. مصدر المتابعة ينشأ داخل transaction الإجابة الجديدة إذا كانت النتيجة الموثوقة غير مكتملة ولا تطلب Handoff، ثم يدخل SEND queue/recovery القائمة. لا SQL backfill أوإحياء receipt قديمة.
+
+بعد تغيّر current context/Consent/Owner/Controller/config/Field تبقى الإجابة المحفوظة ويتوقف الرد القديم؛ راجع السبب واستلم Human عبرالواجهة عندالحاجة. Completion/Handoff لا تولدان رسالة إكمال مخترعة. UNKNOWN لا يعاد إرساله. Default live-off وtest-only synthetic transport باقيان وفق العقد السابق. [تفاصيل المصدر ودلتا الإجابة والرسالة](ai-qualification-replies.md).
+
 ## Customer AI reply intents — Native148–149
 
 بعدmigrations شغّل `worker:ai` و`worker:messaging` المعتادتين. لا historical send backfill. Live inference/AI sends معطلة افتراضيًا؛هذهbaseline مثبتةsynthetic mocks فقط. Lead→Conversation→AI history تعرضAction/message ID وحالةالتسليم؛APPLIED تعنيqueued intent. راجع SEND local action jobs وسببفشلها،ويستطيعManager/SA إعادةمحاولةمحليةمصرحًابهابعدالإصلاح عبرالواجهةوالسبب،دونتغييرالمصدرأومنحأداة. `AI_CUSTOMER_SEND_BLOCKED` يحتاجمراجعةوقديستلزمHuman takeover؛UNKNOWN لايُعادإرسالها. لاmanual DB recovery أوenv live switch. [العقدوالحدود](ai-customer-replies.md).

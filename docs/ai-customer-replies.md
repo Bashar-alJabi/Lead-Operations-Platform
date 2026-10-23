@@ -1,5 +1,7 @@
 # ردود AI على مصدر وارد موثّق — Native148–149
 
+**تحديث150–152:** متابعةQualification منactual fresh typed receipt أُضيفت بعقدمستقل في[ai-qualification-replies.md](ai-qualification-replies.md). مسارANSWER/QUESTION الأصلي أدناه باقٍ صارمًا؛ الحدودالتاريخيةعنغيابQualification continuation أدناهتخص148–149.
+
 ## النطاق
 
 هذه baseline لـANSWER/QUESTION من current authenticated inbound،ضمن 04 و05 وAGENTS §§17–29. هي جزء من AI Conversation Agent؛ لا تمنح Human Copilot أي إرسال أوتعديل تلقائي. Live data transfer وfull Campaign activation تبقيان معطلتين حسب تصريح المستخدم. الاختبارات تستخدم synthetic PostgreSQL وHTTP mocks فقط؛ لا Live Provider Verified.

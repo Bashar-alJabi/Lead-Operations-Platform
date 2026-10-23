@@ -103,7 +103,9 @@ export function registerAICustomerHistoryRoutes(app: FastifyInstance, db: Databa
       if (!session) throw new HttpError(403, 'AI_HISTORY_ACCESS_REVOKED');
       const access = await approvedConversationReadContext(tx, actor, request.params.id, session);
       const rows = await tx`SELECT e.*,e.created_at::text AS cursor_at,e.context->'knowledge'->'version' AS knowledge_version,COALESCE(a.id,h.id,s.id) AS action_id,COALESCE(a.state,h.state,s.state) AS action_state,
-        COALESCE(a.error_code,h.error_code,s.error_code) AS action_error,COALESCE(a.created_at,h.created_at,s.created_at) AS action_created_at,COALESCE(a.tool,h.tool,s.tool) AS action_tool,
+        CASE WHEN a.id IS NOT NULL THEN a.error_code WHEN h.id IS NOT NULL THEN h.error_code ELSE s.error_code END AS action_error,
+        COALESCE(a.created_at,h.created_at,s.created_at) AS action_created_at,COALESCE(a.tool,h.tool,s.tool) AS action_tool,
+        s.id AS send_id,s.state AS send_state,s.error_code AS send_error,s.created_at AS send_created_at,s.qualification_action_id AS send_qualification_action_id,
         s.message_id AS send_message_id,sm.delivery_state AS send_delivery_state,
         a.id AS qualification_action_id,h.id AS handoff_id,h.tool AS handoff_tool,h.state AS handoff_state,h.error_code AS handoff_error,h.created_at AS handoff_created_at,stop.action_id IS NOT NULL AS safety_stopped,
         o.ordinal::text AS misunderstanding_count,o.threshold AS misunderstanding_threshold,o.handoff_required AS misunderstanding_required,o.conversation_version AS misunderstanding_version,
@@ -129,9 +131,12 @@ export function registerAICustomerHistoryRoutes(app: FastifyInstance, db: Databa
         VALUES (${actor.organizationId},${access.lead.branch_id},${actor.id},'AI_CUSTOMER_HISTORY_READ','CONVERSATION',${request.params.id},${tx.json({ leadId: access.lead.id, count: items.length })})`;
       return { items: items.map(e => {
         const action = e.action_id ? { id: e.action_id, tool: e.action_tool, state: e.action_state, errorCode: e.action_error, createdAt: e.action_created_at, safetyStopped: !e.qualification_action_id && e.safety_stopped,
-          messageId: e.send_message_id ?? null, deliveryState: e.send_delivery_state ?? null } : null;
+          messageId: e.action_tool === 'sendConversationMessage' ? e.send_message_id : null, deliveryState: e.action_tool === 'sendConversationMessage' ? e.send_delivery_state : null,
+          qualificationActionId: e.action_tool === 'sendConversationMessage' ? e.send_qualification_action_id : null } : null;
         const actions = action ? [action] : [];
-        if (e.qualification_action_id && e.handoff_id) actions.push({ id: e.handoff_id, tool: e.handoff_tool, state: e.handoff_state, errorCode: e.handoff_error, createdAt: e.handoff_created_at, safetyStopped: e.safety_stopped, messageId: null, deliveryState: null });
+        if (e.qualification_action_id && e.handoff_id) actions.push({ id: e.handoff_id, tool: e.handoff_tool, state: e.handoff_state, errorCode: e.handoff_error, createdAt: e.handoff_created_at, safetyStopped: e.safety_stopped, messageId: null, deliveryState: null, qualificationActionId: e.qualification_action_id });
+        if (e.qualification_action_id && e.send_id) actions.push({ id: e.send_id, tool: 'sendConversationMessage', state: e.send_state, errorCode: e.send_error, createdAt: e.send_created_at, safetyStopped: false,
+          messageId: e.send_message_id, deliveryState: e.send_delivery_state, qualificationActionId: e.send_qualification_action_id });
         return { id: e.id, sourceMessageId: e.message_id, sourceEventId: e.event_id, assistant: 'AI_LEAD_ASSISTANT', state: e.state,
         errorCode: e.error_code, contextHash: e.context_hash, knowledgeVersion: e.knowledge_version, createdAt: e.created_at, stale: e.stale,
         kind: e.kind, attemptCount: e.attempt_count, providerInvoked: e.provider_invoked,

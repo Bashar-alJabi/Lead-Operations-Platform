@@ -51,7 +51,7 @@ test('Actual customer AI Qualification applies approved typed actions with curre
     await refresh(); await expect(panel).toContainText('QUALIFICATION'); await expect(panel).toContainText('No action or customer message has been executed.');
     await verifyActionRecoveryUI({manager,page,cv,kind:'QUALIFICATION',leadName:'Browser AI Qualification Action Customer',token:fixture.testToken,execute});
     expect((await execute()).status()).toBe(200); expect((await (await execute()).json()).processed).toBe(false);
-    await refresh(); await expect(panel.locator('[data-ai-customer-action]')).toContainText('APPLIED'); await expect(panel).toContainText('No customer message was sent.');
+    await refresh(); await expect(panel.locator('[data-ai-customer-action]')).toContainText('APPLIED'); await expect(panel).toContainText('separate message actions for any reply status.');
     const qr = '/api/leads/' + lead + '/qualification', qual = page.locator('[data-lead-qualification]'), mapped = qual.locator(`[data-qualification-question="${question}"]`);
     await qual.getByRole('button', { name: 'Reload collected answers', exact: true }).click(); await expect(mapped).toContainText('AI'); await expect(mapped.getByLabel(prompt, { exact: true })).toHaveValue('true');
     await mapped.getByRole('button', { name: 'Collected answer history', exact: true }).click(); await expect(qual.locator('[data-qualification-history]')).toContainText('AI');

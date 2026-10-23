@@ -14,6 +14,7 @@ import { processOneAICustomerProposal } from '../src/ai/customer-worker.js';
 import { enqueueAICustomerReply, processOneAICustomerSend } from '../src/ai/customer-send.js';
 import { processOneMessagingJob } from '../src/messaging/send-worker.js';
 import { metaWhatsAppSendAdapter, ProviderSendError, type MessagingSendAdapter } from '../src/messaging/providers.js';
+import { verifyQualificationSend } from './qualification-send-scenarios.js';
 const url = process.env.TEST_DATABASE_URL;
 if (!url || new URL(url).pathname !== '/lead_operations_test') throw new Error('Isolated TEST_DATABASE_URL required');
 
@@ -73,9 +74,9 @@ test('Authenticated AI replies preserve native content/action/outbox proof, curr
   const activate = () => db`UPDATE conversation SET controller_type='AI',controller_user_id=NULL,state='AI_ACTIVE',needs_attention_reason=NULL WHERE id=${cv}`;
   let decision = 'ANSWER';
   const adapters = { OPENAI: { simulate: async () => null, proposeCustomer: async () => ({ decision, referenceIds: decision === 'ANSWER' ? ['section:prices'] : [], questionId: decision === 'QUESTION' ? question : null, answerValue: null, sourceQuote: null, handoffReason: null }) } };
-  const source = async () => { await activate(); const id = randomUUID(); assert.equal((await receive(id)).statusCode, 200); assert.equal(await processOneInboundEvent(db), true);
+  const source = async (queuedOnly = false) => { await activate(); const id = randomUUID(); assert.equal((await receive(id)).statusCode, 200); assert.equal(await processOneInboundEvent(db), true);
     const p = (await db`SELECT p.* FROM ai_customer_proposal p JOIN integration_event e ON e.id=p.event_id WHERE e.payload->'message'->>'id'=${id}`)[0]!;
-    assert.ok(p); assert.equal(await processOneAICustomerProposal(db, { adapters }), true); assert.equal((await db`SELECT state FROM ai_customer_proposal WHERE id=${p.id}`)[0]!.state, 'PROPOSED'); return p; };
+    assert.ok(p); if (!queuedOnly) { assert.equal(await processOneAICustomerProposal(db, { adapters }), true); assert.equal((await db`SELECT state FROM ai_customer_proposal WHERE id=${p.id}`)[0]!.state, 'PROPOSED'); } return p; };
   const action = async (pid: string) => (await db`SELECT * FROM ai_customer_send_action WHERE proposal_id=${pid}`)[0]!;
   const msg = async (id: string) => (await db`SELECT * FROM conversation_message WHERE id=${id}`)[0]!;
   const dispatch = (adapter: MessagingSendAdapter = { ...metaWhatsAppSendAdapter }) => processOneMessagingJob(db, adapter, { syntheticAI: true });
@@ -189,6 +190,9 @@ test('Authenticated AI replies preserve native content/action/outbox proof, curr
   const queue = (await api('GET', '/api/conversations/' + cv + '/ai-action-jobs')).json().items.find((r: any) => r.proposalId === atomic.id); assert.equal(queue.kind, 'SEND'); assert.equal(queue.canRetry, true);
   assert.equal((await api('POST', '/api/conversations/' + cv + '/ai-action-jobs/' + queue.id + '/retry', { version: queue.version, reason: 'Synthetic repair completed' })).statusCode, 200);
   assert.equal(await processOneAICustomerSend(db), true); assert.equal((await action(atomic.id)).state, 'APPLIED'); await dispatch();
+  await t.test('Fresh typed Qualification receipts continue through the same current send authority with exact own-write proof and Handoff priority', () => verifyQualificationSend(db, {
+    api, branch, campaign, lead, cv, sender, agent: users.agent!.id, second: users.second!.id, source: () => source(true), dispatch,
+  }));
   assert.equal((await db`SELECT count(*)::int AS n FROM payment_record`)[0]!.n, 0);
   assert.equal((await db`SELECT count(*)::int AS n FROM enrollment`)[0]!.n, 0);
   assert.equal((await db`SELECT assigned_agent_id FROM lead WHERE id=${lead}`)[0]!.assigned_agent_id, users.agent!.id);

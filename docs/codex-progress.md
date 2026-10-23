@@ -1,5 +1,17 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: Qualification reply continuation — 2026-10-23
+
+استؤنف من `c3ee09e` النظيفة والمتزامنة معorigin على `codex/full-platform-build` دون reset/discard. شُغّلت حاويات Docker القائمة مع الحفاظ علىvolumes. Native150–152 تنشئ immutable continuation source من actual fresh typed Qualification receipt مع exact Native142 own-write context، وتختار أول سؤال معتمد غير مجاب بالترتيب إذا كانت النتيجة غير مكتملة ولا تطلب Handoff. تستخدم نفس SEND queue وCentral Messaging Policy وatomic outbox/current dispatch. لا fabricated inbound أوتعديل قرارproposal أوإحياءreceipt قديمة. [العقد](ai-qualification-replies.md).
+
+**البوابة النهائية ناجحة علىآخرالكود:** migrations001–152 development/test، وBackend/Web build/typecheck وdiff check، و**178/178 unit،84/84 full Docker PostgreSQL integration** (205.3s)، و**50/50 full Edge Browser E2E** (6.7m). Focused Browser2/2 سبقت البوابة، وfocused PG2/2 أثبتت current Send وQualification-derived Handoff eligibility بعد152. الصورة العربية عند390px فُحصت دونoverflow/XSS/duplicate keys. PostgreSQL/ClamAV healthy؛ تحذيرVite809.83KB/gzip230.70KB باقٍ ضمنbacklog.
+
+**الإثبات والتصحيحات:** false mapped answer وordered next question، immutable source/no replay/no retroactive grant، eight workers، extra-write deferred denial، rollback للإجابة/Field/history/child/job، current Owner/tool/config/binding/sender/Human fences وactual parent-lock race، changed Field beforedispatch، Handoff priority حتى دونgrant لها، وcompletion دونرسالة مخترعة. DTO/UI تفصل Qualification وSend وmessage/delivery/error attribution، وتمنع hidden values وforeign Agent read وتمسحfailed-read cache. Audit/Activity تربط receipt بالإرسال. Native151 تصلحNULL record shape، و152 تصلحSQL alias ambiguity مثبتة بـ42702؛ لا تعديلmigration مطبقة. أُعيدت البوابة بعدالإصلاحات.
+
+**الحالة والحفظ:** Qualification continuation baseline **Implemented وMock/Sandbox Verified** باستخدام synthetic data وHTTP mocks فقط. Live transfer/send/full activation معطلة؛ **Live Verification Pending External Credential/Approval**. Full AI/tool/platform غير مكتملة. هذهالحالة معالكود وcoverage/plan/architecture/runbook تُحفظ فيcheckpoint الفرع الحالي وتُرفع إليه فقط؛ مرجعالبدءc3ee09e والمعرفالجديد فيGit log. لا Feature جديدة قيدالتعديل أوgate فاشلة عندالحفظ.
+
+**الخطوة التالية الدقيقة:** Initial Contact من trusted fresh Lead intake بعدRouting، بـsource kind مستقل عنauthenticated inbound. افحصmanual وsource intake paths وcurrent readiness gates؛ ابنِ fresh source/admission/job وcurrent effective Published config وOwner/availability/initialContactWithoutAgent وManager/attention fallback وdeterministic sender. ثم المحتوى المعتمد وprovider template/window policy وatomic message/outbox/dispatch وLead UI/tests، دونرسالة عميل أوproposal مصطنعة ودونرفعfull activation مبكرًا. بعدهاreturning/follow-up/approved transition وبقيةAI/Copilot/Operations/Form/evaluations، ثمAutomation/Notifications/Analytics/import/export/Sheets/Email وسائرالمتطلبات. لا optional provider refinements.
+
 ## آخر حالة مستقرة: authenticated AI replies — 2026-10-17
 
 استؤنف من `686c1ec` النظيفة والمرفوعة. Native148–149 تربط validated ANSWER/QUESTION بمحتوى معتمد وimmutable Action/Message/Outbox وActivity/Audit ذرية، مع deferred proof وbounded SEND action queue. Typed AI dispatch تعيد Central Messaging Policy وexact own-message context دون fake employee أوتخفيف المصدر الأصلي. الواجهة تربط Action بالرسالة وتفصل QUEUED عنSENT/FAILED/UNKNOWN، وتدعم scoped recovery/history وar/en/fr. [العقد](ai-customer-replies.md).

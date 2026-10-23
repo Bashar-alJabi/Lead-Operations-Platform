@@ -1,5 +1,16 @@
 # مصفوفة تغطية المتطلبات
 
+## أحدث checkpoint: Qualification reply continuation — 2026-10-23
+
+| المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |
+|---|---|---|
+| 04 Qualification/Approved Tools و05 Central Messaging Policy وAGENTS §§17–29 | Native150–152: actual fresh typed receipt→immutable exact142 child context/current outcome/ordered next question→نفسSEND queue/policy/atomic outbox/dispatch | **178unit/84full Docker PostgreSQL** (205.3s) و**50full Edge Browser** (6.7m)، و001–152development/test وBackend/Web build/typecheck/diff check ناجحة. **Implemented وMock/Sandbox Verified** لهذهbaseline |
+| AGENTS security/history/idempotency/failure و06 acceptance | original admission/grant وexact own-answer ثمown-message فقط، Handoff priority وcompletion بلاclaims مخترعة، retained receipt/history/Audit | false mapped answer، eight workers، no replay/backfill/retroactive grant، extra-write denial، answer/Field/history/child/job rollback، current Owner/tool/config/binding/sender/Human وactual parent-lock race وchanged Field beforedispatch مثبتة. Native151 NULL-shape و152 alias regression أُصلحتا، وcurrent SEND/HANDOFF eligibility مثبتتان |
+| 03/04/06 UI/permissions | Qualification وSend إجراءان مستقلان، child receipt metadata وdelivery/error attribution الصحيحة، current field masking وscope access | Browser تثبت two actions→QUEUED→SENT وconsent-block دونإلغاءالإجابة وHuman takeover وforeign Agent denial/failed-read clearing/ar/en/fr/RTL/noXSS. صورةar390px فُحصت؛ Focused Browser2/2 وpost152 PG2/2 ناجحة إضافةللبوابةالكاملة |
+| Full AI/tool/runtime/platform وLive verification | Initial/returning/follow-up/transition وبقيةAI/Copilot/Operations/Form/evaluations والوحداتالرئيسية باقية | **غير مكتملة**. Live transfer/send/full activation معطلة، و**Live Verification Pending External Credential/Approval**. التالي fresh trusted Lead intake source وinitial-contact policy/outbox/UI وفق الاعتماديات؛لا optional provider polish |
+
+[العقد وحدودالنطاق](ai-qualification-replies.md). مرجعالبدء `c3ee09e`؛ الحالة تُحفظ معالكود فيcheckpoint الفرع الحالي فقط، دونmain أوdeployment.
+
 ## أحدث checkpoint: authenticated AI replies — 2026-10-17
 
 | المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |

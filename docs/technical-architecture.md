@@ -1,5 +1,11 @@
 # المعمارية التقنية
 
+## Qualification reply continuation — Native150–152
+
+بعد حفظ إجابة Qualification بإجراء typed مصرح به، ينشأ immutable child source من receipt الجديدة فقط، مع exact Native142 own-write context والنتيجة التشغيلية والسؤال المعتمد التالي. يستخدم نفس SEND queue وCentral Messaging Policy وatomic outbox وdispatch من148–149. Completion أوHandoff تمنع متابعة الأسئلة؛ المصدر الأصلي وقرارproposal لا يتغيران.
+
+Dispatch تثبت تغيّر الإجابة الخاص بهذا الإجراء ثم رسالته وحدهما؛ بقية scope/config/Fields/consent/controller/Owner/source تبقى مطابقة. DTO/UI تفصل Qualification عنSend، وAudit/Activity تربط receipt دون كشف قيم مخفية. Native151 تعالج NULL record shape، و152 تصلح التباس alias فيفحص أهلية Handoff؛ migrations المطبقة محفوظة. Live transfer/send وfull activation تبقى معطلة. [العقد والاختبارات](ai-qualification-replies.md).
+
 ## Authenticated AI replies — Native148–149
 
 Fresh validated ANSWER/QUESTION completion→native SEND Job→bounded Native144 queue→current original authority/Central Policy→immutable content/action/Message/Outbox/Activity/Audit معdeferred proof. Typed `AI_ACTION` dispatch تستخدم exact own-message-only delta ثمالسياسةنفسها،دونfake employee أوتخفيفNative147. Native149 تمنعPREPARED منclaim فقدتcurrent Job/attempt/Sender lease أوهامشHTTP،حتىبعدانتظارparent locks. Default AI send تبقى live-off قبلcredentials؛explicit isolated synthetic HTTP adapters فقط للاختبارات. History/UI تميزqueue عنdelivery وHuman takeover محفوظةحتىلوACK لاحقة. [العقد](ai-customer-replies.md). Initial/returning/follow-up/transition وfull AI/platform باقية.
