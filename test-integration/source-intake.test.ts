@@ -84,6 +84,9 @@ test('Source intake atomically creates scoped Leads, matches optional Contacts, 
   assert.equal(origin.origin_kind,'SOURCE');assert.equal(origin.actor_id,null);assert.equal(origin.session_id,null);
   assert.equal(origin.submission_id,inactive.id);assert.equal(origin.context.routing.ownerId,assigned);assert.equal(origin.context.source.processingVersion,empty.version);
   assert.equal(origin.context.lead.contactId,null);
+  const notices=await db`SELECT event_type,intake_receipt_id,conversation_id FROM notification_event WHERE lead_id=${empty.lead_id} ORDER BY event_type`;
+  assert.deepEqual(notices.map(n=>n.event_type),['LEAD_ASSIGNED','LEAD_CREATED']);
+  assert.equal(notices.find(n=>n.event_type==='LEAD_CREATED')!.intake_receipt_id,origin.id);assert.ok(notices.every(n=>n.conversation_id===null));
   const owner=assigned===users.agent!.id ? 'agent' : 'second';const nonowner=owner==='agent' ? 'second' : 'agent';
   assert.equal((await api('GET','/api/leads/'+empty.lead_id,undefined,owner)).statusCode,200);assert.equal((await api('GET','/api/leads/'+empty.lead_id,undefined,nonowner)).statusCode,404);
   assert.equal((await api('PUT',`/api/leads/${empty.lead_id}/fields/${fields.score}`,{ value:9,version:1 },owner)).statusCode,403);

@@ -1,5 +1,19 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: إشعارات Lead والإسناد داخل المنصة — 2026-10-23
+
+استؤنف من `5495e9f` المحفوظة والمرفوعة، بعد إكمال Initial Contact ومراجعة جميع فجوات المنصة. Native164 تضيف أحداث `LEAD_CREATED` و`LEAD_ASSIGNED` و`LEAD_REASSIGNED` إلى مركز الإشعارات الحالي، من fresh intake receipt وactual assignment history فقط. Backend وDB guards وcurrent Lead/Branch/Organization/Session authorization والتفضيلات والصياغة وسجل القراءة والواجهة بـar/en/fr مكتملة لهذا الجزء. [العقد](lead-assignment-notifications.md).
+
+**البوابة النهائية ناجحة:** migrations001–164 علىdevelopment/test، Backend/Web build/typecheck وdiff check، **178/178 unit و88/88 full Docker PostgreSQL integration** (250.7s) و**54/54 full Edge Browser E2E** (7.3m). Focused PG3/3 وBrowser2/2 وHandoff Browser1/1 (38.6s) ناجحة أيضًا. فُحصت صورة عربية عند390px دونoverflow/XSS. Vite824.09KB/gzip234.80KB warning باقية ضمنbacklog،والزمن المحلي ليسcapacity guarantee.
+
+**الإثبات:** actual manual وSource intake بلاContact، initial Routing ثمreassignment/unassignment وno-op، أربعةintakes وثمانيةCAS/assignment requests متزامنة، مصدر واحد لكلحدث دونfan-out أوbackfill،native forgery/immutability denial وatomic Audit rollback،current owner revocation وforeign Branch/Organization denial،independent read state/preferences/wording/history وpagination/localizations/failed-read clearing. لاCustomer Message/job أوAI/Payment/Enrollment mutation ناتجة عن هذه الإشعارات.
+
+**التصحيحات أثناء التحقق:** خطأCASE في164 أُصلح قبل تطبيقها،ولاmigration مطبقة عُدّلت. تشغيلfull PG منTS مباشرة لم يكن بوابة صالحة لأنworker smoke تتطلبcompiled dist entrypoint؛أُعيدت الطريقة المعتمدة ونجحت88/88 دونتخفيفالاختبار. أولBrowser full نجحت53/54: اختبارHandoff افترضأنإشعارههوالوحيدغيرالمقروء. صُححتتهيئةالاختباربقراءةالأحداثالأخرىعبرAPI،معإبقاءاختبارالمؤشر والصلاحيات كاملًا؛ثمfocused وfull54/54 نجحتا. UI/backend لمتُضعف لإرضاءهذاالافتراض.
+
+**الحالة والحفظ:** هذا الجزء **Implemented وPostgreSQL/Local Browser Verified**؛Notifications الكاملة والمنصة غير مكتملتين. لاProvider خارجي فيهذاالجزء،ولاcredential حقيقية أوإرسالحي. Initial AI وProviders تبقى **Mock/Sandbox Verified** محليًا و**Live Verification Pending External Credential/Approval**؛liveAI معطلة. progress/coverage/plan/architecture/runbook والعقد تُحفظ معالكود فيcommit/push للفرعالحالي فقط قبلالمرحلةالتالية. لاFeature قيدالتعديل أوgate فاشلة عندالحفظ.
+
+**الخطوة التالية الدقيقة:** Notifications للمتابعات المستحقة منactual current OPEN follow_up وDB clock،معdurable bounded observation/worker وidempotency للموعد،وcurrent task-owner/Lead access وإعادةفحصcompletion/cancellation/reschedule قبلالحفظ،ثمCentre/preferences/wording/history وBackend/PG/Browser. Native التالية165؛لا إعادةتنفيذ164 أوInitial Contact. يليها Payment/Enrollment/attention/Integration-System events وmanaged Email/Messaging notification channels وmandatory policies،ثمAutomation وtrusted Analytics/Search-Bulk/Import-Export/Google Sheets وEmail وبقيةالمتطلبات بحسب[المراجعة الشاملة](platform-gap-review.md). لا تحسيناتAI اختيارية قبلالوحداتالرئيسية.
+
 ## آخر حالة مستقرة: Initial AI Contact end-to-end — 2026-10-23
 
 استئناف من `473a738` دون reset/discard. Native158–163 وإعداد القالب المعتمد وPublished Knowledge/version/history وfresh-only durable job وConversation/action/message/outbox/current dispatch وLead runtime UI منفذة. إعداد فعلي عبر API/UI وتفعيل Campaign، ثم manual intake→template delivery عبر HTTP mock→signed inbound→AI reply، وSource intake فعلي، مع consent/Human takeover/UNKNOWN no replay/concurrency/Audit rollback وbounded local retry. [العقد الحالي](ai-initial-contact.md) يوضح سلطة المصدر والسياسة والحدود؛أوصاف المراحل الأقدم أدناه تاريخية.

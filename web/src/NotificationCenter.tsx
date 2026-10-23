@@ -1,6 +1,7 @@
 import {useEffect,useRef,useState} from 'react';
 import {NotificationTemplates} from './NotificationTemplates.js';
 import {SLANotificationPreference} from './SLANotificationPreference.js';
+import {LeadNotificationPreferences} from './LeadNotificationPreferences.js';
 export type NotificationApi=<T>(path:string,options?:RequestInit)=>Promise<T>;
 export type NotificationLocale='ar'|'en'|'fr';
 const words={
@@ -34,7 +35,7 @@ export function NotificationCenter({locale,api,user,branches,onOpenLead,onChange
   <label><input type="checkbox" checked={unreadOnly} disabled={busy} onChange={e=>setUnreadOnly(e.target.checked)}/>{t.unread}</label>
   {error&&<p role="alert">{error}</p>}{feed&&<>{!feed.items.length&&<p>{t.empty}</p>}{feed.items.map(item=><article className="panel" key={item.id} data-notification={item.id} style={{minWidth:0,overflowWrap:'anywhere'}}>
    <h3 dir="auto">{item.title}</h3><p dir="auto" style={{whiteSpace:'pre-wrap'}}>{item.body}</p><time dateTime={item.createdAt}>{new Date(item.createdAt).toLocaleString(locale)}</time>
-   <p>{item.isRead?t.readStatus:t.unreadStatus} · {item.waiting?t.waiting:item.eventType==='AI_HANDOFF_SLA_EXCEEDED'?{ar:'تنبيه استجابة سابق',en:'Historical response alert',fr:'Alerte de réponse historique'}[locale]:t.past}</p>
+   <p>{item.isRead?t.readStatus:t.unreadStatus} · {item.eventType.startsWith('LEAD_')?{ar:'حدث تشغيلي محفوظ',en:'Recorded operational event',fr:'Événement opérationnel enregistré'}[locale]:item.waiting?t.waiting:item.eventType==='AI_HANDOFF_SLA_EXCEEDED'?{ar:'تنبيه استجابة سابق',en:'Historical response alert',fr:'Alerte de réponse historique'}[locale]:t.past}</p>
    <button disabled={busy} onClick={()=>void change('/api/notifications/'+item.id+'/state',{version:item.version,isRead:!item.isRead})}>{item.isRead?t.markUnread:t.read}</button>
    <button disabled={busy} onClick={()=>onOpenLead(item.leadId)}>{t.open}</button><button disabled={busy} onClick={()=>void readHistory(item.id)}>{t.history}</button>
   </article>)}{feed.nextCursor&&<button disabled={busy} onClick={()=>void read(feed.nextCursor!)}>{t.more}</button>}</>}
@@ -43,5 +44,6 @@ export function NotificationCenter({locale,api,user,branches,onOpenLead,onChange
    <button disabled={busy} onClick={()=>void change('/api/notification-preferences',{version:pref.version,enabled:pref.enabled})}>{t.save}</button></fieldset>}
   {user.role!=='AGENT'&&<NotificationTemplates locale={locale} api={api} user={{...user,role:user.role}} branches={branches}/>}
   <SLANotificationPreference locale={locale} api={api} userId={user.id} onChanged={()=>{onChanged();void read();}}/>
+  <LeadNotificationPreferences locale={locale} api={api} userId={user.id} onChanged={()=>{onChanged();void read();}}/>
  </section>;
 }

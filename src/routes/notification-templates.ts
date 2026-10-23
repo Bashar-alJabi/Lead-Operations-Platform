@@ -18,7 +18,7 @@ async function access(tx:postgres.TransactionSql,actor:Principal,p:Params,reques
   const branch=write ? (await tx`SELECT active FROM branch WHERE id=${initial.branch_id} AND organization_id=${actor.organizationId} FOR UPDATE`)[0] : (await tx`SELECT active FROM branch WHERE id=${initial.branch_id} AND organization_id=${actor.organizationId} FOR SHARE`)[0];
   if(!branch)throw new HttpError(404,'NOTIFICATION_TEMPLATE_RESOURCE_NOT_FOUND');
   if(p.scope==='CAMPAIGN' && !(await tx`SELECT id FROM campaign WHERE id=${p.id} AND organization_id=${actor.organizationId} AND branch_id=${initial.branch_id} FOR SHARE`).length)throw new HttpError(404,'NOTIFICATION_TEMPLATE_RESOURCE_NOT_FOUND');
-  const existing=(await tx`SELECT branch_id,organization_id FROM notification_template WHERE scope=${p.scope} AND resource_id=${p.id} AND event_type=${event} AND channel='IN_APP' AND language=${p.language}`)[0];
+  const existing=(await tx`SELECT branch_id,organization_id FROM notification_template WHERE scope=${p.scope} AND resource_id=${p.id} AND event_type=${event as string} AND channel='IN_APP' AND language=${p.language}`)[0];
   if(existing && (existing.branch_id!==initial.branch_id || existing.organization_id!==actor.organizationId))throw new HttpError(404,'NOTIFICATION_TEMPLATE_RESOURCE_NOT_FOUND');
   if(write && !branch?.active)throw new HttpError(409,'BRANCH_DISABLED');
   const session=await currentPaymentSession(tx,actor,request);if(!session)throw new HttpError(403,'NOTIFICATION_ACCESS_REVOKED');
@@ -34,7 +34,7 @@ export function registerNotificationTemplateRoutes(app:FastifyInstance,db:Databa
  app.get<{Params:Params}>(root,{schema:{params}},async request=>{
   const actor=await principalFromRequest(request,db),p=request.params;return db.begin(async tx=>{
    await access(tx,actor,p,request,false,event);
-   const row=(await tx`SELECT title,body,active,version,reason,updated_at FROM notification_template WHERE scope=${p.scope} AND resource_id=${p.id} AND event_type=${event} AND channel='IN_APP' AND language=${p.language}`)[0];
+   const row=(await tx`SELECT title,body,active,version,reason,updated_at FROM notification_template WHERE scope=${p.scope} AND resource_id=${p.id} AND event_type=${event as string} AND channel='IN_APP' AND language=${p.language}`)[0];
    const defaults=notificationDefaultsByEvent[event][p.language];return {title:row?.title??defaults.title,body:row?.body??defaults.body,active:row?.active??false,version:row?.version??0,reason:row?.reason??null,updatedAt:row?.updated_at??null,eventType:event,channel:'IN_APP',defaults:{title:defaults.title,body:defaults.body},tokens:['campaign','owner']};
   });
  });
@@ -43,12 +43,12 @@ export function registerNotificationTemplateRoutes(app:FastifyInstance,db:Databa
   const actor=await principalFromRequest(request,db),p=request.params,title=validateNotificationText(request.body.title,160),body=validateNotificationText(request.body.body,1000),reason=request.body.reason.trim();
   if(reason.length<3)throw new HttpError(400,'NOTIFICATION_REASON_REQUIRED');
   return db.begin(async tx=>{
-   const a=await access(tx,actor,p,request,true,event),old=(await tx`SELECT version FROM notification_template WHERE scope=${p.scope} AND resource_id=${p.id} AND event_type=${event} AND channel='IN_APP' AND language=${p.language} FOR UPDATE`)[0];
+   const a=await access(tx,actor,p,request,true,event),old=(await tx`SELECT version FROM notification_template WHERE scope=${p.scope} AND resource_id=${p.id} AND event_type=${event as string} AND channel='IN_APP' AND language=${p.language} FOR UPDATE`)[0];
    if((old?.version??0)!==request.body.version)throw new HttpError(409,'NOTIFICATION_VERSION_CONFLICT');
    if(old)await tx`UPDATE notification_template SET title=${title},body=${body},active=${request.body.active},version=version+1,actor_id=${actor.id},session_id=${a.session},reason=${reason}
-    WHERE scope=${p.scope} AND resource_id=${p.id} AND event_type=${event} AND channel='IN_APP' AND language=${p.language}`;
+    WHERE scope=${p.scope} AND resource_id=${p.id} AND event_type=${event as string} AND channel='IN_APP' AND language=${p.language}`;
    else await tx`INSERT INTO notification_template(scope,resource_id,organization_id,branch_id,campaign_id,event_type,channel,language,title,body,active,version,actor_id,session_id,reason)
-    VALUES(${p.scope},${p.id},${actor.organizationId},${a.branchId},${p.scope==='CAMPAIGN'?p.id:null},${event},'IN_APP',${p.language},${title},${body},${request.body.active},1,${actor.id},${a.session},${reason})`;
+    VALUES(${p.scope},${p.id},${actor.organizationId},${a.branchId},${p.scope==='CAMPAIGN'?p.id:null},${event as string},'IN_APP',${p.language},${title},${body},${request.body.active},1,${actor.id},${a.session},${reason})`;
    return {version:request.body.version+1};
   });
  });
@@ -56,7 +56,7 @@ export function registerNotificationTemplateRoutes(app:FastifyInstance,db:Databa
   const actor=await principalFromRequest(request,db),p=request.params;return db.begin(async tx=>{
    await access(tx,actor,p,request,false,event);const limit=request.query.limit??10;
    const rows=await tx`SELECT version,snapshot->>'title' AS title,snapshot->>'body' AS body,snapshot->'active' AS active,snapshot->>'reason' AS reason,snapshot->>'actor_id' AS actor_id,created_at FROM notification_template_history
-    WHERE scope=${p.scope} AND resource_id=${p.id} AND event_type=${event} AND channel='IN_APP' AND language=${p.language}
+    WHERE scope=${p.scope} AND resource_id=${p.id} AND event_type=${event as string} AND channel='IN_APP' AND language=${p.language}
      AND (${request.query.before??null}::integer IS NULL OR version<${request.query.before??null}) ORDER BY version DESC LIMIT ${limit+1}`;
    return {items:rows.slice(0,limit),nextVersion:rows.length>limit?rows[limit-1]!.version:null};
   });

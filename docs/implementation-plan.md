@@ -1,5 +1,11 @@
 # خطة التنفيذ
 
+## أحدث checkpoint: إشعارات Lead والإسناد — Native164
+
+أحداث New Lead/Assigned/Reassigned منfresh receipt/history معnative immutable proof وcurrent ACL وCentre/preferences/wording/read history وUI مكتملةلهذاالجزء. **178unit/88full Docker PG/54full Edge Browser** و001–164 وBackend/Web build/typecheck/diff check ناجحة. [العقد](lead-assignment-notifications.md). حفظcommit/push لهذهالمرحلة يسبقأيعملجديد؛Notifications الكاملة والمنصة مازالتناقصة.
+
+التاليالدقيق: Follow-up due notifications منcurrent OPEN task وDB clock،معdurable bounded observation/idempotency/current owner-scope وcompletion/cancel/reschedule fences،ثمAPI/UI/history/negative/integration/Browser والبوابةالكاملة. Native التالية165. بعدهاالأنواعالماليةوattention/Integration-System والقنوات،ثمAutomation/Analytics والبياناتوالتكاملات وفق[المراجعة الشاملة](platform-gap-review.md)،دونتعميقAI اختياري.
+
 ## الأولوية الحالية بعد Initial Contact — 2026-10-23
 
 Native158–163 أكملت baseline Initial Contact الفعلية؛178unit/87full Docker PG/53full Edge Browser و001–163 وBackend/Web build/typecheck ناجحة. [العقد](ai-initial-contact.md). [مراجعة جميع فجوات المنصة](platform-gap-review.md) هي تقييم الاعتماديات الحالي؛الخطوات الأقدم أدناه تحفظ تاريخها ولا تفرض الاستمرار في AI قبل بقيةالوحدات.

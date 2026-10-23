@@ -1,5 +1,11 @@
 # دليل التشغيل والتطوير
 
+## إشعارات الفرص والإسناد — Native164
+
+تُحفظ In-App events تلقائيًا معfresh intake والإسناد؛لاworker إضافيةأوإعادةتوليدتاريخقديم. منNotifications راجعالحدث وافتحLead وحددread/unread أوhistory. إدارةالصياغة تدعمNew Lead/Assigned/Reassigned بنفسscope واللغة،والتفضيلاتالشخصيةتتيحكتمكلنوعباستقلال. الكتم لايحذفالحدث،وتغييرالمالك يزيلوصولالسابقفورًا. event لايعنيأنالمالكالحاليهوالمالكوقتحدوثه؛النص الافتراضي يوجهلمراجعةالحالةالحالية.
+
+فشلAudit يلغيإنشاءLead أوتغييرالإسناد ذرّيًا؛أصلحسببفشلDB/transaction واتبعالمسارالمصرحبه منالواجهة،ولاmanual INSERT/replay للإشعارات. لاEmail/Messaging customer send منحفظهذاالنوع. [العقد وحدودالجزءالمتبقي](lead-assignment-notifications.md).
+
 ## Initial Contact الفعلية — Native158–163
 
 بعد migrations المعتادة شغّل `worker:ai` و`worker:messaging`. من Campaign workspace جهّز Published Knowledge وProfile/Tools/behavior والمراسلة، ثم اعتمد approved text template والمعاملات والسبب عبرإعداد Initial Message. راجعpreview وready،ثمcurrent Campaign activation checks. Lead جديدة موثوقة ومسموح بها فقط تدخلjob؛لاbackfill أوSQL replay لadmission قديمة. إعدادالقالب لا يرسلشيئًا.

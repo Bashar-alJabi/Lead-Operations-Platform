@@ -1,5 +1,9 @@
 # المعمارية التقنية
 
+## إشعارات Lead والإسناد — Native164
+
+توسيع notification_event الحالية بمصادر fresh intake receipt وassignment history،معimmutable native source/scope/time proof وUNIQUEevent/source وatomic Audit،دونfan-out لكلuser أوqueue غيرضروريةلـIn-App. Conversation اختياريةللأحداثالجديدة فقط،وHandoff/SLA تحتفظبـFK/guards الأصلية. Centre/preferences/wording/history الحالية تعيدcurrent Lead access وSession؛تغييرالمالك يسحبالوصولالسابق دونحذفالتاريخ. [العقد والاختبارات](lead-assignment-notifications.md). بقيةNotifications والقنوات وAutomation مازالتناقصة؛هذهليستgeneric event bus أوNotification module كاملة.
+
 ## الحالة الأحدث: Initial Contact الفعلية — Native158–163
 
 إعداد أول رسالة معتمدة من Campaign ثم fresh intake وdurable bounded worker وtyped initial authority وatomic Conversation/action/message/outbox وcurrent centralized dispatch منفذة. live-off باقية، والاختبارات تستخدم synthetic HTTP mocks فقط. [العقد الحالي](ai-initial-contact.md) يحدّث أوصاف المراحل التاريخية أدناه. [مراجعة جميع فجوات المنصة وترتيب الاعتماديات](platform-gap-review.md) تقدم Notifications/Automation/Analytics/Import/Export والتكاملات على تحسينات AI الاختيارية.

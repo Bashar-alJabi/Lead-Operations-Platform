@@ -27,10 +27,10 @@ export function registerNotificationRoutes(app:FastifyInstance,db:Database) {
    const row=(await tx`SELECT EXISTS(SELECT 1 FROM notification_event e
     JOIN lead l ON l.id=e.lead_id AND l.organization_id=e.organization_id AND l.branch_id=e.branch_id AND l.campaign_id=e.campaign_id
     JOIN campaign c ON c.id=l.campaign_id AND c.organization_id=e.organization_id AND c.branch_id=e.branch_id
-    JOIN conversation cv ON cv.id=e.conversation_id AND cv.lead_id=l.id
+    LEFT JOIN conversation cv ON cv.id=e.conversation_id AND cv.lead_id=l.id
     LEFT JOIN notification_preference p ON p.user_id=${actor.id} AND p.event_type=e.event_type AND p.channel='IN_APP'
     LEFT JOIN notification_state ns ON ns.user_id=${actor.id} AND ns.event_id=e.id
-    WHERE e.organization_id=${actor.organizationId} AND (${actor.role==='SUPER_ADMIN'} OR e.branch_id=${actor.branchId})
+    WHERE (e.conversation_id IS NULL OR cv.id IS NOT NULL) AND e.organization_id=${actor.organizationId} AND (${actor.role==='SUPER_ADMIN'} OR e.branch_id=${actor.branchId})
      AND (${actor.role!=='AGENT'} OR l.assigned_agent_id=${actor.id}) AND COALESCE(p.enabled,true) AND NOT COALESCE(ns.is_read,false)) AS has_unread`)[0]!;
    return {hasUnread:row.has_unread};
   });
@@ -42,10 +42,10 @@ export function registerNotificationRoutes(app:FastifyInstance,db:Database) {
    const candidates=await tx`SELECT e.id,e.branch_id,e.lead_id,e.campaign_id,e.conversation_id FROM notification_event e
     JOIN lead l ON l.id=e.lead_id AND l.organization_id=e.organization_id AND l.branch_id=e.branch_id AND l.campaign_id=e.campaign_id
     JOIN campaign c ON c.id=e.campaign_id AND c.branch_id=e.branch_id AND c.organization_id=e.organization_id
-    JOIN conversation cv ON cv.id=e.conversation_id AND cv.lead_id=l.id
+    LEFT JOIN conversation cv ON cv.id=e.conversation_id AND cv.lead_id=l.id
     LEFT JOIN notification_preference p ON p.user_id=${actor.id} AND p.event_type=e.event_type AND p.channel='IN_APP'
     LEFT JOIN notification_state ns ON ns.user_id=${actor.id} AND ns.event_id=e.id
-    WHERE e.organization_id=${actor.organizationId} AND (${actor.role==='SUPER_ADMIN'} OR e.branch_id=${actor.branchId})
+    WHERE (e.conversation_id IS NULL OR cv.id IS NOT NULL) AND e.organization_id=${actor.organizationId} AND (${actor.role==='SUPER_ADMIN'} OR e.branch_id=${actor.branchId})
      AND (${actor.role!=='AGENT'} OR l.assigned_agent_id=${actor.id}) AND COALESCE(p.enabled,true)
      AND (${!request.query.unreadOnly} OR NOT COALESCE(ns.is_read,false))
      AND (${cursor?.timestamp??null}::text::timestamptz IS NULL OR (e.created_at,e.id)<(${cursor?.timestamp??null}::text::timestamptz,${cursor?.id??null}::uuid))
@@ -54,7 +54,7 @@ export function registerNotificationRoutes(app:FastifyInstance,db:Database) {
     await tx`SELECT id FROM branch WHERE id IN ${tx([...new Set(candidates.map(r=>r.branch_id))])} ORDER BY id FOR SHARE`;
     await tx`SELECT id FROM lead WHERE id IN ${tx([...new Set(candidates.map(r=>r.lead_id))])} ORDER BY id FOR SHARE`;
     await tx`SELECT id FROM campaign WHERE id IN ${tx([...new Set(candidates.map(r=>r.campaign_id))])} ORDER BY id FOR SHARE`;
-    await tx`SELECT id FROM conversation WHERE id IN ${tx([...new Set(candidates.map(r=>r.conversation_id))])} ORDER BY id FOR SHARE`;
+    if(candidates.some(r=>r.conversation_id))await tx`SELECT id FROM conversation WHERE id IN ${tx([...new Set(candidates.map(r=>r.conversation_id).filter(Boolean))])} ORDER BY id FOR SHARE`;
    }
    if(!await currentPaymentSession(tx,actor,request))throw new HttpError(403,'NOTIFICATION_ACCESS_REVOKED');
    const rows=candidates.length ? await tx`SELECT e.id,e.event_type,e.branch_id,e.campaign_id,e.lead_id,e.conversation_id,e.created_at,e.created_at::text AS cursor_at,c.name AS campaign_name,u.name AS owner_name,
@@ -62,16 +62,16 @@ export function registerNotificationRoutes(app:FastifyInstance,db:Database) {
     cv.ai_handoff_action_id=e.source_id AND cv.state='WAITING_FOR_HUMAN' AND cv.controller_type='NONE' AS waiting
     FROM notification_event e JOIN lead l ON l.id=e.lead_id AND l.organization_id=e.organization_id AND l.branch_id=e.branch_id AND l.campaign_id=e.campaign_id
     JOIN campaign c ON c.id=e.campaign_id AND c.branch_id=e.branch_id AND c.organization_id=e.organization_id
-    JOIN conversation cv ON cv.id=e.conversation_id AND cv.lead_id=l.id
+    LEFT JOIN conversation cv ON cv.id=e.conversation_id AND cv.lead_id=l.id
     LEFT JOIN user_account u ON u.id=l.assigned_agent_id AND u.branch_id=l.branch_id AND u.organization_id=l.organization_id
     LEFT JOIN notification_preference p ON p.user_id=${actor.id} AND p.event_type=e.event_type AND p.channel='IN_APP'
     LEFT JOIN notification_state ns ON ns.user_id=${actor.id} AND ns.event_id=e.id
-    WHERE e.id IN ${tx(candidates.map(r=>r.id))} AND e.organization_id=${actor.organizationId}
+    WHERE (e.conversation_id IS NULL OR cv.id IS NOT NULL) AND e.id IN ${tx(candidates.map(r=>r.id))} AND e.organization_id=${actor.organizationId}
      AND (${actor.role==='SUPER_ADMIN'} OR e.branch_id=${actor.branchId}) AND (${actor.role!=='AGENT'} OR l.assigned_agent_id=${actor.id})
      AND COALESCE(p.enabled,true) AND (${!request.query.unreadOnly} OR NOT COALESCE(ns.is_read,false)) ORDER BY e.created_at DESC,e.id DESC` : [];
    const page=rows.slice(0,limit),last=page.at(-1);
    const templates=page.length ? await tx`SELECT scope,resource_id,branch_id,title,body,version,active,event_type FROM notification_template
-    WHERE organization_id=${actor.organizationId} AND language=${language} AND event_type IN ${tx(notificationEvents)} AND channel='IN_APP'
+    WHERE organization_id=${actor.organizationId} AND language=${language} AND event_type IN ${tx(notificationEvents as readonly string[])} AND channel='IN_APP'
      AND (scope='GLOBAL' OR scope='BRANCH' AND resource_id IN ${tx([...new Set(page.map(r=>r.branch_id))])}
       OR scope='CAMPAIGN' AND resource_id IN ${tx([...new Set(page.map(r=>r.campaign_id))])})` : [];
    const items=page.map(r=>{
@@ -108,7 +108,7 @@ export function registerNotificationRoutes(app:FastifyInstance,db:Database) {
  app.get(preferenceRoot,async request=>{
   const actor=await principalFromRequest(request,db);return db.begin(async tx=>{
    if(!await currentPaymentSession(tx,actor,request))throw new HttpError(403,'NOTIFICATION_ACCESS_REVOKED');
-   const p=(await tx`SELECT enabled,version FROM notification_preference WHERE user_id=${actor.id} AND event_type=${event} AND channel='IN_APP'`)[0];
+   const p=(await tx`SELECT enabled,version FROM notification_preference WHERE user_id=${actor.id} AND event_type=${event as string} AND channel='IN_APP'`)[0];
    return {eventType:event,channel:'IN_APP',enabled:p?.enabled??true,version:p?.version??0,mandatory:false};
   });
  });
@@ -116,10 +116,10 @@ export function registerNotificationRoutes(app:FastifyInstance,db:Database) {
   const actor=await principalFromRequest(request,db);return db.begin(async tx=>{
    await tx`SELECT pg_advisory_xact_lock(hashtextextended(${actor.id+':notification-preference:'+event},0))`;
    const session=await currentPaymentSession(tx,actor,request);if(!session)throw new HttpError(403,'NOTIFICATION_ACCESS_REVOKED');
-   const p=(await tx`SELECT version FROM notification_preference WHERE user_id=${actor.id} AND event_type=${event} AND channel='IN_APP' FOR UPDATE`)[0];
+   const p=(await tx`SELECT version FROM notification_preference WHERE user_id=${actor.id} AND event_type=${event as string} AND channel='IN_APP' FOR UPDATE`)[0];
    if((p?.version??0)!==request.body.version)throw new HttpError(409,'NOTIFICATION_VERSION_CONFLICT');
-   if(p)await tx`UPDATE notification_preference SET version=version+1,enabled=${request.body.enabled},session_id=${session} WHERE user_id=${actor.id} AND event_type=${event} AND channel='IN_APP'`;
-   else await tx`INSERT INTO notification_preference(user_id,event_type,channel,enabled,version,session_id) VALUES(${actor.id},${event},'IN_APP',${request.body.enabled},1,${session})`;
+   if(p)await tx`UPDATE notification_preference SET version=version+1,enabled=${request.body.enabled},session_id=${session} WHERE user_id=${actor.id} AND event_type=${event as string} AND channel='IN_APP'`;
+   else await tx`INSERT INTO notification_preference(user_id,event_type,channel,enabled,version,session_id) VALUES(${actor.id},${event as string},'IN_APP',${request.body.enabled},1,${session})`;
    return {version:request.body.version+1};
   });
  });

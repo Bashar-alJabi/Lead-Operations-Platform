@@ -45,7 +45,14 @@ test('Actual customer AI Handoff transitions durably to Human waiting with scope
     await history.getByRole('button', { name: 'Review AI executions', exact: true }).click(); await expect(history).toContainText('HANDOFF'); await expect(history).toContainText('No action or customer message has been executed.');
     await verifyActionRecoveryUI({manager,page,cv,kind:'HANDOFF',leadName:'Browser AI Handoff Action Customer',token:fixture.testToken,execute});
     expect((await execute()).status()).toBe(200); expect((await (await execute()).json()).processed).toBe(false);
-    const notice=(await(await page.request.get('/api/notifications?language=en')).json()).items.find((n:any)=>n.leadId===lead);expect(notice).toBeTruthy();
+    const notice=(await(await page.request.get('/api/notifications?language=en')).json()).items.find((n:any)=>n.leadId===lead&&n.eventType==='AI_HANDOFF_REQUESTED');expect(notice).toBeTruthy();
+    // Other operational events are now valid unread items. Leave only this Handoff unread so the badge assertion stays meaningful.
+    let notificationCursor:string|null=null;
+    do{
+      const others=await(await page.request.get('/api/notifications?unreadOnly=true&limit=50'+(notificationCursor?'&cursor='+encodeURIComponent(notificationCursor):''))).json();
+      for(const item of others.items)if(item.id!==notice.id)expect((await page.request.put('/api/notifications/'+item.id+'/state',{headers:{origin},data:{version:item.version,isRead:true}})).status()).toBe(200);
+      notificationCursor=others.nextCursor;
+    }while(notificationCursor);
     expect((await(await second.request.get('/api/notifications?language=en')).json()).items.some((n:any)=>n.leadId===lead)).toBe(false);
     expect((await second.request.put('/api/notifications/'+notice.id+'/state',{headers:{origin},data:{version:0,isRead:true}})).status()).toBe(404);
     await page.getByRole('button',{name:'Notifications',exact:true}).click();const center=page.locator('[data-notification-center]'),notification=page.locator('[data-notification="'+notice.id+'"]');
