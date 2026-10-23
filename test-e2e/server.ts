@@ -320,6 +320,15 @@ app.post('/__test__/ai-qualification-action',async(request)=>{
   if(typeof request.headers.authorization!=='string' || !safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
   return { processed:await processOneAIQualificationAction(db) };
 });
+app.post<{Body:{campaignId:string;enabled:boolean}}>('/__test__/ai-initial-intake',{
+  schema:{body:{type:'object',additionalProperties:false,required:['campaignId','enabled'],properties:{campaignId:{type:'string',format:'uuid'},enabled:{type:'boolean'}}}},
+},async request=>{
+  if(typeof request.headers.authorization!=='string'||!safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
+  // Isolated synthetic fixture only. The production readiness/activation gate stays closed.
+  const changed=await db`UPDATE campaign SET ai_config=jsonb_build_object('enabled',${request.body.enabled}),messaging_config='{"enabled":true}'
+    WHERE id=${request.body.campaignId} AND organization_id=${org} AND branch_id=${branch} RETURNING id`;
+  if(!changed.length)throw new HttpError(404,'SYNTHETIC_CAMPAIGN_NOT_FOUND');return {configured:true};
+});
 app.post<{Body:{dispatch?:boolean}}>('/__test__/ai-customer-send',async(request)=>{
   if(typeof request.headers.authorization!=='string' || !safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
   return {processed:request.body?.dispatch ? await processOneMessagingJob(db,{...metaWhatsAppSendAdapter},{syntheticAI:true}) : await processOneAICustomerSend(db)};

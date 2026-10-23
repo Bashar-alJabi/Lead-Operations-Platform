@@ -1,5 +1,7 @@
 # مصدر إنشاء Lead قبل Initial Contact — Native153
 
+**تحديث Native154–157:** أُضيفت fresh initial admission تلقائية منreceipt الجديدة للحملة التيكانت AI مفعلة عندإنشائها، معcurrent configuration/grants وscoped history UI وbounded contention failure دونفقدانLead. [العقد المستقل](ai-initial-admission.md). النص أدناه يوثّقحدودNative153 الأصلية؛ initial job/content/template/action/send/activation لا تزالاعتمادياتلاحقة، ولاreceipt قديمة تُعادإحياؤها.
+
 ## القرار والنطاق
 
 04 §11 يتطلب Initial Contact بعد إنشاء Lead ومحاولة Routing. لا يصح استخدام Customer inbound مصطنعة لتشغيله، ولا اعتبار UPDATE لسجل قديم عملية إنشاء جديدة. Native153 تضيف إثبات مصدر مستقلًا عن AI proposals وHuman Copilot. هذه prerequisite للمصدر؛ ليست تنفيذ Initial Contact أوإذنًا لـAI بالإرسال.

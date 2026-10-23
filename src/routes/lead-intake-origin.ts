@@ -20,10 +20,16 @@ export function registerLeadIntakeOriginRoutes(app: FastifyInstance, db: Databas
       if (lead.branch_id !== initial.branch_id) throw new HttpError(409, 'LEAD_INTAKE_CONTEXT_CHANGED');
       const receipt = (await tx`SELECT id,origin_kind,created_at,context->'source'->>'kind' AS source_kind,context->'routing' AS routing
         FROM lead_intake_receipt WHERE lead_id=${lead.id}`)[0];
+      const admission = receipt ? (await tx`SELECT id,state,blockers,created_at,context->'knowledge'->'version' AS knowledge_version,
+        context->'availability'->'ownerAvailable' AS owner_available,context->'effective'->'handoff'->'initialContactWithoutAgent' AS without_agent,
+        context->'sender'->>'reason' AS sender_reason FROM ai_initial_admission WHERE receipt_id=${receipt.id}`)[0] : null;
       await tx`INSERT INTO audit_log(organization_id,branch_id,actor_user_id,action,target_type,target_id)
         VALUES(${actor.organizationId},${lead.branch_id},${actor.id},'LEAD_INTAKE_ORIGIN_READ','LEAD',${lead.id})`;
       return { origin: receipt ? { id: receipt.id, originKind: receipt.origin_kind, sourceKind: receipt.source_kind, createdAt: receipt.created_at,
-        routing: { method: receipt.routing.method, reason: receipt.routing.reason, ownerId: receipt.routing.ownerId } } : null };
+        routing: { method: receipt.routing.method, reason: receipt.routing.reason, ownerId: receipt.routing.ownerId },
+        initialAI: admission ? { id: admission.id, state: admission.state, blockers: admission.blockers, createdAt: admission.created_at,
+          knowledgeVersion: admission.knowledge_version, ownerAvailable: admission.owner_available, initialContactWithoutAgent: admission.without_agent,
+          senderReason: admission.sender_reason, runtimeStarted: false, sendAuthorized: false, liveTransferEnabled: false } : null } : null };
     });
   });
 }

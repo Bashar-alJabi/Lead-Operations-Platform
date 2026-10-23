@@ -1,5 +1,17 @@
 # مصفوفة تغطية المتطلبات
 
+## أحدث checkpoint: Initial AI intake admission — 2026-10-23
+
+| المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |
+|---|---|---|
+| 04 §11 و05 §18 Initial Contact prerequisites | Native154–157 fresh non-inbound admission داخلactual post-Routing intake؛ current Published Knowledge/Profile/grants/config/Tools/Fields/Owner/availability وexplicit unassigned fallback وdeterministic sender | **178unit/86full Docker PG** (170.8s) و**52full Edge Browser** (2.4m)، و001–157 development/test وBackend/Web build/typecheck/diff check ناجحة علىآخرالكود. **Implemented وMock/Sandbox Verified** لهذهprerequisite فقط |
+| AGENTS §§8/15/20/22/27 و05 scope/authority | fresh-only/no revival/backfill، immutable context/hash/Audit،original Send grant وcurrent scope/recipient/config/Knowledge/Profile/shared entitlement/Field/Owner fences | actual API intake وeight concurrent intakes وBranch/Campaign transfer وrecipient/Field changes وgrant revocation وSender parity/invalid override/shared ambiguity وdeferred extra-write/Audit rollback مثبتة؛لاPII value أوsecrets فيsnapshot/DTO |
+| 05 §18 external failure لا يُفقدLead و06 failure tests | Native157 bounded dependency assessment وBLOCKED busy source دونclaim عنconfig/availability غيرمقروءة | real inverse-order lock race أثبتت500 قبلالإصلاح ثم201 ونجاحoperational writer،وtimeout restoration/null facts/zero provider I/O مثبتة؛no fake success/replay |
+| 03 UI/permissions و06 acceptance | current real Session/Organization/Branch/assigned Agent read وhistorical admission panel بـar/en/fr/RTL،safe untrusted text وfailed-read clearing | focused PG2/2 بعد157؛full Browser النهائية تشملmanaged synthetic setup/actual intake/blocked-vs-admitted/no revival/current scope denial/localizations/null-busy DTO/clearing. فُحصت صورةar390px النهائية |
+| Initial Contact/full AI/platform وLive verification | approved initial content/template setup وdurable job/action/Conversation/message/outbox/dispatch/UI/evaluations باقية | **غير مكتملة**؛ADMITTED ليستSend authorization أوRuntime started. Live transfer/send/full activation معطلة و**Live Verification Pending External Credential/Approval** |
+
+[العقد والحدود](ai-initial-admission.md). التاليapproved campaign-specific initial content/template policy/version/hash قبلadmission-derived queue؛لا backfill لold admissions،ولاsource timestamp كدليلConsent/window. مرجعالبدء `6aed8f8`؛الكودوالتوثيق فيcheckpoint الفرع الحالي فقط.
+
 ## أحدث checkpoint: trusted Lead intake origin — 2026-10-23
 
 البوابةالكاملة أدناه ناجحة علىآخرالكود بمافيهتقويةContact review current Branch/Campaign/routing locks ورفضinactive state.

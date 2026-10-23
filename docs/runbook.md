@@ -1,5 +1,13 @@
 # دليل التشغيل والتطوير
 
+## مراجعة قبول Initial AI وقت الإنشاء — Native154–157
+
+منLead details اختر«مراجعة مصدر الإنشاء». إذا وُجد تقييمInitial AI فراجعhistorical state وأسبابالمنع ونسخةالمعرفة وavailability وسياسةالسماحبدونموظف وSender resolution. ADMITTED تخصإعداداتالقبول وقتالإنشاءفقط؛ Runtime/send لمتبدأ،ولا يُفهممنهاConsent أوDelivery. BLOCKED تحتفظ بالـLead ونتيجةRouting؛صححconfiguration منواجهاتAI/Messaging الحالية للمصادرالجديدة. لاSQLتعديلللسجلولاbackfill/replay للـreceipt القديمة. null تعنيلاadmission محفوظة،ولايُستنتجقبول منالإعداداتالحالية.
+
+Current read تتبعالمالكوالفرعالحاليين،وتختفيالبياناتعندفقدانالوصول. تعطلAI/config لايلغيLead؛فشلAudit/integrity يلغيtransaction ويظهرخطأالمسارالآمن. لا تتجاوز Source/full activation gate أوlive-off؛هذهالمرحلةلاqueue أوConversation أوMessage ولاNotification مزعومة. [العقد والاعتمادالتالي](ai-initial-admission.md).
+
+إذاظهرأنإعداداتAI مشغولةأوقيدالتحديث،فـLead محفوظةوتقييمInitial AI محجوب؛«غيرمُقيّم» لا تعنيأنOwner غيرمتاح فعلًا. لا automatic replay للreceipt بعدانتهاءالانشغال،ولا SQLrepair؛تابعLead عبرمساراتHuman المصرح بها.100ms حدتقني لانتظارdependency locks داخلassessment معاستعادةtimeout الأصلي،وليسprovider timeout أوBusiness sending policy.
+
 ## مصدر إنشاء Lead — Native153
 
 منLead details اختر«مراجعة مصدر الإنشاء» لعرضنوعالمصدر ووقتتوثيقه وRouting/Owner الأصليين. المالكالحاليقديختلف؛القراءةتتبعصلاحياتهالحالية. عدموجودreceipt يعنيعدموجودأصل موثّق قابلللإرجاع بهذهالآلية،ولايسمحبتوليدتاريخقديم أوSQLbackfill أوإحياءInitial Contact. فشلحفظreceipt أوAudit أثناءالإدخاليلغيtransaction كلها؛لاrepair بتعديلالصفوف. راجعfailure منمسارالإدخالالمعتاد وأعدالمحاولةالمصرح بها دونتكرارSource PROCESSED. هذهالمرحلةلاتنشئAI job أوMessage ولا ترفعreadiness gate أوlive-off. [العقد](lead-intake-origin.md).

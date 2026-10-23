@@ -1,5 +1,11 @@
 # المعمارية التقنية
 
+## Initial AI intake admission — Native154–157
+
+Initial Contact لها مصدر مستقل من fresh actual `lead_intake_receipt` داخل transaction الإدخال بعد Routing؛ لا fabricated inbound/proposal ولا إحياءتاريخ قديم. Native canonical snapshot تضم current Published Knowledge/Profile/Connection/Branch entitlement/configuration/Tools/Fields وOwner/working-hours availability وexplicit initialContactWithoutAgent/Branch attention fallback وdeterministic sender. Immutable admission تحافظ علىblocked reason وAudit معLead، وdeferred exact-context proof تحميatomicity. Current helper تعيد current dependency locks ومطابقةscope والrecipient/version/hash المحليين دونقيمPII؛ النقل أوتغييرالإعدادات يبطل السياق. Read/UI محدودة تتبعcurrent Lead ACL وتبين أنالقبول ليسsend أوتشغيلRuntime. هذه prerequisite؛ لاqueued initial job أوactual first send حتىإعدادالمحتوى/template والسياسةوالـoutbox. Live/full activation مغلقة. [العقد والاختبارات والحدود](ai-initial-admission.md).
+
+Native157 تعزلdependency lock assessment فيsubtransaction بانتظار100ms وتستعيدtimeout السابق. تعارضConnection-first administration معBranch-owned intake يُغلقبـBLOCKED/AI_INITIAL_DEPENDENCY_BUSY وsource-only proof،دونإلغاءLead أوادعاءKnowledge/Owner availability غيرمقروءة. current authority تفشلNULL عندالانشغال. actual inverse-order race أثبتت500 قبلالإصلاح و201 ونجاحwriter بعده؛لاprovider I/O ضمنالأقفال.
+
 ## Trusted Lead intake origin — Native153
 
 INSERT-only birth ledger تميزالإنشاء الفعلي عنUPDATE لسجلقديم؛ immutable post-Routing receipt ترتبط بـcurrent real Manual Session أوactual processed Source/history. المساراتالفعلية الثلاثة تحفظها داخلنفسtransaction، معdeferred exact-context proof وatomic Audit/Activity. Current-scoped readonly API/UI تعرضorigin/recorded time/original routing-owner دونraw payload أوSession/context؛تحتفظبالتاريخبعدreassignment وتعيدcurrent Agent authorization. لاbackfill أوAI admission/job/send/activation؛هذهprerequisite لـInitial Contact،وسلطةالإرسالاللاحقة يجبإنشاؤها منfresh receipt معoriginal config/grant/current Central Policy. [العقد والاختبارات](lead-intake-origin.md).
