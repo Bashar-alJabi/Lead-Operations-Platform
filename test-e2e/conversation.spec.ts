@@ -738,6 +738,8 @@ test('source Webhook and retrieval preserve signed replays, source submissions a
     const processed=(await (await page.request.get('/api/sources/submissions?connectionId='+connectionId)).json()).items.find((r:{ submission_id:string })=>r.submission_id===submissionId);
     expect(processed.lead_id).toBeTruthy();const created=await page.request.get('/api/leads/'+processed.lead_id);expect(created.ok()).toBeTruthy();
     expect((await created.json()).lead.contact_name).toBe('Browser match A');
+    const intakeOrigin=await page.request.get('/api/leads/'+processed.lead_id+'/intake-origin');expect(intakeOrigin.status()).toBe(200);
+    expect((await intakeOrigin.json()).origin.originKind).toBe('SOURCE');expect((await intakeOrigin.json()).origin.sourceKind).toBe('META');
     await submission.getByRole('button',{ name:'تاريخ معالجة المصدر',exact:true }).click();await expect(review).toContainText('Browser approved matching person');
     await submission.evaluate((element)=>element.scrollIntoView({ block:'start' }));await page.screenshot({ path:'.local/e2e/source-intake-processed-ar.png' });
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);expect(errors).toEqual([]);

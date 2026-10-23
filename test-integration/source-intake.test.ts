@@ -80,6 +80,10 @@ test('Source intake atomically creates scoped Leads, matches optional Contacts, 
   assert.equal((await db`SELECT count(*)::integer AS n FROM field_value_history WHERE lead_id=${empty.lead_id} AND source='SOURCE'`)[0]!.n,3);
   assert.equal((await db`SELECT count(*)::integer AS n FROM assignment_history WHERE lead_id=${empty.lead_id}`)[0]!.n,1);
   const assigned=(await db`SELECT assigned_agent_id FROM lead WHERE id=${empty.lead_id}`)[0]!.assigned_agent_id;
+  const origin=(await db`SELECT * FROM lead_intake_receipt WHERE lead_id=${empty.lead_id}`)[0]!;
+  assert.equal(origin.origin_kind,'SOURCE');assert.equal(origin.actor_id,null);assert.equal(origin.session_id,null);
+  assert.equal(origin.submission_id,inactive.id);assert.equal(origin.context.routing.ownerId,assigned);assert.equal(origin.context.source.processingVersion,empty.version);
+  assert.equal(origin.context.lead.contactId,null);
   const owner=assigned===users.agent!.id ? 'agent' : 'second';const nonowner=owner==='agent' ? 'second' : 'agent';
   assert.equal((await api('GET','/api/leads/'+empty.lead_id,undefined,owner)).statusCode,200);assert.equal((await api('GET','/api/leads/'+empty.lead_id,undefined,nonowner)).statusCode,404);
   assert.equal((await api('PUT',`/api/leads/${empty.lead_id}/fields/${fields.score}`,{ value:9,version:1 },owner)).statusCode,403);

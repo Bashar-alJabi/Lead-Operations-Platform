@@ -4,6 +4,7 @@ import './style.css';
 import { ContactWorkspace } from './ContactWorkspace.js';
 import { LeadFields, LeadCreationFields } from './LeadFields.js';
 import { LeadQualification } from './LeadQualification.js';
+import { LeadIntakeOrigin } from './LeadIntakeOrigin.js';
 import { FieldWorkspace } from './FieldWorkspace.js';
 import { CampaignWorkspace } from './CampaignWorkspace.js';
 import { FollowupQueue, LeadWorkflow } from './LeadWorkflow.js';
@@ -364,6 +365,7 @@ function App() {
       <LeadWorkflow lead={detail.lead} role={user.role} locale={locale} api={api}
         onChanged={async () => { const current = await api<typeof detail>(`/api/leads/${selectedLead}`); setDetail(current); }} />
       <LeadQualification key={`${selectedLead}:qualification`} leadId={selectedLead} locale={locale} api={api} onChanged={() => setFieldRefresh(n => n + 1)} />
+      <LeadIntakeOrigin leadId={selectedLead} revision={detail.lead.version} locale={locale} api={api} />
       <LeadFields key={`${selectedLead}:fields:${fieldRefresh}`} leadId={selectedLead} locale={locale} api={api} />
       <LeadPaymentMethods key={`${selectedLead}:payment-methods`} leadId={selectedLead} locale={locale} api={api} />
       <LeadCustomerOperations key={`${selectedLead}:customer-operations`} leadId={selectedLead} lifecycle={detail.lead.lifecycle}

@@ -1,5 +1,18 @@
 # مصفوفة تغطية المتطلبات
 
+## أحدث checkpoint: trusted Lead intake origin — 2026-10-23
+
+البوابةالكاملة أدناه ناجحة علىآخرالكود بمافيهتقويةContact review current Branch/Campaign/routing locks ورفضinactive state.
+
+| المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |
+|---|---|---|
+| 04 §11 Initial Contact prerequisites وAGENTS §§8/15/27 | Native153 INSERT-only birth وimmutable actual post-Routing receipt؛ actual manual/Contact review/Meta paths، current real Human Session أوnative processed Source/history | **178unit/85full Docker PostgreSQL** (166.6s) و**51full Edge Browser** (2.4m)، و001–153development/test وBackend/Web build/typecheck/diff check ناجحة. **Implemented وMock/Sandbox Verified** لهذهprerequisite |
+| Provenance/security/idempotency/history و06 tests | no old UPDATE/replay/backfill، current role/session/scope، atomic origin/Lead/Fields/history/Audit، retained historical routing/owner | ثمانيةintakes، false SOURCE/current Session/Agent/foreign scope denial، extra-write/Audit rollback، legacy origin:null وactual parent-lock/session revocation مثبتة. Contact review current routing/active parent fences وinactive409 دونكتابة مثبتة. Actual SOURCE processing version/null actor وNo Contact مثبتتان؛ لاAI/messages/financial jobs |
+| 03/06 UI/permissions | current-scoped origin read وar/en/fr/RTL history منفصلة عنcurrentOwner، DTO دونraw/context/Session/Contact values | Browser تثبت historical unassigned origin بعدassignment، revoke-by-reassignment denial/clearing، localizations/noXSS وSource actual flow DTO؛الصورةالعربية النهائية فُحصت. Focused PG3/3 وBrowser1/1 سبقتfull gate |
+| Initial Contact وfull AI/platform وLive verification | initial source admission/config-grant/current authority/queue وapproved content/template/policy/action/dispatch/UI باقية | **غير مكتملة**؛origin وحدها لا تمنحSend أوAI action. Live transfer/send/full activation معطلة و**Live Verification Pending External Credential/Approval**. التالي fresh receipt admission داخلنفسtransaction دونإحياءتاريخقديم،ثمالحلقةالفعلية وبقيةAI والوحداتالرئيسية |
+
+[العقد وحدودالسلطة](lead-intake-origin.md). مرجعالبدء `b658cd1`؛التوثيقوالكود فيcheckpoint الفرع الحالي فقط،دونmain أوdeployment.
+
 ## أحدث checkpoint: Qualification reply continuation — 2026-10-23
 
 | المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |

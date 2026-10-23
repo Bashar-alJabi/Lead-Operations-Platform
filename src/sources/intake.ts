@@ -3,6 +3,7 @@ import type { Database } from '../db.js';
 import { HttpError,type Principal } from '../security.js';
 import { identityLockKeys,normalizeSourceContact,type NormalizedContact } from '../contacts.js';
 import { routeLead } from '../routing.js';
+import { recordLeadIntakeOrigin } from '../lead-intake-origin.js';
 import { evaluateSource,type Evaluation } from './evaluation.js';
 
 function identityPredicate(db:Database,organizationId:string,contact:NormalizedContact) {
@@ -75,6 +76,7 @@ export async function intakeSource(tx:postgres.TransactionSql,connection:Record<
     await routeLead(tx,outcome.campaignId!,outcome.branchId!,prepared!.campaign.routing_method,prepared!.campaign.timezone,leadId!);
   } else await tx`UPDATE source_submission SET state='NEEDS_ATTENTION',failure_code=${failure} WHERE id=${submission.id}`;
   await saveIntakeResult(tx,submission.id,outcome,failure,actor?.id ?? null,choice?.reason ?? 'SOURCE_INTAKE_EXECUTED');
+  if (!failure) await recordLeadIntakeOrigin(tx,leadId!,submission.id,{ kind:'SOURCE' });
   await tx`INSERT INTO audit_log (organization_id,branch_id,actor_user_id,action,target_type,target_id,detail)
     VALUES (${submission.organization_id},${outcome.branchId ?? connection.branch_id},${actor?.id ?? null},'SOURCE_INTAKE_EXECUTED','SOURCE_SUBMISSION',${submission.id},
       ${tx.json({ state:failure ? 'NEEDS_ATTENTION' : 'PROCESSED',errorCode:failure,leadId,contactId,bindingId:outcome.bindingId,mappingVersion:outcome.mappingVersion,

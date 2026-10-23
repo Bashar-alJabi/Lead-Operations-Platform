@@ -3,6 +3,8 @@ import type postgres from 'postgres';
 import type { Database } from '../db.js';
 import { HttpError, principalFromRequest, requireBranch, requireLead, requireRole } from '../security.js';
 import { routeLead } from '../routing.js';
+import { recordLeadIntakeOrigin } from '../lead-intake-origin.js';
+import { currentPaymentSession } from '../payments/access.js';
 import { decodeCursor, encodeCursor } from '../pagination.js';
 import { identityLockKeys, normalizeContact } from '../contacts.js';
 import { enforceRequiredFieldStage, prepareManualFieldValues, storeManualFieldValues, type ManualFieldInput } from '../field-values.js';
@@ -66,6 +68,8 @@ export function registerOperationsRoutes(app: FastifyInstance, db: Database): vo
     const result = await db.begin(async (tx) => {
       // Serialize intake against deactivation so a request checked earlier cannot create a lead afterward.
       await tx`SELECT id FROM branch WHERE id = ${request.body.branchId} AND organization_id = ${actor.organizationId} FOR NO KEY UPDATE`;
+      const intakeSession = await currentPaymentSession(tx, actor, request);
+      if (!intakeSession) throw new HttpError(403, 'LEAD_INTAKE_ACCESS_REVOKED');
       const campaigns = await tx`SELECT c.id, c.routing_method, b.timezone FROM campaign c JOIN branch b ON b.id = c.branch_id
         WHERE c.id = ${request.body.campaignId} AND c.branch_id = ${request.body.branchId}
           AND c.organization_id = ${actor.organizationId} FOR NO KEY UPDATE OF c`;
@@ -104,12 +108,13 @@ export function registerOperationsRoutes(app: FastifyInstance, db: Database): vo
         VALUES (${actor.organizationId}, ${request.body.branchId}, ${campaign.id}, ${contactId}, 'MANUAL') RETURNING id`;
       const leadId = leads[0]!.id as string;
       await storeManualFieldValues(tx, leadId, actor.id, fieldValues);
-      await tx`INSERT INTO source_submission (organization_id, branch_id, campaign_id, lead_id, source_kind, raw_payload, state)
-        VALUES (${actor.organizationId}, ${request.body.branchId}, ${campaign.id}, ${leadId}, 'MANUAL', ${tx.json({ contact: request.body.contact, fields: request.body.fields ?? [] })}, 'PROCESSED')`;
+      const intakeSubmission = (await tx`INSERT INTO source_submission (organization_id, branch_id, campaign_id, lead_id, source_kind, raw_payload, state)
+        VALUES (${actor.organizationId}, ${request.body.branchId}, ${campaign.id}, ${leadId}, 'MANUAL', ${tx.json({ contact: request.body.contact, fields: request.body.fields ?? [] })}, 'PROCESSED') RETURNING id`)[0]!;
       await tx`INSERT INTO lead_activity (lead_id, actor_user_id, event_type) VALUES (${leadId}, ${actor.id}, 'LEAD_CREATED')`;
       await tx`INSERT INTO audit_log (organization_id, branch_id, actor_user_id, action, target_type, target_id)
         VALUES (${actor.organizationId}, ${request.body.branchId}, ${actor.id}, 'LEAD_CREATED', 'LEAD', ${leadId})`;
       await routeLead(tx, campaign.id, request.body.branchId, campaign.routing_method, campaign.timezone, leadId);
+      await recordLeadIntakeOrigin(tx, leadId, intakeSubmission.id, { kind: 'HUMAN_MANUAL', actorId: actor.id, sessionId: intakeSession });
       return { id: leadId };
     });
     if ('reviewId' in result) { reply.code(202); return { reviewId: result.reviewId, status: 'NEEDS_ATTENTION' }; }

@@ -1,5 +1,9 @@
 # المعمارية التقنية
 
+## Trusted Lead intake origin — Native153
+
+INSERT-only birth ledger تميزالإنشاء الفعلي عنUPDATE لسجلقديم؛ immutable post-Routing receipt ترتبط بـcurrent real Manual Session أوactual processed Source/history. المساراتالفعلية الثلاثة تحفظها داخلنفسtransaction، معdeferred exact-context proof وatomic Audit/Activity. Current-scoped readonly API/UI تعرضorigin/recorded time/original routing-owner دونraw payload أوSession/context؛تحتفظبالتاريخبعدreassignment وتعيدcurrent Agent authorization. لاbackfill أوAI admission/job/send/activation؛هذهprerequisite لـInitial Contact،وسلطةالإرسالاللاحقة يجبإنشاؤها منfresh receipt معoriginal config/grant/current Central Policy. [العقد والاختبارات](lead-intake-origin.md).
+
 ## Qualification reply continuation — Native150–152
 
 بعد حفظ إجابة Qualification بإجراء typed مصرح به، ينشأ immutable child source من receipt الجديدة فقط، مع exact Native142 own-write context والنتيجة التشغيلية والسؤال المعتمد التالي. يستخدم نفس SEND queue وCentral Messaging Policy وatomic outbox وdispatch من148–149. Completion أوHandoff تمنع متابعة الأسئلة؛ المصدر الأصلي وقرارproposal لا يتغيران.

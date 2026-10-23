@@ -1,5 +1,9 @@
 # دليل التشغيل والتطوير
 
+## مصدر إنشاء Lead — Native153
+
+منLead details اختر«مراجعة مصدر الإنشاء» لعرضنوعالمصدر ووقتتوثيقه وRouting/Owner الأصليين. المالكالحاليقديختلف؛القراءةتتبعصلاحياتهالحالية. عدموجودreceipt يعنيعدموجودأصل موثّق قابلللإرجاع بهذهالآلية،ولايسمحبتوليدتاريخقديم أوSQLbackfill أوإحياءInitial Contact. فشلحفظreceipt أوAudit أثناءالإدخاليلغيtransaction كلها؛لاrepair بتعديلالصفوف. راجعfailure منمسارالإدخالالمعتاد وأعدالمحاولةالمصرح بها دونتكرارSource PROCESSED. هذهالمرحلةلاتنشئAI job أوMessage ولا ترفعreadiness gate أوlive-off. [العقد](lead-intake-origin.md).
+
 ## Qualification continuation — Native150–152
 
 راقب Qualification وSend فيCustomer AI execution history كإجرائين مستقلين. APPLIED للإجابة لا يعني إرسالًا؛ APPLIED للإرسال نية فيالطابور فقط. History/Activity/Audit تربط Send بالـqualification_action_id دون عرض قيم Fields المخفية. مصدر المتابعة ينشأ داخل transaction الإجابة الجديدة إذا كانت النتيجة الموثوقة غير مكتملة ولا تطلب Handoff، ثم يدخل SEND queue/recovery القائمة. لا SQL backfill أوإحياء receipt قديمة.

@@ -1,5 +1,17 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: trusted Lead intake origin — 2026-10-23
+
+استؤنف بعدحفظورفع `b658cd1` دونreset/discard. Native153 تحفظ INSERT-only birth ثمimmutable receipt بعدRouting، مرتبطة بمصدرMANUAL ذيcurrent real Session أوSOURCE ذيactual processed submission/history. المسارات الثلاثة الفعلية (manual،Contact review،Meta intake) مربوطة،وcurrent-scoped historical API/UI منفذة. لا اعتمادعلىmutable `lead.xmin` لإحياءLead قديمة،ولاbackfill أوcustomer inbound مصطنعة. [العقد](lead-intake-origin.md).
+
+**البوابة النهائية ناجحة علىآخرالكود بمافيهتقويةContact review:** migrations001–153 development/test وBackend/Web build/typecheck وdiff check، و**178/178 unit،85/85 full Docker PostgreSQL integration** (166.6s)، و**51/51 full Edge Browser E2E** (2.4m). Focused PG3/3 وBrowser1/1 ناجحة قبلالبوابة؛صورةar390px النهائية فُحصت دونoverflow/XSS/duplicate keys. PostgreSQL/ClamAV healthy. Vite812.43KB/gzip231.60KB warning باقية ضمنbacklog.
+
+**الإثبات:** actual Manual/Contact review/retry وMeta SOURCE/null actor/processing version حتىدونContact، ثمانيةintakes متزامنة، current real Session/role/Branch/Organization denials، immutable birth/receipt وold UPDATE/no replay، false SOURCE proof، deferred extra-write/Audit rollback، legacy origin:null دونتوليدسجل، historical Owner/current assigned Agent access وfailed-read clearing. Actual parent-lock wait ثمSession revocation تمنعإنشاءLead. Contact review تقرأcurrent active Campaign/routing method بعدBranch lock وتحتCampaign lock؛inactive Branch/Campaign تعيد409 دونأثر،وبوابتهاأعيدت بعدالتصحيح. لاAI proposal/job/message أوPayment/Enrollment ناتجةعنهذاالمسار.
+
+**الحالة والحفظ:** origin provenance prerequisite **Implemented وMock/Sandbox Verified**؛ليستInitial Contact baseline. Live transfer/send/full activation تبقى معطلة، و**Live Verification Pending External Credential/Approval**. progress/coverage/plan/architecture/runbook والعقد تُحفظ معالكود فيcheckpoint الفرع الحالي وتُرفعإليهفقط؛مرجعالبدءb658cd1 والمعرفالجديد فيGit log. لاFeature قيدالتعديل أوgate فاشلة عندالحفظ.
+
+**الخطوة التالية الدقيقة:** Initial AI admission من **receipt جديدة داخلنفسintake transaction**؛ لا polling/revival لreceipts قديمة. ابنِ canonical non-inbound effective Published config/Profile/Knowledge/Field/tool-grant snapshot وcurrent Owner/availability/initialContactWithoutAgent/Manager-attention fallback وdeterministic sender،ثمdurable bounded job/current authority. بعدذلكapproved initial content/template configuration وcentral consent/window/template/health/frequency policy وatomic action/message/outbox/dispatch وLead UI/evaluations. Source timestamp ليستMessaging inbound ولاconsent أونافذة24h. AI unavailable/not-ready يجبألاتمحوLead موثوقة؛احفظالمنعوالسببضمنالحدودالمصرح بها. لا ترفعSource flow/full activation gate قبلbaseline كاملة ومختبرة. بعدهاreturning/follow-up/transition وبقيةAI والوحداتالرئيسية وفقcoverage؛لاoptional provider refinements.
+
 ## آخر حالة مستقرة: Qualification reply continuation — 2026-10-23
 
 استؤنف من `c3ee09e` النظيفة والمتزامنة معorigin على `codex/full-platform-build` دون reset/discard. شُغّلت حاويات Docker القائمة مع الحفاظ علىvolumes. Native150–152 تنشئ immutable continuation source من actual fresh typed Qualification receipt مع exact Native142 own-write context، وتختار أول سؤال معتمد غير مجاب بالترتيب إذا كانت النتيجة غير مكتملة ولا تطلب Handoff. تستخدم نفس SEND queue وCentral Messaging Policy وatomic outbox/current dispatch. لا fabricated inbound أوتعديل قرارproposal أوإحياءreceipt قديمة. [العقد](ai-qualification-replies.md).

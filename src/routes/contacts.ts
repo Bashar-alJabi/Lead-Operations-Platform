@@ -3,6 +3,8 @@ import type { Database } from '../db.js';
 import { decodeCursor, encodeCursor } from '../pagination.js';
 import { identityLockKeys, normalizeSourceContact } from '../contacts.js';
 import { routeLead } from '../routing.js';
+import { recordLeadIntakeOrigin } from '../lead-intake-origin.js';
+import { currentPaymentSession } from '../payments/access.js';
 import { prepareManualFieldValues, storeManualFieldValues, type ManualFieldInput } from '../field-values.js';
 import { HttpError, principalFromRequest, requireBranch, requireRole } from '../security.js';
 
@@ -164,10 +166,14 @@ export function registerContactRoutes(app: FastifyInstance, db: Database): void 
           AND NOT EXISTS (SELECT 1 FROM lead l WHERE l.contact_id = c.id AND l.branch_id <> ${actor.branchId})`;
         if (visible[0]!.count !== candidates.length) throw new HttpError(403, 'CONTACT_REVIEW_REQUIRES_ADMIN');
       }
+      await tx`SELECT id FROM branch WHERE id=${submission.branch_id} AND organization_id=${actor.organizationId} FOR NO KEY UPDATE`;
       const campaigns = await tx`SELECT c.id, c.routing_method, b.timezone FROM campaign c JOIN branch b ON b.id = c.branch_id
-        WHERE c.id = ${submission.campaign_id} AND c.branch_id = ${submission.branch_id} AND c.organization_id = ${actor.organizationId}`;
+        WHERE c.id = ${submission.campaign_id} AND c.branch_id = ${submission.branch_id} AND c.organization_id = ${actor.organizationId}
+          AND c.status='ACTIVE' AND b.active FOR NO KEY UPDATE OF c`;
       const campaign = campaigns[0];
       if (!campaign) throw new HttpError(409, 'CAMPAIGN_NOT_AVAILABLE');
+      const intakeSession = await currentPaymentSession(tx, actor, request);
+      if (!intakeSession) throw new HttpError(403, 'LEAD_INTAKE_ACCESS_REVOKED');
       const fieldValues = await prepareManualFieldValues(tx, campaign.id, actor,
         (submission.raw_payload.fields ?? []) as ManualFieldInput[]);
       const lead = await tx`INSERT INTO lead (organization_id, branch_id, campaign_id, contact_id, source_kind)
@@ -183,6 +189,7 @@ export function registerContactRoutes(app: FastifyInstance, db: Database): void 
         VALUES (${actor.organizationId}, ${submission.branch_id}, ${actor.id}, 'CONTACT_MATCH_REVIEW_RESOLVED', 'SOURCE_SUBMISSION', ${submission.id},
           ${tx.json({ contactId: request.body.contactId, leadId })})`;
       await routeLead(tx, campaign.id, submission.branch_id, campaign.routing_method, campaign.timezone, leadId);
+      await recordLeadIntakeOrigin(tx, leadId, submission.id, { kind: 'HUMAN_MANUAL', actorId: actor.id, sessionId: intakeSession });
       return { id: leadId, status: 'PROCESSED' };
     });
   });

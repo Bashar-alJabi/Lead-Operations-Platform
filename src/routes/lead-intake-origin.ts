@@ -1,0 +1,29 @@
+import type { FastifyInstance } from 'fastify';
+import type { Database } from '../db.js';
+import { HttpError, principalFromRequest } from '../security.js';
+import { currentPaymentSession } from '../payments/access.js';
+
+export function registerLeadIntakeOriginRoutes(app: FastifyInstance, db: Database) {
+  app.get<{ Params: { id: string } }>('/api/leads/:id/intake-origin', {
+    schema: { params: { type: 'object', additionalProperties: false, required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } },
+  }, async request => {
+    const actor = await principalFromRequest(request, db);
+    return db.begin(async tx => {
+      const initial = (await tx`SELECT branch_id FROM lead WHERE id=${request.params.id} AND organization_id=${actor.organizationId}
+        AND (${actor.role === 'SUPER_ADMIN'} OR branch_id=${actor.branchId}) AND (${actor.role !== 'AGENT'} OR assigned_agent_id=${actor.id})`)[0];
+      if (!initial) throw new HttpError(404, 'LEAD_NOT_FOUND');
+      await tx`SELECT id FROM branch WHERE id=${initial.branch_id} FOR SHARE`;
+      if (!await currentPaymentSession(tx, actor, request)) throw new HttpError(403, 'LEAD_INTAKE_ACCESS_REVOKED');
+      const lead = (await tx`SELECT id,branch_id FROM lead WHERE id=${request.params.id} AND organization_id=${actor.organizationId}
+        AND (${actor.role === 'SUPER_ADMIN'} OR branch_id=${actor.branchId}) AND (${actor.role !== 'AGENT'} OR assigned_agent_id=${actor.id}) FOR SHARE`)[0];
+      if (!lead) throw new HttpError(404, 'LEAD_NOT_FOUND');
+      if (lead.branch_id !== initial.branch_id) throw new HttpError(409, 'LEAD_INTAKE_CONTEXT_CHANGED');
+      const receipt = (await tx`SELECT id,origin_kind,created_at,context->'source'->>'kind' AS source_kind,context->'routing' AS routing
+        FROM lead_intake_receipt WHERE lead_id=${lead.id}`)[0];
+      await tx`INSERT INTO audit_log(organization_id,branch_id,actor_user_id,action,target_type,target_id)
+        VALUES(${actor.organizationId},${lead.branch_id},${actor.id},'LEAD_INTAKE_ORIGIN_READ','LEAD',${lead.id})`;
+      return { origin: receipt ? { id: receipt.id, originKind: receipt.origin_kind, sourceKind: receipt.source_kind, createdAt: receipt.created_at,
+        routing: { method: receipt.routing.method, reason: receipt.routing.reason, ownerId: receipt.routing.ownerId } } : null };
+    });
+  });
+}
