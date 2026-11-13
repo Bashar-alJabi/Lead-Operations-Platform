@@ -1,5 +1,9 @@
 # المعمارية التقنية
 
+## Conversation attention: capture ثم publication — Native167
+
+Append-only occurrence تحفظ actual reason transition وإزالة السبب،مع safe category وprivate hash بدل raw provider content. capture لا تأخذ parent locks: Conversation→Lead FK الموجودة تثبت العلاقة وscope UUIDs snapshots،لأن parent FK جديدة تحت Conversation lock تعكس Lead→Conversation لإعادةالإسناد. durable queue والـpublisher يعيدان current scope تحت Branch→Lead→Campaign→Conversation→Queue؛event/FK/Audit تحفظ مع النشر فقط. لا أثرعلىController أوsender أوcustomer sends،وفشلpublication لايمحوUNKNOWN. نفسnotification worker تتناوببينAttention وFollow-up،معbounded retries/history/current authorized recovery وUI. [العقد والحدود والاختبارات](conversation-attention-notifications.md).
+
 ## إشعارات التأكيد المالي — Native166
 
 AFTER trusted Payment→CONFIRMED transition وfresh Enrollment تحفظ حدثين منفصلين داخل نفس transaction المالية وAudit. لا source من callback غير موثوق أوcustomer claim أوACK،ولا صلاحية مالية منNotification. Native source/scope/time/own-row proof وFK/shape وunique event/source تحفظ provider independence وimmutable history. نفس current Lead ACL وCentre/preferences/wording/history،بلا recipient fan-out أوCustomer Conversation أوworker إضافية للإرسال الداخلي. [العقد وحدود scope/التحقق](financial-notifications.md). القنوات المفعلة وattention/System alerts وmandatory policies ثمAutomation/Analytics ما زالت مطلوبة.

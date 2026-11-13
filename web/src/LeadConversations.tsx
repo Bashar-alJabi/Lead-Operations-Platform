@@ -7,6 +7,7 @@ import { ConversationSummarySource } from './ConversationSummarySource';
 import { ConversationCampaignKnowledge } from './ConversationCampaignKnowledge';
 import { ConversationAIHistory } from './ConversationAIHistory';
 import { ConversationAIHandoffs } from './ConversationAIHandoffs';
+import {ConversationNotificationDelivery} from './ConversationNotificationDelivery';
 
 type Api = <T>(path: string, options?: RequestInit) => Promise<T>;
 type Locale = 'ar'|'fr'|'en';
@@ -310,6 +311,7 @@ export function LeadConversations({ leadId, lifecycle, role, actorId, locale, ap
           onClick={() => void chooseConversation(item.id).catch((failure) => setError(String(failure)))}>{t.showMessages}</button></td></tr>)}</tbody></table></div>
     {cursor && <button className="secondary" onClick={() => void load(cursor).catch((failure) => setError(String(failure)))}>{t.more}</button>}
     {selectedId && <div className="panel"><h4>{t.messages}</h4>
+      <ConversationNotificationDelivery key={'notice-'+selectedId} conversationId={selectedId} locale={locale} api={api} role={role}/>
       {reviewable && <div className="panel"><h5>{locale === 'ar' ? 'مراجعة سبب المنع' : locale === 'fr' ? 'Examen du blocage' : 'Review attention'}</h5>
         <p>{selected.needs_attention_reason} · {locale === 'ar' ? 'تحقق من حالة الرسالة لدى المزود قبل الإقرار. لا يعيد هذا الإجراء إرسالها ولا يغير سجل التسليم.' :
           locale === 'fr' ? 'Vérifiez le résultat chez le fournisseur. Cette action ne renvoie pas le message et ne change pas son historique.' :

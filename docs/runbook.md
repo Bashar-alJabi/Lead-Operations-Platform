@@ -1,5 +1,11 @@
 # دليل التشغيل والتطوير
 
+## إشعارات احتياج المحادثة للانتباه — Native167
+
+بعد migrations والبناء شغّل `worker:notifications`؛تعالجAttention وFollow-up ضمننفسحدالدورةبالتناوب. actualMessaging outcome وcapture مستقلتانعنpublication. منLead→محادثاتالعميل→عرضالرسائل→«حالةإشعاراتالمحادثة» راجعpending/failure/history،واستعملإعادةمحاولةحفظالإشعارمنحسابManager/Super Admin حاليبعدإصلاحالسبب. لايتطلبذلكإرسالWhatsApp أوAI أوقراءةcredential. لاSQLrepair أوUNKNOWN replay.
+
+منNotifications اخترنوع«محادثةتحتاجانتباهًا» للتفضيلوالصياغة. التنبيهالتاريخيومقروءلايعنيأنالحالةحُلت؛مراجعةسببالمنعالفعليةوسجلMessage منفصلان. user/branch/Lead access تعادفيكلread/write؛تغييرالمالكيسحبالوصول. [العقد وخطواتالفشل وحدودالقبول](conversation-attention-notifications.md).
+
 ## إشعارات تأكيد الدفع والتسجيل — Native166
 
 من Notifications راجع«تأكيد دفع» و«تأكيد تسجيل» كحدثين منفصلين،ثم افتح Lead لمراجعة المصدر والمبلغ والدفع والتسجيل المرتبطين. الحدث لا يحل محل financial record. اختر كل نوع مستقلًا من مجموعة التفضيلات المالية،وللإدارة wording editor الحالي معdefaults واللغة/النطاق/history. تغيير مالك Lead يسحب وصول Agent السابق ولا يحذف الأحداث.

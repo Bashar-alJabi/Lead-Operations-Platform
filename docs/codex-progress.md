@@ -1,5 +1,19 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: Conversation Needs Attention In-App — 2026-11-13
+
+استؤنف من `190fe6a` النظيفة والمرفوعة. شُغّل Docker Desktop المتوقف ثم PostgreSQL/ClamAV الموجودتان معحفظvolumes؛Preview لمتُعد. Native167 تحفظactual immutable reason/clear occurrence وsafe categories/private hash،وdurable publication مستقلةعنMessaging outcome معcurrent scope/Lead ACL وCentre/preferences/wording/read history وqueue failure/recovery API/UI. [العقد](conversation-attention-notifications.md). لاController/sender migration أوack/resend/unblock منNotification؛UNKNOWN لا تعاد.
+
+**البوابة النهائية ناجحة:** migrations001–167development/test وBackend/Web build/typecheck وdiff check،**178/178unit و96/96full Docker PostgreSQL integration** (243.4s) و**58/58full Edge Browser** (3.9m). Focused PG3/3 وBrowser1/1 (18.7s) سبقتا البوابة. الصورةar390px فُحصت دونoverflow/XSS/duplicate keys. Vite839.72KB/gzip239.14KB warning ضمنbacklog؛الأزمنةليستcapacity guarantee.
+
+**الإثبات والإصلاحات:** actual API queue→Messaging worker UNKNOWN→durable occurrence→8publishers/read CAS/recovery requests،5publication failures ثمcompiled worker recovery بلاMessage replay،clearing/reappearance وredaction/history/pagination/current scope/owner/session/native forgery/immutability denials. actual concurrent assignment تملكLead وتنتظرConversation بينماcapture تكملدونparent lock inversion. تأخيرالنشرثمCampaign change ينتهيSTALE_SCOPE بلاevent وhistory URL مرفوضة. أولfull PG96/96 نجحت،وأولBrowser full فشلتفيfixture name طابقتsubstring لاختبارقديم؛صُححاسمfixture الجديدةفقط دونتخفيفالاختبار أوتغييرالمنتج،وأُضيفscope-negative ثمأُعيدتالبوابة96/96 و58/58 بنجاح. لمتُعدّلmigration مطبقة.
+
+**الحالة والحفظ:** هذهbaseline **Implemented وMock/PostgreSQL/Local Browser Verified**؛لاLive provider أوcredential أوcustomer-send منالإشعار. Providers/AI تبقى **Live Verification Pending External Credential/Approval** والاستخدامالحي معطل. Notifications والمنصة غيرمكتملتين. هذهالحالة والكود وcoverage/gap-review/architecture/runbook/plan والعقد تُحفظفيcommit/push للفرعالمصرحبه فقط،ولاFeature قيدالتعديل أوgate فاشلةعندهذاالحفظ.
+
+**مراجعة ترتيبالعمل:** per-Lead In-App foundation متاحةللأتمتة:Lead/assignment/follow-up/payment/enrollment/conversation attention معbackend access وdurability. القنواتالإضافيةوالتنبيهاتغيرالمرتبطةبـLead ليستdependency لتلكالشريحة. استجابةلتوجيهإكمالModules الأساسيةقبلالتعمق،تنتقلالأولويةإلىAutomation؛تبقىفجواتNotifications موثقةولايُسقطنطاقها.
+
+**الخطوة التالية الدقيقة:** Automation core end-to-end: versioned managed typed rules وcurrent authorized scope/session عند الإعداد،trusted operational sources ثم durable idempotent execution معcurrent role/Lead/Field scope وcausation/loop guard وapproved application services وhistory/failure/recovery/UI. ابدأبشريحةفعلية Trigger→Conditions→Create Follow-up/Send In-App Notification منمصادرLead الحالية،بلاfake Human session أوunrestricted SQL/Provider action،معunit/PG/Browser ثمcheckpoint؛بقيةTriggers/Actions/customer-send تبقىRequirements لاComplete claim قبلتنفيذها. Native التالية168. بعدAutomation core تأتيtrusted Analytics/Conversion/per-currency/Human-only facts وSearch-Bulk/Import-Export/Google Sheets/Email وبقيةالمتطلبات. unresolved/Lead attention وIntegration-System alerts والقنواتالمفعلة/mandatory policies تبقىRequired gaps مستقلة؛لا يلزم تعميقNotifications قبل هذهالوحدات.
+
 ## آخر حالة مستقرة: إشعارات Payment وEnrollment — 2026-10-23
 
 استؤنف بعد حفظ ورفع `5db4a3b` النظيفة؛Native166 تحفظ PAYMENT_CONFIRMED وENROLLMENT_CONFIRMED كمصدرين منفصلين من actual trusted financial records فقط،مع native source/scope/time/fresh proof وFK/shape/unique/immutability وatomic Audit. نفسcurrent Lead ACL وCentre/preferences/scoped wording/read history والواجهة بـar/en/fr. [العقد](financial-notifications.md). لا تغيير لـfinancial confirmation/reconciliation أوProvider adapters،ولاevent منsuccess page/customer claim/receipt upload/checkout-capture ACK/Alma IPN.

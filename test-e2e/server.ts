@@ -17,6 +17,7 @@ import { processOneInboundEvent } from '../src/messaging/inbound-events.js';
 import { processOneAIHumanHandoff } from '../src/ai/customer-handoff.js';
 import { processOneHandoffSLATimer } from '../src/ai/handoff-sla.js';
 import {processOneFollowUpNotification} from '../src/follow-up-notifications.js';
+import {processOneConversationAttentionNotification} from '../src/conversation-attention-notifications.js';
 import { processOneAIHandoffSummary } from '../src/ai/handoff-summary.js';
 import { processOneTemplateSample } from '../src/media/template-sample-worker.js';
 import { processOneSourceEvaluation } from '../src/sources/evaluation.js';
@@ -263,6 +264,41 @@ const app = await buildApp(db, { logger:false,globalRateLimitMax:10000,mediaStor
     },
   } });
 app.get('/',async (_request,reply)=>reply.type('text/html').send(await readFile(resolve('dist-web/index.html'))));
+let attentionSendCalls=0;
+app.post<{Body:{fixture?:boolean;process?:boolean;unknownMessageId?:string;failConversationId?:string;fail?:boolean}}>('/__test__/conversation-notifications',{
+ schema:{body:{type:'object',additionalProperties:false,properties:{fixture:{type:'boolean'},process:{type:'boolean'},unknownMessageId:{type:'string',format:'uuid'},failConversationId:{type:'string',format:'uuid'},fail:{type:'boolean'}}}},
+},async request=>{
+ if(typeof request.headers.authorization!=='string'||!safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
+ if(request.body.fixture)return db.begin(async tx=>{
+  const conn=(await tx`INSERT INTO integration_connection(organization_id,branch_id,kind,provider,name,status,config) VALUES(${org},${branch},'MESSAGING','META_WHATSAPP_CLOUD','Synthetic attention connection','CONNECTED','{"wabaId":"123456789","graphVersion":"v25.0"}') RETURNING id`)[0]!.id;
+  const key=sealSecret(conn,JSON.stringify({accessToken:'SyntheticAttentionBrowserOnly',appSecret:'SyntheticAttentionSecret',verifyToken:'SyntheticAttentionVerify'}));
+  await tx`INSERT INTO connection_secret(connection_id,ciphertext,nonce,auth_tag) VALUES(${conn},${key.ciphertext},${key.nonce},${key.authTag})`;
+  const senderId=(await tx`INSERT INTO messaging_sender(organization_id,connection_id,external_sender_id,display_name,health,operator_enabled,capabilities) VALUES(${org},${conn},'15551110000','Synthetic attention sender','HEALTHY',true,'{"text":true}') RETURNING id`)[0]!.id;
+  const campaignId=(await tx`INSERT INTO campaign(organization_id,branch_id,name,status,messaging_config,sender_override_id) VALUES(${org},${branch},'Browser attention campaign','ACTIVE','{"enabled":true}',${senderId}) RETURNING id`)[0]!.id;
+  const contactId=(await tx`INSERT INTO contact(organization_id,name,phone,phone_normalized) VALUES(${org},'Attention test contact','+15551112222','+15551112222') RETURNING id`)[0]!.id;
+  await tx`INSERT INTO messaging_consent(contact_id,channel,status,source) VALUES(${contactId},'WHATSAPP','GRANTED','SYNTHETIC')`;
+  const leadId=(await tx`INSERT INTO lead(organization_id,branch_id,campaign_id,contact_id,source_kind,assigned_agent_id) VALUES(${org},${branch},${campaignId},${contactId},'MANUAL',${users.agent!}) RETURNING id`)[0]!.id;
+  const conversationId=(await tx`INSERT INTO conversation(lead_id,connection_id,sender_id,channel,participant_ref,controller_type,controller_user_id,state) VALUES(${leadId},${conn},${senderId},'WHATSAPP','+15551112222','HUMAN',${users.agent!},'HUMAN_ACTIVE') RETURNING id`)[0]!.id;
+  await tx`INSERT INTO conversation_message(conversation_id,connection_id,sender_id,direction,author_type,body,provider_message_id,delivery_state,received_at) VALUES(${conversationId},${conn},${senderId},'INBOUND','CUSTOMER','Synthetic attention question',${'wamid.attention-'+conversationId},'RECEIVED',now()-interval '1 second')`;
+  return {leadId,conversationId};
+ });
+ if(request.body.unknownMessageId){
+  const target=(await db`SELECT m.body,m.conversation_id FROM conversation_message m JOIN conversation cv ON cv.id=m.conversation_id JOIN lead l ON l.id=cv.lead_id
+   JOIN integration_connection c ON c.id=cv.connection_id WHERE m.id=${request.body.unknownMessageId} AND m.delivery_state='QUEUED' AND l.organization_id=${org} AND c.name='Synthetic attention connection'`)[0];
+  if(!target)throw new HttpError(404,'SYNTHETIC_MESSAGE_NOT_FOUND');
+  const first=(await db`SELECT d.message_id FROM background_job j JOIN outbound_delivery_job d ON d.job_id=j.id WHERE j.queue='messaging' AND j.kind='SEND_MESSAGE' AND j.status='QUEUED' ORDER BY j.run_after,j.created_at LIMIT 1`)[0];
+  if(first?.message_id!==request.body.unknownMessageId)throw new HttpError(409,'OTHER_SYNTHETIC_SEND_QUEUED');
+  await processOneMessagingJob(db,{sendText:async input=>{if(input.body!==target.body||input.externalSenderId!=='15551110000')throw new Error('Unexpected synthetic attention send');attentionSendCalls++;throw new ProviderSendError('UNKNOWN','SEND_OUTCOME_UNKNOWN');}});
+ }
+ if(request.body.failConversationId){
+  if(!(await db`SELECT 1 FROM conversation cv JOIN lead l ON l.id=cv.lead_id WHERE cv.id=${request.body.failConversationId} AND l.organization_id=${org}`).length)throw new HttpError(404,'SYNTHETIC_CONVERSATION_NOT_FOUND');
+  await db`CREATE TABLE IF NOT EXISTS e2e_attention_notification_failure(conversation_id uuid PRIMARY KEY REFERENCES conversation(id),enabled boolean NOT NULL)`;
+  await db`INSERT INTO e2e_attention_notification_failure VALUES(${request.body.failConversationId},${request.body.fail??false}) ON CONFLICT(conversation_id) DO UPDATE SET enabled=excluded.enabled`;
+  await db`CREATE OR REPLACE FUNCTION e2e_reject_attention_notice() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='IN_APP_NOTIFICATION_RECORDED' AND NEW.detail->>'eventType'='CONVERSATION_NEEDS_ATTENTION' AND EXISTS(SELECT 1 FROM e2e_attention_notification_failure WHERE conversation_id::text=NEW.target_id AND enabled) THEN RAISE EXCEPTION 'NeverExposeAttentionBrowserSecret';END IF;RETURN NEW;END $$`;
+  await db`DROP TRIGGER IF EXISTS e2e_reject_attention_notice ON audit_log`;await db`CREATE TRIGGER e2e_reject_attention_notice BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION e2e_reject_attention_notice()`;
+ }
+ return {processed:request.body.process?await processOneConversationAttentionNotification(db):false,providerCalls:attentionSendCalls};
+});
 app.post<{Body:{failTaskId?:string;fail?:boolean;process?:boolean}}>('/__test__/follow-up-notifications',{
  schema:{body:{type:'object',additionalProperties:false,properties:{failTaskId:{type:'string',format:'uuid'},fail:{type:'boolean'},process:{type:'boolean'}}}},
 },async request=>{

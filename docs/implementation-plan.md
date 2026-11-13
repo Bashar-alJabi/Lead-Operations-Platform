@@ -1,5 +1,13 @@
 # خطة التنفيذ
 
+## أحدث checkpoint: Conversation attention In-App — Native167 — 2026-11-13
+
+actual immutable reason/clear transitions وcapture/publication مستقلةعنMessaging outcomes وdurable bounded queue/native current scope/Lead ACL وCentre/preferences/wording/history/failure-recovery API/UI مكتملةلهذهbaseline. **178unit/96full Docker PG/58full Edge Browser** و001–167development/test وBackend/Web build/typecheck/diff check ناجحة. [العقد](conversation-attention-notifications.md). تحفظcommit/push قبلأيعملجديد.
+
+**التالي الدقيق:** Automation core end-to-end: versioned managed typed rules وcurrent authorized scope/session عند الإعداد،trusted operational sources ثم durable idempotent execution معcurrent role/Lead/Field scope وcausation/loop guard وapproved application services وhistory/failure/recovery/UI. ابدأبشريحةفعلية Trigger→Conditions→Create Follow-up/Send In-App Notification منمصادرLead الحالية،بلاfake Human session أوunrestricted SQL/Provider action،معunit/PG/Browser ثمcheckpoint؛بقيةTriggers/Actions/customer-send تبقىRequirements لاComplete claim قبلتنفيذها. Native التالية168. بعدAutomation core تأتيtrusted Analytics/Conversion/per-currency/Human-only facts وSearch-Bulk/Import-Export/Google Sheets/Email وبقيةالمتطلبات. unresolved/Lead attention وIntegration-System alerts والقنواتالمفعلة/mandatory policies تبقىRequired gaps مستقلة؛لا يلزم تعميقNotifications قبل هذهالوحدات.
+
+توفرper-Lead In-App أساسللأتمتة؛إكمالتنبيهاتunresolved/system والقنواتالإضافيةليسdependency لشريحةAutomation الأولى. الترتيبالجديديلبيتوجيهتغطيةModules الأساسيةقبلتعميقواحدة،معإبقاءكلRequired gaps فيالمراجعة. الأقسامالتاليةتاريخيةولاتلغيهذاالترتيب.
+
 ## أحدث checkpoint: Financial In-App — Native166
 
 Payment/Enrollment notice sources منفصلة منtrusted actual records،معnative immutable proof/unique/atomic Audit وcurrent Lead ACL وCentre/preferences/wording/history وUI. **178unit/93full Docker PG/57full Edge Browser** و001–166development/test وBackend/Web build/typecheck/diff check ناجحة. [العقد](financial-notifications.md). تحفظcommit/push قبلأيعملجديد؛Notifications والمنصة غيرمكتملتين.
