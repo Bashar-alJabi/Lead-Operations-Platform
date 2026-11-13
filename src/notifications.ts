@@ -2,8 +2,8 @@ import { HttpError } from './security.js';
 
 export type NotificationLanguage = 'ar'|'en'|'fr';
 export const notificationEvent = 'AI_HANDOFF_REQUESTED' as const;
-export type NotificationEventType=typeof notificationEvent|'AI_HANDOFF_SLA_EXCEEDED'|'LEAD_CREATED'|'LEAD_ASSIGNED'|'LEAD_REASSIGNED'|'FOLLOW_UP_DUE'|'PAYMENT_CONFIRMED'|'ENROLLMENT_CONFIRMED'|'CONVERSATION_NEEDS_ATTENTION';
-export const notificationEvents:readonly NotificationEventType[]=[notificationEvent,'AI_HANDOFF_SLA_EXCEEDED','LEAD_CREATED','LEAD_ASSIGNED','LEAD_REASSIGNED','FOLLOW_UP_DUE','PAYMENT_CONFIRMED','ENROLLMENT_CONFIRMED','CONVERSATION_NEEDS_ATTENTION'];
+export type NotificationEventType=typeof notificationEvent|'AI_HANDOFF_SLA_EXCEEDED'|'LEAD_CREATED'|'LEAD_ASSIGNED'|'LEAD_REASSIGNED'|'FOLLOW_UP_DUE'|'PAYMENT_CONFIRMED'|'ENROLLMENT_CONFIRMED'|'CONVERSATION_NEEDS_ATTENTION'|'AUTOMATION_NOTICE';
+export const notificationEvents:readonly NotificationEventType[]=[notificationEvent,'AI_HANDOFF_SLA_EXCEEDED','LEAD_CREATED','LEAD_ASSIGNED','LEAD_REASSIGNED','FOLLOW_UP_DUE','PAYMENT_CONFIRMED','ENROLLMENT_CONFIRMED','CONVERSATION_NEEDS_ATTENTION','AUTOMATION_NOTICE'];
 export function requireNotificationBodyTypes(value:unknown,flag:string,strings:readonly string[]=[]):void {
  if(!value||typeof value!=='object'||Array.isArray(value))throw new HttpError(400,'INVALID_NOTIFICATION_REQUEST');
  const body=value as Record<string,unknown>;
@@ -16,6 +16,11 @@ export const notificationDefaults = {
  fr:{title:'Suivi humain demandé — {{campaign}}',body:'La conversation nécessite un suivi humain. Ouvrez le prospect pour consulter les détails.',owner:'Non attribué'},
 } as const;
 export const notificationDefaultsByEvent:Record<NotificationEventType,Record<NotificationLanguage,{title:string;body:string;owner:string}>>={
+ AUTOMATION_NOTICE:{
+  ar:{...notificationDefaults.ar,title:'إشعار أتمتة — {{campaign}}',body:'نفذت قاعدة تشغيل معتمدة إشعارًا داخليًا. افتح الفرصة لمراجعة الحالة الحالية.'},
+  en:{...notificationDefaults.en,title:'Automation notice — {{campaign}}',body:'An approved operational rule recorded an internal notification. Open the lead to review its current state.'},
+  fr:{...notificationDefaults.fr,title:'Notification automatique — {{campaign}}',body:'Une règle approuvée a enregistré une notification interne. Ouvrez le prospect pour examiner son état actuel.'},
+ },
  CONVERSATION_NEEDS_ATTENTION:{
   ar:{...notificationDefaults.ar,title:'محادثة تحتاج انتباهًا — {{campaign}}',body:'سُجلت حالة تحتاج مراجعة في المحادثة. افتح الفرصة وراجع الحالة الحالية والسجل قبل أي إجراء. قراءة التنبيه لا تعالج السبب ولا تعيد إرسال الرسالة.'},
   en:{...notificationDefaults.en,title:'Conversation needs attention — {{campaign}}',body:'A conversation condition requires review. Open the lead and check its current state and history before acting. Reading this notice does not resolve the issue or resend a message.'},

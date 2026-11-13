@@ -1,5 +1,15 @@
 # دليل التشغيل والتطوير
 
+## الأتمتة الداخلية — Native168
+
+بعد migrations والبناء،تشغّل البنية التحتية `npm run worker:automation` بإعدادات البيئة الصحيحة. لا تشغّلها على production من جلسة التطوير. `AUTOMATION_WORKER_BATCH` بين 1–100 (افتراضي 25)،و`AUTOMATION_WORKER_POLL_MS` بين 250–60000 (افتراضي 2000). سجلات الدورة عامة بلا نصوص أو credentials. تُقاس lag والأحمال قبل أي rollout؛هذه ليست أرقام Capacity مثبتة.
+
+من الأتمتة داخل واجهة Manager/Super Admin أنشئ القاعدة واختر النطاق والحدث والشروط والإجراء والنص والسبب،ثم فعّلها صراحة عند الاعتماد. Manager يدير فرعه فقط. قسم المعالجة يعرض مطابقة المصادر أوتنفيذ الإجراءات بصفحات،والحالة والتاريخ وسبب SKIPPED أوعدد failures. بعد إصلاح خطأ DB استعمل استعادة المعالجة المتعثرة الحالية؛لا SQL repair أوإعادة إجراء ناجح. تعديل/تعطيل القاعدة يمنع نسختها المعلقة،ولا يحذف مهمة/إشعارًا سبق حفظه. Agent يرى الأثر المسموح بالفرصة،ولا يدير القواعد.
+
+Follow-up الناتجة مرتبطة بالمالك الحالي المؤهل ووقتها من وقت الحدث + التأخير؛قد تصبح مستحقة عند تأخر المعالجة. الإشعار داخلي فقط ويخضع للتفضيل الشخصي و current access. لا رسائل عميل أو AI أو Payments من الإجرائين الحاليين. النص يظهر كنص escaped للمخولين؛لا تضع أسرارًا. [المصادر والنسخ والصلاحيات والاستعادة](automation-core.md).
+
+نسّق نشر API/UI/worker مع migration: لا تبدأ worker قبل تحديث readers التي تعرف `AUTOMATION_NOTICE`. Native168 لا backfill،ويمكن أن تنتظر source queue دون تنفيذ أثناء توقف worker. قياس validation/locks و rolling upgrade و production load لم يتم؛لا deployment مصرح حاليًا.
+
 ## إشعارات احتياج المحادثة للانتباه — Native167
 
 بعد migrations والبناء شغّل `worker:notifications`؛تعالجAttention وFollow-up ضمننفسحدالدورةبالتناوب. actualMessaging outcome وcapture مستقلتانعنpublication. منLead→محادثاتالعميل→عرضالرسائل→«حالةإشعاراتالمحادثة» راجعpending/failure/history،واستعملإعادةمحاولةحفظالإشعارمنحسابManager/Super Admin حاليبعدإصلاحالسبب. لايتطلبذلكإرسالWhatsApp أوAI أوقراءةcredential. لاSQLrepair أوUNKNOWN replay.

@@ -1,5 +1,11 @@
 # المعمارية التقنية
 
+## Automation: اعتماد دائم وإجراءات داخلية typed — Native168
+
+قواعد System/Branch/Campaign ذات نسخ immutable وموافقة Session حقيقية عند الإعداد. Native source capture تحفظ أحداث Lead الموثوقة و visibility snapshot فقط؛تُطابق آخر موافقة committed وظاهرة عند الالتقاط،بدفعات 50/cursor دائم لكل مصدر،دون timestamp polling يفقد late commits. queue أخرى تنفذ الإجراء المحلي تحت current scope/owner/approver/version checks وبالترتيب Branch → Lead → Campaign → Users → Rule → Execution. App processor يستدعي boundary native محدودة بإنشاء Follow-up أو In-App notice،مع أثر وتاريخ و Audit atomic و FK provenance؛لا arbitrary expressions أو provider access أوجلسة Human مزيفة في الخلفية. انتهاء جلسة الاعتماد لا يلغي الإعداد الدائم،وفقد حساب المعتمد صلاحياته يمنع الإجراء. [العقد وحدود causation/loop guard والشريحة غير المكتملة](automation-core.md).
+
+`worker:automation` تتناوب بين matching/execution مع bounded retries و dead-letter واستعادة current scoped CAS من الواجهة. Task بهوية AUTOMATION مستقلة،و`AUTOMATION_NOTICE` عبر نفس notification ACL/preferences/wording/history،ولا تؤدي الآثار الحالية إلى أي trigger مقبولة من المحرك. يلزم توسيع causation قبل إضافة actions تنتج triggers،ولا تعد بقية Automation منفذة بوجود المحرك فقط. لا Live Provider لهذه الإجراءات.
+
 ## Conversation attention: capture ثم publication — Native167
 
 Append-only occurrence تحفظ actual reason transition وإزالة السبب،مع safe category وprivate hash بدل raw provider content. capture لا تأخذ parent locks: Conversation→Lead FK الموجودة تثبت العلاقة وscope UUIDs snapshots،لأن parent FK جديدة تحت Conversation lock تعكس Lead→Conversation لإعادةالإسناد. durable queue والـpublisher يعيدان current scope تحت Branch→Lead→Campaign→Conversation→Queue؛event/FK/Audit تحفظ مع النشر فقط. لا أثرعلىController أوsender أوcustomer sends،وفشلpublication لايمحوUNKNOWN. نفسnotification worker تتناوببينAttention وFollow-up،معbounded retries/history/current authorized recovery وUI. [العقد والحدود والاختبارات](conversation-attention-notifications.md).

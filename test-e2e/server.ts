@@ -1,3 +1,4 @@
+import {processOneAutomationMatch,processOneAutomationExecution} from '../src/automation.js';
 // Test-only HTTP entrypoint. Never imported by the production server or workers.
 import { randomBytes,createHmac } from 'node:crypto';
 import { readFile, mkdir, writeFile, mkdtemp, rm } from 'node:fs/promises';
@@ -264,6 +265,21 @@ const app = await buildApp(db, { logger:false,globalRateLimitMax:10000,mediaStor
     },
   } });
 app.get('/',async (_request,reply)=>reply.type('text/html').send(await readFile(resolve('dist-web/index.html'))));
+app.post<{Body:{phase?:'MATCH'|'EXECUTE';failRuleId?:string;fail?:boolean}}>('/__test__/automation',{
+ schema:{body:{type:'object',additionalProperties:false,properties:{phase:{enum:['MATCH','EXECUTE']},failRuleId:{type:'string',format:'uuid'},fail:{type:'boolean'}}}},
+},async request=>{
+ if(typeof request.headers.authorization!=='string'||!safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
+ if(request.body.failRuleId){
+  if(!(await db`SELECT 1 FROM automation_rule WHERE id=${request.body.failRuleId} AND organization_id=${org}`).length)throw new HttpError(404,'SYNTHETIC_RULE_NOT_FOUND');
+  await db`CREATE TABLE IF NOT EXISTS e2e_automation_failure(rule_id uuid PRIMARY KEY REFERENCES automation_rule(id),enabled boolean NOT NULL)`;
+  await db`INSERT INTO e2e_automation_failure VALUES(${request.body.failRuleId},${request.body.fail??false}) ON CONFLICT(rule_id) DO UPDATE SET enabled=excluded.enabled`;
+  await db`CREATE OR REPLACE FUNCTION e2e_reject_automation() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='AUTOMATION_ACTION_APPLIED' AND EXISTS(SELECT 1 FROM e2e_automation_failure WHERE rule_id::text=(NEW.detail->>'ruleId') AND enabled) THEN RAISE EXCEPTION 'SyntheticAutomationFailure';END IF;RETURN NEW;END $$`;
+  await db`DROP TRIGGER IF EXISTS e2e_reject_automation ON audit_log`;await db`CREATE TRIGGER e2e_reject_automation BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION e2e_reject_automation()`;
+ }
+ let processed=0;
+ if(request.body.phase){const process=request.body.phase==='MATCH'?processOneAutomationMatch:processOneAutomationExecution;while(processed<100&&await process(db))processed++;}
+ return {processed};
+});
 let attentionSendCalls=0;
 app.post<{Body:{fixture?:boolean;process?:boolean;unknownMessageId?:string;failConversationId?:string;fail?:boolean}}>('/__test__/conversation-notifications',{
  schema:{body:{type:'object',additionalProperties:false,properties:{fixture:{type:'boolean'},process:{type:'boolean'},unknownMessageId:{type:'string',format:'uuid'},failConversationId:{type:'string',format:'uuid'},fail:{type:'boolean'}}}},

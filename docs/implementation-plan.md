@@ -1,5 +1,13 @@
 # خطة التنفيذ
 
+## أحدث checkpoint: Automation الداخلية — Native168 — 2026-11-13
+
+managed typed rules و trusted durable sources→conditions→actual Follow-up/In-App notice مكتملةلهذهالشريحة،مع current approval/scope و native proofs/idempotency/limited acyclic causation و history/failure/recovery/UI. **178unit/100full Docker PG/59full Edge Browser** و 001–168 development/test و Backend/Web build/typecheck/diff check ناجحة. [العقد](automation-core.md). تُحفظ commit/push قبلأيعملجديد؛بقية Automation والمنصةغيرمكتملتين.
+
+**التالي الدقيق:** Analytics/Dashboard end-to-end من facts موثوقة: راجع 00 §§43–45 و 02 communication/conversion/currency rules و 03 §§72–73 و 06 §15،ثم وحّد scoped Lead query/filter contract للخدمات والقوائم/drilldown. نفّذ current Organization/Branch/Agent/Lead/Field scope،ومعنى date cohort واضحًا في UI،و Campaign Conversion definition الصريحة بلا implicit conversion،و Revenue totals منفصلة لكل currency بأرقام exact،و Human/AI contact/response metrics منفصلة من المصادر الفعلية. Backend/DB indexes/API/dashboard filters/drilldown/UI ثم unit/PG/Browser و full gates و checkpoint. Native التالية 169؛لا تعمق اختياري في AI/Notifications/Automation قبل هذه الوحدة العامة. تبقى بقية Automation مطلوبة وتتكامل لاحقًا مع Fields/Bulk/facts/services و causation الموسعة؛لا Complete claim.
+
+ترتيبالاعتماديات بعدالأساسالحالي: Analytics facts/query contract ثم Search/Bulk و Import/Export ثم Google Sheets/general Email/notificationchannels،وبقية Automation الموسعة و required behavior/acceptance. الغرض تغطية Modules العامةالناقصة،وليسإسقاطالإجراءاتأوالشروطالمطلوبة. الأقسامالتاليةسجلتاريخيولاتلغيهذاالترتيب.
+
 ## أحدث checkpoint: Conversation attention In-App — Native167 — 2026-11-13
 
 actual immutable reason/clear transitions وcapture/publication مستقلةعنMessaging outcomes وdurable bounded queue/native current scope/Lead ACL وCentre/preferences/wording/history/failure-recovery API/UI مكتملةلهذهbaseline. **178unit/96full Docker PG/58full Edge Browser** و001–167development/test وBackend/Web build/typecheck/diff check ناجحة. [العقد](conversation-attention-notifications.md). تحفظcommit/push قبلأيعملجديد.

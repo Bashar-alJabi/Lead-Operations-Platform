@@ -66,6 +66,7 @@ import { registerAICopilotKnowledgeRoutes } from './routes/ai-copilot-knowledge.
 import { registerAICustomerHistoryRoutes } from './routes/ai-customer-history.js';
 import { registerWorkingHoursRoutes } from './routes/working-hours.js';
 import { registerNotificationRoutes } from './routes/notifications.js';
+import {registerAutomationRoutes} from './routes/automations.js';
 import {registerConversationNotificationRoutes} from './routes/conversation-notifications.js';
 import {registerFollowUpNotificationRoutes} from './routes/follow-up-notifications.js';
 import { registerNotificationTemplateRoutes } from './routes/notification-templates.js';
@@ -191,5 +192,6 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   registerAICopilotKnowledgeRoutes(app,db,options.mediaStorage);
   registerAICustomerHistoryRoutes(app,db);
   registerAIToolPolicyRoutes(app,db);
+  registerAutomationRoutes(app,db);
   return app;
 }

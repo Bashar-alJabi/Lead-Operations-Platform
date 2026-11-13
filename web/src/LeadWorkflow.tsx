@@ -5,7 +5,7 @@ type Api = <T>(path: string, options?: RequestInit) => Promise<T>;
 type Locale = 'ar'|'fr'|'en';
 type Role = 'SUPER_ADMIN'|'MANAGER'|'AGENT';
 type Lead = { id: string; campaign_id: string; assigned_agent_id: string | null; version: number };
-type Followup = { id: string; owner_user_id: string | null; due_at: string; status: string; priority: string; note: string | null; version: number };
+type Followup = { kind:string; id: string; owner_user_id: string | null; due_at: string; status: string; priority: string; note: string | null; version: number };
 type History = { id: number; event_type: string; detail: Record<string, unknown>; created_at: string };
 type Assignment = { id: number; old_agent_id: string | null; old_agent_name: string | null;
   new_agent_id: string | null; new_agent_name: string | null; reason: string | null; created_at: string };
@@ -108,7 +108,7 @@ export function LeadWorkflow({ lead, role, locale, api, onChanged }: {
       <div className="table-scroll"><table><thead><tr><th>{t.due}</th><th>{t.priority}</th><th>{t.note}</th><th></th></tr></thead><tbody>
         {followups.map((item) => <tr key={item.id}><td>{time(item.due_at)}<small>{item.status === 'OPEN' ?
           new Date(item.due_at) < new Date() ? t.overdue : t.upcoming : item.status === 'COMPLETED' ? t.completed : t.cancelled}</small></td>
-          <td>{item.priority}</td><td>{item.note ?? '—'}</td><td><FollowUpNotificationStatus api={api} locale={locale} taskId={item.id} role={role}/>{item.status === 'OPEN' && <div className="actions">
+          <td>{item.priority}</td><td>{item.note ?? '—'}{item.kind==='AUTOMATION'&&<small>{{ar:'أُنشئت بالأتمتة',en:'Created by automation',fr:'Créé par automatisation'}[locale]}</small>}</td><td><FollowUpNotificationStatus api={api} locale={locale} taskId={item.id} role={role}/>{item.status === 'OPEN' && <div className="actions">
             <button className="link" disabled={busy} onClick={() => { setEditing(editing === item.id ? null : item.id); setEditDueAt(localInput(item.due_at)); setEditTaskNote(item.note ?? ''); setEditPriority(item.priority); }}>{t.edit}</button>
             <button className="link" disabled={busy} onClick={() => void mutate(`/api/followups/${item.id}`, 'PATCH', { version: item.version, status: 'COMPLETED' })}>{t.complete}</button>
             {role !== 'AGENT' && <button className="link" disabled={busy} onClick={() => void mutate(`/api/followups/${item.id}`, 'PATCH', { version: item.version, status: 'CANCELLED' })}>{t.cancel}</button>}

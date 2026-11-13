@@ -61,6 +61,7 @@ export function registerNotificationRoutes(app:FastifyInstance,db:Database) {
    if(!await currentPaymentSession(tx,actor,request))throw new HttpError(403,'NOTIFICATION_ACCESS_REVOKED');
    const rows=candidates.length ? await tx`SELECT e.id,e.event_type,e.branch_id,e.campaign_id,e.lead_id,e.conversation_id,e.payment_id,e.enrollment_id,e.follow_up_id,o.due_at AS observed_due_at,f.due_at AS current_due_at,f.status AS follow_up_status,
     attention.id AS attention_id,attention.reason_code AS attention_reason,
+    ae.id AS automation_id,ae.rule_id,ae.rule_version,av.snapshot->>'name' AS automation_name,av.snapshot->>'note' AS automation_note,
     attention.id IS NOT NULL AND cv.state<>'CLOSED' AND cv.needs_attention_reason IS NOT NULL AND NOT EXISTS(SELECT 1 FROM conversation_attention_transition newer WHERE newer.conversation_id=cv.id AND newer.ordinal>attention.ordinal) AS attention_current,
     f.status='OPEN' AND f.due_at=o.due_at AND f.due_at<=clock_timestamp() AS currently_due,e.created_at,e.created_at::text AS cursor_at,c.name AS campaign_name,u.name AS owner_name,
     COALESCE(ns.version,0) AS version,COALESCE(ns.is_read,false) AS is_read,
@@ -69,6 +70,8 @@ export function registerNotificationRoutes(app:FastifyInstance,db:Database) {
     JOIN campaign c ON c.id=e.campaign_id AND c.branch_id=e.branch_id AND c.organization_id=e.organization_id
     LEFT JOIN conversation cv ON cv.id=e.conversation_id AND cv.lead_id=l.id
     LEFT JOIN conversation_attention_transition attention ON attention.id=e.conversation_attention_id AND attention.conversation_id=cv.id
+    LEFT JOIN automation_execution ae ON ae.id=e.automation_execution_id
+    LEFT JOIN automation_rule_version av ON av.rule_id=ae.rule_id AND av.version=ae.rule_version
     LEFT JOIN follow_up f ON f.id=e.follow_up_id AND f.lead_id=l.id
     LEFT JOIN follow_up_due_observation o ON o.id=e.follow_up_due_id AND o.follow_up_id=f.id
     LEFT JOIN user_account u ON u.id=CASE WHEN e.follow_up_id IS NOT NULL THEN f.owner_user_id ELSE l.assigned_agent_id END AND u.branch_id=l.branch_id AND u.organization_id=l.organization_id
@@ -86,6 +89,7 @@ export function registerNotificationRoutes(app:FastifyInstance,db:Database) {
     const tpl=effectiveNotificationTemplate(templates as NotificationTemplate[],actor.organizationId,r.branch_id,r.campaign_id,language,r.event_type as NotificationEventType),values={campaign:r.campaign_name as string,owner:(r.owner_name??notificationDefaults[language].owner) as string};
     return {id:r.id,eventType:r.event_type,channel:'IN_APP',leadId:r.lead_id,conversationId:r.conversation_id,createdAt:r.created_at,version:r.version,isRead:r.is_read,waiting:Boolean(r.waiting),
      attention:r.attention_id?{id:r.attention_id,reasonCode:r.attention_reason,currentlyNeedsAttention:Boolean(r.attention_current)}:null,
+     automation:r.automation_id?{id:r.automation_id,ruleId:r.rule_id,ruleVersion:r.rule_version,name:r.automation_name,note:r.automation_note}:null,
      paymentId:r.payment_id,enrollmentId:r.enrollment_id,followUp:r.follow_up_id?{id:r.follow_up_id,observedDueAt:r.observed_due_at,currentDueAt:r.current_due_at,status:r.follow_up_status,currentlyDue:Boolean(r.currently_due)}:null,
      title:renderNotification(tpl.title,values),body:renderNotification(tpl.body,values),templateSource:tpl.source,templateVersion:tpl.version};
    });
