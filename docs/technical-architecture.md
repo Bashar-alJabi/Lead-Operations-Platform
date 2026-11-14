@@ -1,5 +1,12 @@
 # المعمارية التقنية
 
+## Analytics التشغيلية وshared scoped queries — Native169
+
+Lead list وAnalytics تشتركان في typed predicate وField normalization/current visibility بدل نسخ ACL أوfilter semantics. Read projection تربط Payment بالمبالغ الأصلية immutable،دون تغيير trusted proof أوEnrollment rule. CTEs داخل SQL تحسب current Lead-created cohort وper-mode/per-currency exact NUMERIC totals وexplicit current Campaign Conversion وcommunication/Human-author facts؛لا LLM أوProvider I/O أوclient-side financial sum. API تطبق current Session/Role/Branch/Lead/Field scope وbounded keyset drilldown/groups وAudit،مع statement timeout8s وlock timeout750ms وفهارس المسارات الفعلية. JSON counts/amounts strings للحفاظ على الدقة.
+
+تختلف first Human contact التاريخية عن credit الكاتب؛Agent attribution من author_user_id الفعلي فقط،ولا AI speed في Human performance. TEST/LIVE والعملات منفصلة. date basis وconfigured conversion denominator ظاهران،وليست الشاشة accounting attribution أوpoint-in-time snapshot. UI catalogs bounded بصفحات25 مع خيار حالي محفوظ والرجوع إلى أول صفحة؛لا تجميع غير محدود لكل Campaigns/Users في العميل. [العقد وحدود qualification/completeness/load](operational-analytics.md). لا migration backfill أوlive integrations.
+
+
 ## Automation: اعتماد دائم وإجراءات داخلية typed — Native168
 
 قواعد System/Branch/Campaign ذات نسخ immutable وموافقة Session حقيقية عند الإعداد. Native source capture تحفظ أحداث Lead الموثوقة و visibility snapshot فقط؛تُطابق آخر موافقة committed وظاهرة عند الالتقاط،بدفعات 50/cursor دائم لكل مصدر،دون timestamp polling يفقد late commits. queue أخرى تنفذ الإجراء المحلي تحت current scope/owner/approver/version checks وبالترتيب Branch → Lead → Campaign → Users → Rule → Execution. App processor يستدعي boundary native محدودة بإنشاء Follow-up أو In-App notice،مع أثر وتاريخ و Audit atomic و FK provenance؛لا arbitrary expressions أو provider access أوجلسة Human مزيفة في الخلفية. انتهاء جلسة الاعتماد لا يلغي الإعداد الدائم،وفقد حساب المعتمد صلاحياته يمنع الإجراء. [العقد وحدود causation/loop guard والشريحة غير المكتملة](automation-core.md).

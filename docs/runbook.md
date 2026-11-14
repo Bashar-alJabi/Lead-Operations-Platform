@@ -1,5 +1,14 @@
 # دليل التشغيل والتطوير
 
+## Analytics التشغيلية — Native169
+
+طبّق migrations والبناء قبل تشغيل API/UI الجديدة؛projection والفهارس لا تغيّر Payment/Enrollment ولا تعيد تهيئة البيانات. من Analytics اختر النطاق والفترة (Lead creation cohort) والفلاتر ثم Load. يبقى التاريخ المالي والرسائل المرتبطة بالفرص المختارة مشمولًا؛هذه ليست cash-date accounting report. financial mode الافتراضي LIVE للقراءة فقط،واختر TEST صراحة للسجلات الاختبارية. المجاميع منفصلة حسب mode/currency وdecimal strings دقيقة،دون Exchange-rate assumption.
+
+اضغط Metric لعرض Lead drilldown،أوFilter this group لتطبيق Branch/Campaign/Source،ثم Open Lead بصلاحياتها الحالية. Human authors تعتمد الكاتب الحقيقي وليس المالك الجديد أوAI. Conversion غير المحددة تظهر غير محددة،وconfigured denominator ظاهر. Field equality تتبع current visibility وtyped values؛لا يمكن للـAgent استخدام Field في Campaign بلا Lead مخولة له. خيارات Campaign/Agent تُقرأ بصفحات25؛More تنقل للصفحة التالية وFirst choices تعيد البداية،مع إبقاء اسم وقيمة الاختيار الحالي دون تحميل جميع الخيارات. راجع [العقد](operational-analytics.md) لمعنى contact/response samples وqualification answer counts.
+
+عند فشل query تُمسح الأرقام القديمة؛تحقق من Session/permissions،ضيّق الفترة وأعد المحاولة. statement timeout8s وlock timeout750ms يمنعان انتظارًا غير محدود،ولا يمثلان capacity benchmark. API تعتمد server-side aggregation/pages،ولا worker أوProvider credential إضافية لهذا المسار. قياس index locks وsustained load وrollout/staging والقبول الأوسع ما زال لازمًا؛لا Production deployment مصرح حاليًا.
+
+
 ## الأتمتة الداخلية — Native168
 
 بعد migrations والبناء،تشغّل البنية التحتية `npm run worker:automation` بإعدادات البيئة الصحيحة. لا تشغّلها على production من جلسة التطوير. `AUTOMATION_WORKER_BATCH` بين 1–100 (افتراضي 25)،و`AUTOMATION_WORKER_POLL_MS` بين 250–60000 (افتراضي 2000). سجلات الدورة عامة بلا نصوص أو credentials. تُقاس lag والأحمال قبل أي rollout؛هذه ليست أرقام Capacity مثبتة.

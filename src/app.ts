@@ -1,3 +1,4 @@
+import {registerAnalyticsRoutes} from './routes/analytics.js';
 import Fastify, { type FastifyInstance,type FastifyRequest } from 'fastify';
 import cookie from '@fastify/cookie';
 import helmet from '@fastify/helmet';
@@ -193,5 +194,6 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   registerAICustomerHistoryRoutes(app,db);
   registerAIToolPolicyRoutes(app,db);
   registerAutomationRoutes(app,db);
+  registerAnalyticsRoutes(app,db);
   return app;
 }

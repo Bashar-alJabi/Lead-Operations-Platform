@@ -1,3 +1,4 @@
+import {AnalyticsWorkspace} from './AnalyticsWorkspace.js';
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './style.css';
@@ -31,7 +32,7 @@ type ManagedUser = { id: string; branch_id: string | null; role: Role; name: str
 type EmailConnection = { configured: boolean; id?: string; name?: string; status?: string; hasCredential?: boolean; settings?: { host: string; port: number; secure: boolean; username: string; fromAddress: string } };
 type DeliveryJob = { id: string; kind: string; status: string; attempts: number; max_attempts: number; last_error_code: string | null; email: string; name: string; created_at: string };
 type Locale = 'ar' | 'fr' | 'en';
-type Page = 'leads' | 'contacts' | 'contactReviews' | 'fields' | 'campaigns' | 'branches' | 'users' | 'profile' | 'identityEmail' | 'followups' | 'messagingSetup' | 'metaSources' | 'paymentSetup' | 'aiSetup' | 'notifications' | 'automations';
+type Page = 'leads' | 'contacts' | 'contactReviews' | 'fields' | 'campaigns' | 'branches' | 'users' | 'profile' | 'identityEmail' | 'followups' | 'messagingSetup' | 'metaSources' | 'paymentSetup' | 'aiSetup' | 'notifications' | 'automations' | 'analytics';
 type AuthMode = 'login' | 'forgot' | 'reset' | 'invite';
 const linkParameters = new URLSearchParams(window.location.hash.slice(1));
 const initialLinkMode: AuthMode = linkParameters.has('invite') ? 'invite' : linkParameters.has('reset') ? 'reset' : 'login';
@@ -78,9 +79,9 @@ const contactLabels = {
   en: { contacts: 'Contacts', contactReviews: 'Match reviews', reviewSaved: 'Saved for review; no lead was created until a contact is selected.' },
 } as const;
 const fieldLabels = { ar: { fields: 'الحقول الديناميكية' }, fr: { fields: 'Champs dynamiques' }, en: { fields: 'Dynamic fields' } } as const;
-const workflowLabels = { ar: { followups: 'المتابعات', messagingSetup: 'إعداد الرسائل',metaSources:'مصادر Meta',paymentSetup:'إعداد الدفع',aiSetup:'إعداد AI',automations:'الأتمتة',notifications:'الإشعارات' },
-  fr: { followups: 'Suivis', messagingSetup: 'Messagerie',metaSources:'Sources Meta',paymentSetup:'Configuration du paiement',aiSetup:'Configuration IA',automations:'Automatisations',notifications:'Notifications' },
-  en: { followups: 'Follow-ups', messagingSetup: 'Messaging setup',metaSources:'Meta sources',paymentSetup:'Payment setup',aiSetup:'AI setup',notifications:'Notifications',automations:'Automations' } } as const;
+const workflowLabels = { ar: { followups: 'المتابعات', messagingSetup: 'إعداد الرسائل',metaSources:'مصادر Meta',paymentSetup:'إعداد الدفع',aiSetup:'إعداد AI',analytics:'التحليلات',automations:'الأتمتة',notifications:'الإشعارات' },
+  fr: { followups: 'Suivis', messagingSetup: 'Messagerie',metaSources:'Sources Meta',paymentSetup:'Configuration du paiement',aiSetup:'Configuration IA',analytics:'Analyses',automations:'Automatisations',notifications:'Notifications' },
+  en: { followups: 'Follow-ups', messagingSetup: 'Messaging setup',metaSources:'Meta sources',paymentSetup:'Payment setup',aiSetup:'AI setup',notifications:'Notifications',analytics:'Analytics',automations:'Automations' } } as const;
 type LabelKey = keyof typeof labels.en | keyof typeof profileLabels.en | keyof typeof managementLabels.en |
   keyof typeof identityLabels.en | keyof typeof deliveryLabels.en | keyof typeof contactLabels.en |
   keyof typeof fieldLabels.en | keyof typeof workflowLabels.en;
@@ -312,8 +313,8 @@ function App() {
     }
   };
   return <div className="app-shell"><aside className="sidebar"><div className="brand">{t.app}</div><div className="user-block"><strong>{user.name}</strong><span>{user.role.replace('_', ' ')}</span></div>
-    <nav>{(['leads','contacts','contactReviews','followups','campaigns','fields','branches','users','identityEmail','messagingSetup','metaSources','paymentSetup','aiSetup','automations','notifications','profile'] as Page[]).filter((item) =>
-      item === 'identityEmail' || item === 'contactReviews' || item === 'messagingSetup' || item === 'metaSources' || item === 'paymentSetup' || item === 'aiSetup' || item === 'automations' ? canManage : canManage || item === 'leads' || item === 'contacts' || item === 'profile' || item === 'followups' || item === 'notifications').map((item) =>
+    <nav>{(['leads','contacts','contactReviews','followups','campaigns','fields','branches','users','identityEmail','messagingSetup','metaSources','paymentSetup','aiSetup','analytics','automations','notifications','profile'] as Page[]).filter((item) =>
+      item === 'identityEmail' || item === 'contactReviews' || item === 'messagingSetup' || item === 'metaSources' || item === 'paymentSetup' || item === 'aiSetup' || item === 'automations' ? canManage : canManage || item === 'leads' || item === 'contacts' || item === 'profile' || item === 'followups' || item === 'notifications' || item === 'analytics').map((item) =>
       <button key={item} aria-label={t[item]} className={page === item ? 'selected' : ''} onClick={() => { setPage(item); setSelectedLead(null); setSelectedCampaign(null); setShowForm(false); setForm({}); setNotice(''); }}>{t[item]}{item==='notifications'&&hasUnreadNotifications&&<span role="status" aria-label={locale==='ar'?'إشعارات غير مقروءة':locale==='fr'?'Notifications non lues':'Unread notifications'} style={{marginInlineStart:'.5rem'}}>●</span>}</button>)}</nav>
     <div className="sidebar-bottom">{language}<button onClick={() => { void api('/api/auth/logout', { method: 'POST' }).then(() => setUser(null)); }}>{t.logout}</button></div>
   </aside><main className="content"><header><div><small>Lead Operations</small><h1>{selectedLead ? t.details : t[page]}</h1></div><button className="secondary" onClick={() => void (page === 'identityEmail' ? refreshDeliveryJobs() : page === 'contacts' || page === 'contactReviews' || page === 'fields' ? setWorkspaceRefresh((value) => value + 1) : refresh())} disabled={busy}>{t.retry}</button></header>
@@ -343,6 +344,7 @@ function App() {
           .catch((failure) => setError(String(failure))).finally(() => setBusy(false)); }}>{locale === 'ar' ? 'تحميل المزيد' : locale === 'fr' ? 'Afficher plus' : 'Load more'}</button>}
     </section> : page === 'paymentSetup' && canManage ? <PaymentSetup locale={locale} role={user.role as 'SUPER_ADMIN'|'MANAGER'} branches={branches} api={api} />
       : page === 'aiSetup' && canManage ? <AISetup locale={locale} role={user.role as 'SUPER_ADMIN'|'MANAGER'} branches={branches} api={api} />
+      : page === 'analytics' ? <AnalyticsWorkspace key={user.id} locale={locale} api={api} user={user} branches={branches} onOpenLead={id=>{setPage('leads');setSelectedLead(id);}}/>
       : page === 'automations' && canManage ? <AutomationWorkspace key={user.id} locale={locale} api={api} user={{...user,role:user.role as 'SUPER_ADMIN'|'MANAGER'}} branches={branches} onOpenLead={id=>{setPage('leads');setSelectedLead(id);}}/>
       : page === 'notifications' ? <NotificationCenter key={user.id} locale={locale} api={api} user={user} branches={branches} onOpenLead={id=>{setPage('leads');setSelectedLead(id);}} onChanged={()=>setNotificationRevision(n=>n+1)}/>
       : page === 'metaSources' && canManage ? <MetaSourceSetup locale={locale} role={user.role as 'SUPER_ADMIN'|'MANAGER'} branches={branches} api={api} />

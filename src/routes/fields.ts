@@ -1,3 +1,4 @@
+import {currentPaymentSession} from '../payments/access.js';
 import type { FastifyInstance } from 'fastify';
 import type postgres from 'postgres';
 import type { Database } from '../db.js';
@@ -59,19 +60,25 @@ function checkBinding(input: BindingInput, mode: string): void {
 export function registerFieldRoutes(app: FastifyInstance, db: Database): void {
   app.get<{ Params: { id: string } }>('/api/campaigns/:id/filter-fields', { schema: { params: idParam } }, async (request) => {
     const actor = await principalFromRequest(request, db);
-    const campaign = await db`SELECT id, branch_id FROM campaign WHERE id = ${request.params.id}
+    return db.begin(async tx=>{
+    if(!await currentPaymentSession(tx,actor,request))throw new HttpError(403,'FIELD_QUERY_ACCESS_REVOKED');
+    const campaign = await tx`SELECT id, branch_id FROM campaign WHERE id = ${request.params.id}
       AND organization_id = ${actor.organizationId} AND (${actor.role === 'SUPER_ADMIN'} OR branch_id = ${actor.branchId})
       AND (${actor.role !== 'AGENT'} OR EXISTS
         (SELECT 1 FROM lead WHERE campaign_id = ${request.params.id} AND assigned_agent_id = ${actor.id}))`;
     if (!campaign[0]) throw new HttpError(404, 'CAMPAIGN_NOT_FOUND');
-    const rows = await db`SELECT fd.id, fd.key, fd.label, fd.field_type, fd.options
-      FROM campaign_field cf JOIN field_definition fd ON fd.id = cf.field_id
+    const rows = await tx`SELECT fd.id, fd.key, fd.label, fd.field_type, fd.options, fd.validation
+      FROM campaign_field cf JOIN field_definition fd ON fd.id = cf.field_id JOIN campaign ca ON ca.id=cf.campaign_id
       WHERE cf.campaign_id = ${request.params.id} AND fd.organization_id = ${actor.organizationId}
+        AND ca.organization_id=${actor.organizationId} AND (${actor.role==='SUPER_ADMIN'} OR ca.branch_id=${actor.branchId})
+        AND (${actor.role!=='AGENT'} OR EXISTS(SELECT 1 FROM lead visible WHERE visible.campaign_id=ca.id AND visible.organization_id=${actor.organizationId} AND visible.branch_id=${actor.branchId} AND visible.assigned_agent_id=${actor.id}))
+        AND (fd.branch_id IS NULL OR fd.branch_id=ca.branch_id) AND (fd.campaign_id IS NULL OR fd.campaign_id=ca.id)
         AND cf.active AND fd.active AND cf.filterable AND fd.value_mode <> 'CALCULATED'
         AND (${actor.role === 'SUPER_ADMIN'} OR (${actor.role === 'MANAGER'} AND cf.visible_to_manager)
           OR (${actor.role === 'AGENT'} AND cf.visible_to_agent))
       ORDER BY cf.position, fd.id`;
     return { items: rows };
+    });
   });
 
   app.get<{ Querystring: { campaignId?: string; limit?: number; cursor?: string } }>('/api/fields', {

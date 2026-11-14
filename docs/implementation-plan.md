@@ -1,5 +1,15 @@
 # خطة التنفيذ
 
+## أحدث checkpoint: Analytics التشغيلية — Native169 — 2026-11-14
+
+shared current-scoped Lead filters وtyped Fields/Saved Views،trusted SQL overview/groups/Human authors وbounded drilldown،explicit Conversion وexact per-currency/per-mode Revenue وar/en/fr UI منفذة. 180unit و104full Docker PG (338.5s) و001–169 development/test وBackend/Web build/typecheck ناجحة؛focused regression7PG و2Browser (13.1s) ناجحة،و60/60 full Edge Browser E2E (8.2m) ناجحة. [العقد والحدود](operational-analytics.md). لا تبدأ Module جديدة قبل حفظ هذه checkpoint.
+
+**التالي حسب الاعتماديات:** Search/Bulk foundations اللازمة لإعادة استخدام الخدمات في Import/Export وAutomation: عقد bounded per-item actions مع current Role/Organization/Branch/Lead/Field/Session authority وtyped validation وoptimistic versions وconfirmation وidempotency وimmutable history/Audit ونتائج كل عنصر. ابدأ بإعادة استخدام خدمة manual Field الحالية لتغيير Fields/Status/Tags،دون مسار كتابة موازٍ أوحقول ثابتة لكل الحملات؛ثم بقية lifecycle/follow-up actions. Backend وDB وUI وunit/PG/Browser وfull gates ثم checkpoint بعد كل شريحة مستقرة. Native التالية170.
+
+بعدها Import/Export: upload/parse آمنان،typed mapping/normalization/validation وpreview/duplicate review،durable row results/progress/retry/idempotency وcurrent scoped processing وsafe export artifacts/current filters/views/visible columns. يليهما Google Sheets/general Email/notification channels وبقية Automation والوظائف الأساسية. aggregate qualification completion/source attribution وField/Status Conversion milestones وsustained load/قبول Analytics الأوسع تبقى متطلبات؛لا provider/AI refinements اختيارية بينما توجد Modules عامة ناقصة.
+
+الأقسام التالية سجل checkpoints تاريخي ولا تلغي هذا الترتيب أوحدود الإثبات الأحدث.
+
 ## أحدث checkpoint: Automation الداخلية — Native168 — 2026-11-13
 
 managed typed rules و trusted durable sources→conditions→actual Follow-up/In-App notice مكتملةلهذهالشريحة،مع current approval/scope و native proofs/idempotency/limited acyclic causation و history/failure/recovery/UI. **178unit/100full Docker PG/59full Edge Browser** و 001–168 development/test و Backend/Web build/typecheck/diff check ناجحة. [العقد](automation-core.md). تُحفظ commit/push قبلأيعملجديد؛بقية Automation والمنصةغيرمكتملتين.

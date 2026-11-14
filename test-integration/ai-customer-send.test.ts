@@ -109,6 +109,13 @@ test('Authenticated AI replies preserve native content/action/outbox proof, curr
   await assert.rejects(db`INSERT INTO conversation_message(conversation_id,connection_id,sender_id,direction,author_type,body,delivery_state) VALUES(${cv},${mc},${sender},'OUTBOUND','AI','Forged','QUEUED')`, /FRESH_MESSAGE_PROOF_REQUIRED/);
   assert.equal(await dispatch(), true); assert.equal(calls, 1); assert.equal(observedBody, published.sections.prices); assert.equal((await msg(firstMessage.id)).delivery_state, 'SENT');
   assert.equal((await db`SELECT state FROM conversation WHERE id=${cv}`)[0]!.state, 'AI_WAITING_FOR_LEAD'); assert.equal(await dispatch(), false);
+  // Analytics observes the actual proven AI send; it is never credited to the Human owner.
+  const aiFactsResponse=await api('GET','/api/analytics/overview?q='+lead,undefined,'agent');
+  assert.equal(aiFactsResponse.statusCode,200,aiFactsResponse.body);
+  const aiFacts=aiFactsResponse.json();assert.equal(aiFacts.leads.total,'1');assert.equal(aiFacts.communication.aiAttempts,'1');
+  assert.equal(aiFacts.communication.humanAttempts,'0');assert.equal(aiFacts.communication.aiContacted,'1');assert.equal(aiFacts.communication.humanContacted,'0');
+  assert.equal((await api('GET','/api/analytics/agents?q='+lead,undefined,'agent')).json().items.length,0);
+
   const history = (await api('GET', root, undefined, 'agent')).json().items.find((r: any) => r.id === first.id);
   assert.deepEqual(history.toolsExecuted, ['sendConversationMessage']); assert.equal(history.action.deliveryState, 'SENT'); assert.equal(history.action.messageId, firstMessage.id); assert.equal(history.context, undefined);
   assert.equal((await api('GET', root, undefined, 'second')).statusCode, 404);

@@ -1,5 +1,4 @@
 import type { FastifyInstance } from 'fastify';
-import type postgres from 'postgres';
 import type { Database } from '../db.js';
 import { HttpError, principalFromRequest, requireBranch, requireLead, requireRole } from '../security.js';
 import { routeLead } from '../routing.js';
@@ -9,19 +8,11 @@ import { decodeCursor, encodeCursor } from '../pagination.js';
 import { identityLockKeys, normalizeContact } from '../contacts.js';
 import { enforceRequiredFieldStage, prepareManualFieldValues, storeManualFieldValues, type ManualFieldInput } from '../field-values.js';
 import { registerCampaignRoutes } from './campaigns.js';
-import { validateFieldValue, type FieldType, type FieldOption, type FieldValidation } from '../fields.js';
+import {leadPredicate,prepareLeadFilter,operationalFilterProperties,type LeadFilter} from '../lead-query.js';
 
 const idParam = { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } as const;
-const pageQuery = { type: 'object', additionalProperties: false, properties: {
-  limit: { type: 'integer', minimum: 1, maximum: 100 }, cursor: { type: 'string', maxLength: 256 },
-  branchId: { type: 'string', format: 'uuid' }, campaignId: { type: 'string', format: 'uuid' },
-  contactId: { type: 'string', format: 'uuid' }, assignedAgentId: { type: 'string', format: 'uuid' },
-  lifecycle: { enum: ['OPEN','CLOSED','ARCHIVED'] }, q: { type: 'string', maxLength: 200 },
-  sourceKind: { type: 'string', maxLength: 40 }, from: { type: 'string', format: 'date-time' },
-  to: { type: 'string', format: 'date-time' }, followup: { enum: ['NONE','OVERDUE','UPCOMING'] },
-  sort: { enum: ['CREATED_DESC','CREATED_ASC'] },
-  fieldId: { type: 'string', format: 'uuid' }, fieldValue: { type: 'string', maxLength: 2000 },
-} } as const;
+const pageQuery={type:'object',additionalProperties:false,properties:{...operationalFilterProperties,
+ limit:{type:'integer',minimum:1,maximum:100},cursor:{type:'string',maxLength:256},sort:{enum:['CREATED_DESC','CREATED_ASC']}}} as const;
 
 export function registerOperationsRoutes(app: FastifyInstance, db: Database): void {
   registerCampaignRoutes(app, db);
@@ -121,76 +112,18 @@ export function registerOperationsRoutes(app: FastifyInstance, db: Database): vo
     reply.code(201); return result;
   });
 
-  app.get<{ Querystring: { limit?: number; cursor?: string; branchId?: string; campaignId?: string; contactId?: string;
-    assignedAgentId?: string; lifecycle?: string; q?: string; sourceKind?: string; from?: string; to?: string;
-    followup?: 'NONE'|'OVERDUE'|'UPCOMING'; fieldId?: string; fieldValue?: string;
-    sort?: 'CREATED_DESC'|'CREATED_ASC' } }>('/api/leads', {
-    schema: { querystring: pageQuery },
-  }, async (request) => {
-    const actor = await principalFromRequest(request, db);
-    const q = request.query;
-    const cursor = decodeCursor(q.cursor);
-    const limit = Math.min(q.limit ?? 30, 100);
-    const ascending = q.sort === 'CREATED_ASC';
-    if (q.branchId) requireBranch(actor, q.branchId);
-    if (q.from && q.to && Date.parse(q.from) > Date.parse(q.to)) throw new HttpError(400, 'INVALID_DATE_RANGE');
-    if (Boolean(q.fieldId) !== Boolean(q.fieldValue)) throw new HttpError(400, 'FIELD_FILTER_INCOMPLETE');
-    let normalizedFieldValue: postgres.JSONValue | null = null;
-    if (q.fieldId) {
-      if (!q.campaignId) throw new HttpError(400, 'FIELD_FILTER_REQUIRES_CAMPAIGN');
-      const fields = await db`SELECT fd.field_type, fd.value_mode, fd.options, fd.validation
-        FROM campaign_field cf JOIN field_definition fd ON fd.id = cf.field_id
-        JOIN campaign campaign ON campaign.id = cf.campaign_id
-        WHERE cf.campaign_id = ${q.campaignId} AND fd.id = ${q.fieldId} AND campaign.organization_id = ${actor.organizationId}
-          AND (${actor.role === 'SUPER_ADMIN'} OR campaign.branch_id = ${actor.branchId})
-          AND cf.active AND fd.active AND cf.filterable
-          AND (${actor.role === 'SUPER_ADMIN'} OR (${actor.role === 'MANAGER'} AND cf.visible_to_manager)
-            OR (${actor.role === 'AGENT'} AND cf.visible_to_agent))`;
-      const field = fields[0];
-      if (!field) throw new HttpError(404, 'FIELD_NOT_FOUND');
-      if (field.value_mode === 'CALCULATED') throw new HttpError(409, 'CALCULATED_FILTER_NOT_READY');
-      let parsed: unknown;
-      try { parsed = JSON.parse(q.fieldValue!); } catch { throw new HttpError(400, 'FIELD_FILTER_INVALID'); }
-      normalizedFieldValue = validateFieldValue(field.field_type as FieldType, parsed,
-        field.options as FieldOption[], field.validation as FieldValidation) as postgres.JSONValue;
-      if (normalizedFieldValue === null) throw new HttpError(400, 'FIELD_FILTER_INVALID');
-    }
-    const search = q.q?.trim().normalize('NFKC').toLowerCase() ?? '';
-    const phoneSearch = search.replace(/[\s().-]/g, '');
-    const exactId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(search) ? search : null;
-    const rows = await db`
-      SELECT l.id, l.branch_id, l.campaign_id, l.contact_id, l.assigned_agent_id, l.lifecycle, l.version, l.source_kind,
-        l.needs_attention_reason, l.created_at, c.name AS contact_name, c.phone, c.email,
-        (SELECT min(f.due_at) FROM follow_up f WHERE f.lead_id = l.id AND f.status = 'OPEN') AS next_followup_at
-      FROM lead l LEFT JOIN contact c ON c.id = l.contact_id
-      WHERE l.organization_id = ${actor.organizationId}
-        AND (${actor.role === 'SUPER_ADMIN'} OR (${actor.role === 'MANAGER'} AND l.branch_id = ${actor.branchId})
-          OR (${actor.role === 'AGENT'} AND l.assigned_agent_id = ${actor.id}))
-        AND (${q.branchId ?? null}::uuid IS NULL OR l.branch_id = ${q.branchId ?? null})
-        AND (${q.campaignId ?? null}::uuid IS NULL OR l.campaign_id = ${q.campaignId ?? null})
-        AND (${q.contactId ?? null}::uuid IS NULL OR l.contact_id = ${q.contactId ?? null})
-        AND (${q.assignedAgentId ?? null}::uuid IS NULL OR l.assigned_agent_id = ${q.assignedAgentId ?? null})
-        AND (${q.lifecycle ?? null}::text IS NULL OR l.lifecycle = ${q.lifecycle ?? null})
-        AND (${search} = '' OR starts_with(lower(c.name), ${search}) OR starts_with(c.email_normalized, ${search})
-          OR (${phoneSearch !== ''} AND starts_with(c.phone_normalized, ${phoneSearch})) OR l.id = ${exactId}::uuid)
-        AND (${q.sourceKind ?? null}::text IS NULL OR l.source_kind = ${q.sourceKind ?? null})
-        AND (${q.from ?? null}::timestamptz IS NULL OR l.created_at >= ${q.from ?? null})
-        AND (${q.to ?? null}::timestamptz IS NULL OR l.created_at <= ${q.to ?? null})
-        AND (${q.followup ?? null}::text IS NULL OR
-          (${q.followup === 'NONE'} AND NOT EXISTS (SELECT 1 FROM follow_up f WHERE f.lead_id = l.id AND f.status = 'OPEN')) OR
-          (${q.followup === 'OVERDUE'} AND EXISTS (SELECT 1 FROM follow_up f WHERE f.lead_id = l.id AND f.status = 'OPEN' AND f.due_at < now())) OR
-          (${q.followup === 'UPCOMING'} AND EXISTS (SELECT 1 FROM follow_up f WHERE f.lead_id = l.id AND f.status = 'OPEN' AND f.due_at >= now())))
-        AND (${q.fieldId ?? null}::uuid IS NULL OR EXISTS (SELECT 1 FROM lead_field_value fv
-          WHERE fv.lead_id = l.id AND fv.field_id = ${q.fieldId ?? null}
-            AND md5(fv.value::text) = md5((${normalizedFieldValue === null ? null : db.json(normalizedFieldValue)}::jsonb)::text)
-            AND fv.value = ${normalizedFieldValue === null ? null : db.json(normalizedFieldValue)}::jsonb))
-        AND (${cursor?.timestamp ?? null}::timestamptz IS NULL OR
-          (${ascending} AND (l.created_at, l.id) > (${cursor?.timestamp ?? null}::timestamptz, ${cursor?.id ?? null}::uuid)) OR
-          (NOT ${ascending} AND (l.created_at, l.id) < (${cursor?.timestamp ?? null}::timestamptz, ${cursor?.id ?? null}::uuid)))
-      ORDER BY l.created_at ${db.unsafe(ascending ? 'ASC' : 'DESC')}, l.id ${db.unsafe(ascending ? 'ASC' : 'DESC')} LIMIT ${limit + 1}`;
-    const items = rows.slice(0, limit);
-    const last = items[items.length - 1];
-    return { items, nextCursor: rows.length > limit && last ? encodeCursor({ timestamp: last.created_at.toISOString(), id: last.id }) : null };
+  app.get<{Querystring:LeadFilter&{limit?:number;cursor?:string;sort?:'CREATED_DESC'|'CREATED_ASC'}}>('/api/leads',{schema:{querystring:pageQuery}},async request=>{
+   const actor=await principalFromRequest(request,db),q=request.query,cursor=decodeCursor(q.cursor),limit=q.limit??30,ascending=q.sort==='CREATED_ASC';
+   return db.begin(async tx=>{
+    if(!await currentPaymentSession(tx,actor,request))throw new HttpError(403,'LEAD_QUERY_ACCESS_REVOKED');const field=await prepareLeadFilter(tx,actor,q);
+    const rows=await tx`SELECT l.id,l.branch_id,l.campaign_id,l.contact_id,l.assigned_agent_id,l.lifecycle,l.version,l.source_kind,l.needs_attention_reason,l.created_at,l.created_at::text AS cursor_at,
+     c.name AS contact_name,c.phone,c.email,(SELECT min(f.due_at) FROM follow_up f WHERE f.lead_id=l.id AND f.status='OPEN') AS next_followup_at
+     FROM lead l LEFT JOIN contact c ON c.id=l.contact_id WHERE ${leadPredicate(tx,actor,q,field)} AND
+      (${cursor?.timestamp??null}::text::timestamptz IS NULL OR ${ascending} AND (l.created_at,l.id)>(${cursor?.timestamp??null}::text::timestamptz,${cursor?.id??null}::uuid)
+       OR NOT ${ascending} AND (l.created_at,l.id)<(${cursor?.timestamp??null}::text::timestamptz,${cursor?.id??null}::uuid))
+     ORDER BY l.created_at ${tx.unsafe(ascending?'ASC':'DESC')},l.id ${tx.unsafe(ascending?'ASC':'DESC')} LIMIT ${limit+1}`;
+    const items=rows.slice(0,limit),last=items.at(-1);return {items,nextCursor:rows.length>limit&&last?encodeCursor({timestamp:last.cursor_at,id:last.id}):null};
+   });
   });
 
   app.get<{ Params: { id: string } }>('/api/leads/:id', { schema: { params: idParam } }, async (request) => {
