@@ -1,3 +1,4 @@
+import {processOneImportFile} from '../src/imports/service.js';
 import {processOneExport} from '../src/exports/service.js';
 import {processOneAutomationMatch,processOneAutomationExecution} from '../src/automation.js';
 // Test-only HTTP entrypoint. Never imported by the production server or workers.
@@ -265,6 +266,10 @@ const app = await buildApp(db, { logger:false,globalRateLimitMax:10000,mediaStor
       templates.push(template);return template;
     },
   } });
+app.post<{Body:{reject?:boolean;unavailable?:boolean}}>('/__test__/import-files',{schema:{body:{type:'object',additionalProperties:false,properties:{reject:{type:'boolean'},unavailable:{type:'boolean'}}}}},async request=>{
+ if(typeof request.headers.authorization!=='string'||!safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
+ const processed=await processOneImportFile(db,{storage,retryDelaySeconds:0,scanner:{scan:async()=>{if(request.body.unavailable)throw new Error('Synthetic scanner outage');return {clean:!request.body.reject,version:'BrowserFakeScanner/test-only'};}}});return {processed};
+});
 app.post<{Body:{failJobId?:string;fail?:boolean}}>('/__test__/exports',{schema:{body:{type:'object',additionalProperties:false,properties:{failJobId:{type:'string',format:'uuid'},fail:{type:'boolean'}}}}},async request=>{
  if(typeof request.headers.authorization!=='string'||!safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
  if(request.body.failJobId){

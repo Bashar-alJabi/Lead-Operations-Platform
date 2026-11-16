@@ -1,3 +1,4 @@
+import {registerLeadImportRoutes} from './routes/lead-imports.js';
 import {registerLeadExportRoutes} from './routes/lead-exports.js';
 import {registerBulkFollowUpRoutes} from './routes/bulk-follow-ups.js';
 import {registerAnalyticsRoutes} from './routes/analytics.js';
@@ -139,6 +140,7 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   });
   registerAuthRoutes(app, db);
   registerOperationsRoutes(app, db);
+  registerLeadImportRoutes(app,db,options.mediaStorage);
   registerWorkingHoursRoutes(app, db);
   registerNotificationRoutes(app, db);
   registerConversationNotificationRoutes(app, db);

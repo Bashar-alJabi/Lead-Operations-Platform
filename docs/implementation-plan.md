@@ -1,5 +1,12 @@
 # خطة التنفيذ
 
+## أحدث checkpoint: Import quarantine/inspection — Native175–177 — 2026-11-16
+
+اكتملت الشريحة read-only: private scoped CSV/XLSX/XLS upload وClamAV ثمisolated bounded parser وpaged raw inspection/history/catalogs وrecovery/cancel/TTL/cleanup/UI. 190full Unit و125full DockerPG (326.0s) و64full Edge Browser (4.3m) و001–177 development/test وBackend/Web build/typecheck ناجحة؛بعدstrict query guard النهائية أُعيد190Unit وfocused PG6/Browser1 بنجاح. [العقد وحدوده](lead-import.md). **Import ليست مكتملة؛لا Lead intake من هذهالمرحلة.** احفظالتوثيقوالكود commit/push قبلالتوسع؛الأقسامالتالية سجلتاريخي.
+
+**التالي الدقيق — Native178:** versioned typed mapping حسبsheet/column index إلىContact وcurrent Campaign Fields،strict normalization/conversion/validation وpreview row errors وscoped duplicate review. ثمexplicit immutable approval وdurable per-row intake/results/retry معoriginal SourceSubmission وContacts/Fields/Routing وLead intake origin/Initial admission. استخرجboundary مشتركة بعقدAPPROVED_IMPORT أوequivalent nativeproof منcurrent account/scope وfresh approval/row receipt؛لاfake HUMAN_MANUAL Session أوMeta Connection. لاLead merging منContact matching ولاtrusted financial/consent منCSV claims. كلشريحةذاتمعنىتحتاجBackend/DB/current ACL/UI وnegative/failure tests ثمgates وتوثيقوcommit/push. يليImport Google Sheets/general Email/بقيةNotifications/Automation وcore gaps في[المراجعة](platform-gap-review.md)،لا optional parser/provider/AI polish.
+
+
 ## أحدث checkpoint: Lead CSV Export — Native173–174 — 2026-11-16
 
 preview/confirmation وshared scoped filters/current columns/Saved Views/selected IDs وvisible Fields/Calculated،durable private manifest/worker وcurrent-ACL streamed CSV وAudit/history/TTL/cancel/recovery وUI مكتملةلهذهالشريحة. 186Unit/119full compiledDockerPG (411.4s)/63full Edge Browser (8.5m) و001–174/build/typecheck/diff checks ناجحة. [العقد والحدود](lead-export.md). لا تبدأالمجموعةالتالية قبلcommit/push لهذهالحالة؛بقيةالمنصةRequired.

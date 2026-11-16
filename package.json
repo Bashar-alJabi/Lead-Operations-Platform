@@ -11,6 +11,7 @@
     "web:build": "vite build --config web/vite.config.ts",
     "web:typecheck": "tsc -p web/tsconfig.json",
     "start": "node dist/src/server.js",
+    "worker:imports": "node dist/src/import-worker.js",
     "worker:exports": "node dist/src/export-worker.js",
     "worker:identity": "node dist/src/identity-worker.js",
     "worker:ai": "node dist/src/ai-worker.js",
@@ -37,12 +38,15 @@
     "@fastify/helmet": "^13.0.0",
     "@fastify/rate-limit": "^10.0.0",
     "@node-rs/argon2": "^2.0.0",
+    "csv-parse": "7.0.3",
     "fastify": "^5.0.0",
     "file-type": "^22.1.1",
     "nodemailer": "^10.0.13",
     "postgres": "^3.4.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
+    "yauzl": "3.4.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
@@ -50,6 +54,7 @@
     "@types/nodemailer": "^8.0.2",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "@types/yauzl": "3.4.0",
     "embedded-postgres": "18.4.0-beta.17",
     "tsx": "^4.0.0",
     "typescript": "^5.0.0",

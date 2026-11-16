@@ -1,5 +1,13 @@
 # المعمارية التقنية
 
+## Import: private quarantine ثم isolated inspection — Native175–177
+
+الحفظ والـinspection منفصلان عن الموافقة على إنشاء Leads. `lead_import_file` تحمل immutable uploader/role/branch context وreal Session evidence وBranch/Campaign وrequest UUID/hash وprivate storage key. تختبر API current scope قبل body وبعد I/O؛الـraw file وpreview شخصية،ولا public URL أوdownload route. Background lease ثم scan/parse خارج transaction،ثم current account/scope/lease/DB-clock recheck قبل نشر صفوف REVIEW؛لا fabricated Human session. الفشل في Audit/rows يرجع المعاملة كاملة. الصفوف والأوراق/history immutable وnative fresh parse/scan evidence/count وstate/session proofs مطبقة.
+
+CSV/Excel adapters داخل process مستقلة بمهلة15s وV8 heap128MiB وpermission-limited filesystem وenvironment لا تتضمن أسرار التطبيق. XLSX تخضع أولًا لقراءة ZIP expanded bytes الفعلية بحدودentries/bytes،دونextraction؛ClamAV تسبق parser،ولاformula evaluation أوremote link fetch. ليستNode permission model بديلًا عنOS sandbox أوhard RSS limit،والحدود التقنية والقبول المتبقي موثقة في [عقد Import](lead-import.md). القراءة25-row keyset وcatalogs25 وقائمةملفات10؛لا تحميل كل الصفوف فيUI.
+
+TTL تقفل القراءة فورًا بساعةDB؛cancel/expiry/rejection/revocation تمحوraw parsed rows وcleanup تحذفobject معAudit وnative `purged_at`. فشلstorage deletion لهpersisted backoff ولايعطلinspection مستقلة. تبقىmetadata/history/Audit وفقسياسةالمنصة. Unknown upload commit outcome يتركorphan خاصة للمراجعة،ولا يحذفpossibly referenced object. إعدادات infrastructure فقط خارجUI؛الاختيارات التشغيلية منالواجهة. التاليtyped mapping/validation/duplicate review وapproved durable intake عبرboundary مشتركة معSourceSubmission/Contacts/Fields/Routing/Initial admission،دونHUMAN_MANUAL impersonation أوtrust للـCSV financial/consent claims.
+
 ## Bulk Human Fields وimmutable receipts — Native170–171
 
 نفس `writableManualField` و`writeManualFieldValue` للتعديل الفردي وHuman Qualification وBulk،بcurrent scoped definitions/bindings وtyped normalization وrequired-stage rules. Preview bounded/set-based مع snapshots حتى50 Lead،ثم confirmed immutable envelope/hash مرتبطة بالمستخدم والنطاق وrequest UUID. كل عنصر current Lead → User/Session → Field/Binding/value locks وCAS،ثمmanual value/history/Activity/Audit/native receipt داخل transaction واحدة. لا اتصال أوtransaction محتجزة طوالbatch،ولا source authority منhistorical receipt.

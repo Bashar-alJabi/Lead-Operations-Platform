@@ -1,5 +1,15 @@
 # دليل التشغيل والتطوير
 
+## Import quarantine/inspection — Native175–177
+
+بعد `npm run build` وmigrations001–177 وتهيئة private MediaStorage وClamAV القائمة،شغّل `npm run worker:imports` كـapplication worker منفصلة. UI الخاصة بالـLeads تتيح لصاحب صلاحيةSA/Manager رفع CSV UTF-8/XLSX/XLS ضمن Branch/Campaign الحالية؛لا يتم إنشاء Lead بهذه المرحلة. راجع [عقد Import وحدوده](lead-import.md) قبل تفسير REVIEW على أنها موافقة Import؛mapping/intake/report ما زالت مطلوبة.
+
+الإعدادات `IMPORT_RETENTION_SECONDS=86400` و`IMPORT_WORKER_BATCH=2` و`IMPORT_WORKER_POLL_MS=2000`،وهي infrastructure bounds فقط. `IMPORT_WORKER_ONCE=1` لsmoke معDATABASE_URL للاختبار فقط؛لا تشغله بالتوازي معBrowser/PG tests التي تعيدfixtures. كلالحسابات والملفات والـHTTP mocks فيالاختبارات اصطناعية؛اختبارClamAV الحقيقي يرسلEICAR فيالذاكرة إلى127.0.0.1 ولايكتب ملففيروس علىdisk،ولايتصل بProvider خارجي.
+
+راقب DEAD_LETTER و`IMPORT_FILE_PURGE_FAILED` وAudit وage/count للحفظ الخاص. Owner يستطيع current-session CAS recovery للفحص transient الفاشل،ولا يستطيع استعادة ملفREJECTED/CANCELLED/EXPIRED أوتجاوزscan. Cancel يمحوpreview فورًا،والعامل يحذفobject؛فشلحذفها لهbackoff ولا يفتحالوصول أو يعطلscan أخرى. TTL تمنعقراءةالصفوفبساعةDB حتىقبلcleanup. يحتفظ metadata/history/Audit. لا توقفPG/ClamAV ولا تعيدPreview لهذا المسار؛الخدمات الحالية تكفي.
+
+عند failure/unknown DB outcome بعدstorage put قدتبقىorphan خاصة. لا تحذفobjects bulk ولاتعدلDB يدويًا: طابقinventory معكلreferences وuploads الحديثة/الجارية،ثمجهزcleanup reviewed مستقلة. تغييرbackend يتطلبmigration للبنيةالتحتية أوإبقاءcleanup تصلإلىbackend القديمة حتىpurged_at،كمافيالعقد. ليسغيابcredential مبررًالتجاوزفحصالملف.
+
 ## Bulk Fields/Status/Tags — Native170–171
 
 بعد migrations إلى171 والبناء،حدّد حتى50 Lead ثم اختر Field قابلة للتحرير من «حقول الحملات جماعيًا». الحقول تأتي من أول Lead المختارة؛تراجع preview صلاحية كل عنصر ونسخته على حدة. SET يدعم typed Manual Fields ومنها Status؛ADD/REMOVE يخصان TAGS Field. اعرض عدد المؤهلة من المحددة في confirmation،ثم راجع نتائج كل عنصر. Status الحملة مستقلة عن Internal Lifecycle وعن Payment/Enrollment.

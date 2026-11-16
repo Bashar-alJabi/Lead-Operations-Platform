@@ -1,0 +1,132 @@
+import {test,type TestContext} from 'node:test';
+import assert from 'node:assert/strict';
+import {randomBytes,randomUUID} from 'node:crypto';
+import {mkdtemp,rm} from 'node:fs/promises';
+import {resolve} from 'node:path';
+import {spawn} from 'node:child_process';
+import * as XLSX from 'xlsx';
+import {createDatabase} from '../src/db.js';
+import {buildApp} from '../src/app.js';
+import {sha256} from '../src/security.js';
+import {localMediaStorage} from '../src/media/storage.js';
+import {clamAvScanner} from '../src/media/scanner.js';
+import {processOneImportFile,cleanupImportStorage} from '../src/imports/service.js';
+const url=process.env.TEST_DATABASE_URL;if(!url||new URL(url).pathname!=='/lead_operations_test')throw Error('Isolated test database required');
+async function fixture(t:TestContext){
+ process.env.APP_ORIGIN='http://127.0.0.1:5173';process.env.CREDENTIAL_ENCRYPTION_KEY=randomBytes(32).toString('hex');
+ const root=await mkdtemp(resolve('.local/import-test-')),storage=localMediaStorage(root),db=createDatabase(url),app=await buildApp(db,{logger:false,globalRateLimitMax:10000,mediaStorage:storage});
+ const cleanup:(()=>Promise<void>)[]=[];t.after(async()=>{try{for(const fn of cleanup)await fn();}finally{await app.close();await db.end();if(!resolve(root).startsWith(resolve('.local/import-test-')))throw Error('Unsafe cleanup path');await rm(root,{recursive:true,force:true});}});
+ app.addHook('onError',async(_q,_r,e)=>{if(!('statusCode'in e)||Number(e.statusCode)>=500)t.diagnostic('Synthetic import error: '+e.message);});
+ await db.begin(async tx=>{await tx`SET LOCAL client_min_messages TO warning`;await tx`TRUNCATE background_job CASCADE`;await tx`TRUNCATE organization CASCADE`;});
+ const org=(await db`INSERT INTO organization(name) VALUES('Import synthetic') RETURNING id`)[0]!.id,foreignOrg=(await db`INSERT INTO organization(name) VALUES('Foreign') RETURNING id`)[0]!.id;
+ const branch=(await db`INSERT INTO branch(organization_id,name) VALUES(${org},'Import A') RETURNING id`)[0]!.id,other=(await db`INSERT INTO branch(organization_id,name) VALUES(${org},'Import B') RETURNING id`)[0]!.id;
+ const campaign=(await db`INSERT INTO campaign(organization_id,branch_id,name) VALUES(${org},${branch},'Import target') RETURNING id`)[0]!.id;
+ const users:Record<string,{id:string;session:string;cookie:string}>={};
+ for(const [name,role,bid] of [['admin','SUPER_ADMIN',null],['manager','MANAGER',branch],['agent','AGENT',branch],['other','MANAGER',other],['foreign','SUPER_ADMIN',null]] as const){
+  const id=(await db`INSERT INTO user_account(organization_id,branch_id,role,name,email,password_hash) VALUES(${name==='foreign'?foreignOrg:org},${bid},${role},${name},${name+'@import.test'},'synthetic') RETURNING id`)[0]!.id,
+   token=randomBytes(32).toString('hex'),session=(await db`INSERT INTO user_session(user_id,token_hash,expires_at) VALUES(${id},${sha256(token)},clock_timestamp()+interval '1 hour') RETURNING id`)[0]!.id;users[name]={id,session,cookie:'lop_session='+token};
+ }
+ const api=(method:'GET'|'POST',path:string,payload?:object,who='manager')=>app.inject({method,url:path,payload,headers:{cookie:users[who]!.cookie,origin:process.env.APP_ORIGIN!}});
+ const input={branchId:branch,campaignId:campaign,label:'test.csv',format:'CSV',delimiter:',',requestId:randomUUID()};
+ const bytes=Buffer.from('name,phone\r\n"<img src=x onerror=alert(1)>",001234\r\n=untrusted,+331234');
+ const upload=(overrides:Record<string,string>={},data:Buffer=bytes,who='manager')=>app.inject({method:'POST',url:'/api/lead-imports?'+new URLSearchParams({...input,...overrides}),payload:data,headers:{cookie:users[who]!.cookie,origin:process.env.APP_ORIGIN!,'content-type':'application/octet-stream'}});
+ const scan={scan:async()=>({clean:true,version:'SyntheticScanner/test'})};
+ const work=(options:Parameters<typeof processOneImportFile>[1]={})=>processOneImportFile(db,{storage,scanner:scan,...options});
+ const status=async(id:string,who='manager')=>{const r=await api('GET','/api/lead-imports/'+id,undefined,who);assert.equal(r.statusCode,200,r.body);return r.json();};
+ const create=async(overrides:Record<string,string>={},data:Buffer=bytes)=>{const r=await upload({...overrides,requestId:overrides.requestId??randomUUID()},data);assert.equal(r.statusCode,202,r.body);return r.json().id as string;};
+ return {db,app,storage,root,cleanup,org,branch,other,campaign,users,api,input,bytes,upload,work,status,create};
+}
+test('Private upload replay is immutable and concurrency safe; durable scan/parse exposes only paginated escaped raw rows without creating business records',async t=>{
+ const {db,api,upload,work,status}=await fixture(t);
+ const parallel=await Promise.all(Array.from({length:8},()=>upload()));const accepted=parallel.filter(r=>r.statusCode===202);assert.ok(accepted.length>=1);assert.ok(parallel.every(r=>r.statusCode===202||r.statusCode===429));
+ const id=accepted[0]!.json().id;assert.ok(accepted.every(r=>r.json().id===id));assert.equal((await db`SELECT count(*)::int n FROM lead_import_file`)[0]!.n,1);
+ assert.equal((await api('GET','/api/lead-imports/'+id+'/rows?sheet=0')).statusCode,409);
+ assert.equal(await work(),true);const d=await status(id);assert.equal(d.state,'REVIEW');assert.equal(d.rowCount,2);assert.equal(d.sheets.length,1);
+ const p=await api('GET','/api/lead-imports/'+id+'/rows?sheet=0');assert.equal(p.statusCode,200,p.body);assert.deepEqual(p.json().items[0].cells,['<img src=x onerror=alert(1)>','001234']);assert.equal(p.json().items[1].cells[0],'=untrusted');
+ assert.ok(!(await status(id)).storage_key);assert.ok(!p.body.includes('lease_token'));assert.equal((await upload()).json().id,id);
+ const business=(await db`SELECT (SELECT count(*) FROM lead)::int leads,(SELECT count(*) FROM contact)::int contacts,(SELECT count(*) FROM payment_record)::int payments`)[0]!;assert.deepEqual({...business},{leads:0,contacts:0,payments:0});
+});
+test('Import enforces current Manager/SA branch and private owner scope, rejects forged file/row/history changes and denies revoked sessions',async t=>{
+ const {db,api,upload,create,work,status,users,branch,other,campaign,input}=await fixture(t),id=await create();
+ assert.equal((await upload({},undefined,'agent')).statusCode,403);assert.equal((await upload({branchId:other})).statusCode,403);
+ assert.equal((await upload({campaignId:randomUUID()})).statusCode,404);
+ assert.equal((await upload({requestId:input.requestId},Buffer.from('a\nx'))).statusCode,202);
+ assert.equal((await upload({requestId:input.requestId},Buffer.from('a\ny'))).statusCode,409);
+ await db`INSERT INTO campaign(organization_id,branch_id,name) SELECT organization_id,${branch},'Paged import '||i FROM branch CROSS JOIN generate_series(1,30) i WHERE id=${branch}`;
+ const catalog=await api('GET','/api/lead-imports/catalog?kind=CAMPAIGN&branchId='+branch);assert.equal(catalog.statusCode,200,catalog.body);assert.equal(catalog.json().items.length,25);assert.ok(catalog.json().nextId);
+ const next=await api('GET','/api/lead-imports/catalog?kind=CAMPAIGN&branchId='+branch+'&after='+catalog.json().nextId);assert.equal(next.json().items.length,6);assert.equal(new Set([...catalog.json().items,...next.json().items].map((r:any)=>r.id)).size,31);
+ assert.equal((await api('GET','/api/lead-imports/catalog?kind=CAMPAIGN&branchId='+other)).json().items.length,0);assert.equal((await api('GET','/api/lead-imports/catalog?kind=BRANCH')).json().items.length,1);
+ for(const who of ['admin','agent','other','foreign']){assert.equal((await api('GET','/api/lead-imports/'+id,undefined,who)).statusCode,who==='agent'?404:404);assert.equal((await api('GET','/api/lead-imports/'+id+'/rows?sheet=0',undefined,who)).statusCode,404);}
+ await work();assert.equal((await status(id)).state,'REVIEW');
+ await assert.rejects(db`UPDATE lead_import_file SET branch_id=${other},version=version+1 WHERE id=${id}`,/IMPORT_FILE_IMMUTABLE/);
+ await assert.rejects(db`UPDATE lead_import_row SET cells='["forged","x"]'::jsonb WHERE file_id=${id}`,/IMPORT_ROWS_IMMUTABLE/);
+ await assert.rejects(db`DELETE FROM lead_import_row WHERE file_id=${id}`,/IMPORT_ROWS_RETAINED/);
+ await assert.rejects(db`DELETE FROM lead_import_file_history WHERE file_id=${id}`,/IMPORT_HISTORY_IMMUTABLE/);
+ await assert.rejects(db`INSERT INTO lead_import_sheet(file_id,sheet_index,name,headers,header_row,row_count) VALUES(${id},1,'forged','["a"]'::jsonb,1,1)`,/IMPORT_PARSED_WRITE_PROOF/);
+ await db`UPDATE user_account SET branch_id=${other} WHERE id=${users.manager!.id}`;assert.equal((await api('GET','/api/lead-imports/'+id)).statusCode,403);assert.equal((await api('GET','/api/lead-imports')).json().items.length,0);
+ await db`UPDATE user_account SET branch_id=${branch} WHERE id=${users.manager!.id}`;await db`UPDATE user_session SET revoked_at=clock_timestamp() WHERE id=${users.manager!.session}`;
+ assert.equal((await api('GET','/api/lead-imports/'+id)).statusCode,401);
+ assert.ok(campaign);
+});
+test('Scanner failures have bounded retries, Audit failure rolls back all parsed rows, CAS recovery and cancel/purge preserve only immutable history',async t=>{
+ const {db,api,create,work,status,storage,cleanup}=await fixture(t),id=await create();
+ for(let i=0;i<5;i++)await work({scanner:{scan:async()=>{throw Error('Synthetic secret scanner unavailable');}},retryDelaySeconds:0});
+ const dead=await status(id);assert.equal(dead.state,'DEAD_LETTER');assert.equal(dead.errorCode,'IMPORT_PROCESSING_UNAVAILABLE');assert.ok(!JSON.stringify(dead).includes('Synthetic secret'));
+ const retry=await Promise.all(Array.from({length:8},()=>api('POST','/api/lead-imports/'+id+'/retry',{version:dead.version})));assert.equal(retry.filter(r=>r.statusCode===200).length,1);assert.equal(retry.filter(r=>r.statusCode===409).length,7);
+ for(let i=0;i<5;i++)await work({scanner:{scan:async()=>{throw Error('Synthetic repeated outage');}},retryDelaySeconds:0});
+ const secondDead=await status(id);assert.equal(secondDead.state,'DEAD_LETTER');assert.equal((await api('POST','/api/lead-imports/'+id+'/retry',{version:secondDead.version})).statusCode,200);
+ await db`CREATE FUNCTION test_import_audit_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='IMPORT_FILE_STATE' AND NEW.detail->>'state'='REVIEW' THEN RAISE EXCEPTION 'Synthetic private parse failure';END IF;RETURN NEW;END $$`;
+ await db`CREATE TRIGGER test_import_audit_failure BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION test_import_audit_failure()`;
+ cleanup.push(async()=>{await db`DROP TRIGGER IF EXISTS test_import_audit_failure ON audit_log`;await db`DROP FUNCTION IF EXISTS test_import_audit_failure()`;});
+ await work({retryDelaySeconds:0});assert.equal((await status(id)).state,'WAITING');assert.equal((await db`SELECT count(*)::int n FROM lead_import_row WHERE file_id=${id}`)[0]!.n,0);
+ await db`DROP TRIGGER test_import_audit_failure ON audit_log`;await work();const done=await status(id);assert.equal(done.state,'REVIEW');
+ const key=(await db`SELECT storage_key FROM lead_import_file WHERE id=${id}`)[0]!.storage_key;
+ assert.equal((await api('POST','/api/lead-imports/'+id+'/cancel',{version:done.version})).statusCode,200);assert.equal((await api('GET','/api/lead-imports/'+id+'/rows?sheet=0')).statusCode,410);
+ assert.equal(await cleanupImportStorage(db,storage),true);await assert.rejects(storage.get(key,8388608));assert.equal((await status(id)).purged,true);
+ assert.equal((await db`SELECT count(*)::int n FROM lead_import_row WHERE file_id=${id}`)[0]!.n,0);const recent=await status(id);assert.equal(recent.history.length,25);assert.ok(recent.nextVersion);
+ const older=await api('GET','/api/lead-imports/'+id+'?before='+recent.nextVersion);assert.equal(older.statusCode,200,older.body);assert.ok(older.json().history.length>0);assert.ok(older.json().history.every((h:any)=>h.version<recent.nextVersion));
+});
+test('Cancellation, expired leases, disabled actors and DB-clock expiry cannot publish scanned data under obsolete authority; original login is not a fake worker session',async t=>{
+ const {db,api,create,work,status,users,cleanup,storage}=await fixture(t);const id=await create();
+ let ready!:()=>void,release!:()=>void;const started=new Promise<void>(r=>{ready=r;}),wait=new Promise<void>(r=>{release=r;});
+ const processing=work({scanner:{scan:async()=>{ready();await wait;return {clean:true,version:'Delayed/test'};}}});await started;
+ const running=await status(id);assert.equal(running.state,'RUNNING');assert.equal((await api('POST','/api/lead-imports/'+id+'/cancel',{version:running.version})).statusCode,200);release();await processing;
+ assert.equal((await status(id)).state,'CANCELLED');assert.equal((await db`SELECT count(*)::int n FROM lead_import_row`)[0]!.n,0);await cleanupImportStorage(db,storage);
+ const revoked=await create();await work({scanner:{scan:async()=>{await db`UPDATE user_account SET active=false WHERE id=${users.manager!.id}`;return {clean:true,version:'Delayed/test'};}}});
+ assert.equal((await db`SELECT state FROM lead_import_file WHERE id=${revoked}`)[0]!.state,'REVOKED');await db`UPDATE user_account SET active=true WHERE id=${users.manager!.id}`;await cleanupImportStorage(db,storage);
+ const stale=await create();await work({leaseSeconds:0.1,scanner:{scan:async()=>{await new Promise(r=>setTimeout(r,150));return {clean:true,version:'Delayed/test'};}}});assert.equal((await status(stale)).state,'RUNNING');
+ await work();assert.equal((await status(stale)).state,'REVIEW');
+ const previous=process.env.IMPORT_RETENTION_SECONDS;cleanup.push(async()=>{if(previous===undefined)delete process.env.IMPORT_RETENTION_SECONDS;else process.env.IMPORT_RETENTION_SECONDS=previous;});process.env.IMPORT_RETENTION_SECONDS='2';
+ const expiring=await create();await db`UPDATE user_session SET revoked_at=clock_timestamp() WHERE id=${users.manager!.session}`;await work();assert.equal((await db`SELECT state FROM lead_import_file WHERE id=${expiring}`)[0]!.state,'REVIEW');
+ assert.equal((await api('GET','/api/lead-imports/'+expiring+'/rows?sheet=0')).statusCode,401);
+ const token=randomBytes(32).toString('hex');await db`INSERT INTO user_session(user_id,token_hash,expires_at) VALUES(${users.manager!.id},${sha256(token)},clock_timestamp()+interval '1 hour')`;users.manager!.cookie='lop_session='+token;
+ const ms=(await db`SELECT ceil(extract(epoch FROM expires_at-clock_timestamp())*1000)::int n FROM lead_import_file WHERE id=${expiring}`)[0]!.n;await new Promise(r=>setTimeout(r,Math.max(0,ms)+30));
+ assert.equal((await api('GET','/api/lead-imports/'+expiring+'/rows?sheet=0')).statusCode,410);await work();assert.equal((await status(expiring)).state,'EXPIRED');await work();assert.equal((await status(expiring)).purged,true);
+});
+test('Compiled import worker scans with real local ClamAV, paginates XLSX and rejects EICAR and disguised archives before any business writes',async t=>{
+ const {db,api,create,work,status,root}=await fixture(t),book=XLSX.utils.book_new();
+ XLSX.utils.book_append_sheet(book,XLSX.utils.aoa_to_sheet([['name','phone'],...Array.from({length:125},(_,i)=>['Synthetic '+i,'001'+i])]),'Leads');XLSX.utils.book_append_sheet(book,XLSX.utils.aoa_to_sheet([['name'],['Second sheet']]),'Other');
+ const id=await create({label:'test.xlsx',format:'XLSX'},XLSX.write(book,{type:'buffer',bookType:'xlsx',compression:true}) as Buffer);
+ const child=spawn(process.execPath,[resolve('dist/src/import-worker.js')],{windowsHide:true,env:{...process.env,DATABASE_URL:url,MEDIA_STORAGE_BACKEND:'local',MEDIA_LOCAL_ROOT:root,CLAMAV_HOST:'127.0.0.1',CLAMAV_PORT:'3310',IMPORT_WORKER_ONCE:'1',IMPORT_WORKER_BATCH:'1'},stdio:['ignore','pipe','pipe']});
+ let log='';child.stdout.on('data',d=>{log+=String(d);});child.stderr.on('data',d=>{log+=String(d);});assert.equal(await new Promise(r=>child.once('exit',r)),0,log);assert.ok(!log.includes('cycle_failed'),log);
+ assert.equal((await status(id)).state,'REVIEW');assert.equal((await status(id)).rowCount,126);let cursor=1,seen=0;
+ do{const r=await api('GET','/api/lead-imports/'+id+'/rows?sheet=0&after='+cursor);assert.equal(r.statusCode,200,r.body);assert.ok(r.json().items.length<=25);seen+=r.json().items.length;cursor=r.json().nextRow;}while(cursor);assert.equal(seen,125);
+ const eicar='X5O!P%@AP[4'+String.fromCharCode(92)+'PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*';
+ const infected=await create({label:'eicar.csv'},Buffer.from(eicar));await work({scanner:clamAvScanner('127.0.0.1',3310)});assert.equal((await status(infected)).state,'REJECTED');assert.equal((await status(infected)).errorCode,'IMPORT_CONTENT_REJECTED');
+ await work();const bad=await create({label:'bad.xlsx',format:'XLSX'},Buffer.from('PK\x03\x04bad archive'));await work();assert.equal((await status(bad)).state,'REJECTED');assert.equal((await api('GET','/api/lead-imports/'+bad+'/rows?sheet=0')).statusCode,409);
+ assert.equal((await db`SELECT count(*)::int n FROM lead`)[0]!.n,0);
+});
+test('Upload authenticates before parsing, enforces origin/body/format limits, uses generated private keys and rejects storage tampering without partial preview',async t=>{
+ const {app,db,upload,create,api,input,users,work,status,storage}=await fixture(t);
+ assert.equal((await app.inject({method:'POST',url:'/api/lead-imports?'+new URLSearchParams(input),payload:Buffer.from('x'),headers:{'content-type':'application/octet-stream'}})).statusCode,401);
+ assert.equal((await app.inject({method:'POST',url:'/api/lead-imports?'+new URLSearchParams(input),payload:Buffer.from('x'),headers:{cookie:users.manager!.cookie,origin:'https://foreign.test','content-type':'application/octet-stream'}})).statusCode,403);
+ assert.equal((await app.inject({method:'POST',url:'/api/lead-imports?'+new URLSearchParams(input)+'&branchId='+input.branchId,payload:Buffer.from('x'),headers:{cookie:users.admin!.cookie,origin:process.env.APP_ORIGIN!,'content-type':'application/octet-stream'}})).statusCode,400);
+ assert.equal((await upload({label:'bad.exe'})).statusCode,400);assert.equal((await upload({label:'bad.xlsx',format:'XLSX'})).statusCode,400);
+ assert.equal((await upload({},Buffer.from([255,254]))).statusCode,400);assert.equal((await upload({},Buffer.alloc(8388609,65))).statusCode,413);
+ const id=await create({label:'../../untrusted.csv'}),j=(await db`SELECT * FROM lead_import_file WHERE id=${id}`)[0]!;
+ assert.match(j.storage_key,/^[a-f0-9-]{36}-[a-f0-9]{64}$/);assert.ok(!j.storage_key.includes('untrusted'));
+ await work({storage:{...storage,get:async()=>Buffer.from('tampered')}});assert.equal((await status(id)).state,'REJECTED');assert.equal((await status(id)).errorCode,'IMPORT_STORAGE_INTEGRITY_FAILED');assert.equal((await api('GET','/api/lead-imports/'+id+'/rows?sheet=0')).statusCode,409);
+ const valid=await create();await work({storage:{...storage,remove:async()=>{throw Error('Synthetic private storage outage');}}});assert.equal((await status(valid)).state,'REVIEW','One failed deletion must not block another inspection');
+ const rejected=await status(id);assert.equal(rejected.cleanupError,'IMPORT_FILE_PURGE_FAILED');const backoff=(await db`SELECT cleanup_next_run_at>clock_timestamp() AS future FROM lead_import_file WHERE id=${id}`)[0]!;assert.equal(backoff.future,true);
+ await assert.rejects(db`UPDATE lead_import_file SET cleanup_next_run_at=clock_timestamp() WHERE id=${id}`,/IMPORT_CLEANUP_BACKOFF_PROOF/);
+});
