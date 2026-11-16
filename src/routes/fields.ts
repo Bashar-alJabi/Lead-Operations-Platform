@@ -259,6 +259,7 @@ export function registerFieldRoutes(app: FastifyInstance, db: Database): void {
     return db.begin(async (tx) => {
       const lead = await scopedLead(tx, actor, request.params.id, 'SHARE');
       const rows = await tx`SELECT fd.id, fd.key, fd.label, fd.field_type, fd.value_mode, fd.options, fd.validation, fd.calculation,
+      fd.version AS definition_version,cf.version AS binding_version,
       fd.active AS definition_active, cf.active AS binding_active, cf.position, cf.required_stage, cf.show_in_details,
       cf.show_in_table, cf.filterable, cf.editable_by_agent, cf.editable_by_manager,
       lfv.value, lfv.version AS value_version, lfv.source, lfv.updated_at

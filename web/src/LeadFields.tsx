@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 export type FieldOption = { value: string; label: string; active: boolean };
 export type FieldRow = { id: string; field_id?: string; key: string; label: string; field_type: string; value_mode: string;
   options: FieldOption[]; validation: { currency?: string }; value?: unknown; value_version?: number | null; editable?: boolean;
+  definition_version?:number;binding_version?:number;
   required_stage?: string; show_in_details?: boolean; active?: boolean; binding_active?: boolean; definition_active?: boolean;
   editable_by_manager?: boolean };
 type Api = <T>(path: string, options?: RequestInit) => Promise<T>;

@@ -1,5 +1,13 @@
 # المعمارية التقنية
 
+## Bulk Human Fields وimmutable receipts — Native170–171
+
+نفس `writableManualField` و`writeManualFieldValue` للتعديل الفردي وHuman Qualification وBulk،بcurrent scoped definitions/bindings وtyped normalization وrequired-stage rules. Preview bounded/set-based مع snapshots حتى50 Lead،ثم confirmed immutable envelope/hash مرتبطة بالمستخدم والنطاق وrequest UUID. كل عنصر current Lead → User/Session → Field/Binding/value locks وCAS،ثمmanual value/history/Activity/Audit/native receipt داخل transaction واحدة. لا اتصال أوtransaction محتجزة طوالbatch،ولا source authority منhistorical receipt.
+
+Native guards تتحقق من current account/session/role/branch/Lead/Field scope ونسخها وfresh same-transaction MANUAL value/history/Audit،وتحفظ unique batch/Lead/history وimmutability للطلب والـreceipt والتاريخ المرتبط بها. استخدام MVCC freshness helper القائمة لا يمنح AI authority؛هذه Human API حقيقية ولا تعمل worker بجلسة وهمية. Envelope لا تحفظ payload العميل؛Field UUID المطلوبة بلاFK لمنع unknown/hidden existence inference،والـreceipt الفعلية لهاFK/proof كاملة. Replay يعيد current access أولًا ولا يعيد كتابة الحقل.
+
+Configurable request budget وper-statement/lock bounds وpartial results وsafe same-key resume تمنع استمرار batch بلاحد أوتكرار أثرها بعدfailure. Locale لا تلغي recovery intent؛UI لا تعيد request تلقائيًا. لا Lifecycle/Payment/Enrollment/controller/customer-send effect منStatus/Tags. التفاصيل وحدود الشريحة في [العقد](bulk-fields.md)؛Bulk Follow-ups/Export وبقية Import/Automation/current-authority contexts تبقى مستقلة،ولا تعني هذه الخدمة أن worker مستقبلية يجوز أن تنتحل Human session. البوابة الحالية182unit/109full Docker PG/61full Edge Browser و001–171/build/typecheck ناجحة؛لاLive أوdeployment claim.
+
 ## Analytics التشغيلية وshared scoped queries — Native169
 
 Lead list وAnalytics تشتركان في typed predicate وField normalization/current visibility بدل نسخ ACL أوfilter semantics. Read projection تربط Payment بالمبالغ الأصلية immutable،دون تغيير trusted proof أوEnrollment rule. CTEs داخل SQL تحسب current Lead-created cohort وper-mode/per-currency exact NUMERIC totals وexplicit current Campaign Conversion وcommunication/Human-author facts؛لا LLM أوProvider I/O أوclient-side financial sum. API تطبق current Session/Role/Branch/Lead/Field scope وbounded keyset drilldown/groups وAudit،مع statement timeout8s وlock timeout750ms وفهارس المسارات الفعلية. JSON counts/amounts strings للحفاظ على الدقة.

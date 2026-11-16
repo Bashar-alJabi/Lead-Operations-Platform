@@ -29,7 +29,12 @@ test('First AI contact uses managed approved template UI, fresh real intake, tru
  expect((await page.request.put(consentPath,{headers,data:{version:v,status:'GRANTED',doNotContact:false,evidence:'Authorized synthetic prior opt-in',source:'Dedicated synthetic record'}})).status()).toBe(200);
  await page.getByRole('button',{name:'Deactivate',exact:true}).click();await page.getByLabel('Enable customer messaging',{exact:true}).check();await page.getByLabel('Enable AI assistant',{exact:true}).check();await page.getByRole('button',{name:'Save settings',exact:true}).first().click();await page.getByRole('button',{name:'Activate',exact:true}).click();
  const name='Browser actual initial customer',lead=await create(name);expect((await page.request.post('/__test__/ai-initial-process')).status()).toBe(403);expect((await page.request.post('/__test__/ai-initial-process',{headers:fixtureHeaders})).status()).toBe(200);
- await page.getByRole('button',{name:'Leads',exact:true}).click();await page.getByRole('button',{name:'Retry',exact:true}).click();await page.getByRole('row').filter({hasText:name}).first().getByRole('button',{name:'Details',exact:true}).click();
+ const freshOrigin=(await(await page.request.get('/api/leads/'+lead+'/intake-origin')).json()).origin.initialAI;
+ expect(freshOrigin.state).toBe('ADMITTED');expect(freshOrigin.runtime.deliveryState).toBe('QUEUED');
+ expect((await(await page.request.get('/api/leads/'+old+'/intake-origin')).json()).origin.initialAI).toBeNull();
+ // The earlier consent Lead shares this Contact/name. Wait for the exact newly created
+ // Lead rather than selecting a cached row while the list refresh is still pending.
+ await page.getByRole('button',{name:'Leads',exact:true}).click();await page.getByRole('button',{name:'Retry',exact:true}).click();await page.locator('[data-lead-row="'+lead+'"]').getByRole('button',{name:'Details',exact:true}).click();
  const panel=page.locator('[data-lead-intake-origin]');await panel.getByRole('button',{name:'Review intake origin',exact:true}).click();await expect(panel.locator('[data-initial-ai-runtime]')).toContainText('QUEUED');
  expect((await page.request.post('/__test__/ai-customer-send',{headers:fixtureHeaders,data:{dispatch:true}})).status()).toBe(200);await panel.getByRole('button',{name:'Review intake origin',exact:true}).click();await expect(panel.locator('[data-initial-ai-runtime]')).toContainText('SENT');
  const dto=(await(await page.request.get('/api/leads/'+lead+'/intake-origin')).json()).origin.initialAI;expect(dto.runtime.deliveryState).toBe('SENT');expect(dto.liveTransferEnabled).toBe(false);

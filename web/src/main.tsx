@@ -1,4 +1,5 @@
 import {AnalyticsWorkspace} from './AnalyticsWorkspace.js';
+import {BulkFieldsWorkspace} from './BulkFieldsWorkspace.js';
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './style.css';
@@ -391,6 +392,8 @@ function App() {
       </div>{bulkResults.length > 0 && <div role="status"><h3>{locale === 'ar' ? 'نتيجة كل فرصة' : locale === 'fr' ? 'Résultat par prospect' : 'Result by lead'}</h3>
         <ul>{bulkResults.map((item) => <li key={item.id}>{item.id}: {item.status}{item.error ? ` (${item.error})` : ''}</li>)}</ul></div>}
       </section>}
+      {page==='leads'&&!canManage&&<section className="panel"><strong>{selectedLeadIds.length} / 50</strong><button type="button" onClick={()=>setSelectedLeadIds(leads.slice(0,50).map(l=>l.id))}>{locale==='ar'?'تحديد أول 50 ظاهرة':locale==='fr'?'Sélectionner les 50 premiers':'Select first 50 shown'}</button><button type="button" onClick={()=>setSelectedLeadIds([])}>{locale==='ar'?'إزالة التحديد':locale==='fr'?'Effacer':'Clear selection'}</button></section>}
+      {page==='leads'&&<BulkFieldsWorkspace key={user.id+':'+user.role+':'+user.branchId} locale={locale} api={api} selected={leads.filter(l=>selectedLeadIds.includes(l.id)).map(l=>({id:l.id,version:l.version,label:contactLabel(l,locale)}))}/>}
       <div className="toolbar">{canManage && (page !== 'branches' || isAdmin) && <button onClick={() => { setShowForm(!showForm); setForm({}); }}>{page === 'leads' ? t.newLead : page === 'campaigns' ? t.newCampaign : page === 'branches' ? t.newBranch : t.newUser}</button>}</div>
       {showForm && <section className="panel form-panel"><h2>{page === 'leads' ? t.newLead : page === 'campaigns' ? t.newCampaign : page === 'branches' ? t.newBranch : t.newUser}</h2>
         <form onSubmit={(event) => { event.preventDefault(); if (page === 'branches') void submit('/api/branches', { name: form.name, timezone: form.timezone });
@@ -405,14 +408,14 @@ function App() {
           {page === 'users' && <>{field('name', t.name)}{field('email', t.email, 'email')}{select('role', t.role, (isAdmin ? ['SUPER_ADMIN','MANAGER','AGENT'] : ['AGENT']).map((value) => ({ value, text: value })))}{form.role !== 'SUPER_ADMIN' && select('branchId', t.branch, branchOptions)}</>}
           <button disabled={busy}>{t.save}</button></form></section>}
       {page === 'leads' && <AIHumanHandoffQueue locale={locale} api={api} onOpenLead={id => setSelectedLead(id)} />}
-      <section className="panel table-panel"><div className="table-scroll"><table><thead><tr>{page === 'leads' ? <>{canManage && <th>{locale === 'ar' ? 'تحديد' : locale === 'fr' ? 'Choisir' : 'Select'}</th>}{leadColumns.map((column) =>
+      <section className="panel table-panel"><div className="table-scroll"><table><thead><tr>{page === 'leads' ? <><th>{locale === 'ar' ? 'تحديد' : locale === 'fr' ? 'Choisir' : 'Select'}</th>{leadColumns.map((column) =>
         <th key={column}>{leadColumnLabels[column]}</th>)}<th>{t.actions}</th></> :
         page === 'campaigns' ? <><th>{t.name}</th><th>{t.branch}</th><th>{t.status}</th><th>{t.routing}</th><th>{t.actions}</th></> :
         page === 'branches' ? <><th>{t.name}</th><th>{t.timezone}</th><th>{t.status}</th></> :
         <><th>{t.name}</th><th>{t.email}</th><th>{t.role}</th><th>{t.branch}</th><th>{t.status}</th><th>{t.actions}</th></>}</tr></thead><tbody>
-        {page === 'leads' && leads.map((lead) => <tr key={lead.id}>{canManage && <td><input type="checkbox" aria-label={`${t.contact}: ${contactLabel(lead,locale)}`}
+        {page === 'leads' && leads.map((lead) => <tr key={lead.id} data-lead-row={lead.id}><td><input type="checkbox" aria-label={`${t.contact}: ${contactLabel(lead,locale)}`}
           checked={selectedLeadIds.includes(lead.id)} disabled={selectedLeadIds.length >= 50 && !selectedLeadIds.includes(lead.id)}
-          onChange={(event) => setSelectedLeadIds((current) => event.target.checked ? [...current, lead.id] : current.filter((id) => id !== lead.id))} /></td>}{leadColumns.map((column) =>
+          onChange={(event) => setSelectedLeadIds((current) => event.target.checked ? [...current, lead.id] : current.filter((id) => id !== lead.id))} /></td>{leadColumns.map((column) =>
           <td key={column}>{leadCell(lead, column)}</td>)}<td><button className="link" onClick={() => setSelectedLead(lead.id)}>{t.details}</button></td></tr>)}
         {page === 'campaigns' && campaigns.map((campaign) => <tr key={campaign.id}><td><strong>{campaign.name}</strong></td><td>{branches.find((item) => item.id === campaign.branch_id)?.name || '—'}</td><td><span className="badge">{campaign.status}</span></td><td>{campaign.routing_method}<small>{campaign.agents?.map((agent) => agent.name).join(', ') || '—'}</small></td><td>{canManage && <button className="link" onClick={() => setSelectedCampaign(campaign.id)}>{t.details}</button>}</td></tr>)}
         {page === 'branches' && branches.map((branch) => <tr key={branch.id}><td><strong>{branch.name}</strong></td><td>{branch.timezone}</td><td>{branch.active ? t.active : t.inactive}<button className="link" data-hours-open={branch.id} onClick={()=>setHoursResource({scope:'BRANCH',id:branch.id,name:branch.name})}>{locale==='ar'?'إعداد ساعات العمل':locale==='fr'?'Configurer les horaires':'Configure working hours'}</button></td></tr>)}

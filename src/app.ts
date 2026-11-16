@@ -1,4 +1,5 @@
 import {registerAnalyticsRoutes} from './routes/analytics.js';
+import {registerBulkFieldRoutes} from './routes/bulk-fields.js';
 import Fastify, { type FastifyInstance,type FastifyRequest } from 'fastify';
 import cookie from '@fastify/cookie';
 import helmet from '@fastify/helmet';
@@ -195,5 +196,6 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   registerAIToolPolicyRoutes(app,db);
   registerAutomationRoutes(app,db);
   registerAnalyticsRoutes(app,db);
+  registerBulkFieldRoutes(app,db);
   return app;
 }

@@ -1,5 +1,13 @@
 # دليل التشغيل والتطوير
 
+## Bulk Fields/Status/Tags — Native170–171
+
+بعد migrations إلى171 والبناء،حدّد حتى50 Lead ثم اختر Field قابلة للتحرير من «حقول الحملات جماعيًا». الحقول تأتي من أول Lead المختارة؛تراجع preview صلاحية كل عنصر ونسخته على حدة. SET يدعم typed Manual Fields ومنها Status؛ADD/REMOVE يخصان TAGS Field. اعرض عدد المؤهلة من المحددة في confirmation،ثم راجع نتائج كل عنصر. Status الحملة مستقلة عن Internal Lifecycle وعن Payment/Enrollment.
+
+في lost ACK أوBULK_REQUEST_PAUSED/BULK_ITEM_RETRYABLE استخدم Retry same request؛لا تغيّر payload لنفس request key. تغيير اللغة يحتفظ بطلب recovery،وتغيير التحديد أوالقيمة يتطلب review جديدة. VERSION/CONFIGURATION conflicts أوفقدان الصلاحية تحتاج Refresh وتحديدًا حاليًا ومراجعة جديدة؛لا تتجاوز guard عبر SQL. سجل Field/History المعتاد في Lead Details يعرض التغييرات MANUAL،وAudit تربط Batch/Field/operation دون قيم العميل. Refresh قائمة Leads المعتادة تعيد تطبيق الفلاتر الحالية؛نتائج batch تاريخية ولا تدّعي أن قيمة قديمة ما زالت الحالية.
+
+`BULK_FIELD_REQUEST_BUDGET_MS` deployment capacity setting افتراضي15000،ومسموح100–30000ms. deadline تمنع بدء عنصر جديد؛قد تنهي transaction بدأت قبلها بعد الموعد. لكل statement8s ولكل lock750ms،مع transaction مستقلة لكل عنصر. هذه حدود تقنية وليست ضمان throughput. العملية لا ترسل Customer Messages أوAI ولا تغيّر المالية،ولا تحتاج Provider credential. [العقد وحدود الشريحة والتغطية الحالية](bulk-fields.md). البوابة الحالية ناجحة:182unit/109full Docker PG/61full Edge Browser و001–171/build/typecheck؛Local verified فقط،ولاLive integration أوdeployment.
+
 ## Analytics التشغيلية — Native169
 
 طبّق migrations والبناء قبل تشغيل API/UI الجديدة؛projection والفهارس لا تغيّر Payment/Enrollment ولا تعيد تهيئة البيانات. من Analytics اختر النطاق والفترة (Lead creation cohort) والفلاتر ثم Load. يبقى التاريخ المالي والرسائل المرتبطة بالفرص المختارة مشمولًا؛هذه ليست cash-date accounting report. financial mode الافتراضي LIVE للقراءة فقط،واختر TEST صراحة للسجلات الاختبارية. المجاميع منفصلة حسب mode/currency وdecimal strings دقيقة،دون Exchange-rate assumption.

@@ -179,9 +179,14 @@ test('Customer proposal worker uses authenticated autonomous scope, current fenc
   const atomic = (await inbound('atomic'))!;
   await db`CREATE FUNCTION proposal_test_audit_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='AI_CUSTOMER_PROPOSAL_PROPOSED' THEN RAISE EXCEPTION 'SYNTHETIC_AUDIT_FAILURE';END IF;RETURN NEW;END $$`;
   await db`CREATE TRIGGER proposal_test_audit BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION proposal_test_audit_failure()`;
-  try { await assert.rejects(run(adapters, 0.1), /SYNTHETIC_AUDIT_FAILURE/); assert.equal((await query(atomic.id))[0]!.state, 'RUNNING'); }
+  // Audit rollback must reach the transaction before the lease expires. The independent
+  // 100ms stale-worker race above retains short-lease coverage under an explicit latch.
+  try { await assert.rejects(run(adapters, 5), /SYNTHETIC_AUDIT_FAILURE/); assert.equal((await query(atomic.id))[0]!.state, 'RUNNING');assert.equal((await query(atomic.id))[0]!.result,null); }
   finally { await db`DROP TRIGGER proposal_test_audit ON audit_log`; await db`DROP FUNCTION proposal_test_audit_failure()`; }
-  await new Promise(r => setTimeout(r, 160)); assert.equal(await run(), true); assert.equal((await query(atomic.id))[0]!.state, 'PROPOSED');
+  const remaining=(await db`SELECT greatest(0,ceil(extract(epoch FROM lease_until-clock_timestamp())*1000))::int AS ms FROM ai_customer_proposal WHERE id=${atomic.id}`)[0]!.ms as number;
+  assert.ok(remaining>=0&&remaining<=5000);await new Promise(r=>setTimeout(r,remaining+50));
+  assert.equal((await db`SELECT lease_until<=clock_timestamp() AS expired FROM ai_customer_proposal WHERE id=${atomic.id}`)[0]!.expired,true);
+  assert.equal(await run(), true); assert.equal((await query(atomic.id))[0]!.state, 'PROPOSED');
   // Backpressure retains every accepted message; it does not turn old BLOCKED traces into work.
   for (let n = 0; n < 11; n++) await inbound('burst-' + n);
   assert.equal((await db`SELECT count(*)::integer AS n FROM ai_customer_proposal WHERE conversation_id=${cv} AND state='QUEUED'`)[0]!.n, 10);

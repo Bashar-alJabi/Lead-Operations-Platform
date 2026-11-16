@@ -1,5 +1,13 @@
 # خطة التنفيذ
 
+## أحدث checkpoint: Bulk Fields/Status/Tags — Native170–171 — 2026-11-16
+
+تمت شريحةactual Human Fields عبرtyped existing service وcurrent per-item authorization/versions/confirmation وnative immutable receipts وAudit/history وbounded time budget وUI/retry. unit2/focusedPG5/Browser1 ناجحة،وmigrations001–171 development/test وBackend/Web build/typecheck و182full unit. focused regression القديمة+Bulk6/6 ناجحة بعدتثبيتAudit fixture lease؛109/109 full PG (281.0s) و61/61 full Browser (3.5m) الحالية ناجحة. [العقد](bulk-fields.md). لا تبدأ مجموعة جديدة قبل checkpoint مستقرة وموثقة ومرفوعة.
+
+**التالي الدقيق بعد الحفظ:** Bulk Create Follow-up وفق00 §51 و03 §96،مع استخراج/reuse خدمةHuman Follow-up الحالية،current Lead/task-owner scope وreal Session وtyped due/timezone/priority/note وconfirmation وper-item snapshots وidempotency/partial result/history/Audit وnative source proof وUI. لاFake Human session أوcustomer send منtask،ولا Task duplicate عندlost ACK أوretry. Backend/DB/UI وPG/Browser/failure paths وfull gates ثمcheckpoint. Native التالية172. Status هناCampaign Field؛Internal Lifecycle تبقىمنفصلةوفق03 §64.
+
+بعدها safe Import/Export (ومنهاExport selection/filters/views/visible columns) ثمGoogle Sheets/general Email/notification channels وبقيةAutomation وAI/CRM/acceptance. الطلبات والخدمات الخلفية المستقبلية تتطلب authority context مناسبة؛لا إعادة استخدام cookie/session مصطنعة. فجوات المنصة العامة في [المراجعة](platform-gap-review.md) تبقى مطلوبة،ولاprovider/AI refinements اختيارية قبلها.
+
 ## أحدث checkpoint: Analytics التشغيلية — Native169 — 2026-11-14
 
 shared current-scoped Lead filters وtyped Fields/Saved Views،trusted SQL overview/groups/Human authors وbounded drilldown،explicit Conversion وexact per-currency/per-mode Revenue وar/en/fr UI منفذة. 180unit و104full Docker PG (338.5s) و001–169 development/test وBackend/Web build/typecheck ناجحة؛focused regression7PG و2Browser (13.1s) ناجحة،و60/60 full Edge Browser E2E (8.2m) ناجحة. [العقد والحدود](operational-analytics.md). لا تبدأ Module جديدة قبل حفظ هذه checkpoint.
