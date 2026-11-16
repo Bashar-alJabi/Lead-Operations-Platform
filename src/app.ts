@@ -1,3 +1,4 @@
+import {registerLeadExportRoutes} from './routes/lead-exports.js';
 import {registerBulkFollowUpRoutes} from './routes/bulk-follow-ups.js';
 import {registerAnalyticsRoutes} from './routes/analytics.js';
 import {registerBulkFieldRoutes} from './routes/bulk-fields.js';
@@ -199,5 +200,6 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   registerAnalyticsRoutes(app,db);
   registerBulkFieldRoutes(app,db);
   registerBulkFollowUpRoutes(app,db);
+  registerLeadExportRoutes(app,db);
   return app;
 }

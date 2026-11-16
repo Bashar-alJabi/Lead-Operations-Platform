@@ -647,3 +647,11 @@ Preview تستعملinputs مفترضة وDBclock؛تختبرWAIT/DUE/stops/exha
 عندlost ACK/HTTP500 أوBULK_REQUEST_PAUSED/BULK_ITEM_RETRYABLE أعد الطلب الأصلي من زر retry قبلتغيير التحديد/الحقول أوrefresh. لا تكرر intent بمفتاح جديد لتجاوز خطأ. راجع current scope/Lead version/owner active ثمحدّث preview إذا لم ينشأ العنصر. لا تغيّر receipt أوhistory أوSession يدويًا. budget البنية `BULK_FOLLOW_UP_REQUEST_BUDGET_MS` افتراضي15s،100..30000ms،statement8s وlock750ms لكلtransaction؛ليس business-managed setup أوقدرة إنتاجية مضمونة. unknown failures آمنة فيالواجهة،وتفاصيلها في structured server logs دون أسرار؛Audit failure يلغي العنصر فقط.
 
 التحقق: compiled unit وPostgreSQL integration علىlead_operations_test،ثمBrowserE2E مع E2E_RESET_TEST_DATABASE=1 وEdge،بالترتيب دون تزامن PG/Browser علىالقاعدة نفسها. لاreset لقاعدةdevelopment ولاPreview. اختبارات focused الجديدة: bulk-follow-ups،ومعهاbulk-fields وlead-workflow وfollow-up-notifications للتراجع.
+
+## تشغيل Export — Native173–174
+
+راجع [عقد التصدير](lead-export.md). بعدmigrations173–174 شغّل `npm run worker:exports` كخدمة application worker منفصلة بجانب Backend. الإعداد الافتراضي لا يحتاج credential خارجيًا أوتعديل business records. اختبارات التشغيل تستعمل `EXPORT_WORKER_ONCE=1` معDATABASE_URL لقاعدةtest فقط؛لا تشغّل workers أخرى أوPreview لأجلExport. خيارات capacity/retention فيالعقد،وهي deployment settings وليستbusiness setup يدويًا.
+
+المستخدم: طبّق الفلاتر أوSaved View منLeads،راجع أعمدةExport وحقولCampaign إن وجدت،اخترfiltered/selected ثمpreview/confirmation. يوضح الطلب WAITING/DONE/count/history. تنزيلCSV يعيدقراءةقيموصلاحياتحالية منmanifest الخاصة. عندlost ACK استخدمزرإعادةطلبالإنشاءنفسه؛عندDead Letter أصلحالسببالتشغيليثمزرRetry failed processing بصلاحيةصاحبالطلبالحالية. لا تغيّرhash/cursor/receipt أوDB rows يدويًا. الإلغاءمنقائمةالصادراتيحذفmembership دونتعديلLeads،وTTL تمنعالتنزيلوتنظفmembership فيدورةworker. التاريخيبقىمحفوظًا.
+
+الـprocessing error generic فيUI؛راجعstructured event `export_worker_cycle_failed` أوhistory/errorCode. إذاكانAudit نفسهغيرقابلللكتابةتفشلtransaction كلهاولا تُنشرصفحةبلاAudit. ملفجزئيأوقراءةمنقطعةلا تُعدنجاحًا؛أعدتنزيلالطلببعدتصحيحالوصول أوإنشئintent جديدةللنطاقالحالي. CSV تحتويبادئةنصيةلبعضالخلايا؛لا تعدهاround-trip خامًا أوتزيلحمايتها ثم تفتحهاكصيغ. لاpublic artifact أوfilesystem cleanup commands؛القيملا تُخزنفيملفخاصقديم.

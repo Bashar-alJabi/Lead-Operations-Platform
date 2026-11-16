@@ -1,5 +1,17 @@
 # مصفوفة تغطية المتطلبات
 
+## أحدث checkpoint: Safe CSV Export — Native173–174 — 2026-11-16
+
+| المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |
+|---|---|---|
+|00 §53،02 §§68–71،03 §98،06 §18|actual Lead CSV منcurrent filters/Saved Views/columns وselected IDs وvisible Campaign fields/Calculated،preview/confirmation وUI ar/en/fr|186/186 Unit و119/119 full compiledDockerPG (411.4s)،migrations001–174 development/test وBackend/Web build/typecheck/diff check،63/63 full Edge Browser (8.5m) ناجحة؛[العقد](lead-export.md)|
+|02 §§69–72 وAGENTS §§8/15/27/38|shared current Lead/Field scope،private per-user approved job/hash،100-ID background keyset capture ثم25-row current-data stream وreal Session/ACL لكلصفحة،لاpublic artifact|8 concurrent create/workers،2507 actual rows وcompiled worker وmicroseconds/UTC/session-timezone وhistory pages؛foreign/role/session/ownership/hidden negatives وfilter-only Field دونvalue export،native forged membership/immutability|
+|06 §§18/22–24،AGENTS §§15/16/32|bounded failure/Dead Letter وCAS approved recovery وAudit/history،TTL وcancel/purge دونLead mutation،stream backpressure،safe UTF-8 CSV/quoting/text-prefix|actual Audit rollback و1/2/4/8s ثمDL ثم8 recovery CAS requests،real DB-clock expiry وتنزيل401/403/404/410؛2CSV unit تشملcontrol/Unicode/bidi/leading apostrophe وtyped/null values؛لاExcel execution أوuniversal spreadsheet claim|
+|03 §98،06 §§20/25–29|lost ACK/same-key UI retry،actual DL/recovery وfiltered/selected download وcurrent values،metadata/history paging،failed-read clearing وRTL390px/escaped text|focused Browser1/1 (18.9s) وfullExport23.8s ناجحة؛Native174 forward fix لـNULL-scope يحفظ403 قبلheaders،ومزامنةlist CAS وانتظارrecovery/cancel commit مثبتة؛لا تعديل173 أوتخفيفpermission assertions|
+|حدودالإكمال|هذه Lead CSV Export baseline محلية،لاCustomer send/AI/financial writes،ولاfake worker Human Session|**Import/Export والمنصة غيرمكتملتين**. التاليCSV/Excel Import ثمSheets/general Email/بقيةNotifications/Automation وAI/CRM/acceptance؛Providers/AI Live Verification Pending External Credential/Approval والاستخدامالحي معطل|
+
+مرجعالبدء70e6ce5 النظيفةوالمرفوعة. البوابةالحاليةكلهاناجحة وتُحفظبالـcommit/push للفرعالمصرحبهفقط. الصفوفالتاليةتاريخيةولا تلغيالحالةالأحدث.
+
 ## أحدث checkpoint: Bulk Create Follow-up — Native172 — 2026-11-16
 
 | المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |

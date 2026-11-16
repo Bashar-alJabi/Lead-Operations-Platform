@@ -11,6 +11,7 @@
     "web:build": "vite build --config web/vite.config.ts",
     "web:typecheck": "tsc -p web/tsconfig.json",
     "start": "node dist/src/server.js",
+    "worker:exports": "node dist/src/export-worker.js",
     "worker:identity": "node dist/src/identity-worker.js",
     "worker:ai": "node dist/src/ai-worker.js",
     "worker:handoff-sla": "node dist/src/handoff-sla-worker.js",

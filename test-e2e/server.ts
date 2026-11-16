@@ -1,3 +1,4 @@
+import {processOneExport} from '../src/exports/service.js';
 import {processOneAutomationMatch,processOneAutomationExecution} from '../src/automation.js';
 // Test-only HTTP entrypoint. Never imported by the production server or workers.
 import { randomBytes,createHmac } from 'node:crypto';
@@ -264,6 +265,17 @@ const app = await buildApp(db, { logger:false,globalRateLimitMax:10000,mediaStor
       templates.push(template);return template;
     },
   } });
+app.post<{Body:{failJobId?:string;fail?:boolean}}>('/__test__/exports',{schema:{body:{type:'object',additionalProperties:false,properties:{failJobId:{type:'string',format:'uuid'},fail:{type:'boolean'}}}}},async request=>{
+ if(typeof request.headers.authorization!=='string'||!safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
+ if(request.body.failJobId){
+  if(!(await db`SELECT 1 FROM lead_export_job WHERE id=${request.body.failJobId} AND organization_id=${org}`).length)throw new HttpError(404,'SYNTHETIC_EXPORT_NOT_FOUND');
+  await db`CREATE TABLE IF NOT EXISTS e2e_export_failure(job_id uuid PRIMARY KEY REFERENCES lead_export_job(id),enabled boolean NOT NULL)`;
+  await db`INSERT INTO e2e_export_failure VALUES(${request.body.failJobId},${request.body.fail??false}) ON CONFLICT(job_id) DO UPDATE SET enabled=excluded.enabled`;
+  await db`CREATE OR REPLACE FUNCTION e2e_reject_export() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='LEAD_EXPORT_STATE_CHANGED' AND NEW.detail->>'state'='DONE' AND EXISTS(SELECT 1 FROM e2e_export_failure WHERE job_id::text=NEW.target_id AND enabled) THEN RAISE EXCEPTION 'SyntheticExportFailure';END IF;RETURN NEW;END $$`;
+  await db`DROP TRIGGER IF EXISTS e2e_reject_export ON audit_log`;await db`CREATE TRIGGER e2e_reject_export BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION e2e_reject_export()`;
+ }
+ let processed=0;while(processed<100&&await processOneExport(db))processed++;return {processed};
+});
 app.get('/',async (_request,reply)=>reply.type('text/html').send(await readFile(resolve('dist-web/index.html'))));
 app.post<{Body:{phase?:'MATCH'|'EXECUTE';failRuleId?:string;fail?:boolean}}>('/__test__/automation',{
  schema:{body:{type:'object',additionalProperties:false,properties:{phase:{enum:['MATCH','EXECUTE']},failRuleId:{type:'string',format:'uuid'},fail:{type:'boolean'}}}},

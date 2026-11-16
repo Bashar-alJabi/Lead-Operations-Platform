@@ -1,5 +1,11 @@
 # خطة التنفيذ
 
+## أحدث checkpoint: Lead CSV Export — Native173–174 — 2026-11-16
+
+preview/confirmation وshared scoped filters/current columns/Saved Views/selected IDs وvisible Fields/Calculated،durable private manifest/worker وcurrent-ACL streamed CSV وAudit/history/TTL/cancel/recovery وUI مكتملةلهذهالشريحة. 186Unit/119full compiledDockerPG (411.4s)/63full Edge Browser (8.5m) و001–174/build/typecheck/diff checks ناجحة. [العقد والحدود](lead-export.md). لا تبدأالمجموعةالتالية قبلcommit/push لهذهالحالة؛بقيةالمنصةRequired.
+
+**التالي الدقيق:** Safe Import CSV/Excel،بدءًا من private quarantine/upload وsize/type validation وClamAV وbounded CSV/Excel parsers مستقلة،ثمtyped mapping/normalization/validation وpreview/duplicate review وapproved durable row processing/results/retry وUI. راجعSourceSubmission وContacts/Fields/Routing/Lead intake origin وInitial admission؛استخرجخدمةintake مشتركة بعقدAPPROVED_IMPORT أوequivalent مثبت بـcurrent account/scope وimmutable approval/row receipts،دونإعادةاستخدامHUMAN_MANUAL معcookie مصطنعة. لاLead merging منContact matching،ولاPayment/Enrollment أوconsent موثوق منraw CSV claim. Native التالية175. أكملشريحةقابلةللاختبارBackend/DB/Authorization/UI وnegative/failure tests ثمfull gates وcheckpoint. بعدهاGoogle Sheets/general Email/بقيةNotifications/Automation وAI/CRM/acceptance؛لاCSV/provider/AI refinements اختيارية قبلالوحداتالأساسية.
+
 ## أحدث checkpoint: Bulk Create Follow-up — Native172 — 2026-11-16
 
 shared Human service وcurrent-scoped preview50/confirmation/CAS/hash/native receipt/history/Audit وper-item partial recovery وUI/safe task history مكتملةلهذهالشريحة. 184unit و114full Docker PG (285.2s) و62full Edge Browser (9.1m) وmigrations001–172 development/test وBackend/Web build/typecheck/diff check ناجحة. React sibling keys regression أُصلحتمعsingleton assertions وfocused Bulk2/2؛لاBackend/DB change بعد114PG. [العقد](bulk-follow-ups.md). احفظcommit/push قبلأيعملجديد؛بقيةBulk/Follow-ups/Platform تبقىRequired.

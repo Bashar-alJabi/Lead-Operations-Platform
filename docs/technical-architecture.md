@@ -749,3 +749,11 @@ Formality/disclosure/handoff operational defaults وCampaign overrides لهاver
 الـHuman Follow-up الفردية والجماعية تشتركان في خدمة application واحدة وتاريخ وأثر Audit عاديين. `bulk-actions.ts` يحوي الحدود المشتركة للـcanonical hash وcurrent cookie Session وLead scope وbudgets/errors،ولايصبح arbitrary action executor أوAI tool. batch/receipt لكل نوع مستقلان؛Native172 تعيد استخدام native immutable Human envelope guard عبرfunctionOID دونتعديل migrations المطبقة. receipt تربط fresh HUMAN task/CREATED history/ordinary+bulk Audit/Activity والنطاقالحالي،وتحميأصلالإنشاء دونتجميدTask mutations المعتادة.
 
 الكتابة transaction لكلLead ضمن50؛لاexternalI/O أوtransaction طوالbatch. CAS يمنع preview القديمة؛current scope/Session/eligible owner قبلreceipt replay،والـhash immutable تمنع تغييرintent بالمفتاحنفسه. same-key retries بعدcompleted/cancelled/editedTask تعيد الأصلولا تعيدإنشاءه. due notification queue/worker الموجودة تستهلك task الفعلية؛لاCustomer send ولاfakebackgroundHumanContext. التفاصيلوالقيود في [العقد](bulk-follow-ups.md).
+
+## Export بموافقة محفوظة وmanifest خاصة — Native173–174
+
+تُستخدمLead query/filter boundary الحالية بدلنسخpermission predicates. Human Session حقيقيةتوافقعلىenvelope immutable/hash،ثمworker تقرأcurrent active account/Role/Branch scope دونcookie مصطنعةأواعتمادSession منتهيةكأنهاجلسةHTTP. capture قصيرة100معرف/transaction،معNative page-version/count/cursor/history/Audit proof وSKIP LOCKED وbounded failures/recovery. full membership ACL تراجععندالإكمالوعندبدءالتنزيل،وكلصفحةقيمتعيدcurrent Session/Lead/Field checks.
+
+اختيرتmanifest دائمةبدلCSV مخزنةلتجنبartifact قديمةتحتويdata فقدصاحبهاحققراءتها. CSV تُولدبstream/backpressure وقيمحالية،ولايُنشأURL عام أوblob يُسلّمبمجردمعرفةUUID. page-size25 وقيمcalculated عبرbatch shared service معLead details؛لاnetwork N+1 أوقياسHuman أداءمنAI. metadata/history keyset paged،وTTL/cancel يزيلانmembership معإبقاءالتاريخ. trade-off أنmembership تُلتقطتدريجيًاوالقيمتُقرأعندالتنزيل،وليستsnapshot محاسبية؛يظهرذلكفيUI. [العقدوحدودالحمايةوالسعة](lead-export.md).
+
+Native174 تعالجSQL NULL فيصلاحيةLead غيرالمسندةلـAgent بـCOALESCEfalse؛هذايحميNOT EXISTS/preflight/native member guards معًا،ويمنعبدءCSV عندماالنطاقمرفوض. لا تعديللـ173 المطبقة؛اختبار403 قبلheaders وnative forged-member وfull gates يثبتانالتصحيح.
