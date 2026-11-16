@@ -1,3 +1,4 @@
+import {BulkFollowupsWorkspace} from './BulkFollowupsWorkspace.js';
 import {AnalyticsWorkspace} from './AnalyticsWorkspace.js';
 import {BulkFieldsWorkspace} from './BulkFieldsWorkspace.js';
 import React, { useEffect, useRef, useState } from 'react';
@@ -393,7 +394,8 @@ function App() {
         <ul>{bulkResults.map((item) => <li key={item.id}>{item.id}: {item.status}{item.error ? ` (${item.error})` : ''}</li>)}</ul></div>}
       </section>}
       {page==='leads'&&!canManage&&<section className="panel"><strong>{selectedLeadIds.length} / 50</strong><button type="button" onClick={()=>setSelectedLeadIds(leads.slice(0,50).map(l=>l.id))}>{locale==='ar'?'تحديد أول 50 ظاهرة':locale==='fr'?'Sélectionner les 50 premiers':'Select first 50 shown'}</button><button type="button" onClick={()=>setSelectedLeadIds([])}>{locale==='ar'?'إزالة التحديد':locale==='fr'?'Effacer':'Clear selection'}</button></section>}
-      {page==='leads'&&<BulkFieldsWorkspace key={user.id+':'+user.role+':'+user.branchId} locale={locale} api={api} selected={leads.filter(l=>selectedLeadIds.includes(l.id)).map(l=>({id:l.id,version:l.version,label:contactLabel(l,locale)}))}/>}
+      {page==='leads'&&<BulkFieldsWorkspace key={'bulk-fields:'+user.id+':'+user.role+':'+user.branchId} locale={locale} api={api} selected={leads.filter(l=>selectedLeadIds.includes(l.id)).map(l=>({id:l.id,version:l.version,label:contactLabel(l,locale)}))}/>}
+      {page==='leads'&&<BulkFollowupsWorkspace key={'bulk-followups:'+user.id+':'+user.role+':'+user.branchId} locale={locale} api={api} role={user.role} selected={leads.filter(l=>selectedLeadIds.includes(l.id)).map(l=>({id:l.id,version:l.version,branchId:l.branch_id,label:contactLabel(l,locale)}))} onOpenLead={id=>setSelectedLead(id)}/>}
       <div className="toolbar">{canManage && (page !== 'branches' || isAdmin) && <button onClick={() => { setShowForm(!showForm); setForm({}); }}>{page === 'leads' ? t.newLead : page === 'campaigns' ? t.newCampaign : page === 'branches' ? t.newBranch : t.newUser}</button>}</div>
       {showForm && <section className="panel form-panel"><h2>{page === 'leads' ? t.newLead : page === 'campaigns' ? t.newCampaign : page === 'branches' ? t.newBranch : t.newUser}</h2>
         <form onSubmit={(event) => { event.preventDefault(); if (page === 'branches') void submit('/api/branches', { name: form.name, timezone: form.timezone });

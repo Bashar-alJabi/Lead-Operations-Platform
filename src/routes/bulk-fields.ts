@@ -1,7 +1,8 @@
 import type {FastifyInstance} from 'fastify';
 import type {Database} from '../db.js';
 import {HttpError,principalFromRequest} from '../security.js';
-import {bulkScope,bulkSession,executeBulkFields,type BulkFieldInput} from '../bulk-fields.js';
+import {executeBulkFields,type BulkFieldInput} from '../bulk-fields.js';
+import {bulkScope,bulkSession} from '../bulk-actions.js';
 const uuid={type:'string',format:'uuid'} as const,version={type:'integer',minimum:1} as const;
 const item={type:'object',additionalProperties:false,required:['id','leadVersion','definitionVersion','bindingVersion'],properties:{
  id:uuid,leadVersion:version,definitionVersion:version,bindingVersion:version,valueVersion:version}} as const;

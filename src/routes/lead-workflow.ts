@@ -1,3 +1,5 @@
+import {createHumanFollowUp,type FollowUpLead} from '../human-follow-ups.js';
+import {currentPaymentSession} from '../payments/access.js';
 import type { FastifyInstance } from 'fastify';
 import type postgres from 'postgres';
 import type { Database } from '../db.js';
@@ -15,7 +17,7 @@ async function lockedLead(tx: postgres.TransactionSql, actor: Principal, id: str
   const rows = await tx`SELECT id, branch_id, campaign_id, assigned_agent_id, lifecycle, version FROM lead
     WHERE id = ${id} AND organization_id = ${actor.organizationId}
       AND (${actor.role === 'SUPER_ADMIN'} OR (${actor.role === 'MANAGER'} AND branch_id = ${actor.branchId})
-        OR (${actor.role === 'AGENT'} AND assigned_agent_id = ${actor.id})) FOR UPDATE`;
+        OR (${actor.role === 'AGENT'} AND branch_id = ${actor.branchId} AND assigned_agent_id = ${actor.id})) FOR UPDATE`;
   if (!rows[0]) throw new HttpError(404, 'LEAD_NOT_FOUND');
   return rows[0];
 }
@@ -189,21 +191,10 @@ export function registerLeadWorkflowRoutes(app: FastifyInstance, db: Database): 
     const actor = await principalFromRequest(request, db);
     const id = await db.begin(async (tx) => {
       const lead = await lockedLead(tx, actor, request.params.id);
-      const owner = request.body.ownerUserId ?? (actor.role === 'AGENT' ? actor.id : lead.assigned_agent_id ?? actor.id);
-      if (actor.role === 'AGENT' && owner !== actor.id) throw new HttpError(403, 'FOLLOW_UP_OWNER_DENIED');
-      const user = await tx`SELECT 1 FROM user_account WHERE id = ${owner} AND organization_id = ${actor.organizationId}
-        AND branch_id = ${lead.branch_id} AND active AND role IN ('MANAGER','AGENT')`;
-      if (!user.length) throw new HttpError(400, 'FOLLOW_UP_OWNER_NOT_ELIGIBLE');
-      const created = await tx`INSERT INTO follow_up (lead_id, owner_user_id, due_at, note, priority, created_by, kind)
-        VALUES (${lead.id}, ${owner}, ${request.body.dueAt}, ${request.body.note?.trim() ?? null},
-          ${request.body.priority ?? 'NORMAL'}, ${actor.id}, 'HUMAN') RETURNING id`;
-      await tx`INSERT INTO follow_up_history (follow_up_id, actor_user_id, event_type, detail)
-        VALUES (${created[0]!.id}, ${actor.id}, 'CREATED', ${tx.json({ owner, dueAt: request.body.dueAt })})`;
-      await tx`INSERT INTO lead_activity (lead_id, actor_user_id, event_type, detail)
-        VALUES (${lead.id}, ${actor.id}, 'FOLLOW_UP_CREATED', ${tx.json({ followUpId: created[0]!.id })})`;
-      await tx`INSERT INTO audit_log (organization_id, branch_id, actor_user_id, action, target_type, target_id)
-        VALUES (${actor.organizationId}, ${lead.branch_id}, ${actor.id}, 'FOLLOW_UP_CREATED', 'FOLLOW_UP', ${created[0]!.id})`;
-      return created[0]!.id as string;
+      if(!await currentPaymentSession(tx,actor,request))throw new HttpError(403,'FOLLOW_UP_ACCESS_REVOKED');
+      const created=await createHumanFollowUp(tx,actor,lead as FollowUpLead,request.body);
+      if(!await currentPaymentSession(tx,actor,request))throw new HttpError(403,'FOLLOW_UP_ACCESS_REVOKED');
+      return created.id;
     });
     reply.code(201);
     return { id };
@@ -262,10 +253,10 @@ export function registerLeadWorkflowRoutes(app: FastifyInstance, db: Database): 
     if (!found[0]) throw new HttpError(404, 'FOLLOW_UP_NOT_FOUND');
     await requireLead(db, actor, found[0].lead_id);
     const limit = request.query.limit ?? 30;
-    const rows = await db`SELECT id, actor_user_id, event_type, detail, created_at FROM follow_up_history
-      WHERE follow_up_id = ${request.params.id}
-        AND (${request.query.before ?? null}::bigint IS NULL OR id < ${request.query.before ?? null})
-      ORDER BY id DESC LIMIT ${limit + 1}`;
+    const rows = await db`SELECT h.id,h.actor_user_id,u.name AS actor_name,h.event_type,h.detail,h.created_at FROM follow_up_history h
+      LEFT JOIN user_account u ON u.id=h.actor_user_id AND u.organization_id=${actor.organizationId}
+      WHERE h.follow_up_id=${request.params.id} AND (${request.query.before??null}::bigint IS NULL OR h.id<${request.query.before??null})
+      ORDER BY h.id DESC LIMIT ${limit+1}`;
     return { items: rows.slice(0, limit), nextCursor: rows.length > limit ? rows[limit - 1]!.id : null };
   });
 

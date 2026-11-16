@@ -743,3 +743,9 @@ Formality/disclosure/handoff operational defaults وCampaign overrides لهاver
 # Initial Contact الفعلية — Native158–163
 
 إضافة initial-message policy/version/history منداخل Campaign،مرتبطة بـcurrent approved template/binding/Sender/Published Knowledge/disclosure/language. fresh intake context تحملapproval؛Native job guard لا تقبلمصدرًاقديمًا. Branch-first bounded local worker ثم typed approved initial authority تمر بنفس Central Messaging Policy. immutable Conversation/action/message/outbox/deferred proof تحفظatomicity،ثمmessaging worker يعيدcurrent authority والlease قبلI/O. provider-independent core محفوظة،ولاfake inbound/User. Live AI transport معطلة،والتحققsynthetic HTTP mocks فقط. [العقد والتشغيل والحدود](ai-initial-contact.md). هذهbaseline لا تكمل بقيةAI/Notifications/Automation/Analytics/import/export/Sheets.
+
+## Human Bulk Follow-up — Native172
+
+الـHuman Follow-up الفردية والجماعية تشتركان في خدمة application واحدة وتاريخ وأثر Audit عاديين. `bulk-actions.ts` يحوي الحدود المشتركة للـcanonical hash وcurrent cookie Session وLead scope وbudgets/errors،ولايصبح arbitrary action executor أوAI tool. batch/receipt لكل نوع مستقلان؛Native172 تعيد استخدام native immutable Human envelope guard عبرfunctionOID دونتعديل migrations المطبقة. receipt تربط fresh HUMAN task/CREATED history/ordinary+bulk Audit/Activity والنطاقالحالي،وتحميأصلالإنشاء دونتجميدTask mutations المعتادة.
+
+الكتابة transaction لكلLead ضمن50؛لاexternalI/O أوtransaction طوالbatch. CAS يمنع preview القديمة؛current scope/Session/eligible owner قبلreceipt replay،والـhash immutable تمنع تغييرintent بالمفتاحنفسه. same-key retries بعدcompleted/cancelled/editedTask تعيد الأصلولا تعيدإنشاءه. due notification queue/worker الموجودة تستهلك task الفعلية؛لاCustomer send ولاfakebackgroundHumanContext. التفاصيلوالقيود في [العقد](bulk-follow-ups.md).

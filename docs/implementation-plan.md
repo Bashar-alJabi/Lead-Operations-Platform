@@ -1,5 +1,11 @@
 # خطة التنفيذ
 
+## أحدث checkpoint: Bulk Create Follow-up — Native172 — 2026-11-16
+
+shared Human service وcurrent-scoped preview50/confirmation/CAS/hash/native receipt/history/Audit وper-item partial recovery وUI/safe task history مكتملةلهذهالشريحة. 184unit و114full Docker PG (285.2s) و62full Edge Browser (9.1m) وmigrations001–172 development/test وBackend/Web build/typecheck/diff check ناجحة. React sibling keys regression أُصلحتمعsingleton assertions وfocused Bulk2/2؛لاBackend/DB change بعد114PG. [العقد](bulk-follow-ups.md). احفظcommit/push قبلأيعملجديد؛بقيةBulk/Follow-ups/Platform تبقىRequired.
+
+**التاليالدقيق:** Safe Export أولًا لإكمال Bulk/Views: CSV serializer تمنع formula injection وtyped columns،shared current-scoped Lead filter/keyset query،preview/confirmation وdurable background processing للحجم الكبير وprivate artifact،مع current Role/Organization/Branch/Lead/Field checks عندالطلب والمعالجة والتنزيل وAudit/history/results/recovery وUI. لاتستخدمfake Human Session فيworker،ولاتسمحreceipt أوartifact قديمةبتجاوزصلاحيةحالية. Native التالية173. بعدExport baseline مستقرة ومختبرة: Import CSV/Excel mapping/normalization/validation/preview/duplicate review/durable rows/report/retry ثمGoogle Sheets/general Email/بقيةNotifications وAutomation وAI/CRM/acceptance. لاprovider أوAI refinements اختيارية.
+
 ## أحدث checkpoint: Bulk Fields/Status/Tags — Native170–171 — 2026-11-16
 
 تمت شريحةactual Human Fields عبرtyped existing service وcurrent per-item authorization/versions/confirmation وnative immutable receipts وAudit/history وbounded time budget وUI/retry. unit2/focusedPG5/Browser1 ناجحة،وmigrations001–171 development/test وBackend/Web build/typecheck و182full unit. focused regression القديمة+Bulk6/6 ناجحة بعدتثبيتAudit fixture lease؛109/109 full PG (281.0s) و61/61 full Browser (3.5m) الحالية ناجحة. [العقد](bulk-fields.md). لا تبدأ مجموعة جديدة قبل checkpoint مستقرة وموثقة ومرفوعة.

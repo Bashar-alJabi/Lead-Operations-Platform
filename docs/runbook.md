@@ -639,3 +639,11 @@ Preview تستعملinputs مفترضة وDBclock؛تختبرWAIT/DUE/stops/exha
 منCampaign details افتحسياساتسلوكAI: اضبطBranch defaults للformality/disclosure/handoff،ثمCampaign overrides وreturning-contact rule عندالحاجة. راجعالنص معالسياسةالقانونيةوالتشغيليةالمعتمدة؛النصالمحفوظلايعنيlegal verification. Null تعنيوراثة،وclear returning يعيدUNCONFIGURED/review. احفظreason وراجعcurrent effective versions/source/history. Stale edit409 تحتاجreload ومراجعة؛لاforce overwrite.
 
 المعاينةhypothetical وتعرضno-mutation/no-send؛لاتفتحLead/Conversation أوتنشئLead أوترسلtransition message. CREATE_NEW تتطلبعندالتنفيذمطابقةوحيدةومرجعCampaign صريحًاوبياناتFields المطلوبةمنمصدرموثوق. AI runtime/approved tools/actual handoff/returning/follow-up/SLA/jobs مازالتغيرمنفذةفيهذهالمرحلة؛setup لايفعلAI.
+
+## تشغيل واستعادة Bulk Create Follow-up — Native172
+
+راجع [العقد](bulk-follow-ups.md). شغّل migration172 على development وtest دون إعادة تهيئة بيانات الأعمال. استخدام المنتج من Leads: تحديد حتى50 → موعد المتصفح/الأولوية/الملاحظة/المسؤول → مراجعة وتأكيد. نتائجكل عنصر مستقلة؛رسالة النجاح أوretry لا تُرسل للعميل. المهمة تظهر في Lead وFollow-ups،وسجلها من زر Task history. إشعارات الاستحقاق تعمل بالـnotification worker الحالية ولا تتجاوز current task/Lead ACL.
+
+عندlost ACK/HTTP500 أوBULK_REQUEST_PAUSED/BULK_ITEM_RETRYABLE أعد الطلب الأصلي من زر retry قبلتغيير التحديد/الحقول أوrefresh. لا تكرر intent بمفتاح جديد لتجاوز خطأ. راجع current scope/Lead version/owner active ثمحدّث preview إذا لم ينشأ العنصر. لا تغيّر receipt أوhistory أوSession يدويًا. budget البنية `BULK_FOLLOW_UP_REQUEST_BUDGET_MS` افتراضي15s،100..30000ms،statement8s وlock750ms لكلtransaction؛ليس business-managed setup أوقدرة إنتاجية مضمونة. unknown failures آمنة فيالواجهة،وتفاصيلها في structured server logs دون أسرار؛Audit failure يلغي العنصر فقط.
+
+التحقق: compiled unit وPostgreSQL integration علىlead_operations_test،ثمBrowserE2E مع E2E_RESET_TEST_DATABASE=1 وEdge،بالترتيب دون تزامن PG/Browser علىالقاعدة نفسها. لاreset لقاعدةdevelopment ولاPreview. اختبارات focused الجديدة: bulk-follow-ups،ومعهاbulk-fields وlead-workflow وfollow-up-notifications للتراجع.

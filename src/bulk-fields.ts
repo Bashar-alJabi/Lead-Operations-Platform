@@ -1,20 +1,14 @@
 import type {FastifyRequest} from 'fastify';
 import type postgres from 'postgres';
 import type {Database} from './db.js';
-import {HttpError,sha256,type Principal} from './security.js';
-import {currentPaymentSession} from './payments/access.js';
+import {HttpError,type Principal} from './security.js';
+import {bulkHash,bulkSession,bulkScope,bulkDeadline,bulkFailure} from './bulk-actions.js';
 import {writableManualField,writeManualFieldValue} from './field-values.js';
 import {validateFieldValue,type FieldType,type FieldOption,type FieldValidation} from './fields.js';
 
 export type BulkFieldItem={id:string;leadVersion:number;definitionVersion:number;bindingVersion:number;valueVersion?:number};
 export type BulkFieldInput={requestId:string;confirmed:true;fieldId:string;operation:'SET'|'ADD_TAGS'|'REMOVE_TAGS';value:postgres.JSONValue;items:BulkFieldItem[]};
-// Hash semantic JSON, including snapshots. Retries cannot replace either the action or the selection.
-function canonical(value:unknown):string {
- if(Array.isArray(value))return '['+value.map(canonical).join(',')+']';
- if(value!==null&&typeof value==='object')return '{'+Object.entries(value).filter(([,v])=>v!==undefined).sort(([a],[b])=>a<b?-1:a>b?1:0).map(([k,v])=>JSON.stringify(k)+':'+canonical(v)).join(',')+'}';
- return JSON.stringify(value)??'null';
-}
-export function bulkFieldHash(input:BulkFieldInput){return sha256(canonical({fieldId:input.fieldId,operation:input.operation,value:input.value,items:input.items}));}
+export function bulkFieldHash(input:BulkFieldInput){return bulkHash({fieldId:input.fieldId,operation:input.operation,value:input.value,items:input.items});}
 export function bulkFieldValue(operation:BulkFieldInput['operation'],type:string,current:unknown,value:unknown):unknown {
  if(operation==='SET')return value;
  if(type!=='TAGS')throw new HttpError(400,'BULK_TAG_FIELD_REQUIRED');
@@ -24,18 +18,8 @@ export function bulkFieldValue(operation:BulkFieldInput['operation'],type:string
  const old=(current??[]) as string[];
  return operation==='ADD_TAGS'?[...new Set([...old,...tags])]:old.filter(v=>!tags.includes(v));
 }
-export async function bulkSession(tx:postgres.TransactionSql,actor:Principal,request:FastifyRequest){
- await tx`SET LOCAL statement_timeout='8s'`;await tx`SET LOCAL lock_timeout='750ms'`;
- const id=await currentPaymentSession(tx,actor,request);if(!id)throw new HttpError(403,'BULK_ACCESS_REVOKED');return id;
-}
-export function bulkScope(tx:postgres.TransactionSql,actor:Principal){
- return tx`l.organization_id=${actor.organizationId} AND (${actor.role==='SUPER_ADMIN'} OR l.branch_id=${actor.branchId}
-  AND (${actor.role==='MANAGER'} OR ${actor.role==='AGENT'} AND l.assigned_agent_id=${actor.id}))`;
-}
 export async function executeBulkFields(db:Database,actor:Principal,request:FastifyRequest,input:BulkFieldInput){
- const budget=Number(process.env.BULK_FIELD_REQUEST_BUDGET_MS??15000);
- if(!Number.isInteger(budget)||budget<100||budget>30000)throw new Error('Invalid BULK_FIELD_REQUEST_BUDGET_MS');
- const deadline=Date.now()+budget;
+ const deadline=bulkDeadline('BULK_FIELD_REQUEST_BUDGET_MS');
  const hash=bulkFieldHash(input);
  const batch=await db.begin(async tx=>{
   const session=await bulkSession(tx,actor,request);
@@ -82,9 +66,7 @@ export async function executeBulkFields(db:Database,actor:Principal,request:Fast
    });
    results.push({id:item.id,...result});
   }catch(error){
-   if(error instanceof HttpError)results.push({id:item.id,status:'FAILED',error:error.code});
-   else if(error instanceof Error&&'code'in error&&['55P03','57014','40001','40P01'].includes(String(error.code)))results.push({id:item.id,status:'FAILED',error:'BULK_ITEM_RETRYABLE'});
-   else throw error; // Committed items have receipts; the same immutable request can safely resume.
+   results.push({id:item.id,status:'FAILED',error:bulkFailure(error)});
   }
  }
  return {requestId:input.requestId,results};

@@ -1,3 +1,4 @@
+import {registerBulkFollowUpRoutes} from './routes/bulk-follow-ups.js';
 import {registerAnalyticsRoutes} from './routes/analytics.js';
 import {registerBulkFieldRoutes} from './routes/bulk-fields.js';
 import Fastify, { type FastifyInstance,type FastifyRequest } from 'fastify';
@@ -197,5 +198,6 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   registerAutomationRoutes(app,db);
   registerAnalyticsRoutes(app,db);
   registerBulkFieldRoutes(app,db);
+  registerBulkFollowUpRoutes(app,db);
   return app;
 }

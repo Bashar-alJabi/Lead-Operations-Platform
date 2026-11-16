@@ -1,5 +1,17 @@
 # مصفوفة تغطية المتطلبات
 
+## أحدث checkpoint: Bulk Create Follow-up — Native172 — 2026-11-16
+
+| المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |
+|---|---|---|
+|00 §51،01 §37،02 §§41/68،03 §96،06 §§13/17|actual Human task عبرshared Single/Bulk service،preview50 وtyped due/timezone/priority/note/owner وconfirmation وper-item results وUI ar/en/fr|184/184 full unit و114/114 full compiled Docker PG (285.2s)،001–172 development/test وBackend/Web build/typecheck وdiff check،62/62 full Edge Browser (9.1m) ناجحة. [العقد](bulk-follow-ups.md)|
+|02 §§41/68–72 وAGENTS §§8/15/27/38|current Organization/Branch/Role/Lead/real Session وeligible Manager/Agent task owner،Agent self-only،Lead CAS وresolved owner snapshot|رفضforeign/unknown/owner delegation/inactive owner/stale preview،revocation بعدLead lock وقبلreplay؛Super Admin لايحصلعلىimplicit Branch owner؛focused primaryPG5/5 وregression ضمنfull|
+|01/02 Follow-up history،06 §§17/22–24|immutable typed request hash وnative envelope/receipt/CREATED history وordinary+bulk Audit/Activity،partial commit/rollback وbudget/retry|8 concurrent requests،Audit failure يرجعTask/history/due queue للعنصر،same-key recovery وnative forgery/immutability؛completed/cancelled/editedTask تحتفظبالأصلولا تتكرربـretry؛50actual tasks/actual due worker/current notification ACL دونduplicate reminders|
+|03 §96،06 §§20/25–29|localized input/confirmation وlost ACK recovery،paged25 owner choices وحفظالاسم/القيمة،Task history paged25 وfailed-read clearing وsafe text/RTL390px|focused Bulk Browser2/2 (19.3s) وfull62 ناجحة؛أُصلحتsibling React keys بعدأولfull61pass/1fail بإضافةprefix مستقلةوsingleton assertions،دونتخفيفاختبارFields أوالـpermissions|
+|حدودالإكمال|هذه Human Bulk Follow-up baseline،ولاCustomer send أوAI/financial writes أوfake background Human context|**Bulk/Follow-ups والمنصةغيرمكتملة**. Export/Import/Sheets/general Email/بقيةNotifications/Automation/AI/CRM/acceptance مازالتRequired؛Live Providers/AI معطلةوverification pending credentials/approval|
+
+مرجعالبدء090e5be النظيفةوالمرفوعة. البوابةالحاليةكلهاناجحة؛تُحفظcheckpoint بالـcommit/push للفرعالمصرحبهفقط. الصفوفالتاليةتاريخيةولا تلغيالحالةالأحدث.
+
 ## أحدث checkpoint: Bulk Fields/Status/Tags — Native170–171 — 2026-11-16
 
 | المتطلب ومصدره | التنفيذ المثبت حتى الآن | الإثبات وحدود الحالة |
