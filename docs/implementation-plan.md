@@ -1,5 +1,12 @@
 # خطة التنفيذ
 
+## أحدث checkpoint: Import Mapping/typed paged validation — Native178–179 — 2026-11-16
+
+أُنجزتread-only column-index recipes/current scoped Field catalog/config fingerprint وimmutable CAS/request/Audit/native proofs وtyped25-row preview وmasked existing-Contact advice وar/en/fr UI. 193Unit/129full DockerPG (422.7s)/65full Edge Browser (9.8m) و001–179development/test وBackend/Web build/typecheck ناجحة؛final PG10/10 (24.7s) بعدSA positive test-only assertions،دونruntime change. [العقد](lead-import.md). Import ليستمكتملة؛احفظcommit/push قبلالمرحلةالتالية. الأقسامالتاليةسجلتاريخي.
+
+**التالي الدقيق — Native180:** durable whole-file validation/review للـsheets المختارة وMapping revisions/current config،progress/row errors وداخل-file duplicate analysis/decisions وmasked Contact review/history/UI. ثمexplicit immutable approved dataset/original SourceSubmission مستقلةعنraw TTL،وAPPROVED_IMPORT authority/Field provenance native proofs وdurable idempotent row intake/results/retry عبرContacts/Fields/Routing ثمfresh origin/Initial admission. Native153 تتطلبreal HUMAN_MANUAL Session أوMeta SOURCE proof و053 تربطSOURCE Field provenance بـMeta؛لاimpersonation أوروابطMeta مصطنعة. لاLead merging ولاtrusted financial/consent منCSV claims. كلشريحةمستقرةتحتاجgates/docs/commit/push. أكملImport ثمSheets/general Email/بقيةNotifications/Automation وcore gaps في[المراجعة](platform-gap-review.md)،دونoptional AI/provider polish.
+
+
 ## أحدث checkpoint: Import quarantine/inspection — Native175–177 — 2026-11-16
 
 اكتملت الشريحة read-only: private scoped CSV/XLSX/XLS upload وClamAV ثمisolated bounded parser وpaged raw inspection/history/catalogs وrecovery/cancel/TTL/cleanup/UI. 190full Unit و125full DockerPG (326.0s) و64full Edge Browser (4.3m) و001–177 development/test وBackend/Web build/typecheck ناجحة؛بعدstrict query guard النهائية أُعيد190Unit وfocused PG6/Browser1 بنجاح. [العقد وحدوده](lead-import.md). **Import ليست مكتملة؛لا Lead intake من هذهالمرحلة.** احفظالتوثيقوالكود commit/push قبلالتوسع؛الأقسامالتالية سجلتاريخي.

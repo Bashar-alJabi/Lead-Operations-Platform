@@ -1,12 +1,18 @@
 # المعمارية التقنية
 
+## Import review recipes وفصلها عن intake — Native178–179
+
+Mapping append-only لكلfile/sheet،وتستخدم column indices بدلobject keys/headers. Recipe مرتبطة بـreal Session وimmutable uploader scope وcurrent Field configuration fingerprint،معnative fresh Audit/CAS/request identity/typed-target proofs. لا تحمل raw customer values،ولا تشكل approval لإنشاءLead؛TTL/purge تفصل بيانات الملف المؤقتة عن recipe/history. current config mismatch يخفيentries/labels القديمة ويمنعvalidation/replay،فتحتاجمراجعةجديدة.
+
+التحقق لكلصفحة25 يعيد استخدام typed Field وContact normalization boundaries،مع lookup مجمعة للـContacts وعرض5 visible candidates كحدأقصى. Manager لا تحصل علىhidden/shared candidates أوتفاصيلها؛لاcontact merge أوselection آلية. UI لا تراكمField catalog بلاحد وتخفي مشتقاتfailed reads،وتحفظsame-key save intent عندlost ACK. file-wide duplicate review وexplicit approved durable intake مستقلان لاحقًا،ولا يجوزتحويلهذهrecipe إلىHUMAN_MANUAL أوMeta source authority مصطنعة. [العقد](lead-import.md).
+
 ## Import: private quarantine ثم isolated inspection — Native175–177
 
 الحفظ والـinspection منفصلان عن الموافقة على إنشاء Leads. `lead_import_file` تحمل immutable uploader/role/branch context وreal Session evidence وBranch/Campaign وrequest UUID/hash وprivate storage key. تختبر API current scope قبل body وبعد I/O؛الـraw file وpreview شخصية،ولا public URL أوdownload route. Background lease ثم scan/parse خارج transaction،ثم current account/scope/lease/DB-clock recheck قبل نشر صفوف REVIEW؛لا fabricated Human session. الفشل في Audit/rows يرجع المعاملة كاملة. الصفوف والأوراق/history immutable وnative fresh parse/scan evidence/count وstate/session proofs مطبقة.
 
 CSV/Excel adapters داخل process مستقلة بمهلة15s وV8 heap128MiB وpermission-limited filesystem وenvironment لا تتضمن أسرار التطبيق. XLSX تخضع أولًا لقراءة ZIP expanded bytes الفعلية بحدودentries/bytes،دونextraction؛ClamAV تسبق parser،ولاformula evaluation أوremote link fetch. ليستNode permission model بديلًا عنOS sandbox أوhard RSS limit،والحدود التقنية والقبول المتبقي موثقة في [عقد Import](lead-import.md). القراءة25-row keyset وcatalogs25 وقائمةملفات10؛لا تحميل كل الصفوف فيUI.
 
-TTL تقفل القراءة فورًا بساعةDB؛cancel/expiry/rejection/revocation تمحوraw parsed rows وcleanup تحذفobject معAudit وnative `purged_at`. فشلstorage deletion لهpersisted backoff ولايعطلinspection مستقلة. تبقىmetadata/history/Audit وفقسياسةالمنصة. Unknown upload commit outcome يتركorphan خاصة للمراجعة،ولا يحذفpossibly referenced object. إعدادات infrastructure فقط خارجUI؛الاختيارات التشغيلية منالواجهة. التاليtyped mapping/validation/duplicate review وapproved durable intake عبرboundary مشتركة معSourceSubmission/Contacts/Fields/Routing/Initial admission،دونHUMAN_MANUAL impersonation أوtrust للـCSV financial/consent claims.
+TTL تقفل القراءة فورًا بساعةDB؛cancel/expiry/rejection/revocation تمحوraw parsed rows وcleanup تحذفobject معAudit وnative `purged_at`. فشلstorage deletion لهpersisted backoff ولايعطلinspection مستقلة. تبقىmetadata/history/Audit وفقسياسةالمنصة. Unknown upload commit outcome يتركorphan خاصة للمراجعة،ولا يحذفpossibly referenced object. إعدادات infrastructure فقط خارجUI؛الاختيارات التشغيلية منالواجهة. Native178–179 تضيفtyped paged mapping/validation؛التاليfile-wide duplicate review وapproved durable intake عبرboundary مشتركة معSourceSubmission/Contacts/Fields/Routing/Initial admission،دونHUMAN_MANUAL impersonation أوtrust للـCSV financial/consent claims.
 
 ## Bulk Human Fields وimmutable receipts — Native170–171
 

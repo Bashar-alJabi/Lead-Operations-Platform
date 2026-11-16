@@ -1,10 +1,34 @@
-# استيراد CSV/Excel — المرحلة الأولى: الحفظ الخاص والفحص والمعاينة
+# استيراد CSV/Excel — الحفظ الخاص والفحص ومراجعة Mapping
+
+## مراجعة الأعمدة والقيم — Native178–179
+
+بعد وصول الملف إلى REVIEW يستطيع مالكه اختيار Mapping صريحة لكل ورقة حسب column index،دون الاعتماد على تفرد headers. الحقول المتاحة تأتي بصفحات25 من الحملة الحالية؛لا تحميل لجميع التعريفات في المتصفح. تشمل Contact name/phone/email وDynamic Fields من نوع MANUAL/SOURCE المسموحة وفق صلاحيات source mapping الحالية. SYSTEM/CALCULATED والحقول غير الفعالة أوخارج scope محجوبة؛Manager تحتاج visibility وإمكانية التحرير للحقول MANUAL. لا تضاف صلاحية Import للـAgent.
+
+`lead_import_mapping_revision` تحفظ recipe بلا raw cell values،بنسخ append-only لكل ورقة وrequest UUID وreal Session evidence وconfiguration fingerprint لجميع تعريفات وربوط الحملة. كل حفظ له Audit داخل المعاملة نفسها وnative current account/scope/session/file/TTL/sheet/column/Field proof. same request/intent تعيد النسخة الملتزمة،والنية المختلفة409،وCAS تمنع تجاوز نسخة أحدث. السجل25/version keyset. تغيير إعدادات الحقول يبطل المعاينة القديمة؛metadata تبين الحاجة لمراجعة جديدة وتخفي entries/target labels القديمة،والتحقق أوreplay القديم يُرفض. حفظ Mapping لا يمنح صلاحية إنشاء Lead أوCustomer send.
+
+التحقق read-only ومحدود25 صفًا لكل صفحة. يستخدم `validateFieldValue` و`normalizeSourceContact` القائمين،ولا يفرض Contact fields ثابتة على كل Campaign. الخلية الفارغة null؛الأرقام decimal ASCII بنقطة دون grouping/exponent أوlocale guessing،والمنطقية true/false،وMULTI_SELECT/TAGS تحتاج JSON string array. القيم تخضع لخيارات الحقل الفعالة وحدوده الحالية،والعملة من configuration،وDATE/TIME/DATETIME لتنسيقها الصريح. الصيغ النصية لا تُنفذ. أخطاء الصف تشير إلى column index/code فقط؛required Fields غير المسموحة لا تُكشف أسماؤها أوUUIDs،ويظهر خطأ عام عند نقص قيمة مطلوبة.
+
+معاينة Contact matching تستخدم الهواتف/E-mails المطَبّعة والحسابات الحالية في Organization،مع lookup مجمعة للصفحة وفهارس identity الموجودة. الحالات NONE/MATCH/AMBIGUOUS/RESTRICTED/NO_IDENTIFIER إرشادية؛لا يتم اختيار Contact أوإنشاء سجل أوتعديل أي Contact قائمة. Manager لا تحصل على IDs أوأسماء أوتفاصيل candidate بلا Lead في فرعها أوالمشتركة بفروع أخرى؛تظهر الحاجة لمراجعة Super Admin. لكلصف حتى5 visible candidates،ولا يخرج العدد المحجوب. كلنتيجة لقطة قراءة تتغير بتغير البيانات؛مرحلة intake اللاحقة يجب أن تعيد الفحص تحت identity locks. **تحليل التكرار عبر كامل الملف وحفظ قرارات المراجعة والموافقة والتنفيذ ليست منفذة في هذه الشريحة.**
+
+API: `GET /api/lead-imports/:id/fields?after` ثم`GET /:id/mapping?sheet&before` و`POST /:id/mapping` بــsheet/version/configurationHash/requestId/entries،ثم`GET /:id/validation?sheet&version&after`. تشمل كل قراءة current private owner/scope/real Session وno-store. UI تحفظ request intent عند lost ACK حتى عبر تغيير اللغة،وتخفي القيم المشتقة عند failed read أوconfiguration conflict. بعد expiry/cancel لا يُسمح بمعاينة القيم؛recipe/history بلاقيم العملاء تبقى للتدقيق.
+
+Native179 forward fix تزيل ambiguity لاسم متغير PL/pgSQL اكتشفتها PG integration عندربط Dynamic Field؛لم تُعدّل178 المطبقة. أعداد البوابات المعتمدة وحالة العمل الحالية فيprogress/coverage،ولا يُعد وجود Mapping وpaged validation استيرادًا مكتملًا.
+
+## الاعتماديات التالية — تصميم غير منفذ بعد
+
+تبدأ Native180 بمراجعة كامل dataset المختارة في الخلفية: sheet indices وMapping revisions صريحة،وcurrent configuration fingerprint،وصفوف محققة وprogress/errors وduplicate analysis داخل الملف،ثم قرارات مراجعة قابلة للتدقيق. معاينة25 صفًا الحالية ليست بديلًا عن تحقق الملف كله. تطابق identity بين صفين لا يعني دمج فرصتين؛تحتاج واجهة المراجعة بيان الأثر قبل الموافقة.
+
+الموافقة على Import يجب أن تحفظ أصل SourceSubmission وعلاقتها بالملف/الورقة/الصف وMapping المستخدمة بصورة دائمة قبل السماح بالإدخال،وبما لا يجعل business execution تعتمد على raw quarantine قابلة للانتهاء والحذف. تبقى سياسة retention للحفظ المؤقت مستقلة عن التاريخ التشغيلي المعتمد. كل صف يحتاج مفتاحًا ونتيجة idempotent تمنع retry أوlost DB ACK من إنشاءLead مكررة،مع تقدم ونتائج Imported/Skipped/Invalid/Duplicate/Failed وفشل قابل للاستعادة حسب السبب.
+
+Native153 تقبل origin HUMAN_MANUAL بجلسة حالية حقيقية أوSOURCE بإثبات Meta processing؛وNative053 تربط SOURCE Field provenance بـMeta mapping revision. يجب إضافة approved Import authority/provenance مستقلتين وإبقاء المسارين الحاليين محميين،لا اصطناع Session أوConnection أوMeta mapping. الإدخال يعيد current account/Branch/Campaign/Field checks وtyped normalization وidentity locks وContact review وRouting،ثم fresh post-routing origin وInitial admission المعتادين ضمن القواعد الحالية. لا يُفترض أن recipe أوhistorical approval تمنح صلاحيات دائمة.
+
+مراجعة candidate المحجوبة/ambiguous تحتاج workflow مخولة مرتبطة بالمصدر التشغيلي وقراراته،دون منح Super Admin قراءة raw file خاصة بمستخدم آخر لمجرد مراجعة مطابقة. يشترك هذا المسار مع قواعد Contact review الحالية ولا ينشئ Role جديدة أوLead merge أوfinancial/consent confirmation منraw claims. هذه متطلبات تصميم للمرحلة التالية،وليست تنفيذًا أوإثبات اختبار لها.
 
 ## حدود التنفيذ
 
-هذه مرحلة upload → scan → detect → raw preview، وليست Import end-to-end. يستطيع Super Admin أو Manager حفظ ملف خاص داخل Branch/Campaign مخولة، ومراجعة أوراقه وصفوفه بعد الفحص. لا توجد في هذه المرحلة موافقة لإنشاء Leads، ولا تُنشأ Contacts أو Source Submissions أو Payments أو Enrollment، ولا يرسل محتوى الملف إلى AI أو Provider. Agent لا يملك صلاحية Import جديدة.
+Native175–177 هي مرحلة upload → scan → detect → raw preview،وتضيف Native178–179 مراجعة Mapping والتحقق الموضحة أعلاه؛ليستا Import end-to-end. يستطيع Super Admin أو Manager حفظ ملف خاص داخل Branch/Campaign مخولة ومراجعة أوراقه وصفوفه بعد الفحص. لا توجد موافقة لإنشاء Leads،ولا تُنشأ Contacts أوSource Submissions أوPayments أوEnrollment،ولا يرسل محتوى الملف إلى AI أوProvider. Agent لا يملك صلاحية Import جديدة.
 
-تبقى typed mapping/validation/normalization وduplicate analysis/review ثم الموافقة الصريحة وdurable row processing وresults/retry مطلوبة. ستستخدم خدمة intake مشتركة بعقد `APPROVED_IMPORT` أو equivalent موثق، مع current account/scope وimmutable approval وrow receipts. لا يجوز اصطناع cookie أو جلسة `HUMAN_MANUAL` للعامل الخلفي. Contact matching لا يدمج Leads، وraw claims عن consent أو دفع ليست أدلة موثوقة.
+تبقى file-wide validation/duplicate analysis/review ثم الموافقة الصريحة وdurable row processing وresults/retry مطلوبة. ستستخدم خدمة intake مشتركة بعقد `APPROVED_IMPORT` أو equivalent موثق،مع current account/scope وimmutable approval وrow receipts. لا يجوز اصطناع cookie أوجلسة `HUMAN_MANUAL` للعامل الخلفي. Contact matching لا يدمج Leads،وraw claims عن consent أودفع ليست أدلة موثوقة.
 
 ## التخزين والصلاحيات
 
@@ -40,7 +64,7 @@ TTL افتراضية24h وبحد أقصى7days،محسوبة بساعة DB. ال
 
 `GET /api/lead-imports/catalog?kind=BRANCH|CAMPAIGN&branchId&after` اختيارات25 معالحفاظ على الاختيار أثناء pagination. `GET /api/lead-imports?after` قائمة10. `GET /:id?before=version` status/history. `GET /:id/rows?sheet&after` current scanned rows25. `POST /:id/retry` أو`/:id/cancel` مع`{version}`. كلJSON الخاصة `Cache-Control:no-store`،ولا expose storage key أوlease token.
 
-بعد build/migrations001–177 وprivate storage/ClamAV deployment configuration شغّل `npm run worker:imports`. متغيرات infrastructure:
+بعد build/migrations001–179 وprivate storage/ClamAV deployment configuration شغّل `npm run worker:imports`. متغيرات infrastructure:
 
 | الإعداد | default | الحدود |
 |---|---|---|
@@ -55,4 +79,4 @@ Business setup واختيار الملف/الفرع/الحملة تتم من UI�
 
 CSV عبر `csv-parse`7.0.3؛[خيارات المحلل الرسمية](https://csv.js.org/parse/options/). Excel عبر SheetJS0.20.3 من[التوزيع الرسمي](https://docs.sheetjs.com/docs/getting-started/installation/nodejs/)،مثبتة بالرابط وintegrity فيlockfile،مع[خيارات القراءة الرسمية](https://docs.sheetjs.com/docs/api/parse-options/). ZIP عبرyauzl3.4.0؛[العقد الرسمي لحجم entries والـstream](https://github.com/thejoshwolfe/yauzl#openpath-options-callback). لا نستعمل نسخةSheetJS0.18.5 القديمة فيnpm registry. تحديثات Fastify/fast-uri/Nodemailer/Vite المتوافقة ضمنlockfile أعطتnpm audit0 vulnerabilities محليًا؛هذا ليس ضمان خلو شامل من الثغرات.
 
-الأدلة النهائية والأعداد المعتمدة فيprogress/coverage. لا يُصنف Import مكتملًا حتىتنفيذ mapping/intake/report وبقية الرحلة،ولا توجد Live Provider verification أوcustomer data في هذه الاختبارات.
+الأدلة النهائية والأعداد المعتمدة فيprogress/coverage. لا يُصنف Import مكتملًا حتىتنفيذ file-wide review/approval/intake/report وبقية الرحلة،ولا توجد Live Provider verification أوcustomer data في هذه الاختبارات.

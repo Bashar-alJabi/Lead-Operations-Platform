@@ -5,12 +5,14 @@ import {HttpError,principalFromRequest,requireRole} from '../security.js';
 import {currentPaymentSession} from '../payments/access.js';
 import {importMaxBytes} from '../imports/types.js';
 import {importScope,importFile,importAvailable,importAudit,changeImport,uploadImport,type UploadInput} from '../imports/service.js';
+import {registerImportMappingRoutes} from './import-mapping.js';
 
 const uuid={type:'string',format:'uuid'} as const;
 const params={type:'object',additionalProperties:false,required:['id'],properties:{id:uuid}} as const;
 const versionBody={type:'object',additionalProperties:false,required:['version'],properties:{version:{type:'integer',minimum:1}}} as const;
 const uuidPattern=/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
 export function registerLeadImportRoutes(app:FastifyInstance,db:Database,storage?:MediaStorage){
+ registerImportMappingRoutes(app,db);
  const root='/api/lead-imports';const uploading=new Set<string>();
  app.get<{Querystring:{kind:'BRANCH'|'CAMPAIGN';branchId?:string;after?:string}}>(root+'/catalog',{schema:{querystring:{type:'object',additionalProperties:false,required:['kind'],properties:{kind:{type:'string',enum:['BRANCH','CAMPAIGN']},branchId:uuid,after:uuid}}}},async(request,reply)=>{
   const actor=await principalFromRequest(request,db);requireRole(actor,'SUPER_ADMIN','MANAGER');reply.header('Cache-Control','no-store');

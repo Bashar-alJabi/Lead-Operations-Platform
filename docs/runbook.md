@@ -1,8 +1,14 @@
 # دليل التشغيل والتطوير
 
+## Import Mapping review — Native178–179
+
+طبّق migrations001–179 بعد البناء؛لا worker إضافية لهذه المراجعة read-only،ولا إعادة تهيئة للملفات أوالقواعد. افتح ملفًا REVIEW من Import واختر ورقة ثم اربط الأعمدة بـContact أوحقول Campaign الحالية واحفظ. استخدم Validate لمعاينة25 صفًا في كل مرة؛توضح الواجهة تنسيق الأرقام والمنطقية والقوائم والتواريخ وقيم Select والعملة. هذه مراجعة وليست Import approval،ولا تنشئ Leads أوPayments أوConsent. [العقد والحدود](lead-import.md).
+
+عند تغير الحقول أعد تحميل Mapping وراجعها من جديد؛لا SQL repair أوتجاوزconfiguration fingerprint. lost response يمكن إعادتها بنفس UUID/intent من الزر المخصص عبراللغة،أوترك retry ثم تحميل النسخة الحالية. failure clears مشتقات المعاينة؛انتهاء الملف أوإلغاؤه يمنع قراءتها حتى لو بقي سجل recipes/history. candidate المحجوبة تتطلب Super Admin ولايعاد إظهارها بتغيير Branch input. تحليل الملف كله وقرارات التكرار والموافقة وrow intake ما زالت Required.
+
 ## Import quarantine/inspection — Native175–177
 
-بعد `npm run build` وmigrations001–177 وتهيئة private MediaStorage وClamAV القائمة،شغّل `npm run worker:imports` كـapplication worker منفصلة. UI الخاصة بالـLeads تتيح لصاحب صلاحيةSA/Manager رفع CSV UTF-8/XLSX/XLS ضمن Branch/Campaign الحالية؛لا يتم إنشاء Lead بهذه المرحلة. راجع [عقد Import وحدوده](lead-import.md) قبل تفسير REVIEW على أنها موافقة Import؛mapping/intake/report ما زالت مطلوبة.
+بعد `npm run build` وmigrations001–177 وتهيئة private MediaStorage وClamAV القائمة،شغّل `npm run worker:imports` كـapplication worker منفصلة. UI الخاصة بالـLeads تتيح لصاحب صلاحيةSA/Manager رفع CSV UTF-8/XLSX/XLS ضمن Branch/Campaign الحالية؛لا يتم إنشاء Lead بهذه المرحلة. راجع [عقد Import وحدوده](lead-import.md) قبل تفسير REVIEW على أنها موافقة Import؛Mapping review أُضيفتفي178–179؛file-wide duplicate review/approval/intake/report ما زالت مطلوبة.
 
 الإعدادات `IMPORT_RETENTION_SECONDS=86400` و`IMPORT_WORKER_BATCH=2` و`IMPORT_WORKER_POLL_MS=2000`،وهي infrastructure bounds فقط. `IMPORT_WORKER_ONCE=1` لsmoke معDATABASE_URL للاختبار فقط؛لا تشغله بالتوازي معBrowser/PG tests التي تعيدfixtures. كلالحسابات والملفات والـHTTP mocks فيالاختبارات اصطناعية؛اختبارClamAV الحقيقي يرسلEICAR فيالذاكرة إلى127.0.0.1 ولايكتب ملففيروس علىdisk،ولايتصل بProvider خارجي.
 

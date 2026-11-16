@@ -26,7 +26,7 @@ async function fixture(t:TestContext){
   const id=(await db`INSERT INTO user_account(organization_id,branch_id,role,name,email,password_hash) VALUES(${name==='foreign'?foreignOrg:org},${bid},${role},${name},${name+'@import.test'},'synthetic') RETURNING id`)[0]!.id,
    token=randomBytes(32).toString('hex'),session=(await db`INSERT INTO user_session(user_id,token_hash,expires_at) VALUES(${id},${sha256(token)},clock_timestamp()+interval '1 hour') RETURNING id`)[0]!.id;users[name]={id,session,cookie:'lop_session='+token};
  }
- const api=(method:'GET'|'POST',path:string,payload?:object,who='manager')=>app.inject({method,url:path,payload,headers:{cookie:users[who]!.cookie,origin:process.env.APP_ORIGIN!}});
+ const api=(method:'GET'|'POST'|'PUT'|'PATCH',path:string,payload?:object,who='manager')=>app.inject({method,url:path,payload,headers:{cookie:users[who]!.cookie,origin:process.env.APP_ORIGIN!}});
  const input={branchId:branch,campaignId:campaign,label:'test.csv',format:'CSV',delimiter:',',requestId:randomUUID()};
  const bytes=Buffer.from('name,phone\r\n"<img src=x onerror=alert(1)>",001234\r\n=untrusted,+331234');
  const upload=(overrides:Record<string,string>={},data:Buffer=bytes,who='manager')=>app.inject({method:'POST',url:'/api/lead-imports?'+new URLSearchParams({...input,...overrides}),payload:data,headers:{cookie:users[who]!.cookie,origin:process.env.APP_ORIGIN!,'content-type':'application/octet-stream'}});
@@ -36,6 +36,84 @@ async function fixture(t:TestContext){
  const create=async(overrides:Record<string,string>={},data:Buffer=bytes)=>{const r=await upload({...overrides,requestId:overrides.requestId??randomUUID()},data);assert.equal(r.statusCode,202,r.body);return r.json().id as string;};
  return {db,app,storage,root,cleanup,org,branch,other,campaign,users,api,input,bytes,upload,work,status,create};
 }
+
+async function addImportField(f:Awaited<ReturnType<typeof fixture>>,type:string,key:string,required=false,mode='MANUAL'){
+ const r=await f.api('POST','/api/fields',{scope:'BRANCH',branchId:f.branch,key,label:'Synthetic '+key,fieldType:type,valueMode:mode,options:[],validation:{}});assert.equal(r.statusCode,201,r.body);const id=r.json().id as string;
+ const b=await f.api('PUT','/api/campaigns/'+f.campaign+'/fields/'+id,{active:true,position:0,requiredStage:required?'LEAD_CREATION':'NONE',visibleToAgent:true,editableByAgent:mode==='MANUAL',visibleToManager:true,editableByManager:mode==='MANUAL',showInTable:true,showInDetails:true,filterable:true,usableByAutomation:false,usableByAi:false});assert.equal(b.statusCode,200,b.body);return id;
+}
+const csvBytes=(rows:(string|null)[][])=>Buffer.from(rows.map(r=>r.map(v=>'"'+(v??'').replaceAll('"','""')+'"').join(',')).join('\r\n'));
+
+test('Import mapping has native immutable revisions, concurrent same-key/CAS safety and paged typed preview without intake authority',async t=>{
+ const f=await fixture(t),{db,api}=f,n=await addImportField(f,'NUMBER','quantity',true),b=await addImportField(f,'BOOLEAN','available'),tags=await addImportField(f,'TAGS','tags');
+ const rows=Array.from({length:31},(_,i)=>['Synthetic '+i,'+33 1 23 45 67 89','UPPER@EXAMPLE.TEST',i===1?'1e2':'0',i===1?'yes':'false','["x","y"]']);
+ const id=await f.create({},csvBytes([['duplicate','duplicate','__proto__','quantity','boolean','tags'],...rows]));await f.work();
+ const fields=await api('GET','/api/lead-imports/'+id+'/fields');assert.equal(fields.statusCode,200,fields.body);
+ const input={sheet:0,version:0,configurationHash:fields.json().configurationHash,requestId:randomUUID(),entries:[{column:0,kind:'CONTACT_NAME'},{column:1,kind:'CONTACT_PHONE'},{column:2,kind:'CONTACT_EMAIL'},{column:3,kind:'LEAD_FIELD',fieldId:n},{column:4,kind:'LEAD_FIELD',fieldId:b},{column:5,kind:'LEAD_FIELD',fieldId:tags}]};
+ const responses=await Promise.all(Array.from({length:8},()=>api('POST','/api/lead-imports/'+id+'/mapping',input)));assert.ok(responses.every(r=>r.statusCode===200),responses.map(r=>r.body).join('\n'));
+ assert.equal((await db`SELECT count(*)::int n FROM lead_import_mapping_revision`)[0]!.n,1);assert.equal((await db`SELECT count(*)::int n FROM audit_log WHERE action='IMPORT_MAPPING_SAVED'`)[0]!.n,1);
+ const preview=await api('GET','/api/lead-imports/'+id+'/validation?sheet=0&version=1');assert.equal(preview.statusCode,200,preview.body);assert.equal(preview.json().items.length,25);assert.equal(preview.json().items[0].valid,true);assert.equal(preview.json().items[0].contact.phoneNormalized,'+33123456789');assert.equal(preview.json().items[0].contact.emailNormalized,'upper@example.test');assert.deepEqual(preview.json().items[0].fields.map((v:any)=>v.value),[0,false,['x','y']]);assert.equal(preview.json().items[1].valid,false);assert.equal(preview.json().items[1].errors.length,3);
+ const next=await api('GET','/api/lead-imports/'+id+'/validation?sheet=0&version=1&after='+preview.json().nextRow);assert.equal(next.json().items.length,6);
+ assert.equal((await api('POST','/api/lead-imports/'+id+'/mapping',{...input,entries:[{column:0,kind:'CONTACT_EMAIL'}]})).statusCode,409);
+ const races=await Promise.all(Array.from({length:2},()=>api('POST','/api/lead-imports/'+id+'/mapping',{...input,version:1,requestId:randomUUID()})));assert.deepEqual(races.map(r=>r.statusCode).sort(),[200,409]);
+ assert.equal((await api('GET','/api/lead-imports/'+id+'/validation?sheet=0&version=1')).statusCode,409);
+ for(let version=2;version<27;version++){const r=await api('POST','/api/lead-imports/'+id+'/mapping',{...input,version,requestId:randomUUID()});assert.equal(r.statusCode,200,r.body);}
+ const m=await api('GET','/api/lead-imports/'+id+'/mapping?sheet=0');assert.equal(m.json().history.length,25);assert.ok(m.json().nextVersion);const more=await api('GET','/api/lead-imports/'+id+'/mapping?sheet=0&before='+m.json().nextVersion);assert.equal(more.json().history.length,2);
+ await assert.rejects(db`UPDATE lead_import_mapping_revision SET entries='[]'::jsonb`,/IMPORT_MAPPING_IMMUTABLE/);await assert.rejects(db`DELETE FROM lead_import_mapping_revision`,/IMPORT_MAPPING_IMMUTABLE/);
+ await assert.rejects(db`INSERT INTO lead_import_mapping_revision SELECT file_id,sheet_index,28,${randomUUID()},session_id,entries,configuration_hash,clock_timestamp() FROM lead_import_mapping_revision LIMIT 1`,/IMPORT_MAPPING_CURRENT_PROOF/);
+ const totals=(await db`SELECT (SELECT count(*) FROM lead)::int leads,(SELECT count(*) FROM contact)::int contacts,(SELECT count(*) FROM source_submission)::int sources,(SELECT count(*) FROM payment_record)::int payments,(SELECT count(*) FROM enrollment)::int enrollments`)[0]!;assert.deepEqual({...totals},{leads:0,contacts:0,sources:0,payments:0,enrollments:0});
+});
+
+test('Import mapping current Field/Session/owner scope prevents stale replay and hides unavailable targets/required fields with bounded catalogs',async t=>{
+ const f=await fixture(t),{db,api,campaign,users}=f,id=await f.create({},Buffer.from('a,b\r\n1,synthetic'));await f.work();
+ const ids:string[]=[];for(let i=0;i<27;i++)ids.push(await addImportField(f,'NUMBER','paged_'+i,i===0));const source=await addImportField(f,'TEXT','source_value',false,'SOURCE');
+ const catalog=await api('GET','/api/lead-imports/'+id+'/fields');assert.equal(catalog.statusCode,200,catalog.body);assert.equal(catalog.json().items.length,25);const next=await api('GET','/api/lead-imports/'+id+'/fields?after='+catalog.json().nextId);assert.equal(next.json().items.length,3);assert.equal(new Set([...catalog.json().items,...next.json().items].map((v:any)=>v.id)).size,28);
+ const input={sheet:0,version:0,configurationHash:catalog.json().configurationHash,requestId:randomUUID(),entries:[{column:1,kind:'LEAD_FIELD',fieldId:source}]};
+ assert.equal((await api('POST','/api/lead-imports/'+id+'/mapping',input)).statusCode,200);const p=await api('GET','/api/lead-imports/'+id+'/validation?sheet=0&version=1');assert.deepEqual(p.json().items[0].errors,[{column:null,code:'IMPORT_REQUIRED_VALUE_MISSING'}]);assert.ok(!p.body.includes(ids[0]!));
+ await db`UPDATE campaign_field SET visible_to_manager=false,editable_by_manager=false,version=version+1 WHERE campaign_id=${campaign} AND field_id=${source}`;
+ assert.equal((await api('GET','/api/lead-imports/'+id+'/validation?sheet=0&version=1')).statusCode,409);assert.equal((await api('POST','/api/lead-imports/'+id+'/mapping',input)).statusCode,409);
+ const m=await api('GET','/api/lead-imports/'+id+'/mapping?sheet=0');assert.equal(m.json().configurationChanged,true);assert.deepEqual(m.json().entries,[]);assert.deepEqual(m.json().targets,[]);assert.ok(!m.body.includes(source));
+ const hidden=await api('POST','/api/lead-imports/'+id+'/mapping',{...input,version:1,requestId:randomUUID(),configurationHash:m.json().configurationHash});assert.equal(hidden.statusCode,404,hidden.body);
+ for(const who of ['agent','admin','other','foreign'])for(const path of ['/fields','/mapping?sheet=0','/validation?sheet=0&version=1'])assert.equal((await api('GET','/api/lead-imports/'+id+path,undefined,who)).statusCode,404);
+ await db`UPDATE user_session SET revoked_at=now() WHERE id=${users.manager!.session}`;assert.equal((await api('POST','/api/lead-imports/'+id+'/mapping',input)).statusCode,401);
+});
+
+test('Import normalized current-contact advice masks cross-branch/shared identities and never merges or changes existing records',async t=>{
+ const f=await fixture(t),{db,api,org,branch,other,campaign}=f;
+ const otherCampaign=(await db`INSERT INTO campaign(organization_id,branch_id,name) VALUES(${org},${other},'Other import scope') RETURNING id`)[0]!.id;
+ const contacts:string[]=[];for(let i=0;i<6;i++){
+  const phone=i===4?'+33123456783':'+3312345678'+i;
+  const c=(await db`INSERT INTO contact(organization_id,name,phone,phone_normalized) VALUES(${org},${i===1?'Hidden other-only':i===2?'Hidden shared':'Visible '+i},${phone},${phone}) RETURNING id`)[0]!.id;contacts.push(c);
+  if(i!==5)await db`INSERT INTO lead(organization_id,branch_id,campaign_id,contact_id,source_kind) VALUES(${org},${i===1?other:branch},${i===1?otherCampaign:campaign},${c},'MANUAL')`;
+  if(i===2)await db`INSERT INTO lead(organization_id,branch_id,campaign_id,contact_id,source_kind) VALUES(${org},${other},${otherCampaign},${c},'MANUAL')`;
+ }
+ const id=await f.create({},csvBytes([['phone'],...Array.from({length:7},(_,i)=>['+33 1 23 45 67 8'+i])]));await f.work();const catalog=await api('GET','/api/lead-imports/'+id+'/fields');
+ const body={sheet:0,version:0,configurationHash:catalog.json().configurationHash,requestId:randomUUID(),entries:[{column:0,kind:'CONTACT_PHONE'}]};assert.equal((await api('POST','/api/lead-imports/'+id+'/mapping',body)).statusCode,200);
+ const p=await api('GET','/api/lead-imports/'+id+'/validation?sheet=0&version=1');assert.equal(p.statusCode,200,p.body);assert.deepEqual(p.json().items.map((r:any)=>r.match.state),['MATCH','RESTRICTED','RESTRICTED','AMBIGUOUS','NONE','RESTRICTED','NONE']);
+ for(const hidden of [contacts[1],contacts[2],contacts[5],'Hidden other-only','Hidden shared'])assert.ok(!p.body.includes(hidden!));
+ assert.equal(p.json().items[0].match.candidates[0].id,contacts[0]);assert.equal(p.json().items[3].match.candidates.length,2);
+ assert.equal((await db`SELECT count(*)::int n FROM contact`)[0]!.n,6);assert.equal((await db`SELECT count(*)::int n FROM lead`)[0]!.n,6);assert.equal((await db`SELECT count(*)::int n FROM source_submission`)[0]!.n,0);
+ // Super Admin uses their own private upload and real session; global review never opens another uploader's file.
+ const saUpload=await f.upload({requestId:randomUUID()},csvBytes([['phone'],...Array.from({length:7},(_,i)=>['+33 1 23 45 67 8'+i])]),'admin');assert.equal(saUpload.statusCode,202,saUpload.body);const saId=saUpload.json().id;await f.work();
+ const saConfig=await api('GET','/api/lead-imports/'+saId+'/fields',undefined,'admin');assert.equal(saConfig.statusCode,200,saConfig.body);
+ const saSave=await api('POST','/api/lead-imports/'+saId+'/mapping',{...body,configurationHash:saConfig.json().configurationHash,requestId:randomUUID()},'admin');assert.equal(saSave.statusCode,200,saSave.body);
+ const saPreview=await api('GET','/api/lead-imports/'+saId+'/validation?sheet=0&version=1',undefined,'admin');assert.equal(saPreview.statusCode,200,saPreview.body);assert.deepEqual(saPreview.json().items.map((r:any)=>r.match.state),['MATCH','MATCH','MATCH','AMBIGUOUS','NONE','MATCH','NONE']);assert.ok(saPreview.body.includes(contacts[1]!));assert.ok(saPreview.body.includes(contacts[2]!));assert.ok(saPreview.body.includes(contacts[5]!));
+ assert.equal((await api('GET','/api/lead-imports/'+saId+'/validation?sheet=0&version=1')).statusCode,404);
+ const cancel=await api('POST','/api/lead-imports/'+id+'/cancel',{version:(await f.status(id)).version});assert.equal(cancel.statusCode,200,cancel.body);assert.equal((await api('GET','/api/lead-imports/'+id+'/validation?sheet=0&version=1')).statusCode,410);assert.equal((await db`SELECT count(*)::int n FROM lead_import_mapping_revision WHERE file_id=${id}`)[0]!.n,1);
+});
+
+test('Import mapping Audit rollback and native current proof deny fabricated field/session/column recipes',async t=>{
+ const f=await fixture(t),{db,api,cleanup,users}=f,id=await f.create();await f.work();const config=(await api('GET','/api/lead-imports/'+id+'/fields')).json().configurationHash;
+ const body={sheet:0,version:0,configurationHash:config,requestId:randomUUID(),entries:[{column:0,kind:'CONTACT_NAME'}]};
+ await db.unsafe(`CREATE FUNCTION test_import_mapping_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='IMPORT_MAPPING_SAVED' THEN RAISE EXCEPTION 'synthetic mapping secret';END IF;RETURN NEW;END $$`);await db`CREATE TRIGGER test_import_mapping_failure BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION test_import_mapping_failure()`;
+ cleanup.push(async()=>{await db`DROP TRIGGER IF EXISTS test_import_mapping_failure ON audit_log`;await db`DROP FUNCTION IF EXISTS test_import_mapping_failure()`;});
+ const failed=await api('POST','/api/lead-imports/'+id+'/mapping',body);assert.equal(failed.statusCode,500,failed.body);assert.ok(!failed.body.includes('synthetic mapping secret'));assert.equal((await db`SELECT count(*)::int n FROM lead_import_mapping_revision`)[0]!.n,0);
+ await db`DROP TRIGGER test_import_mapping_failure ON audit_log`;assert.equal((await api('POST','/api/lead-imports/'+id+'/mapping',body)).statusCode,200);
+ for(const entries of [[{column:63,kind:'CONTACT_NAME'}],[{column:0,kind:'LEAD_FIELD',fieldId:randomUUID()}],[{column:0,kind:'CONTACT_NAME',unexpected:'forged'}]]){
+  await assert.rejects(db.begin(async tx=>{const request=randomUUID();await tx`INSERT INTO audit_log(organization_id,branch_id,actor_user_id,action,target_type,target_id,detail) VALUES(${f.org},${f.branch},${users.manager!.id},'IMPORT_MAPPING_SAVED','LEAD_IMPORT_FILE',${id},${tx.json({version:2,sheet:0,sessionId:users.manager!.session,requestId:request,configurationHash:config})})`;
+   await tx`INSERT INTO lead_import_mapping_revision(file_id,sheet_index,version,request_key,session_id,entries,configuration_hash) VALUES(${id},0,2,${request},${users.manager!.session},${tx.json(entries)},${config})`;}),/IMPORT_MAPPING_(COLUMN|FIELD|ENTRY)/);
+ }
+ assert.equal((await api('POST','/api/lead-imports/'+id+'/mapping',{...body,version:1,requestId:randomUUID(),entries:[{column:0,kind:'CONTACT_NAME'},{column:1,kind:'CONTACT_NAME'}]})).statusCode,400);
+});
 test('Private upload replay is immutable and concurrency safe; durable scan/parse exposes only paginated escaped raw rows without creating business records',async t=>{
  const {db,api,upload,work,status}=await fixture(t);
  const parallel=await Promise.all(Array.from({length:8},()=>upload()));const accepted=parallel.filter(r=>r.statusCode===202);assert.ok(accepted.length>=1);assert.ok(parallel.every(r=>r.statusCode===202||r.statusCode===429));
