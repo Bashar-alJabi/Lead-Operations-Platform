@@ -31,7 +31,7 @@ export async function writeManualFieldValue(tx: postgres.TransactionSql, actor: 
   const old = (await tx`SELECT value,version FROM lead_field_value WHERE lead_id=${lead.id} AND field_id=${field.id} FOR UPDATE`)[0];
   if (old && old.version !== input.version || !old && input.version !== undefined) throw new HttpError(409, 'FIELD_VALUE_VERSION_CONFLICT');
   const row = (await tx`INSERT INTO lead_field_value(lead_id,field_id,value,source,updated_by) VALUES (${lead.id},${field.id},${tx.json(value)},'MANUAL',${actor.id})
-    ON CONFLICT(lead_id,field_id) DO UPDATE SET value=EXCLUDED.value,source=EXCLUDED.source,updated_by=EXCLUDED.updated_by,version=lead_field_value.version+1,updated_at=now(),source_submission_id=NULL,source_binding_id=NULL,source_mapping_version=NULL RETURNING version`)[0]!;
+    ON CONFLICT(lead_id,field_id) DO UPDATE SET value=EXCLUDED.value,source=EXCLUDED.source,updated_by=EXCLUDED.updated_by,version=lead_field_value.version+1,updated_at=now(),source_submission_id=NULL,source_binding_id=NULL,source_mapping_version=NULL,source_import_dataset_id=NULL,source_import_sheet_index=NULL RETURNING version`)[0]!;
   const history = (await tx`INSERT INTO field_value_history(lead_id,field_id,old_value,new_value,source,actor_user_id) VALUES (${lead.id},${field.id},${old ? tx.json(old.value) : null},${tx.json(value)},'MANUAL',${actor.id}) RETURNING id`)[0]!;
   await tx`INSERT INTO lead_activity(lead_id,actor_user_id,event_type,detail) VALUES (${lead.id},${actor.id},'FIELD_VALUE_CHANGED',${tx.json({ fieldId:field.id })})`;
   return { version: row.version as number, value, historyId: history.id as string };

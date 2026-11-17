@@ -1,5 +1,7 @@
 # استيراد CSV/Excel — الحفظ الخاص والفحص ومراجعة dataset
 
+الحالة الحالية تمتد إلىactual approved row intake فيNative183–184: [عقدالتنفيذوالنتائجوالصلاحياتوالاستعادة](lead-import-execution.md). الأقسامأدناهتصفحدودكلشريحةتاريخية؛SOURCE_CAPTURED وحدهلاينشئLead،والبدءالصريحوالعاملينفذانالمصدرالمعتمدوفقالعقدالجديد.
+
 ## اعتماد أصل المصدر — Native181–182
 
 بعد READY يستطيع مالك الملف Super Admin أوManager،بجلسة حقيقية وصلاحيات ونطاق حاليين،اعتماد dataset للحملة ACTIVE. يلزم تأكيد صريح لسياسة `KEEP_VALID_UNIQUE`: الصف الصالح الفريد بلا قرار يصبح `READY_FOR_INTAKE`،وقرار Skip الصريح يبقى `SKIPPED`،وغير الصالح دون Skip يبقى `INVALID`. كل صف صالح مكرر يحتاج قرار Keep/Skip مستقلًا قبل الاعتماد. هذه dispositions مرشحة للتنفيذ اللاحق،وليست أعداد Leads منفذة أوصلاحية لاختيار Contact متعارضة.
@@ -54,7 +56,7 @@ Native153 تقبل origin HUMAN_MANUAL بجلسة حالية حقيقية أوSO
 
 ## حدود التنفيذ
 
-Native175–177 هي مرحلة upload → scan → detect → raw preview،وتضيف Native178–179 Mapping/paged validation،ثمNative180 whole-dataset validation/duplicate review/decisions وNative181–182 immutable source approval/capture؛ليست Import end-to-end. يستطيع Super Admin أو Manager حفظ ملف خاص داخل Branch/Campaign مخولة ومراجعته واعتماد مصدره. توجد SourceSubmissions محفوظة لكلصف معتمد،ولا توجد بعدصلاحية لإنشاء Leads أوContacts أوPayments أوEnrollment،ولا يرسل محتوى الملف إلى AI أوProvider. Agent لا يملك صلاحية Import جديدة.
+Native175–177 هيupload→scan→detect→rawpreview،ثم178–179Mapping/pagedvalidation،ثم180whole-file review و181–182immutable sourceapproval/capture. Native183–184 تضيفexplicitexecution/current-scopeddurablerowintake/results/recovery وContactreview/LeadUI. يستطيعSuperAdmin أوManager حفظملفخاصبـBranch/Campaign مخولةومراجعتهواعتمادمصدرهثمبدءالتنفيذ. تنشأLeads/Contacts/SOURCEFields/Routing/actualintakereceipts للصفوفالمؤهلةفقط. لاPayment/Enrollment/consentconfirmation منrawclaims،ولاإرسالالملفنفسهإلىAI/Provider. Agentلايحصلعلىimportprivilege جديدة. GoogleSheets/APIimport وبقيةقبولالمنصةباقية.
 
 الموافقة الصريحة وأصلها نُفذا في181–182؛تبقى durable row processing وresults/retry مطلوبة. ستستخدم خدمة intake مشتركة بعقد `APPROVED_IMPORT` أو equivalent موثق،مع current account/scope وimmutable approval وrow receipts. لا يجوز اصطناع cookie أوجلسة `HUMAN_MANUAL` للعامل الخلفي. Contact matching لا يدمج Leads،وraw claims عن consent أودفع ليست أدلة موثوقة.
 

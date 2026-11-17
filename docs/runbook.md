@@ -1,5 +1,13 @@
 # دليل التشغيل والتطوير
 
+## actual approved Import — Native183–184
+
+طبّق001–184بعدbuild دونreset،واستخدم`npm run worker:imports` الحالية. منملفالاستيرادافتحsource receipts ثم«تنفيذ الاستيراد المعتمد»،واقرأpolicy ثمابدأصراحة. UIتعرضactualImported/Skipped/Invalid/NeedsAttention/Failed counts وDuplicate markers بصفحات25،وتاريخكلصفوالاستعادةبجلسةونسخةحاليتين. لااستدعاءProvider ولاbusinesscredentials جديدةلهذهالطبقة. [العقدالكامل](lead-import-execution.md).
+
+خمسDBfailures→FAILED؛صححسببالبنيةالتحتيةثمRetry منUI. hidden/invalidField أوcurrentaccount/scope/Campaignfailure تحتاجتصحيحالإعداداتوالصلاحياتثمrecovery؛لاSQLrepair. ambiguous/restrictedContact تذهبلـ«مراجعة المطابقة»→«مراجعات جهات اتصال الاستيراد المعتمد»،معcurrentcandidates وreason/confirmation. shared/other-only/unattachedContacts أمامManager تحتاجSuperAdmin؛لافتحprivateuploadedfile للمراجعالآخر. replaylostACKمنالزرالمخصصيحفظUUID،ولاتستخدمstartrequestجديدةلإعادةالتشغيل. importedrowنهائية؛إعادةالطلبلاتعيدإنشاءLead.
+
+حذفquarantine أوTTL لاينهيapprovedexecution أوoriginals/results؛تظلreceipts متاحةللـcurrentprivateowner،وLead IDs تخضعلصلاحياتLead الحالية. انتهاءالجلسةالأصليةلايحتاجworkerlogin،وتعطيلالحساب يمنعالآثارالقادمة. لكلworker cycleحتىbatchscan وbatchreview،وحتى25rowtransactions مستقلةلكلتكرارbatch؛defaultbatch2/poll2s وحدودهاكماسبق. هذهbudgets تقنيةوليستcapacityguarantee؛راقبage/count/state/history وworkercycleerrors الآمنة. PreviewOFF وPostgreSQL/ClamAVdevelopment/test قائمتان؛لاLiveMessaging/AI/Payments بهذهالاختبارات.
+
 ## اعتماد أصل Import — Native181–182
 
 بعدbuild طبّق001–182 دونإعادةتهيئةالبيانات. لاخدمةجديدةأوcredentials مطلوبةلهذهالطبقة. أكملscan/Mapping/whole-file READY،فعّلCampaign منواجهتها،وراجعكلvalidduplicate صراحة. فيمراجعةالملف اقرأالسياسةثمحددcheckbox وconfirm «اعتماد صفوف مصدر الاستيراد». validunique دونقرارمرشحةللإدخال؛Skip/Invalid تحفظكذلك. تظهرSourceapproval وcounts وسجلأصولالصفوف بصفحات25؛ليستهذهImported leads ولاPaymentconfirmation. [العقد](lead-import.md).

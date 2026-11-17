@@ -1,5 +1,11 @@
 # خطة التنفيذ
 
+## أحدث checkpoint: actual approved Import intake — Native183–184 — 2026-11-17
+
+اكتملتCSV/XLSX/XLS baseline منapproved source إلىactualLead: explicit start وdurable current-scoped row transactions/results/history/recovery وAPPROVED_IMPORT/native SOURCE Field provenance/shared Contacts/Routing،ومراجعةContact تشغيليةمستقلةعنprivatefile وar/en/fr UI. **193Unit/142fullDockerPG(409.8s)/68fullEdgeBrowser(8.8m)** و001–184development/test وBackend/Webbuild/typecheck ناجحة. fullBrowser أُعيدتبعدتصحيحانتظارappliedSavedView فياختبارExport؛لاruntimechange بعد142PG. [العقد](lead-import-execution.md). احفظdocs/commit/push قبلالتالي؛المنصةغيرمكتملةوالأقسامالتاليةتاريخية.
+
+**التالي الدقيق — Native185:** managed Google Sheets Connection/OAuth داخلUI،معencrypted credentials وcurrentRole/Organization/Branch/Session وone-time state/version/identity fencing وtest/reconnect/disable/history/errors وHTTPmocks؛ثمexplicitSpreadsheet/worksheet/range وapproved snapshot/Mapping/validation/duplicate review/shared intake/results وscopedExport. DBSourceofTruth،ولاgenericcontinuous two-way sync وفق03 §39. راجعofficialOAuth/Sheetsdocs وminimumscopes ووثّقexternalGoogleCloudprerequisites دونdeveloperaccount أوhiddenbusinessenv. كلشريحةذاتمعنىتحتاجgates/docs/commit/push،ثمgeneralEmail/بقيةNotifications/Automation/broadcoregaps قبلoptionalAI/providerpolish.
+
 ## أحدث checkpoint: approved Import source — Native181–182 — 2026-11-17
 
 اكتملت immutable approval/typed dispositions/original SourceSubmission/normalized sheet manifest،بــcurrent private owner/real Session/ACTIVE Campaign/configuration وCAS/request/Audit/deferred complete capture وunique file/sheet/row. UI confirmation وlostACK/retained receipts بعدrawpurge فيar/en/fr. **193Unit/136fullDockerPG(339.4s)/66fullEdgeBrowser(4.1m)** و001–182development/test وBackend/Webbuild/typecheck ناجحة؛focused17PG/3Browser وrollback/expiry/concurrency/native proofs مثبتة. [العقد](lead-import.md). شريحةsourcecapture فقط،لاLeadintake أوfinancial/consent effects. احفظdocs/commit/push قبلالتالي؛الأقسامالتاليةتاريخية.

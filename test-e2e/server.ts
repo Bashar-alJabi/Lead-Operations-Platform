@@ -1,5 +1,6 @@
 import {processOneImportFile} from '../src/imports/service.js';
 import {processOneImportReview} from '../src/imports/review.js';
+import {processOneImportIntake} from '../src/imports/intake.js';
 import {processOneExport} from '../src/exports/service.js';
 import {processOneAutomationMatch,processOneAutomationExecution} from '../src/automation.js';
 // Test-only HTTP entrypoint. Never imported by the production server or workers.
@@ -270,6 +271,17 @@ const app = await buildApp(db, { logger:false,globalRateLimitMax:10000,mediaStor
 app.post<{Body:{reject?:boolean;unavailable?:boolean}}>('/__test__/import-files',{schema:{body:{type:'object',additionalProperties:false,properties:{reject:{type:'boolean'},unavailable:{type:'boolean'}}}}},async request=>{
  if(typeof request.headers.authorization!=='string'||!safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
  const processed=await processOneImportFile(db,{storage,retryDelaySeconds:0,scanner:{scan:async()=>{if(request.body.unavailable)throw new Error('Synthetic scanner outage');return {clean:!request.body.reject,version:'BrowserFakeScanner/test-only'};}}});const reviewed=await processOneImportReview(db,{retryDelaySeconds:0});return {processed,reviewed};
+});
+app.post<{Body:{limit?:number;failSubmissionId?:string;fail?:boolean}}>('/__test__/import-intake',{schema:{body:{type:'object',additionalProperties:false,properties:{limit:{type:'integer',minimum:1,maximum:100},failSubmissionId:{type:'string',format:'uuid'},fail:{type:'boolean'}}}}},async request=>{
+ if(typeof request.headers.authorization!=='string'||!safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
+ if(request.body.failSubmissionId){
+  if(!(await db`SELECT 1 FROM source_submission WHERE id=${request.body.failSubmissionId} AND organization_id=${org} AND import_dataset_id IS NOT NULL`).length)throw new HttpError(404,'SYNTHETIC_IMPORT_NOT_FOUND');
+  await db`CREATE TABLE IF NOT EXISTS e2e_import_failure(submission_id uuid PRIMARY KEY REFERENCES source_submission(id),enabled boolean NOT NULL)`;
+  await db`INSERT INTO e2e_import_failure VALUES(${request.body.failSubmissionId},${request.body.fail??false}) ON CONFLICT(submission_id) DO UPDATE SET enabled=excluded.enabled`;
+  await db`CREATE OR REPLACE FUNCTION e2e_import_intake_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='IMPORT_ATTEMPT_STARTED' AND EXISTS(SELECT 1 FROM e2e_import_failure WHERE submission_id::text=NEW.target_id AND enabled) THEN RAISE EXCEPTION 'Synthetic import outage';END IF;RETURN NEW;END $$`;
+  await db`DROP TRIGGER IF EXISTS e2e_import_intake_failure ON audit_log`;await db`CREATE TRIGGER e2e_import_intake_failure BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION e2e_import_intake_failure()`;
+ }
+ let processed=0;for(let i=0;i<(request.body.limit??1);i++){if(!await processOneImportIntake(db,{retryDelaySeconds:0}))break;processed++;}return {processed};
 });
 app.post<{Body:{failJobId?:string;fail?:boolean}}>('/__test__/exports',{schema:{body:{type:'object',additionalProperties:false,properties:{failJobId:{type:'string',format:'uuid'},fail:{type:'boolean'}}}}},async request=>{
  if(typeof request.headers.authorization!=='string'||!safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');

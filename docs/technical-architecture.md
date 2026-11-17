@@ -1,5 +1,11 @@
 # المعمارية التقنية
 
+## Approved Import row execution/provenance — Native183–184
+
+`lead_import_execution` explicitcurrent-sessionapproval تقرأimmutabledataset وتزرعdurable per-row results مرةواحدة؛لاتعتمدعلىquarantineTTL أوجلسةالموافقةالقديمة. DB-onlyrowtransactions تعيدcurrentaccount/role/scope/Fieldgrants/typedvalues وsharedContactidentitylocks/Routing. `lead_import_attempt` freshproofتربطnewLeadbirth وoriginalsource وSOURCEFieldprovenance وactualpost-routingreceipt بالـIMPORTEDresult،معdeferredall-effectsproof وimmutablehistory/Audit. APPROVED_IMPORT منفصلةعنHumanSession وMetaSOURCE،ولاrewrite لبياناتهماوسياقاتهماالتاريخية. [العقد](lead-import-execution.md).
+
+CurrentFieldchecks بدلالاعتمادعلىhistoricalfingerprint وحدها: snapshotimmutable،والقيمتعادvalidation الحاليةدونcoercionغيرموافقعليها؛attemptتحفظcurrenthash. بعدintakeيمكنHuman/AIالمخولةتغييرcurrentmanualField معإزالةcurrentimportpointerوبقاءimmutablehistory. Branch→Campaign→account→file/Fields→result locks وone-rowtransaction تمنعlongfileblocking وduplicateeffects؛fiveboundedfailuresثمCAS/request/real-sessionrecovery. nativeproofلاتسمحoldLead أوpartialsource/Field/receipt capture. Contactreviewoperational مستقلةعنprivatefileaccess،وتستخدمcurrentidentitymatching/rolesلـexplicitresolution،دونLeadmerge أوfinancial/consenttrust.
+
 ## Immutable approved Import source — Native181–182
 
 اعتماد source dataset منفصل عن review المؤقتة وعن Lead execution. current owner/real Session/ACTIVE Campaign/configuration وCAS/request identity تثبت الموافقة،ثم atomic set-based capture تحفظmanifest/SourceSubmissions/typed approved rows. Native guards وfresh same-transaction Audit/source proofs وdeferred complete-capture check تمنع capture ناقصة أومصطنعة. unique file/sheet/row تمنع اعتماد technical row مرتين؛review decision اللاحقة لا تغير approval الأصلية. لا HTTP/JS loop لتحميلكلالملف فيendpoint الاعتماد،ولا partial commit.

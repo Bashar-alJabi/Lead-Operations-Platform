@@ -117,7 +117,7 @@ export function CampaignWorkspace({ id, locale, api, onBack, onChanged }: {
       }); }}>
         <label>{t.name}<input required maxLength={200} disabled={!editable || busy} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
         <label>{t.source}<select disabled={!editable || busy} value={form.sourceKind} onChange={(e) => setForm({ ...form, sourceKind: e.target.value })}>
-          {[...new Set([form.sourceKind, 'MANUAL','META','GENERIC_SOURCE'])].map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+          {[...new Set([form.sourceKind, 'MANUAL','META','GENERIC_SOURCE','IMPORT_CSV','IMPORT_EXCEL'])].map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
         <label>{t.routing}<select disabled={!editable || busy} value={form.routingMethod} onChange={(e) => setForm({ ...form, routingMethod: e.target.value })}>
           {['MANUAL','ROUND_ROBIN','WEIGHTED','PERFORMANCE'].map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
         <label>{t.conversion}<select disabled={!editable || busy} value={form.conversion} onChange={(e) => setForm({ ...form, conversion: e.target.value })}>

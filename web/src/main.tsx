@@ -1,4 +1,5 @@
 import {ImportWorkspace} from './ImportWorkspace.js';
+import {ImportContactReviewWorkspace} from './ImportContactReviewWorkspace.js';
 import {ExportWorkspace} from './ExportWorkspace.js';
 import {BulkFollowupsWorkspace} from './BulkFollowupsWorkspace.js';
 import {AnalyticsWorkspace} from './AnalyticsWorkspace.js';
@@ -354,7 +355,8 @@ function App() {
       : page === 'metaSources' && canManage ? <MetaSourceSetup locale={locale} role={user.role as 'SUPER_ADMIN'|'MANAGER'} branches={branches} api={api} />
       : page === 'messagingSetup' && canManage ? <MessagingSetup locale={locale} role={user.role as 'SUPER_ADMIN'|'MANAGER'}
       branchId={user.branchId} branches={branches} api={api} />
-      : page === 'contacts' || page === 'contactReviews' ? <ContactWorkspace key={`${page}-${workspaceRefresh}`} mode={page === 'contacts' ? 'contacts' : 'reviews'} locale={locale} canManage={canManage} api={api} onOpenLead={(id) => { setPage('leads'); setSelectedLead(id); setNotice(''); }} />
+      : page === 'contacts' || page === 'contactReviews' ? <><ContactWorkspace key={`${page}-${workspaceRefresh}`} mode={page === 'contacts' ? 'contacts' : 'reviews'} locale={locale} canManage={canManage} api={api} onOpenLead={(id) => { setPage('leads'); setSelectedLead(id); setNotice(''); }} />
+       {page==='contactReviews'&&canManage&&<ImportContactReviewWorkspace key={'import-reviews:'+user.id+':'+user.role+':'+user.branchId} locale={locale} api={api} onOpenLead={id=>{setPage('leads');setSelectedLead(id);}}/>}</>
       : page === 'fields' ? <FieldWorkspace key={`fields-${workspaceRefresh}`} locale={locale} campaigns={campaigns} role={user.role} api={api} />
       : page === 'campaigns' && selectedCampaign ? <CampaignWorkspace id={selectedCampaign} locale={locale} api={api}
         onBack={() => setSelectedCampaign(null)} onChanged={refresh} />
@@ -399,7 +401,7 @@ function App() {
       {page==='leads'&&<BulkFieldsWorkspace key={'bulk-fields:'+user.id+':'+user.role+':'+user.branchId} locale={locale} api={api} selected={leads.filter(l=>selectedLeadIds.includes(l.id)).map(l=>({id:l.id,version:l.version,label:contactLabel(l,locale)}))}/>}
       {page==='leads'&&<BulkFollowupsWorkspace key={'bulk-followups:'+user.id+':'+user.role+':'+user.branchId} locale={locale} api={api} role={user.role} selected={leads.filter(l=>selectedLeadIds.includes(l.id)).map(l=>({id:l.id,version:l.version,branchId:l.branch_id,label:contactLabel(l,locale)}))} onOpenLead={id=>setSelectedLead(id)}/>}
       {page==='leads'&&<ExportWorkspace key={'lead-exports:'+user.id+':'+user.role+':'+user.branchId} locale={locale} api={api} query={leadQuery} columns={leadColumns} selectedIds={selectedLeadIds}/>}
-      {page==='leads'&&canManage&&<ImportWorkspace key={'lead-imports:'+user.id+':'+user.role+':'+user.branchId} locale={locale} api={api} branchScope={user.role==='SUPER_ADMIN'?null:user.branchId}/>}
+      {page==='leads'&&canManage&&<ImportWorkspace key={'lead-imports:'+user.id+':'+user.role+':'+user.branchId} locale={locale} api={api} branchScope={user.role==='SUPER_ADMIN'?null:user.branchId} onOpenLead={id=>setSelectedLead(id)} onContactReviews={()=>{setPage('contactReviews');setSelectedLead(null);}}/>}
       <div className="toolbar">{canManage && (page !== 'branches' || isAdmin) && <button onClick={() => { setShowForm(!showForm); setForm({}); }}>{page === 'leads' ? t.newLead : page === 'campaigns' ? t.newCampaign : page === 'branches' ? t.newBranch : t.newUser}</button>}</div>
       {showForm && <section className="panel form-panel"><h2>{page === 'leads' ? t.newLead : page === 'campaigns' ? t.newCampaign : page === 'branches' ? t.newBranch : t.newUser}</h2>
         <form onSubmit={(event) => { event.preventDefault(); if (page === 'branches') void submit('/api/branches', { name: form.name, timezone: form.timezone });

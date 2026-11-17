@@ -27,7 +27,7 @@ export async function collectAIQualificationAnswer(tx: postgres.TransactionSql, 
   let fieldVersion: number | null = null;
   if (action.field_id) {
     const written = action.previous_field_version ? await tx`UPDATE lead_field_value SET value=${tx.json(action.value)},source='AI',updated_by=NULL,ai_action_id=${action.id},
-      version=version+1,updated_at=clock_timestamp(),source_submission_id=NULL,source_binding_id=NULL,source_mapping_version=NULL
+      version=version+1,updated_at=clock_timestamp(),source_submission_id=NULL,source_binding_id=NULL,source_mapping_version=NULL,source_import_dataset_id=NULL,source_import_sheet_index=NULL
       WHERE lead_id=${action.lead_id} AND field_id=${action.field_id} AND version=${action.previous_field_version} RETURNING version`
       : await tx`INSERT INTO lead_field_value(lead_id,field_id,value,source,updated_by,ai_action_id) VALUES(${action.lead_id},${action.field_id},${tx.json(action.value)},'AI',NULL,${action.id}) RETURNING version`;
     fieldVersion = written[0]!.version as number;

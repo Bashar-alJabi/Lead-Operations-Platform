@@ -12,6 +12,7 @@ import {localMediaStorage} from '../src/media/storage.js';
 import {clamAvScanner} from '../src/media/scanner.js';
 import {processOneImportFile,cleanupImportStorage} from '../src/imports/service.js';
 import {processOneImportReview} from '../src/imports/review.js';
+import {processOneImportIntake} from '../src/imports/intake.js';
 const url=process.env.TEST_DATABASE_URL;if(!url||new URL(url).pathname!=='/lead_operations_test')throw Error('Isolated test database required');
 async function fixture(t:TestContext){
  process.env.APP_ORIGIN='http://127.0.0.1:5173';process.env.CREDENTIAL_ENCRYPTION_KEY=randomBytes(32).toString('hex');
@@ -44,11 +45,163 @@ async function addImportField(f:Awaited<ReturnType<typeof fixture>>,type:string,
 }
 const csvBytes=(rows:(string|null)[][])=>Buffer.from(rows.map(r=>r.map(v=>'"'+(v??'').replaceAll('"','""')+'"').join(',')).join('\r\n'));
 
+async function approvedIntake(f:Awaited<ReturnType<typeof fixture>>,rows:(string|null)[][],entries:object[]){
+ const file=await f.create({},csvBytes(rows));await f.work();
+ const root='/api/lead-imports/'+file,review=await f.api('POST',root+'/reviews',await reviewInput(f,file,[0],entries));assert.equal(review.statusCode,202,review.body);
+ while(await processOneImportReview(f.db)){}
+ await f.db`UPDATE campaign SET routing_method='MANUAL' WHERE id=${f.campaign}`;
+ assert.equal((await f.api('POST','/api/campaigns/'+f.campaign+'/activate',{})).statusCode,200);
+ const detail=(await f.api('GET',root+'/reviews/'+review.json().id)).json();
+ const approved=await f.api('POST',root+'/reviews/'+review.json().id+'/approve-dataset',{version:detail.version,requestId:randomUUID(),unreviewedPolicy:'KEEP_VALID_UNIQUE'});assert.equal(approved.statusCode,201,approved.body);
+ return {file,root,dataset:approved.json().datasetId as string,path:root+'/approved-datasets/'+approved.json().datasetId};
+}
+
+test('Approved Import executes real typed routed Leads exactly once after raw purge and original session revocation, retaining independent source provenance and current private result pages',async t=>{
+ const f=await fixture(t),{db,api}=f,n=await addImportField(f,'NUMBER','intake_number',true,'SOURCE'),b=await addImportField(f,'BOOLEAN','intake_flag');
+ const a=await approvedIntake(f,[['name','phone','n','b'],...Array.from({length:31},(_,i)=>['<svg onload=evil()> '+i,'+33'+String(120005000+i),'0','false'])],[{column:0,kind:'CONTACT_NAME'},{column:1,kind:'CONTACT_PHONE'},{column:2,kind:'LEAD_FIELD',fieldId:n},{column:3,kind:'LEAD_FIELD',fieldId:b}]);
+ const intent={requestId:randomUUID()},starts=await Promise.all(Array.from({length:8},()=>api('POST',a.path+'/execute',intent)));assert.ok(starts.every(r=>r.statusCode===202),starts.map(r=>r.body).join('\n'));assert.equal(new Set(starts.map(r=>r.json().id)).size,1);
+ assert.equal((await api('POST',a.path+'/execute',{requestId:randomUUID()})).statusCode,409);assert.equal((await api('POST',a.root+'/cancel',{version:(await f.status(a.file)).version})).statusCode,200);await f.work();
+ await db`UPDATE user_session SET revoked_at=clock_timestamp() WHERE id=${f.users.manager!.session}`;
+ for(let i=0;i<40;i++)await processOneImportIntake(db,{retryDelaySeconds:0});
+ const counts=(await db`SELECT state,count(*)::int n FROM lead_import_result GROUP BY state`);assert.deepEqual(counts.map(r=>[r.state,r.n]),[['IMPORTED',31]]);
+ assert.equal((await db`SELECT count(*)::int n FROM lead`)[0]!.n,31);assert.equal((await db`SELECT count(*)::int n FROM contact`)[0]!.n,31);
+ assert.equal((await db`SELECT count(*)::int n FROM lead_intake_receipt WHERE origin_kind='APPROVED_IMPORT' AND actor_id IS NULL AND session_id IS NULL`)[0]!.n,31);
+ const first=(await db`SELECT * FROM lead_import_result LIMIT 1`)[0]!,lead=first.lead_id;
+ const fields=await db`SELECT * FROM lead_field_value WHERE lead_id=${lead} ORDER BY field_id`;assert.equal(fields.length,2);assert.ok(fields.every(v=>v.source==='SOURCE'&&v.source_import_dataset_id===a.dataset&&v.source_submission_id===first.submission_id&&v.source_binding_id===null&&v.source_mapping_version===1));
+ assert.deepEqual(new Set(fields.map(v=>v.value)),new Set([0,false]));assert.equal((await db`SELECT count(*)::int n FROM source_submission WHERE state='PROCESSED'`)[0]!.n,31);
+ assert.equal((await api('GET',a.path+'/execution')).statusCode,401);
+ const token=randomBytes(32).toString('hex');await db`INSERT INTO user_session(user_id,token_hash,expires_at) VALUES(${f.users.manager!.id},${sha256(token)},clock_timestamp()+interval '1 hour')`;f.users.manager!.cookie='lop_session='+token;
+ const status=(await api('GET',a.path+'/execution')).json();assert.equal(status.execution.counts.IMPORTED,31);assert.equal(status.execution.counts.WAITING,undefined);
+ const page=await api('GET',a.path+'/execution/rows');assert.equal(page.statusCode,200,page.body);assert.equal(page.json().items.length,25);assert.ok(!page.body.includes('onload'));assert.ok(!page.body.includes('fields'));
+ const cursor=page.json().next;assert.equal((await api('GET',a.path+'/execution/rows?afterSheet='+cursor.sheet+'&afterRow='+cursor.row)).json().items.length,6);
+ const origin=await api('GET','/api/leads/'+lead+'/intake-origin');assert.equal(origin.statusCode,200,origin.body);assert.equal(origin.json().origin.originKind,'APPROVED_IMPORT');assert.equal(origin.json().origin.sourceKind,'IMPORT_CSV');
+ assert.equal((await api('PUT','/api/leads/'+lead+'/fields/'+b,{value:true,version:1})).statusCode,200);assert.equal((await db`SELECT source_import_dataset_id FROM lead_field_value WHERE lead_id=${lead} AND field_id=${b}`)[0]!.source_import_dataset_id,null);
+ assert.equal((await db`SELECT count(*)::int n FROM field_value_history WHERE lead_id=${lead} AND source_import_dataset_id=${a.dataset}`)[0]!.n,2);
+ for(const who of ['admin','agent','other','foreign'])assert.equal((await api('GET',a.path+'/execution',undefined,who)).statusCode,404);
+ assert.equal((await api('POST',a.path+'/execute',intent)).statusCode,202);assert.equal((await db`SELECT count(*)::int n FROM payment_record`)[0]!.n,0);assert.equal((await db`SELECT count(*)::int n FROM messaging_consent`)[0]!.n,0);
+ await assert.rejects(db`UPDATE lead_import_result SET state='WAITING' WHERE submission_id=${first.submission_id}`,/IMPORT_RESULT_IMMUTABLE/);
+ await assert.rejects(db`DELETE FROM lead_import_result_history WHERE submission_id=${first.submission_id}`,/IMPORT_RESULT_HISTORY_IMMUTABLE/);
+ await assert.rejects(db`UPDATE lead_import_attempt SET configuration_hash=repeat('f',64) WHERE submission_id=${first.submission_id}`,/IMPORT_ATTEMPT_IMMUTABLE/);
+});
+
+test('Import row failure rolls back Contact, Lead, Fields, routing, origin and history together, bounds retries and resumes through the compiled worker after explicit idempotent recovery',async t=>{
+ const f=await fixture(t),{db,api}=f,field=await addImportField(f,'TEXT','failed_import');
+ const a=await approvedIntake(f,[['name','phone','field'],['Failure original','+33123450123','typed']],[{column:0,kind:'CONTACT_NAME'},{column:1,kind:'CONTACT_PHONE'},{column:2,kind:'LEAD_FIELD',fieldId:field}]);
+ assert.equal((await api('POST',a.path+'/execute',{requestId:randomUUID()})).statusCode,202);
+ await db`CREATE FUNCTION test_import_intake_fail() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.source_import_dataset_id IS NOT NULL THEN RAISE EXCEPTION 'Synthetic import field failure';END IF;RETURN NEW;END $$`;
+ await db`CREATE TRIGGER test_import_intake_fail BEFORE INSERT ON field_value_history FOR EACH ROW EXECUTE FUNCTION test_import_intake_fail()`;
+ f.cleanup.push(async()=>{await db`DROP TRIGGER IF EXISTS test_import_intake_fail ON field_value_history`;await db`DROP FUNCTION IF EXISTS test_import_intake_fail()`;});
+ for(let i=0;i<5;i++)assert.equal(await processOneImportIntake(db,{retryDelaySeconds:0}),true);
+ const r=(await db`SELECT * FROM lead_import_result`)[0]!;assert.equal(r.state,'FAILED');assert.equal(r.failure_count,5);assert.equal(r.version,6);
+ for(const table of ['contact','lead','lead_field_value','field_value_history','assignment_history','lead_intake_receipt','lead_import_attempt'])assert.equal((await db.unsafe('SELECT count(*)::int n FROM '+table))[0]!.n,0,table);
+ assert.equal((await db`SELECT state FROM source_submission`)[0]!.state,'RECEIVED');assert.equal(await processOneImportIntake(db),false);
+ const history=await api('GET',a.path+'/execution/rows/'+r.submission_id+'/history');assert.equal(history.json().items.length,6);assert.ok(!history.body.includes('Synthetic import'));
+ const recovery={version:r.version,requestId:randomUUID()},path=a.path+'/execution/rows/'+r.submission_id+'/retry';
+ const retries=await Promise.all(Array.from({length:8},()=>api('POST',path,recovery)));assert.ok(retries.every(x=>x.statusCode===200),retries.map(x=>x.body).join('\n'));assert.equal((await db`SELECT count(*)::int n FROM lead_import_retry`)[0]!.n,1);
+ await db`DROP TRIGGER test_import_intake_fail ON field_value_history`;
+ await new Promise<void>((resolveWorker,reject)=>{const child=spawn(process.execPath,['dist/src/import-worker.js'],{cwd:process.cwd(),env:{...process.env,DATABASE_URL:url,IMPORT_WORKER_ONCE:'1',IMPORT_WORKER_BATCH:'1'},windowsHide:true,stdio:['ignore','pipe','pipe']});let error='';child.stderr.on('data',chunk=>{error+=chunk});child.once('error',reject);child.once('exit',code=>code===0?resolveWorker():reject(Error('Import worker failed '+error)));});
+ const completed=(await db`SELECT * FROM lead_import_result`)[0]!;assert.equal(completed.state,'IMPORTED');assert.equal(completed.version,8);assert.equal((await db`SELECT count(*)::int n FROM lead`)[0]!.n,1);
+ assert.equal((await api('POST',path,recovery)).statusCode,200);assert.equal((await api('POST',path,{version:8,requestId:randomUUID()})).statusCode,409);assert.equal(await processOneImportIntake(db),false);
+});
+
+test('Import revalidates current Field grants and values before effects and recovery without reusing a revoked uploader role or stale approval configuration',async t=>{
+ const f=await fixture(t),{db,api}=f,field=await addImportField(f,'NUMBER','current_import',true);
+ const a=await approvedIntake(f,[['value'],['7']],[{column:0,kind:'LEAD_FIELD',fieldId:field}]);assert.equal((await api('POST',a.path+'/execute',{requestId:randomUUID()})).statusCode,202);
+ await db`UPDATE campaign_field SET visible_to_manager=false,editable_by_manager=false,version=version+1 WHERE campaign_id=${f.campaign} AND field_id=${field}`;await processOneImportIntake(db);
+ let r=(await db`SELECT * FROM lead_import_result`)[0]!;assert.equal(r.state,'NEEDS_ATTENTION');assert.equal(r.error_code,'IMPORT_FIELD_NOT_AVAILABLE');assert.equal((await db`SELECT count(*)::int n FROM lead`)[0]!.n,0);
+ const path=a.path+'/execution/rows/'+r.submission_id+'/retry';assert.equal((await api('POST',path,{version:r.version,requestId:randomUUID()})).statusCode,409);
+ await db`UPDATE campaign_field SET visible_to_manager=true,editable_by_manager=true,version=version+1 WHERE campaign_id=${f.campaign} AND field_id=${field}`;
+ await db`UPDATE field_definition SET validation='{"max":3}'::jsonb,version=version+1 WHERE id=${field}`;assert.equal((await api('POST',path,{version:r.version,requestId:randomUUID()})).statusCode,400);
+ await db`UPDATE field_definition SET validation='{}'::jsonb,version=version+1 WHERE id=${field}`;assert.equal((await api('POST',path,{version:r.version,requestId:randomUUID()})).statusCode,200);
+ await db`UPDATE user_account SET role='AGENT' WHERE id=${f.users.manager!.id}`;await processOneImportIntake(db);r=(await db`SELECT * FROM lead_import_result`)[0]!;assert.equal(r.state,'NEEDS_ATTENTION');assert.equal(r.error_code,'IMPORT_INTAKE_AUTHORITY_UNAVAILABLE');
+ assert.equal((await db`SELECT count(*)::int n FROM lead`)[0]!.n,0);assert.equal((await api('GET',a.path+'/execution')).statusCode,403);
+ await db`UPDATE user_account SET role='MANAGER' WHERE id=${f.users.manager!.id}`;assert.equal((await api('POST',path,{version:r.version,requestId:randomUUID()})).statusCode,200);await processOneImportIntake(db);
+ assert.equal((await db`SELECT state FROM lead_import_result`)[0]!.state,'IMPORTED');assert.equal((await db`SELECT contact_id FROM lead`)[0]!.contact_id,null);
+});
+
 async function reviewInput(f:Awaited<ReturnType<typeof fixture>>,id:string,indices=[0],entries:object[]=[{column:0,kind:'CONTACT_NAME'}],revision=0,who='manager'){
  const configurationHash=(await f.api('GET','/api/lead-imports/'+id+'/fields',undefined,who)).json().configurationHash as string;
  for(const sheet of indices){const m=await f.api('POST','/api/lead-imports/'+id+'/mapping',{sheet,version:0,configurationHash,requestId:randomUUID(),entries},who);assert.equal(m.statusCode,200,m.body);}
  return {revision,requestId:randomUUID(),configurationHash,selection:indices.map(sheet=>({sheet,version:1}))};
 }
+
+test('Import Contact review separates operational authority from private uploads, hides shared candidates, paginates current matches and resolves concurrently with real scoped sessions without merging Leads',async t=>{
+ const f=await fixture(t),{db,api}=f;
+ const otherCampaign=(await db`INSERT INTO campaign(organization_id,branch_id,name) VALUES(${f.org},${f.other},'Other contact branch') RETURNING id`)[0]!.id;
+ const shared=(await db`INSERT INTO contact(organization_id,name,phone,phone_normalized) VALUES(${f.org},'Shared hidden customer','+33123455501','+33123455501') RETURNING id`)[0]!.id;
+ for(const [branch,campaign] of [[f.branch,f.campaign],[f.other,otherCampaign]])await db`INSERT INTO lead(organization_id,branch_id,campaign_id,contact_id,source_kind) VALUES(${f.org},${branch},${campaign},${shared},'MANUAL')`;
+ for(let i=0;i<27;i++){const id=(await db`INSERT INTO contact(organization_id,name,phone,phone_normalized) VALUES(${f.org},${'Own candidate '+i},'+33123455502','+33123455502') RETURNING id`)[0]!.id;
+  await db`INSERT INTO lead(organization_id,branch_id,campaign_id,contact_id,source_kind) VALUES(${f.org},${f.branch},${f.campaign},${id},'MANUAL')`;}
+ const a=await approvedIntake(f,[['name','phone'],['Source shared','+33123455501'],['Source ambiguous','+33123455502']],[{column:0,kind:'CONTACT_NAME'},{column:1,kind:'CONTACT_PHONE'}]);
+ assert.equal((await api('POST',a.path+'/execute',{requestId:randomUUID()})).statusCode,202);await processOneImportIntake(db);await processOneImportIntake(db);
+ const rows=await db`SELECT r.*,dr.row_number FROM lead_import_result r JOIN lead_import_dataset_row dr ON dr.submission_id=r.submission_id ORDER BY dr.row_number`;
+ assert.ok(rows.every(r=>r.state==='NEEDS_ATTENTION'));const restricted=rows[0]!,ambiguous=rows[1]!;assert.equal(restricted.error_code,'CONTACT_REVIEW_REQUIRES_ADMIN');assert.equal(ambiguous.error_code,'CONTACT_AMBIGUOUS');
+ const root='/api/import-contact-reviews';assert.equal((await api('GET',root)).json().items.length,2);assert.equal((await api('GET',root,undefined,'other')).json().items.length,0);assert.equal((await api('GET',root,undefined,'foreign')).json().items.length,0);assert.equal((await api('GET',root,undefined,'agent')).statusCode,403);
+ const blocked=await api('GET',root+'/'+restricted.submission_id+'/candidates');assert.equal(blocked.statusCode,200,blocked.body);assert.equal(blocked.json().adminRequired,true);assert.deepEqual(blocked.json().items,[]);assert.ok(!blocked.body.includes(shared));assert.ok(!blocked.body.includes('Shared hidden'));
+ assert.equal((await api('POST',root+'/'+restricted.submission_id+'/resolve',{version:restricted.version,requestId:randomUUID(),contactId:shared,reason:'Not authorized'})).statusCode,409);
+ assert.equal((await api('GET',a.root,undefined,'admin')).statusCode,404);const visible=await api('GET',root+'/'+restricted.submission_id+'/candidates',undefined,'admin');assert.equal(visible.statusCode,200,visible.body);assert.equal(visible.json().items[0].id,shared);
+ const choice={version:restricted.version,requestId:randomUUID(),contactId:shared,reason:'Authorized cross-branch contact review'},resolved=await Promise.all(Array.from({length:8},()=>api('POST',root+'/'+restricted.submission_id+'/resolve',choice,'admin')));assert.ok(resolved.every(r=>r.statusCode===200),resolved.map(r=>r.body).join('\n'));assert.equal(new Set(resolved.map(r=>r.json().id)).size,1);
+ const page=await api('GET',root+'/'+ambiguous.submission_id+'/candidates');assert.equal(page.json().items.length,25);assert.equal((await api('GET',root+'/'+ambiguous.submission_id+'/candidates?after='+page.json().nextAfter)).json().items.length,2);
+ const ownChoice={version:ambiguous.version,requestId:randomUUID(),contactId:page.json().items[0].id,reason:'Current matching review'};
+ const own=await api('POST',root+'/'+ambiguous.submission_id+'/resolve',ownChoice);assert.equal(own.statusCode,200,own.body);assert.equal((await api('POST',root+'/'+ambiguous.submission_id+'/resolve',ownChoice)).json().id,own.json().id);
+ assert.equal((await api('POST',root+'/'+ambiguous.submission_id+'/resolve',{...ownChoice,reason:'Changed intent'})).statusCode,409);
+ assert.equal((await db`SELECT count(*)::int n FROM lead WHERE source_kind='IMPORT_CSV'`)[0]!.n,2);assert.equal((await db`SELECT count(*)::int n FROM contact`)[0]!.n,28);
+ assert.equal((await db`SELECT count(*)::int n FROM lead_intake_receipt WHERE origin_kind='APPROVED_IMPORT'`)[0]!.n,2);assert.equal((await db`SELECT count(*)::int n FROM lead_import_attempt WHERE resolver_id IS NOT NULL AND session_id IS NOT NULL`)[0]!.n,2);
+ assert.equal((await api('GET',root)).json().items.length,0);
+ // A later transfer cannot expose an old imported Lead through private receipts or a replayed Manager review.
+ await db`UPDATE lead SET branch_id=${f.other},campaign_id=${otherCampaign} WHERE id=${own.json().id}`;
+ const results=(await api('GET',a.path+'/execution/rows')).json().items;assert.equal(results.find((r:any)=>r.submission_id===ambiguous.submission_id).lead_id,null);
+ assert.equal((await api('POST',root+'/'+ambiguous.submission_id+'/resolve',ownChoice)).statusCode,404);
+});
+
+test('Native approved Import proofs reject forged jobs, dangling effects, old-Lead Field provenance and immutable history edits; attempt Audit failure never leaves business effects',async t=>{
+ const f=await fixture(t),{db,api}=f,n=await addImportField(f,'NUMBER','native_import',true,'SOURCE');
+ const a=await approvedIntake(f,[['number'],['7']],[{column:0,kind:'LEAD_FIELD',fieldId:n}]);
+ await assert.rejects(db`INSERT INTO lead_import_execution(dataset_id,request_key,session_id) VALUES(${a.dataset},${randomUUID()},${f.users.manager!.session})`,/IMPORT_EXECUTION_CURRENT_APPROVAL_REQUIRED/);
+ await assert.rejects(db.begin(async tx=>{const id=randomUUID(),key=randomUUID();
+  await tx`INSERT INTO audit_log(organization_id,branch_id,actor_user_id,action,target_type,target_id,detail) VALUES(${f.org},${f.branch},${f.users.manager!.id},'IMPORT_EXECUTION_STARTED','LEAD_IMPORT_EXECUTION',${id},${tx.json({datasetId:a.dataset,sessionId:f.users.manager!.session,requestId:key})})`;
+  await tx`INSERT INTO lead_import_execution(id,dataset_id,request_key,session_id) VALUES(${id},${a.dataset},${key},${f.users.manager!.session})`;
+ }),/IMPORT_EXECUTION_ROWS_REQUIRED/);
+ assert.equal((await api('POST',a.path+'/execute',{requestId:randomUUID()})).statusCode,202);const r=(await db`SELECT * FROM lead_import_result`)[0]!;
+ await assert.rejects(db.begin(async tx=>{const leadId=randomUUID(),hash=(await tx`SELECT lead_import_mapping_config(f) hash FROM lead_import_file f WHERE f.id=${a.file}`)[0]!.hash;
+  await tx`INSERT INTO audit_log(organization_id,branch_id,actor_user_id,action,target_type,target_id,detail) VALUES(${f.org},${f.branch},NULL,'IMPORT_ATTEMPT_STARTED','SOURCE_SUBMISSION',${r.submission_id},${tx.json({version:2,configurationHash:hash,sessionId:null,requestId:null})})`;
+  await tx`INSERT INTO lead_import_attempt(submission_id,result_version,lead_id,configuration_hash) VALUES(${r.submission_id},2,${leadId},${hash})`;
+  await tx`INSERT INTO lead(id,organization_id,branch_id,campaign_id,source_kind) VALUES(${leadId},${f.org},${f.branch},${f.campaign},'IMPORT_CSV')`;
+  await tx`UPDATE source_submission SET state='PROCESSED',lead_id=${leadId} WHERE id=${r.submission_id}`;
+ }),/IMPORT_ATOMIC_INTAKE_REQUIRED/);
+ assert.equal((await db`SELECT count(*)::int n FROM lead`)[0]!.n,0);assert.equal((await db`SELECT count(*)::int n FROM lead_import_attempt`)[0]!.n,0);
+ await db`CREATE FUNCTION test_import_intake_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='IMPORT_ATTEMPT_STARTED' THEN RAISE EXCEPTION 'Synthetic import audit outage';END IF;RETURN NEW;END $$`;
+ await db`CREATE TRIGGER test_import_intake_audit BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION test_import_intake_audit()`;
+ f.cleanup.push(async()=>{await db`DROP TRIGGER IF EXISTS test_import_intake_audit ON audit_log`;await db`DROP FUNCTION IF EXISTS test_import_intake_audit()`;});
+ assert.equal(await processOneImportIntake(db,{retryDelaySeconds:0}),true);assert.equal((await db`SELECT failure_count FROM lead_import_result`)[0]!.failure_count,1);assert.equal((await db`SELECT count(*)::int n FROM lead`)[0]!.n,0);
+ await db`DROP TRIGGER test_import_intake_audit ON audit_log`;await processOneImportIntake(db);const done=(await db`SELECT * FROM lead_import_result`)[0]!;assert.equal(done.state,'IMPORTED');
+ await assert.rejects(db`UPDATE lead_field_value SET value='9'::jsonb WHERE lead_id=${done.lead_id}`,/IMPORT_FIELD_CURRENT_PROOF/);
+ await assert.rejects(db`UPDATE field_value_history SET new_value='9'::jsonb WHERE lead_id=${done.lead_id}`,/IMPORT_FIELD_HISTORY_IMMUTABLE/);
+ await assert.rejects(db`UPDATE source_submission SET state='RECEIVED',lead_id=NULL WHERE id=${r.submission_id}`,/IMPORT_SOURCE_IMMUTABLE/);
+ await assert.rejects(db`UPDATE lead_intake_receipt SET origin_kind='SOURCE' WHERE lead_id=${done.lead_id}`,/LEAD_INTAKE_RECEIPT_IMMUTABLE/);
+});
+
+test('Selected XLSX and legacy XLS approved sheets create only their own optional-Contact Leads after raw expiry, retain source references and remain searchable and analyzable under current scope',async t=>{
+ const f=await fixture(t),{db,api}=f;
+ const previous=process.env.IMPORT_RETENTION_SECONDS;process.env.IMPORT_RETENTION_SECONDS='4';f.cleanup.push(async()=>{if(previous===undefined)delete process.env.IMPORT_RETENTION_SECONDS;else process.env.IMPORT_RETENTION_SECONDS=previous;});
+ await db`UPDATE campaign SET routing_method='MANUAL' WHERE id=${f.campaign}`;assert.equal((await api('POST','/api/campaigns/'+f.campaign+'/activate',{})).statusCode,200);
+ const files:string[]=[];
+ for(const type of ['xlsx','xls'] as const){
+  const book=XLSX.utils.book_new();XLSX.utils.book_append_sheet(book,XLSX.utils.aoa_to_sheet([['name'],['Excluded original']]),'Excluded');XLSX.utils.book_append_sheet(book,XLSX.utils.aoa_to_sheet([['name'],['Selected '+type]]),'Selected');
+  const uploaded=await f.upload({label:'selected.'+type,format:type.toUpperCase(),requestId:randomUUID()},XLSX.write(book,{type:'buffer',bookType:type}) as Buffer);assert.equal(uploaded.statusCode,202,uploaded.body);const file=uploaded.json().id,root='/api/lead-imports/'+file;files.push(file);await f.work();
+  const review=await api('POST',root+'/reviews',await reviewInput(f,file,[1]));assert.equal(review.statusCode,202,review.body);await processOneImportReview(db);
+  const approved=await api('POST',root+'/reviews/'+review.json().id+'/approve-dataset',{version:2,requestId:randomUUID(),unreviewedPolicy:'KEEP_VALID_UNIQUE'});assert.equal(approved.statusCode,201,approved.body);
+  assert.equal((await api('POST',root+'/approved-datasets/'+approved.json().datasetId+'/execute',{requestId:randomUUID()})).statusCode,202);
+ }
+ await new Promise(resolve=>setTimeout(resolve,4100));for(const file of files){for(let i=0;i<3;i++)await f.work();assert.equal((await db`SELECT count(*)::int n FROM lead_import_row WHERE file_id=${file}`)[0]!.n,0);}
+ while(await processOneImportIntake(db)){}
+ const sources=await db`SELECT s.*,r.state result FROM source_submission s JOIN lead_import_result r ON r.submission_id=s.id`;assert.equal(sources.length,2);assert.ok(sources.every(s=>s.result==='IMPORTED'&&s.source_kind==='IMPORT_EXCEL'&&s.import_sheet_index===1));
+ const query=await api('GET','/api/leads?sourceKind=IMPORT_EXCEL');assert.equal(query.statusCode,200,query.body);assert.equal(query.json().items.length,2);
+ const analytics=await api('GET','/api/analytics/overview?sourceKind=IMPORT_EXCEL');assert.equal(analytics.statusCode,200,analytics.body);assert.equal(analytics.json().leads.total,'2');assert.equal(analytics.json().leads.paid,'0');
+ assert.equal((await api('GET','/api/analytics/overview?sourceKind=IMPORT_EXCEL',undefined,'other')).json().leads.total,'0');
+ const receipts=await db`SELECT context FROM lead_intake_receipt WHERE origin_kind='APPROVED_IMPORT'`;assert.equal(receipts.length,2);assert.ok(receipts.every(r=>r.context.source.sheet===1&&r.context.source.mappingVersion===1&&r.context.source.executionId));
+ assert.ok((await db`SELECT name FROM contact`).every(c=>c.name.startsWith('Selected')));assert.equal((await db`SELECT count(*)::int n FROM payment_record`)[0]!.n,0);
+});
 
 test('Approved Import source capture is explicit/current/concurrent-idempotent, retains original and typed provenance, resolves duplicate decisions and prevents same-file row recapture without any Lead writes',async t=>{
  const f=await fixture(t),{db,api}=f,n=await addImportField(f,'NUMBER','approved_quantity',true,'SOURCE'),b=await addImportField(f,'BOOLEAN','approved_flag');
