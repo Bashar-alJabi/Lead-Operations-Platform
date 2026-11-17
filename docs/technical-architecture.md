@@ -1,5 +1,9 @@
 # المعمارية التقنية
 
+## Managed Picker prerequisites — Native186
+
+إعدادPicker منفصلعنOAuth authorization: row ذاتversion وkey_revision وencrypted dedicated key/AAD،ومetadata-only immutable history/Audit. mutation تحتاجbothCAS (settings وcurrentConnection) وcurrent SA/Manager Session/scope؛key rotationلاتغيّرGoogle client identity أوOAuth grant. لاتُخزنkey فيconfig/capabilities ولا تُعادفيmetadata APIs. [العقد](google-sheets.md). حفظهذهالمتطلباتليسverification أوresource authorization،ولاexternal I/O. مرحلةtickets/SDK وtrusted metadata/explicit resource grants منفصلةلاحقة،مععدمإضعافCSP العامةللمنصة.
+
 ## Managed Google Connection/OAuth — Native185
 
 `google_connection_revision` و`google_oauth_operation` وimmutable subject/history تنفذ الاتصال فوق integration_connection/connection_secret الحالية. نفس SA/Manager scope وreal Session،مع current Role/Branch/version وactive Branch عندauthorization/verification. إعدادات Client ID/Organization/Branch immutable؛الـsubject تُثبت SHA256 بعدuserinfo موثوقة،ولا تكون Google login أوRole grant. credential revisions وconfiguration receipts تعتمد fresh transaction proof/Audit وتمنع التعديل دونCAS/history. [العقد التفصيلي](google-sheets.md).

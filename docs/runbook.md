@@ -1,5 +1,11 @@
 # دليل التشغيل والتطوير
 
+## إعداد متطلبات Google Picker — Native186
+
+طبّق001–186 بعدbuild دونreset. افتحConnection من«اتصالات Google Sheets» ثم«إعداد Google Picker». تعرضالواجهةرابطGoogle Cloud وتعليماتتفعيلPicker API فيمشروعOAuth نفسه وإدخالProject number والمفتاحالمخصصالمقيد؛Website patterns ظاهرتانللنسخباتجاهLTR حتىفيالعربية. أدخلreason واحفظ؛المفتاحلايُعادعرضهبعدالحفظ،وتركهفارغًافيالتعديل يحتفظبه. Key rotation/history وCAS منفصلتانعنOAuth،ولاتعيدreauthorization بلاسبب.
+
+الحالةCONFIGURED_NOT_VERIFIED تعنيحفظالمتطلبات فقط؛لااختبارمفتاح أوقراءةملفات/cells أوImport/Export أوBranch/Campaign grant. عندstale version حدّثالإعداداتثمأعدالإجراءالمقصود؛لاoverwrite أومحاولةخفية. DISABLED تمنعتعديلالإعدادات،والصلاحياتSA/Manager scope نفسها. Native187 SDK/tickets/selection/current resources باقية،ولازرselection وهمي. لاLive credentials أوProvider call بهذهالجلسة،و[سجلالبوابة](codex-progress.md) يحددمااختُبرفعليًا.
+
 ## Managed Google Connection/OAuth — Native185
 
 بعد build طبّق migrations001–185 دون reset. من «اتصالات Google Sheets» تهيّئ Super Admin اتصال المؤسسة أوالفرع، وManager فرعها فقط. اتبع روابط Google Cloud والشرح، فعّل Sheets API وأعد Auth Platform/Audience/Test users/Data Access، وأنشئ OAuth Web application بالـredirect URI الدقيقة الظاهرة والقابلة للنسخ. أدخل Client ID وSecret وreason واحفظ، ثم اختر «الموافقة عبر Google» بالحساب المؤسسي المقصود. لا business env/CLI/DB edits. بنية النشر الحالية تحتاج APP_ORIGIN وcredential encryption key وsame-origin `/api` كما سبق؛ ليست هذه Google business credentials. [العقد](google-sheets.md).

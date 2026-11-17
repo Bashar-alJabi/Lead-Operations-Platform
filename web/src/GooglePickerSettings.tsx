@@ -1,0 +1,36 @@
+import {useEffect,useRef,useState} from 'react';
+type Api=<T>(path:string,options?:RequestInit)=>Promise<T>;
+type Locale='ar'|'en'|'fr';
+type Settings={configured:boolean;version:number;projectNumber:string|null;keyRevision:number|null;connectionVersion:number;verification:string};
+type History={version:number;connection_version:number;project_number:string;key_revision:number;secret_changed:boolean;reason:string;created_at:string};
+const words={
+ title:['إعداد Google Picker','Google Picker configuration','Configuration Google Picker'],project:['رقم مشروع Google Cloud','Google Cloud project number','Numéro du projet Google Cloud'],key:['مفتاح Google Picker API','Google Picker API key','Clé API Google Picker'],reason:['سبب إعداد Google Picker','Google Picker configuration reason','Motif de configuration Google Picker'],save:['حفظ إعداد Google Picker','Save Google Picker configuration','Enregistrer la configuration Google Picker'],refresh:['تحديث إعداد Google Picker','Refresh Google Picker configuration','Actualiser la configuration Google Picker'],history:['تاريخ إعداد Google Picker','Google Picker configuration history','Historique de configuration Google Picker'],more:['المزيد من تاريخ Google Picker','More Google Picker history','Autres versions Google Picker'],
+ help:['فعّل Google Picker API في مشروع OAuth نفسه. أدخل Project number ومفتاحًا مخصصًا مقيدًا إلىGoogle Picker API والموقعين أدناه. Project number ليستProject ID. استخدم بيانات اصطناعية محليًا.','Enable Google Picker API in the OAuth project. Enter its project number and a dedicated key restricted to Google Picker API and the two websites below. Project number differs from project ID. Use synthetic keys locally.','Activez Google Picker API dans le projet OAuth. Indiquez son numéro et une clé dédiée, limitée à Google Picker API et aux deux sites ci-dessous. Le numéro diffère de l’ID du projet. Utilisez des clés synthétiques localement.'],
+ configured:['الإعداد محفوظ؛لم يُتحقق من اختيار ملف.','Configuration saved; file selection not verified.','Configuration enregistrée ; sélection de fichier non vérifiée.'],empty:['إعداد Picker غير محفوظ.','Picker not configured.','Picker non configuré.'],note:['حفظ هذه البيانات لا يختبر المفتاح ولا يقرأ أويرسل بيانات Sheets. لا يعطي صلاحية لفرع أوCampaign. يبقى اختيار الملف والتحقق المستقل والصلاحيات خطوة منفصلة.','Saving these prerequisites does not test the key or read or send spreadsheet data. It grants no Branch or Campaign access. File selection, independent verification and permissions remain separate.','Enregistrer ces prérequis ne teste pas la clé et ne lit ni ne transmet de cellules. Aucun accès Branch ou Campaign accordé. Sélection, vérification indépendante et permissions sont distinctes.'],
+ retain:['اترك المفتاح فارغًا للاحتفاظ به؛لا يظهر بعد الحفظ.','Leave the key blank to retain it; it is never displayed after saving.','Laissez la clé vide pour la conserver ; elle ne sera jamais affichée.'],changed:['تغيّر المفتاح','Key changed','Clé modifiée'],loading:['جارٍ التحميل…','Loading…','Chargement…'],error:['تعذّر حفظ أوتحميل إعداد Picker. حدّث البيانات قبل إعادة المحاولة.','Picker configuration could not be saved or loaded. Refresh before retrying.','Échec du chargement ou de l’enregistrement de Picker. Actualisez avant de réessayer.'],
+} as const;
+export function GooglePickerSettings({locale,connectionId,connectionVersion,disabled,origin,api}:{locale:Locale;connectionId:string;connectionVersion:number;disabled:boolean;origin:string;api:Api}) {
+ const i=locale==='ar'?0:locale==='en'?1:2,t=(k:keyof typeof words)=>words[k][i],root='/api/google/connections/'+connectionId+'/picker';
+ const [settings,setSettings]=useState<Settings|null>(null),[history,setHistory]=useState<History[]>([]),[before,setBefore]=useState<number|null>(null),[project,setProject]=useState(''),[key,setKey]=useState(''),[reason,setReason]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
+ const live=useRef(true),sequence=useRef(0),lock=useRef(false);
+ async function load(){const seq=++sequence.current;setSettings(null);setHistory([]);setBefore(null);setKey('');setReason('');
+  const [s,h]=await Promise.all([api<Settings>(root),api<{items:History[];nextVersion:number|null}>(root+'/history?limit=20')]);
+  if(!live.current||seq!==sequence.current)return;setSettings(s);setProject(s.projectNumber??'');setHistory(h.items);setBefore(h.nextVersion);
+ }
+ async function run(action:()=>Promise<void>){if(lock.current)return;lock.current=true;setBusy(true);setError('');try{await action();}catch(e){if(live.current){setSettings(null);setHistory([]);setBefore(null);setProject('');setKey('');setReason('');setError(e instanceof Error?e.message.match(/\b(?:GOOGLE_[A-Z_]+|AUTH_REQUIRED|FORBIDDEN|INTERNAL_ERROR|INVALID_REQUEST)\b/)?.[0]??'REQUEST_FAILED':'REQUEST_FAILED');}}finally{lock.current=false;if(live.current)setBusy(false);}}
+ useEffect(()=>{live.current=true;void run(load);return()=>{live.current=false;sequence.current++;};},[connectionId,connectionVersion]);
+ return <section data-google-picker-settings><h4>{t('title')}</h4><p>{t('help')} <a href="https://developers.google.com/workspace/drive/picker/guides/web-picker" rel="noopener noreferrer" target="_blank">Google Picker</a></p>
+  <ul><li><code dir="ltr" style={{overflowWrap:'anywhere'}}>{origin+'/*'}</code></li><li><code dir="ltr">https://docs.google.com/*</code></li></ul><p>{t('note')}</p>
+  {error&&<p role="alert">{t('error')} <code>{error}</code></p>}{busy&&<p role="status">{t('loading')}</p>}
+  <button disabled={busy} onClick={()=>void run(load)}>{t('refresh')}</button>
+  {settings&&<><p role="status">{settings.configured?t('configured'):t('empty')}{settings.configured?' · #'+settings.version:''}</p>
+   <form className="form-grid" onSubmit={e=>{e.preventDefault();void run(async()=>{await api(root,{method:'PUT',body:JSON.stringify({version:settings.version,connectionVersion,projectNumber:project.trim(),reason:reason.trim(),...(key.trim()?{apiKey:key.trim()}:{})})});setKey('');await load();});}}>
+    <label>{t('project')}<input required inputMode="numeric" maxLength={30} pattern="[1-9][0-9]{0,29}" value={project} disabled={busy||disabled} onChange={e=>setProject(e.target.value)}/></label>
+    <label>{t('key')}<input type="password" required={!settings.configured} minLength={16} maxLength={256} autoComplete="new-password" value={key} disabled={busy||disabled} onChange={e=>setKey(e.target.value)}/></label>{settings.configured&&<p>{t('retain')}</p>}
+    <label>{t('reason')}<input required minLength={3} maxLength={500} value={reason} disabled={busy||disabled} onChange={e=>setReason(e.target.value)}/></label>
+    <button disabled={busy||disabled||reason.trim().length<3||!project||!settings.configured&&!key.trim()}>{t('save')}</button>
+   </form><h5>{t('history')}</h5><ul data-google-picker-history>{history.map(h=><li key={connectionId+':'+h.version}>#{h.version} · {h.project_number} · {h.reason} · {new Date(h.created_at).toLocaleString(locale)}{h.secret_changed?' · '+t('changed'):''}</li>)}</ul>
+   {before&&<button disabled={busy} onClick={()=>void run(async()=>{const r=await api<{items:History[];nextVersion:number|null}>(root+'/history?limit=20&before='+before);setHistory(old=>[...old,...r.items]);setBefore(r.nextVersion);})}>{t('more')}</button>}
+  </>}
+ </section>;
+}

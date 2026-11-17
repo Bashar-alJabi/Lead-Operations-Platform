@@ -1,5 +1,11 @@
 # خطة التنفيذ
 
+## أحدث checkpoint: Picker prerequisites — Native186 — 2026-11-17
+
+اكتملت managed project number/API key encrypted وretention/rotation وbothCAS/current scope/session وnative history/Audit وar/en/fr UI فوق59ebe28. **201Unit و146fullDockerPG(529.2s) و70fullEdgeBrowser(6.2m)** وBackend/Webbuild/typecheck و001–186development/test recheck ناجحة؛قبلهاfocusedPG1/focusedGoogleBrowser2. scope accessible label وRTL wildcard direction صُححتا وأُعيدت بوابة Web/fullBrowser وفُحصت الصورة. هذهCONFIGURED_NOT_VERIFIED ولاProvider call أوGooglefile claim.
+
+التاليبعدالحفظNative187 dedicated Picker page/tickets/selection وindependent metadata/current resources/shared grants،ثمsnapshot/shared import-export. لاClientSecret/refresh token للمتصفح،ولاglobalCSP weakening أوfake approval أوتعميقoptional قبلبقيةModules الأساسية. [العقد](google-sheets.md).
+
 ## أحدث checkpoint: managed Google Connection/OAuth — Native185 — 2026-11-17
 
 اكتملت managed encrypted Connections وcurrent Role/Session/Branch/version وone-time PKCE/state وdurable exchange/refresh/subject pinning وnative history/Audit وtest/reconnect/disable/rotation/status/metadata UI. **201Unit و145fullDockerPG(409.5s) و69fullEdgeBrowser(11.0m)** و001–185development/test recheck وBackend/Webbuild/typecheck ناجحة،وقبلهاfocusedGoogleBrowser1/1. أولfullBrowser68pass/1fail بسببHTTP429 فيlogin؛صُححتtest-only rate isolation دونتغييرproduction limits أوBackend/runtime،ثمأعيدbuild/typecheck/201Unit وfull69 ونجحت. [العقد](google-sheets.md). هذهmanaged authorization HTTP/Consent Mock Verified فقط،ولاGooglefile baseline أوLiveverification.

@@ -34,6 +34,14 @@ CONNECTED تحتاج grant/scopes المطلوبة وrefresh token وsubject م�
 
 الواجهةتعرضscopes/callback قابلًاللنسخ وencrypted create/rotation وauthorize/test/reconnect/disable وstatus/last success/failure وattempts/history بصفحات20(max100 فيAPI). failed/revoked reads تمسحالسياقالقديم. تعطيلالاتصال إيقافمحليمعاحتفاظبالتاريخ؛لايدعيrevoke لجهةGoogle. الاختبارات Google HTTP وconsent mocks ببياناتاصطناعية؛ليست Google Cloud consent أوtoken rotation حية. كلحالات Live verification مازالتpending.
 
-## الخطوة التالية المطلوبة
+## Managed Picker prerequisites — Native186
 
-بعدحفظ managedOAuth checkpoint: Picker/resource selection وexplicit shared-use grants/current resource scope،ثمSpreadsheet/worksheet/range snapshot →Mapping/validation/preview/duplicate review →shared approved intake/results،ثم current-scoped Export معdurable immutable payload/reconciliation. يلزمGoogle source provenance فعلية،ولاfake CSV upload/MetaConnection/Human Session أوpipeline Lead مستقلة. هذهالوظائفواختباراتهاIntegration/Browser مازالتمطلوبةقبلbaseline Google كاملة.
+`google_picker_settings` تحفظproject number وAPI key مشفّرةبـAAD مستقلة`google-picker:<connectionId>`،بمعزلعنOAuth client secret حتىلاتتطلبkey rotation إعادةموافقةOAuth. write تحتاجversion الحاليةللإعدادات وconnectionVersion الحالية،وreal Session/Role/Organization/Branch؛DISABLED تمنعالكتابة. Client ID وscope وهويةحسابGoogle لاتتغيربهذهالإعدادات. configuration version وkey revision منفصلتان لتتبعمتىتغيّرkey فعلًا،وتركهافارغةيبقيciphertext الحالية. Native guards وimmutable metadata history وAudit تحفظالعمليةذريًا،دونقيمةkey فيGET/history/logs.
+
+الحفظCONFIGURED_NOT_VERIFIED صريح؛لاProvider call أوGoogleOAuth operation أوfile/Lead/financial effect،ولاتكتسبCampaign/Branch resource access. الواجهة ar/en/fr تعرضprerequisites وwebsite patterns باتجاهLTR وkey retention/rotation وCAS failures/history/failed-read clearing. **201Unit و146fullPG(529.2s) و70fullBrowser(6.2m) و001–186development/test وBackend/Webbuild/typecheck** ناجحة. scope aria-label وRTL wildcard direction صُححتاوالصورةالأخيرةفُحصت. لاPicker SDK أوtickets/selection أوresource metadata/grants تنفيذيةبعد؛هذهNative187 التالية.
+
+الواجهة تشرح مشروعOAuth نفسه،وتفعيلPicker API وتقييدkey إلىorigin المنصة و`https://docs.google.com/*`. لا يُستنتجproject number منClient ID. Picker تحتاجaccess token للملفاتالخاصة؛مرحلةselection ستستعملهذهفقطللعملية،دونClientSecret/refresh token. [Google Picker prerequisites](https://developers.google.com/workspace/drive/picker/guides/web-picker).
+
+## الخطوة التالية المطلوبة — Native187
+
+بعدحفظNative186: dedicated Picker page/tickets/selection وindependent metadata/current resources/explicit shared-use grants،ثمSpreadsheet/worksheet/range snapshot →Mapping/validation/preview/duplicate review →shared approved intake/results،ثمcurrent-scoped Export معdurable immutable payload/reconciliation. يلزمGoogle source provenance فعلية،ولاfake CSV upload/MetaConnection/Human Session أوpipeline Lead مستقلة. هذهالوظائفواختباراتهاIntegration/Browser مازالتمطلوبةقبلbaseline Google كاملة.

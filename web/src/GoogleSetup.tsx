@@ -1,4 +1,5 @@
 import {useEffect,useRef,useState} from 'react';
+import {GooglePickerSettings} from './GooglePickerSettings';
 type Api=<T>(path:string,options?:RequestInit)=>Promise<T>;
 type Locale='ar'|'en'|'fr';
 type Connection={id:string;name:string;branch_id:string|null;client_id:string;version:number;status:string;account_pinned:boolean;last_error_code:string|null;last_success_at:string|null;last_failure_at:string|null};
@@ -47,7 +48,7 @@ export function GoogleSetup({locale,user,branches,api,initialId}:{locale:Locale;
    const r=await api<{id:string}>(current?root:'/api/google/connections',{method:current?'PUT':'POST',body:JSON.stringify(current?{name,version:current.version,reason,...(secret?{clientSecret:secret}:{})}:{name,branchId:branch||null,clientId,clientSecret:secret,reason})});setSecret('');await list();await select(r.id);
   });}}>
    <label>{t('name')}<input required maxLength={100} value={name} disabled={busy} onChange={e=>setName(e.target.value)}/></label>
-   <label>{t('scope')}<select value={branch} disabled={busy||!!current||user.role==='MANAGER'} onChange={e=>setBranch(e.target.value)}><option value="">{user.role==='SUPER_ADMIN'?t('shared'):t('choose')}</option>{branches.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select></label>
+   <label>{t('scope')}<select aria-label={t('scope')} value={branch} disabled={busy||!!current||user.role==='MANAGER'} onChange={e=>setBranch(e.target.value)}><option value="">{user.role==='SUPER_ADMIN'?t('shared'):t('choose')}</option>{branches.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select></label>
    <label>{t('client')}<input required value={clientId} readOnly={!!current} maxLength={250} disabled={busy} onChange={e=>setClientId(e.target.value)} spellCheck={false}/></label>
    <label>{t('secret')}<input type="password" required={!current} value={secret} maxLength={4096} disabled={busy} onChange={e=>setSecret(e.target.value)} autoComplete="new-password"/></label>{current&&<p>{t('rotation')}</p>}
    <label>{t('reason')}<input required minLength={3} maxLength={500} value={reason} disabled={busy} onChange={e=>setReason(e.target.value)}/></label>
@@ -63,6 +64,7 @@ export function GoogleSetup({locale,user,branches,api,initialId}:{locale:Locale;
    {opCursor&&<button disabled={busy} onClick={()=>void run(async()=>{const r=await api<{items:Operation[];nextCursor:string|null}>(root+'/operations?limit=20&cursor='+encodeURIComponent(opCursor));setOps(old=>[...old,...r.items]);setOpCursor(r.nextCursor);})}>{t('moreOps')}</button>}
    <h4>{t('history')}</h4><ul data-google-history>{history.map(h=><li key={current.id+':'+h.version}>#{h.version} · {h.name} · {state(h.status)} · {h.reason}{h.secret_changed?' · '+t('changed'):''}</li>)}</ul>
    {before&&<button disabled={busy} onClick={()=>void run(async()=>{const r=await api<{items:Revision[];nextVersion:number|null}>(root+'/history?limit=20&before='+before);setHistory(old=>[...old,...r.items]);setBefore(r.nextVersion);})}>{t('moreHistory')}</button>}
+   {setup&&<GooglePickerSettings key={current.id} locale={locale} connectionId={current.id} connectionVersion={current.version} disabled={current.status==='DISABLED'||busy} origin={new URL(setup.redirectUri).origin} api={api}/>}
   </article>}
  </section>;
 }
