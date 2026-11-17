@@ -1,5 +1,11 @@
 # خطة التنفيذ
 
+## أحدث checkpoint: approved Import source — Native181–182 — 2026-11-17
+
+اكتملت immutable approval/typed dispositions/original SourceSubmission/normalized sheet manifest،بــcurrent private owner/real Session/ACTIVE Campaign/configuration وCAS/request/Audit/deferred complete capture وunique file/sheet/row. UI confirmation وlostACK/retained receipts بعدrawpurge فيar/en/fr. **193Unit/136fullDockerPG(339.4s)/66fullEdgeBrowser(4.1m)** و001–182development/test وBackend/Webbuild/typecheck ناجحة؛focused17PG/3Browser وrollback/expiry/concurrency/native proofs مثبتة. [العقد](lead-import.md). شريحةsourcecapture فقط،لاLeadintake أوfinancial/consent effects. احفظdocs/commit/push قبلالتالي؛الأقسامالتاليةتاريخية.
+
+**التالي الدقيق — Native183:** APPROVED_IMPORT origin وSOURCE Field provenance مستقلتان عنMeta/HumanSession،ثمdurable per-row current-scoped intake/results/recovery وLeadUI. أصلdataset مستقلعنrawTTL،والعامللايصطنعجلسةولايمددصلاحيةتاريخية؛current account/scope/Field checks وtyped values وContacts identity locks/current resolution وRouting ثمfresh post-routing receipt/Initial admission. operational Contact review المخولةلاتفتحprivate uploaderfile لمستخدمآخر. لاLeadmerge/CSVfinancial/consenttrust. أكملImportbaseline ثمSheets/generalEmail/بقيةNotifications/Automation وcoregaps في[المراجعة](platform-gap-review.md)،دونoptionalpolish.
+
 ## أحدث checkpoint: Whole-file Import review — Native180 — 2026-11-17
 
 اكتملت مراجعةdataset المختارة فوق Mapping الحالية: transactional background chunks100،current configuration/scope fences وprogress/typed errors،cross-sheet identity duplicate analysis وcurrent masked Contact advice،ثمexplicit append-only per-row decisions/history/UI. 193full Unit و133full DockerPG (324.9s) و66full Edge Browser (4.0m)،001–180 development/test وBackend/Web build/typecheck ناجحة؛fixture2101صفًا/22دفعة وrollback/recovery/CAS/TTL وactual lostACK/locale/mobile failures مثبتة. [العقد](lead-import.md). احفظdocs/commit/push قبلالتالي؛هذه ليستImport كاملة. الأقسامالتاليةتاريخية.

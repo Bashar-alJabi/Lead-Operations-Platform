@@ -1,5 +1,13 @@
 # دليل التشغيل والتطوير
 
+## اعتماد أصل Import — Native181–182
+
+بعدbuild طبّق001–182 دونإعادةتهيئةالبيانات. لاخدمةجديدةأوcredentials مطلوبةلهذهالطبقة. أكملscan/Mapping/whole-file READY،فعّلCampaign منواجهتها،وراجعكلvalidduplicate صراحة. فيمراجعةالملف اقرأالسياسةثمحددcheckbox وconfirm «اعتماد صفوف مصدر الاستيراد». validunique دونقرارمرشحةللإدخال؛Skip/Invalid تحفظكذلك. تظهرSourceapproval وcounts وسجلأصولالصفوف بصفحات25؛ليستهذهImported leads ولاPaymentconfirmation. [العقد](lead-import.md).
+
+إذا فُقدت201استخدم«إعادة الطلب نفسه»حتىعبرتغييراللغة؛لاUUID جديدةولاSQL repair. wrongreview/version/intent أوrow سبقاعتمادها409. snapshot المعتمدةلايعادتعديلهابتغييرMapping/review decision؛الصفوفنفسهافيالملفلايمكنcaptureثانية. Cancellation/TTL تنظفrawpreview/storage فقط،وتبقىoriginalsource/approval؛يمكنعرضreceipt metadata بعدالحذفبجلسةوصلاحياتالمالكالحالية. لاoriginaldownload أوraw/Fieldvalues فيreceipts. Native182 تنقلsheet context إلىmanifest دونإعادةكتابةoriginals السابقة،واختبارlegacy schema1 nonempty upgrade مستقلباقٍقبلأيادعاءقبوله.
+
+لايشغلهذاالاعتمادLead worker ولمتُنفذrow intake/results بعد؛التاليNative183approvedauthority/Fieldprovenance. لااعتبارRECEIVEDأوREADY_FOR_INTAKEنجاحًا،ولاتعديلsource state يدويًا. PreviewOFF،DockerPostgreSQL/ClamAV قائمتانللتطويروالاختبار،ولاLiveMessaging/AI/Payments.
+
 ## Whole-file Import review — Native180
 
 طبّق migrations001–180 بعد البناء. استخدم `npm run worker:imports` الحالي؛لا خدمة جديدة ولا business credentials لهذه المراجعة المحلية. بعد scan وMapping افتح «مراجعة كامل ملف الاستيراد»،وأعد تحميل mappings ثم اختر الأوراق صراحة. Start يثبت versions/configuration وعدد الصفوف؛Refresh يعرض تقدم العامل،ثم READY تتيح25 صفًا وفلاتر Invalid/Duplicate/Unreviewed وقرارات Skip/Keep وسجلاتها. KEEP فرصة مستقلة مرشحة لموافقة لاحقة،ولا تنشئ Lead أوتختار Contact أوتؤكد Payment/Consent. [العقد](lead-import.md).

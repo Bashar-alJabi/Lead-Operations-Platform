@@ -1,6 +1,7 @@
 import {useEffect,useRef,useState} from 'react';
 import {ImportMappingWorkspace} from './ImportMappingWorkspace.js';
 import {ImportReviewWorkspace} from './ImportReviewWorkspace.js';
+import {ImportDatasetWorkspace} from './ImportDatasetWorkspace.js';
 type Api=<T>(path:string,options?:RequestInit)=>Promise<T>;
 type Job={id:string;label:string;state:string;version:number;expired:boolean};
 type Sheet={sheet_index:number;name:string;headers:string[];row_count:number};
@@ -63,7 +64,8 @@ export function ImportWorkspace({locale,api,branchScope}:{locale:'ar'|'en'|'fr';
    {preview&&<div data-import-preview><div className="actions"><button disabled={busy} onClick={()=>void rows(sheet)}>{t.first}</button>{preview.nextRow&&<button disabled={busy} onClick={()=>void rows(sheet,preview.nextRow!)}>{t.more}</button>}</div>
     <div className="table-scroll"><table><thead><tr><th>#</th>{preview.sheet.headers.map((h,i)=><th key={i}>{h}</th>)}</tr></thead><tbody>{preview.items.map(r=><tr key={r.row_number}><td>{r.row_number}</td>{r.cells.map((c,i)=><td key={i}>{c??'—'}</td>)}</tr>)}</tbody></table></div></div>}
    {preview&&<ImportMappingWorkspace key={detail.id+':'+sheet} locale={locale} api={api} fileId={detail.id} sheet={sheet} headers={preview.sheet.headers} onAccessLost={fail}/>}
-   {preview&&<ImportReviewWorkspace key={detail.id} locale={locale} api={api} fileId={detail.id} sheets={detail.sheets} onAccessLost={fail}/>}
+   {preview&&<ImportReviewWorkspace key={'review:'+detail.id} locale={locale} api={api} fileId={detail.id} sheets={detail.sheets} onAccessLost={fail} onApproved={()=>void open(detail.id)}/>}
+   <ImportDatasetWorkspace key={'dataset:'+detail.id} locale={locale} api={api} fileId={detail.id} onAccessLost={fail}/>
    <h4>{t.history}</h4><ul>{detail.history.map(h=><li key={h.version}>{h.version} · {h.state} · {h.attempt_count}{h.error_code?' · '+h.error_code:''}</li>)}</ul>
    {detail.nextVersion&&<button disabled={busy} onClick={()=>void open(detail.id,detail.nextVersion!)}>{t.moreHistory}</button>}
   </div>}

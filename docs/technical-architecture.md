@@ -1,5 +1,13 @@
 # المعمارية التقنية
 
+## Immutable approved Import source — Native181–182
+
+اعتماد source dataset منفصل عن review المؤقتة وعن Lead execution. current owner/real Session/ACTIVE Campaign/configuration وCAS/request identity تثبت الموافقة،ثم atomic set-based capture تحفظmanifest/SourceSubmissions/typed approved rows. Native guards وfresh same-transaction Audit/source proofs وdeferred complete-capture check تمنع capture ناقصة أومصطنعة. unique file/sheet/row تمنع اعتماد technical row مرتين؛review decision اللاحقة لا تغير approval الأصلية. لا HTTP/JS loop لتحميلكلالملف فيendpoint الاعتماد،ولا partial commit.
+
+Manifest immutable تحجزsheet context مرةواحدة،والـschema2 originals تشيرإليها وإلىimmutable Mapping revision وfile hash/metadata بدلstorage amplification لكلصف. Native182 forward تحفظschema1 originals دونتعديلها. approval rows ليستFK إلىraw quarantine؛cancel/TTL تنهيpreview وتحذفrawbytes لكنتبقىapproved originals. الـAPI الحاليةتعيدreceipt metadata فقط تحتprivate currentowner/session/scope،فلا تفتحvalues قديمةلتجاوزFieldvisibility. approvaltime predicate ليستworker authority لاحقة. [العقد](lead-import.md).
+
+هذه طبقةsource capture فقط. التالي APPROVED_IMPORT origin/Field provenance وdurable current-scoped row effects/results/recovery. لا يعاداستعمالHUMAN_MANUAL بجلسةمصطنعة،ولاSOURCE Meta بمفاتيحConnection/Mapping مصطنعة. قبلذلكoriginalsource UPDATE محجوبة،ولا Lead/Contact/AI/customer/financial/consent effects. الواجهةتميزdisposition عنactual imported count؛receipt قديمةلاتثبتنجاحintake.
+
 ## Durable Import dataset review — Native180
 
 تفصل `lead_import_review` المراجعة الشاملة عن quarantine وMapping وعن intake approval. envelope immutable تحدد sheets/revisions/configuration/actor Session؛بدء مراجعة بديلة يحتاج CAS ويلغي السابقة ذريًا مع حذف مشتقاتها. row decisions append-only لكلsheet/row بنسخ ومفاتيح request مستقلة وnative real-session/Audit/current-context proofs. لا تمتلك job أوقرارها origin HUMAN_MANUAL/SOURCE أوauthority لإنشاء Lead.

@@ -7,6 +7,7 @@ import {importMaxBytes} from '../imports/types.js';
 import {importScope,importFile,importAvailable,importAudit,changeImport,uploadImport,type UploadInput} from '../imports/service.js';
 import {registerImportMappingRoutes} from './import-mapping.js';
 import {registerImportReviewRoutes} from './import-review.js';
+import {registerImportApprovalRoutes} from './import-approval.js';
 
 const uuid={type:'string',format:'uuid'} as const;
 const params={type:'object',additionalProperties:false,required:['id'],properties:{id:uuid}} as const;
@@ -15,6 +16,7 @@ const uuidPattern=/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
 export function registerLeadImportRoutes(app:FastifyInstance,db:Database,storage?:MediaStorage){
  registerImportMappingRoutes(app,db);
  registerImportReviewRoutes(app,db);
+ registerImportApprovalRoutes(app,db);
  const root='/api/lead-imports';const uploading=new Set<string>();
  app.get<{Querystring:{kind:'BRANCH'|'CAMPAIGN';branchId?:string;after?:string}}>(root+'/catalog',{schema:{querystring:{type:'object',additionalProperties:false,required:['kind'],properties:{kind:{type:'string',enum:['BRANCH','CAMPAIGN']},branchId:uuid,after:uuid}}}},async(request,reply)=>{
   const actor=await principalFromRequest(request,db);requireRole(actor,'SUPER_ADMIN','MANAGER');reply.header('Cache-Control','no-store');

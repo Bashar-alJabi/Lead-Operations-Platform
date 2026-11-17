@@ -1,5 +1,19 @@
 # استيراد CSV/Excel — الحفظ الخاص والفحص ومراجعة dataset
 
+## اعتماد أصل المصدر — Native181–182
+
+بعد READY يستطيع مالك الملف Super Admin أوManager،بجلسة حقيقية وصلاحيات ونطاق حاليين،اعتماد dataset للحملة ACTIVE. يلزم تأكيد صريح لسياسة `KEEP_VALID_UNIQUE`: الصف الصالح الفريد بلا قرار يصبح `READY_FOR_INTAKE`،وقرار Skip الصريح يبقى `SKIPPED`،وغير الصالح دون Skip يبقى `INVALID`. كل صف صالح مكرر يحتاج قرار Keep/Skip مستقلًا قبل الاعتماد. هذه dispositions مرشحة للتنفيذ اللاحق،وليست أعداد Leads منفذة أوصلاحية لاختيار Contact متعارضة.
+
+الموافقة ذرية: Audit ثم `lead_import_dataset` immutable مع review/version/configuration/policy/real Session/counts،وmanifest لكلورقة في `lead_import_dataset_sheet`،وoriginal `SourceSubmission` لكلصف،ثم `lead_import_dataset_row` تحجز original source ID وtyped contact/Fields/errors ونسخ Mapping والقرار وdisposition/duplicate. complete-capture proof مؤجلة إلى commit تتحقق من العدد والنطاق والتكوين والصفوف والأصول والأوراق معًا؛فشل أيجزء يرجع الجميع. guards تمنع أصلاً مصطنعًا أوsnapshot ناقصة أوتعديل الأصل أوالاعتماد لاحقًا،وunique `(file,sheet,row)` تمنع اعتماد الصف نفسه ثانية عبرمراجعة جديدة. تغيير قرار review بعد الحفظ لا يغير snapshot المعتمدة. لا schema/receipt أوcookie Human مزيفة ولاMeta Connection/Mapping مصطنعة.
+
+Native182 تحفظ headers/name/header-row/count مرة واحدة لكلورقة وMapping immutable بالمرجع. `SourceSubmission.raw_payload` schema2 تحفظ dataset/file/sheet/row/cells/Mapping version/review references،وfile metadata/hash الأصلية محفوظة فيسجل الملف. بذلك لا تتكرر headers/Mapping entries لكلصف. الخلايا هي parsed display values الأصلية وليست أرشيف binary للملف. migration forward تستخرج manifest للـschema1 الموجودة دون إعادة كتابة أيoriginal؛اختبار ترقية ببيانات schema1 سابقة غيرفارغة لم ينفذ في هذه البوابة،ولا يُدّعى ذلك.
+
+هذه الأصول وtyped approval لا تتبع quarantine rows بـcascade؛تبقى بعد cancel/expiry/storage cleanup،ولا يمدد ذلك raw preview TTL. كلصف،بما فيهSkipped/Invalid،له أصل محفوظ للتتبع،ولا يتحول paid/consent claim إلىحقيقة. لا توجد في Native181–182 معالجة Lead أوContact أوPayment/Enrollment أورسالة أوAI action. source state تبقى RECEIVED؛تعديلها محجوب حتى إضافة trusted intake proof التالية. `lead_import_dataset_current` دليل **وقت الموافقة فقط** يتطلب raw TTL وجلسة حاضرة؛لا يجوز استخدامه مستقبلاً كصلاحية worker تاريخية بعدانتهاءالجلسة أوالملف.
+
+API: `POST /api/lead-imports/:id/reviews/:reviewId/approve-dataset` مع `{version,requestId,unreviewedPolicy:'KEEP_VALID_UNIQUE'}` تعيد201 و`{datasetId,state:'SOURCE_CAPTURED'}`. same intent تعيد الاعتماد الملتزم،حتىبعدانتهاءالملف،بعد current private-owner/scope/Session checks؛تغييرالنية409. `GET /:id/approved-datasets?after` تعرض25 metadata/counts،و`GET /:id/approved-datasets/:datasetId/rows?afterSheet&afterRow` تعرض25 receipt metadata فقط دون raw/contact/Field values. هاتان القراءتان تعملان بعدإزالةquarantine،ولا تمنحان Super Admin أخرى أوManager آخر قراءة ملف خاص ليس له. مراجعة Contact التشغيلية التالية تحتاج endpoint وصلاحيات مستقلة،وليست توسيعًا لخصوصية الملف.
+
+UI ar/en/fr تعرض سياسة checkbox وconfirmation وcounts وreference وreceipt pagination،وتعيد lost201 ACK بنفس UUID عبرتغييراللغة. تفشل reads بإزالةالمعلوماتالقديمة،وتبقى source receipts بعدحذفالملف. تعرض الواجهة بوضوح أن الاعتماد لا ينشئ Leads،وتعطل قرارات الصف بعداعتماد snapshot. **التالي المطلوب Native183: APPROVED_IMPORT authority وField provenance ثم durable row intake/results/recovery وLead UI؛Import end-to-end ما زالت غيرمكتملة.**
+
 ## مراجعة كامل الملف — Native180
 
 يختار المالك صراحة sheets وMapping versions الحالية بعد الفحص. `lead_import_review` تحفظ envelope immutable تشمل file/revision/request UUID وreal Session وselection وconfiguration fingerprint وعدد الصفوف،دون منح صلاحية intake. إنشاء مراجعة جديدة يحتاج CAS على آخر revision،ويلغي السابقة ويحذف قيمها المشتقة بمعاملة واحدة. same intent يعيد نفس job؛نية مختلفة أونسخة قديمة409. history metadata وقرارات الصفوف تبقى append-only بعد حذف القيم.
@@ -12,7 +26,7 @@
 
 FK من derived row إلى quarantine raw row مع ON DELETE CASCADE تجعل cancellation/expiry/revocation/purge تمحو القيم المشتقة أيضًا،معnative delete gates؛لا إطالة صامتة للـTTL. recipes/job metadata/decision history لا تحفظ raw cell values وتبقى للتدقيق. لا raw download endpoint أوصلاحية جديدة لمستخدم آخر. المقادير الحالية bounds تقنية قابلة للقياس،وليست capacity guarantee.
 
-API: `POST /api/lead-imports/:id/reviews` بــrevision/requestId/configurationHash/selection،و`GET /reviews?before`،و`GET /reviews/:reviewId?before` للـprogress/history،و`GET /reviews/:reviewId/rows?filter&afterSheet&afterRow`،و`POST /reviews/:reviewId/decisions` بــsheet/row/version/requestId/action،و`GET /decisions?sheet&row&before`،ثم`POST /retry|cancel` بــjob version. كلقراءة/قرار تحتاج private current owner/scope/real Session وno-store. **تبقى approved dataset وdurable intake/results مطلوبة؛هذه ليست Import end-to-end.**
+API: `POST /api/lead-imports/:id/reviews` بــrevision/requestId/configurationHash/selection،و`GET /reviews?before`،و`GET /reviews/:reviewId?before` للـprogress/history،و`GET /reviews/:reviewId/rows?filter&afterSheet&afterRow`،و`POST /reviews/:reviewId/decisions` بــsheet/row/version/requestId/action،و`GET /decisions?sheet&row&before`،ثم`POST /retry|cancel` بــjob version. كلقراءة/قرار تحتاج private current owner/scope/real Session وno-store. approved dataset نُفذت لاحقًا في181–182 أعلاه؛تبقى durable intake/results مطلوبة.
 
 ## مراجعة الأعمدة والقيم — Native178–179
 
@@ -22,17 +36,17 @@ API: `POST /api/lead-imports/:id/reviews` بــrevision/requestId/configuration
 
 التحقق read-only ومحدود25 صفًا لكل صفحة. يستخدم `validateFieldValue` و`normalizeSourceContact` القائمين،ولا يفرض Contact fields ثابتة على كل Campaign. الخلية الفارغة null؛الأرقام decimal ASCII بنقطة دون grouping/exponent أوlocale guessing،والمنطقية true/false،وMULTI_SELECT/TAGS تحتاج JSON string array. القيم تخضع لخيارات الحقل الفعالة وحدوده الحالية،والعملة من configuration،وDATE/TIME/DATETIME لتنسيقها الصريح. الصيغ النصية لا تُنفذ. أخطاء الصف تشير إلى column index/code فقط؛required Fields غير المسموحة لا تُكشف أسماؤها أوUUIDs،ويظهر خطأ عام عند نقص قيمة مطلوبة.
 
-معاينة Contact matching تستخدم الهواتف/E-mails المطَبّعة والحسابات الحالية في Organization،مع lookup مجمعة للصفحة وفهارس identity الموجودة. الحالات NONE/MATCH/AMBIGUOUS/RESTRICTED/NO_IDENTIFIER إرشادية؛لا يتم اختيار Contact أوإنشاء سجل أوتعديل أي Contact قائمة. Manager لا تحصل على IDs أوأسماء أوتفاصيل candidate بلا Lead في فرعها أوالمشتركة بفروع أخرى؛تظهر الحاجة لمراجعة Super Admin. لكلصف حتى5 visible candidates،ولا يخرج العدد المحجوب. كلنتيجة لقطة قراءة تتغير بتغير البيانات؛مرحلة intake اللاحقة يجب أن تعيد الفحص تحت identity locks. Native180 تضيف whole-file duplicate review وقراراتها؛الموافقة والتنفيذ ما زالا مطلوبين.
+معاينة Contact matching تستخدم الهواتف/E-mails المطَبّعة والحسابات الحالية في Organization،مع lookup مجمعة للصفحة وفهارس identity الموجودة. الحالات NONE/MATCH/AMBIGUOUS/RESTRICTED/NO_IDENTIFIER إرشادية؛لا يتم اختيار Contact أوإنشاء سجل أوتعديل أي Contact قائمة. Manager لا تحصل على IDs أوأسماء أوتفاصيل candidate بلا Lead في فرعها أوالمشتركة بفروع أخرى؛تظهر الحاجة لمراجعة Super Admin. لكلصف حتى5 visible candidates،ولا يخرج العدد المحجوب. كلنتيجة لقطة قراءة تتغير بتغير البيانات؛مرحلة intake اللاحقة يجب أن تعيد الفحص تحت identity locks. Native180 تضيف whole-file duplicate review وقراراتها و181–182 موافقة source؛التنفيذ الفعلي ما زال مطلوبًا.
 
 API: `GET /api/lead-imports/:id/fields?after` ثم`GET /:id/mapping?sheet&before` و`POST /:id/mapping` بــsheet/version/configurationHash/requestId/entries،ثم`GET /:id/validation?sheet&version&after`. تشمل كل قراءة current private owner/scope/real Session وno-store. UI تحفظ request intent عند lost ACK حتى عبر تغيير اللغة،وتخفي القيم المشتقة عند failed read أوconfiguration conflict. بعد expiry/cancel لا يُسمح بمعاينة القيم؛recipe/history بلاقيم العملاء تبقى للتدقيق.
 
 Native179 forward fix تزيل ambiguity لاسم متغير PL/pgSQL اكتشفتها PG integration عندربط Dynamic Field؛لم تُعدّل178 المطبقة. أعداد البوابات المعتمدة وحالة العمل الحالية فيprogress/coverage،ولا يُعد وجود Mapping وpaged validation استيرادًا مكتملًا.
 
-## الاعتماديات التالية — تصميم غير منفذ بعد
+## اعتماديات الإدخال المتبقية — تصميم غير منفذ بعد
 
-المرحلة التالية بعد Native180 هي الموافقة وintake أدناه. معاينة25 صفًا وحدها ليست بديلًا عن تحقق dataset؛يجب أن تكون أحدث مراجعة READY ببصمة وMapping حاليتين،وأن تُحدد الصفوف المعتمدة صراحة وتُراجع حالات التكرار والتعارض قبل الموافقة. تطابق identity بين صفين لا يعني دمج فرصتين. لا تستخدم review decision كـpayment/consent/Contact resolution proof.
+بعد حفظ الموافقة في Native181–182 تأتي trusted row execution. لا تكفي معاينة25 صفًا أوreview decision للمعالجة؛يحتاج العامل immutable approved dataset وcurrent account/scope/Fields وfresh per-row proof. تطابق identity بين صفين لا يعني دمج فرصتين. لا تستخدم review decision أوsource approval كـpayment/consent/Contact resolution proof.
 
-الموافقة على Import يجب أن تحفظ أصل SourceSubmission وعلاقتها بالملف/الورقة/الصف وMapping المستخدمة بصورة دائمة قبل السماح بالإدخال،وبما لا يجعل business execution تعتمد على raw quarantine قابلة للانتهاء والحذف. تبقى سياسة retention للحفظ المؤقت مستقلة عن التاريخ التشغيلي المعتمد. كل صف يحتاج مفتاحًا ونتيجة idempotent تمنع retry أوlost DB ACK من إنشاءLead مكررة،مع تقدم ونتائج Imported/Skipped/Invalid/Duplicate/Failed وفشل قابل للاستعادة حسب السبب.
+أصل SourceSubmission وعلاقته بالملف/الورقة/الصف وMapping محفوظ بالفعل خارجraw TTL. كل صف ما زال يحتاج execution identity ونتيجة idempotent تمنع retry أوlost DB ACK من إنشاءLead مكررة،مع تقدم ونتائج Imported/Skipped/Invalid/Duplicate/Failed وفشل قابل للاستعادة حسب السبب. rawquarantine ليستاعتمادًاوقتالتنفيذ،ولاتمددحياةجلسةالموافقة.
 
 Native153 تقبل origin HUMAN_MANUAL بجلسة حالية حقيقية أوSOURCE بإثبات Meta processing؛وNative053 تربط SOURCE Field provenance بـMeta mapping revision. يجب إضافة approved Import authority/provenance مستقلتين وإبقاء المسارين الحاليين محميين،لا اصطناع Session أوConnection أوMeta mapping. الإدخال يعيد current account/Branch/Campaign/Field checks وtyped normalization وidentity locks وContact review وRouting،ثم fresh post-routing origin وInitial admission المعتادين ضمن القواعد الحالية. لا يُفترض أن recipe أوhistorical approval تمنح صلاحيات دائمة.
 
@@ -40,9 +54,9 @@ Native153 تقبل origin HUMAN_MANUAL بجلسة حالية حقيقية أوSO
 
 ## حدود التنفيذ
 
-Native175–177 هي مرحلة upload → scan → detect → raw preview،وتضيف Native178–179 Mapping/paged validation،ثمNative180 whole-dataset validation/duplicate review/decisions؛ليست Import end-to-end. يستطيع Super Admin أو Manager حفظ ملف خاص داخل Branch/Campaign مخولة ومراجعته. لا توجد موافقة لإنشاء Leads،ولا تُنشأ Contacts أوSource Submissions أوPayments أوEnrollment،ولا يرسل محتوى الملف إلى AI أوProvider. Agent لا يملك صلاحية Import جديدة.
+Native175–177 هي مرحلة upload → scan → detect → raw preview،وتضيف Native178–179 Mapping/paged validation،ثمNative180 whole-dataset validation/duplicate review/decisions وNative181–182 immutable source approval/capture؛ليست Import end-to-end. يستطيع Super Admin أو Manager حفظ ملف خاص داخل Branch/Campaign مخولة ومراجعته واعتماد مصدره. توجد SourceSubmissions محفوظة لكلصف معتمد،ولا توجد بعدصلاحية لإنشاء Leads أوContacts أوPayments أوEnrollment،ولا يرسل محتوى الملف إلى AI أوProvider. Agent لا يملك صلاحية Import جديدة.
 
-تبقى الموافقة الصريحة وdurable row processing وresults/retry مطلوبة. ستستخدم خدمة intake مشتركة بعقد `APPROVED_IMPORT` أو equivalent موثق،مع current account/scope وimmutable approval وrow receipts. لا يجوز اصطناع cookie أوجلسة `HUMAN_MANUAL` للعامل الخلفي. Contact matching لا يدمج Leads،وraw claims عن consent أودفع ليست أدلة موثوقة.
+الموافقة الصريحة وأصلها نُفذا في181–182؛تبقى durable row processing وresults/retry مطلوبة. ستستخدم خدمة intake مشتركة بعقد `APPROVED_IMPORT` أو equivalent موثق،مع current account/scope وimmutable approval وrow receipts. لا يجوز اصطناع cookie أوجلسة `HUMAN_MANUAL` للعامل الخلفي. Contact matching لا يدمج Leads،وraw claims عن consent أودفع ليست أدلة موثوقة.
 
 ## التخزين والصلاحيات
 
@@ -78,7 +92,7 @@ TTL افتراضية24h وبحد أقصى7days،محسوبة بساعة DB. ال
 
 `GET /api/lead-imports/catalog?kind=BRANCH|CAMPAIGN&branchId&after` اختيارات25 معالحفاظ على الاختيار أثناء pagination. `GET /api/lead-imports?after` قائمة10. `GET /:id?before=version` status/history. `GET /:id/rows?sheet&after` current scanned rows25. `POST /:id/retry` أو`/:id/cancel` مع`{version}`. كلJSON الخاصة `Cache-Control:no-store`،ولا expose storage key أوlease token.
 
-بعد build/migrations001–179 وprivate storage/ClamAV deployment configuration شغّل `npm run worker:imports`. متغيرات infrastructure:
+بعد build/migrations001–182 وprivate storage/ClamAV deployment configuration شغّل `npm run worker:imports`. متغيرات infrastructure:
 
 | الإعداد | default | الحدود |
 |---|---|---|

@@ -51,7 +51,8 @@ export function registerImportReviewRoutes(app:FastifyInstance,db:Database){
    const {r}=await importReview(tx,actor,request,request.params.id,request.params.reviewId);
    const history=await tx`SELECT version,state,processed,valid_count,attempt_count,error_code,created_at FROM lead_import_review_history WHERE review_id=${r.id}
     AND (${request.query.before??null}::integer IS NULL OR version<${request.query.before??null}) ORDER BY version DESC LIMIT 26`;
-   return {...publicReview(r),summary:r.current&&r.state==='READY'?await reviewSummary(tx,r):null,history:history.slice(0,25),nextVersion:history.length>25?history[24]!.version:null};
+   const dataset=(await tx`SELECT id FROM lead_import_dataset WHERE review_id=${r.id}`)[0];
+   return {...publicReview(r),approvedDatasetId:dataset?.id??null,summary:r.current&&r.state==='READY'?await reviewSummary(tx,r):null,history:history.slice(0,25),nextVersion:history.length>25?history[24]!.version:null};
   });
  });
  app.get<{Params:{id:string;reviewId:string};Querystring:{afterSheet?:number;afterRow?:number;filter?:'ALL'|'INVALID'|'DUPLICATE'|'UNREVIEWED'}}>(root+'/:reviewId/rows',{schema:{params:reviewParams,querystring:{type:'object',additionalProperties:false,dependencies:{afterSheet:['afterRow'],afterRow:['afterSheet']},properties:{afterSheet:sheet,afterRow:row,filter:{type:'string',enum:['ALL','INVALID','DUPLICATE','UNREVIEWED']}}}}},async(request,reply)=>{
