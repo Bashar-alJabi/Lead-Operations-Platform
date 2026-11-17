@@ -1,5 +1,11 @@
 # دليل التشغيل والتطوير
 
+## إتاحة Google resources للفروع — Native188
+
+بعدbuild وmigrations001–188،تفتح Super Admin ملفOrganization المتحقق منmetadata فيه منGoogle Connection →«عرض أوراق الملف وتاريخه»→«إتاحة ملف Google للفروع». اخترBranch منcatalog المرقمة،وفعّل أوألغِ السماح معreason واحفظ. version conflict409 تحتاجrefresh ومراجعةlatest grant/history؛ لاforce overwrite. سحب الإتاحة يبقى ممكنًا حتى بعد تعطيلBranch/Connection/resource ويحفظ التاريخ. grant active لا تعنيconnection healthy؛ تعطيل الاتصال أوالمورد يمنع الاستخدام الفعلي حتى استعادة الجاهزية.
+
+Manager تفتح «ملفات Google المتاحة للحملة» داخل«اتصالات Google Sheets»،وتختار Campaign من نطاق فرعها ثم ملفًا لعرضworksheet pages. لا يلزم إعدادOrganization OAuth أومعرفةcredential. لا تظهر الملفات غير المتاحة أوالخاصة بفرع آخر؛ Branch-owned resources تعتمدscope الخاصة بها. سحب الإتاحة يمنع القراءة التالية،والواجهة تمسحmetadata القديمة عندdenial. لاcells/import/export effects بهذه الخطوة؛ نقل بياناتSheets يحتاجsnapshot/approval/jobs التالية. لاكتابةDB/CLI أوcredentials حية للتشغيل التجريبي؛ HTTP/SDK mocks فقط.
+
 ## اختيار Spreadsheet والتحقق من metadata — Native187
 
 بعد build وmigrations001–187 دون reset: افتح Connection المتحقق من OAuth فيها، واحفظ Picker prerequisites، ثم «تحضير اختيار ملف Google» و«فتح Google Picker». اسمح popup لهذه العملية إذا حجبها المتصفح؛ SDK تحتاج اتصال Google في الاستخدام الحي المصرح به وAPP_ORIGIN وsame-origin API صحيحين. لاcredentials شخصية أوlive verification في التطوير؛ Browser tests تستبدل SDK وGoogle HTTP ببيانات اصطناعية فقط.

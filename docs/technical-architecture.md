@@ -1,5 +1,13 @@
 # المعمارية التقنية
 
+## Google shared operational availability — Native188
+
+تحتفظ `google_resource_access` بمنح Organization resource لفروع محددة منSuper Admin فقط، معcurrent Session وCAS للـConnection/resource/grant وreason وimmutable history/Audit. revoke مسموحة حتى بعد تعطيلConnection أوBranch أوresource، ولا تمحو التاريخ. identity هيresource/branch؛ لا تنتقلgrant إلىملف آخر. branch-scoped resource متاحة أصلًا ضمنفرعها دونمنح لمؤسسة أخرى.
+
+`google_available_resource` تجمع مجموعتين مفهرستين منفصلتين: branch-owned resources وexplicit Organization grants. استعمالview فيcatalog معbranch/resource keyset يمنع scalar permission subquery لكلresource بالمؤسسة؛function `google_resource_available` تستعملنفسالـview للتحقق منresource واحدة. effective availability تحتاجactive Branch/resource وCONNECTED Connection وmatching resource connection version. grant active هيإذن مستقلعنhealth؛credential rotation توقفالاستخدام حتىإعادةالتحقق منmetadata،بينماالتاريخوالإذنالصريح يبقيان.
+
+current Campaign catalogs/worksheet reads منفصلةعنconfiguration APIs. نفسcurrent SA/Manager Role/Session/Branch تُفحص دونقراءةcredentials أومرورها إلىManager. القراءةالمفردة تقفلConnection بـFOR SHARE قبلقراءةmetadata،ومسارgrant mutation يقفلهاFOR UPDATE أولًا؛لاrevoke فيمنتصفالقراءةالمحدودة. catalog يقرأavailability وsummary ضمنSQL واحدة. Picker bootstrap الخاصةبـOrganization تبقىSA/configuration فقط،حتىبعدإتاحةresource لفرعManager. هذهطبقةauthorization/metadata وليستcapture/import/export أوtoken runtime.
+
 ## اختيار موارد Google والتحقق المستقل — Native187
 
 تذكرة Picker مرتبطة بنفس Session/Role/Branch ونسخ Connection/settings/grant، ولا تحمل credentials في URL أوHTML. تبدأ WAITING لمدة10 دقائق بساعة DB، ثمPICKING، ثم claim بحالة VERIFYING لمدة60 ثانية تُحفظ مع history/Audit قبل قراءة metadata عبر HTTP خارج transaction. لا تُعتمد نتائج متأخرة بعد تغير الصلاحيات أوالإعدادات أوالتفويض. إعادة نفس requestId تعيد نفس التذكرة؛ تغيير النية يعيد409. worksheet metadata مستقلة عن SDK callback غير الموثوقة، ولا توجد cell data أوLead/financial effects. هذه budgets تقنية قابلة للمراجعة وليست Google guarantees.

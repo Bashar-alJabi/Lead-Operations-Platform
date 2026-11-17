@@ -1,5 +1,6 @@
 import {useEffect,useRef,useState} from 'react';
 import {GooglePickerSettings} from './GooglePickerSettings';
+import {GoogleOperationalResources} from './GoogleOperationalResources';
 type Api=<T>(path:string,options?:RequestInit)=>Promise<T>;
 type Locale='ar'|'en'|'fr';
 type Connection={id:string;name:string;branch_id:string|null;client_id:string;version:number;status:string;account_pinned:boolean;last_error_code:string|null;last_success_at:string|null;last_failure_at:string|null};
@@ -64,7 +65,8 @@ export function GoogleSetup({locale,user,branches,api,initialId}:{locale:Locale;
    {opCursor&&<button disabled={busy} onClick={()=>void run(async()=>{const r=await api<{items:Operation[];nextCursor:string|null}>(root+'/operations?limit=20&cursor='+encodeURIComponent(opCursor));setOps(old=>[...old,...r.items]);setOpCursor(r.nextCursor);})}>{t('moreOps')}</button>}
    <h4>{t('history')}</h4><ul data-google-history>{history.map(h=><li key={current.id+':'+h.version}>#{h.version} · {h.name} · {state(h.status)} · {h.reason}{h.secret_changed?' · '+t('changed'):''}</li>)}</ul>
    {before&&<button disabled={busy} onClick={()=>void run(async()=>{const r=await api<{items:Revision[];nextVersion:number|null}>(root+'/history?limit=20&before='+before);setHistory(old=>[...old,...r.items]);setBefore(r.nextVersion);})}>{t('moreHistory')}</button>}
-   {setup&&<GooglePickerSettings key={current.id} locale={locale} connectionId={current.id} connectionVersion={current.version} connected={current.status==='CONNECTED'} disabled={current.status==='DISABLED'||busy} origin={new URL(setup.redirectUri).origin} api={api}/>}
+   {setup&&<GooglePickerSettings key={current.id} locale={locale} connectionId={current.id} connectionVersion={current.version} connected={current.status==='CONNECTED'} disabled={current.status==='DISABLED'||busy} manageSharing={user.role==='SUPER_ADMIN'&&current.branch_id===null} origin={new URL(setup.redirectUri).origin} api={api}/>}
   </article>}
- </section>;
+  <GoogleOperationalResources key={user.id} locale={locale} api={api}/>
+  </section>;
 }

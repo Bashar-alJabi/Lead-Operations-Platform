@@ -1,4 +1,5 @@
 import {useEffect,useRef,useState} from 'react';
+import {GoogleResourceAccess} from './GoogleResourceAccess';
 type Api=<T>(path:string,options?:RequestInit)=>Promise<T>;
 type Locale='ar'|'en'|'fr';
 type Intent={connectionVersion:number;settingsVersion:number;requestId:string;locale:Locale};
@@ -13,7 +14,7 @@ const words={
  retryMetadata:['إعادة فحص بيانات الملف المختار','Retry selected file metadata','Revérifier les métadonnées du fichier'],cancel:['إلغاء اختيار Google','Cancel Google selection','Annuler la sélection Google'],
  WAITING:['بانتظار فتح الاختيار','Awaiting Picker','Sélection attendue'],PICKING:['الاختيار قيد التنفيذ','Picker opened','Sélection ouverte'],VERIFYING:['جارٍ التحقق من الملف','Verifying file metadata','Vérification du fichier'],VERIFIED:['حُفظت بيانات الملف المتحقق منها','Verified file metadata saved','Métadonnées vérifiées enregistrées'],FAILED:['فشل التحقق','Verification failed','Échec de vérification'],EXPIRED:['انتهت صلاحية الاختيار','Selection expired','Sélection expirée'],SUPERSEDED:['تغير السياق؛ابدأاختيارًا جديدًا','Context changed; start a new selection','Contexte modifié ; recommencez'],CANCELLED:['أُلغي الاختيار','Selection cancelled','Sélection annulée'],
 } as const;
-export function GooglePickerWorkspace({locale,connectionId,connectionVersion,settingsVersion,connected,disabled,api}:{locale:Locale;connectionId:string;connectionVersion:number;settingsVersion:number;connected:boolean;disabled:boolean;api:Api}){
+export function GooglePickerWorkspace({locale,connectionId,connectionVersion,settingsVersion,connected,disabled,manageSharing,api}:{locale:Locale;connectionId:string;connectionVersion:number;settingsVersion:number;connected:boolean;disabled:boolean;manageSharing:boolean;api:Api}){
  const i=locale==='ar'?0:locale==='en'?1:2,t=(k:keyof typeof words)=>words[k][i],state=(s:string)=>s in words?t(s as keyof typeof words):s,root='/api/google/connections/'+connectionId;
  const [ticket,setTicket]=useState<Ticket|null>(null),[pending,setPending]=useState(false),intent=useRef<Intent|null>(null),[items,setItems]=useState<Resource[]>([]),[cursor,setCursor]=useState<string|null>(null),[selected,setSelected]=useState<Resource|null>(null),[sheets,setSheets]=useState<Sheet[]>([]),[sheetNext,setSheetNext]=useState<{index:number;id:number}|null>(null),[history,setHistory]=useState<History[]>([]),[before,setBefore]=useState<number|null>(null),[reason,setReason]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
  const live=useRef(true),locked=useRef(false);
@@ -38,6 +39,7 @@ export function GooglePickerWorkspace({locale,connectionId,connectionVersion,set
   {!items.length&&!busy&&<p>{t('empty')}</p>}<ul>{items.map(r=><li key={r.id}><bdi>{r.title}</bdi> · {r.active?t('active'):t('disabled')} · #{r.version}<button disabled={busy} onClick={()=>void run(()=>inspect(r))}>{t('inspect')}</button></li>)}</ul>
   {cursor&&<button disabled={busy} onClick={()=>void run(()=>load(cursor))}>{t('more')}</button>}
   {selected&&<article data-google-resource><h6><bdi>{selected.title}</bdi></h6><ul>{sheets.map(s=><li key={s.id}><bdi>{s.title}</bdi> · {s.kind} · {s.rows??'—'} × {s.columns??'—'} · #{s.id}</li>)}</ul>
+   {manageSharing&&<GoogleResourceAccess key={selected.id+':'+selected.version} locale={locale} resourceId={selected.id} resourceVersion={selected.version} connectionVersion={connectionVersion} canEnable={connected&&selected.active&&!disabled} api={api}/>}
    {sheetNext&&<button disabled={busy} onClick={()=>void run(async()=>{const r=await api<{items:Sheet[];next:{index:number;id:number}|null}>('/api/google/resources/'+selected.id+'/sheets?limit=25&afterIndex='+sheetNext.index+'&afterId='+sheetNext.id);setSheets(old=>[...old,...r.items]);setSheetNext(r.next);})}>{t('moreSheets')}</button>}
    <ul data-google-resource-history>{history.map(h=><li key={selected.id+':'+h.version}>#{h.version} · <bdi>{h.title}</bdi> · {h.active?t('active'):t('disabled')} · {h.reason} · {new Date(h.created_at).toLocaleString(locale)}</li>)}</ul>
    {before&&<button disabled={busy} onClick={()=>void run(async()=>{const r=await api<{items:History[];nextVersion:number|null}>('/api/google/resources/'+selected.id+'/history?limit=20&before='+before);setHistory(old=>[...old,...r.items]);setBefore(r.nextVersion);})}>{t('moreHistory')}</button>}

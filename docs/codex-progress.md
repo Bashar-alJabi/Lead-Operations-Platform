@@ -1,5 +1,19 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: Google shared resource availability — Native188 — 2026-11-17
+
+استؤنف من checkpoint187 المحفوظة والمرفوعة `1094c5b`. اكتملت إتاحة مواردOrganization للفروع بقرارSuper Admin،وcurrent Campaign catalog/worksheet metadata لـManager دونإدارةConnection المؤسسة أوtokens. تشملBackend/DB/current Session/triple CAS وnative immutable history/Audit وindexed availability view وواجهتيar/en/fr. [العقد](google-sheets.md). لا إخفاق متبقٍ عندهذهالبوابة.
+
+**البوابة النهائية:** Backend/Web build/typecheck وdiff check؛**202/202 full Unit،150/150 full compiled Docker PostgreSQL Integration(552.4s)،72/72 full Edge Browser E2E(5.6m)**. قبلها2focused compiledPG(3.2s) و4focusedGoogleBrowser النهائية(15.3s). Native188 اجتازتpreflight rollback قبلتطبيقها؛001–188development/test وrecheck ناجحة دونreset. لاruntime/Native changes بعد150PG؛آخرالتعديلاتtest-only waiting/fixture،وtypecheck الأخيرةناجحة. Web JS1024.59KB/gzip292.74KB وCSS12.47/gzip2.94؛chunk warning backlog. صورتاArabic390px فُحصتا وassertions no overflow/XSS/duplicate keys ناجحة.
+
+**الإثبات:**8concurrentCAS تنتجgrant revision/Audit واحدة؛27history versions بصفحات20+7 وbranch catalog pagination. Agent/Manager/foreign configuration denials وcurrent Campaign/Branch scopes وdisabled resource/Connection/Branch وnativeforgeries/Audit rollback مثبتة. Session مسحوبة أثناءانتظارقفلConnection حقيقي لا تنشئgrant؛جلسةحقيقيةجديدة تستعيدالإدارة. Browser تثبتSA grant/revoke وManager current metadata دونOrg credentials/configuration،وstale edit وfailed-read clearing.21Campaign تُنشأعبرAPI فيfixture،واختيارmax UUID يضمنpagination/refresh بصفحةثانيةحتىفيfocused.
+
+**الإصلاحات:** أولfocus3pass/1fail كشفaccessible names للقائمتين؛صُححتaria-label وأعيدWeb build/typecheck. fullBrowser الأولى71pass/1fail كشفتtest mount wait نجحخطأعند0options؛الثانية71pass/1fail كشفتفحصقائمةقديمةأثناءrefresh. traces أثبتتAPI200 وdata/pagination صحيحة. صُححتwaits إلىready/enabled وresponse/idle،وقُوّيتfixture إلى21Campaign معcontext-wide rate scope؛ثمfocused4/full72 ناجحتان. لاخفضassertions أوproduction limits أوpermission changes لتجاوزالفشل؛الـtraces/logs الأصليةداخل.local.
+
+**حدود الحالة:** الإتاحة وmetadata UI **Implemented وPostgreSQL/Local Browser Verified**؛Google HTTP/SDK **Mock Verified** فقط و**Live Verification Pending External Credential/Approval**. لاcells/Lead/financial/import/export effects بهذهالشريحة،ولاManager Org Picker/bootstrap/configuration access حتىمعgrant نشطة. Google module والمنصة غيرمكتملتين.185–188 مطبقة ولا تُعدّل؛PreviewOFF وPostgreSQL/ClamAV محفوظتان. هذهcheckpoint مستقرةتُحفظقبلبدءمرحلةكبيرةأخرى.
+
+**الخطوة التالية الدقيقة — Native189:** actual worksheet/range capture بــdurable approved job وserver-side token acquisition/refresh المقيّدةبـcurrent resource/job scope،دوناستعارةSession لـSA أوكشفtoken إلىManager. ثمGoogle source provenance فعلية وMapping/validation/duplicate review/shared approved intake/results وcurrent-scoped Export/jobs/history/recovery فوقالخدماتالحالية. لاfake CSV/MetaConnection/Session أوpipeline Leads مستقلة،ولاtwo-way sync. بعدGoogle Import/Export baseline انتقلإلىEmail/Notifications/Automation وبقية[الفجوات](platform-gap-review.md)،دونoptional Google refinements. لاFeature WIP أخرى عندهذاالحفظ؛الأقسامالتاليةتاريخية.
+
 ## آخر حالة مستقرة: Picker selection وindependent metadata — Native187 — 2026-11-17
 
 استؤنف من `da1f5b6` مع الحفاظ على WIP دون reset/discard. اكتملت real-session tickets وdedicated Picker document/CSP وminimal POST bootstrap،ثمsingle-ID admission وindependent trusted metadata وscoped resource/history/disable وar/en/fr UI معcancel/read-only retry وpagination. [العقد والحدود](google-sheets.md). لا إخفاق متبقٍ عند هذه البوابة.

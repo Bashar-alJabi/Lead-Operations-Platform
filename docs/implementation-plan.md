@@ -1,5 +1,11 @@
 # خطة التنفيذ
 
+## أحدث checkpoint: Google shared operational availability — Native188 — 2026-11-17
+
+اكتملتSA Organization resource grants للفروع وcurrent Campaign catalogs/worksheet metadata دونManager Org credentials/configuration،معnative Session/tripleCAS/history/Audit وindexed availability view وar/en/fr UI. **202Unit و150fullDockerPG(552.4s) و72fullEdgeBrowser(5.6m)** و001–188development/test recheck وBackend/Web build/typecheck ناجحة؛قبلها2focusedPG و4focusedGoogleBrowser النهائية(15.3s). أولfullينكشفاtest-only mount/refresh waits معpagination؛صُححت وقُوّيتfixture21Campaign دونخفضassertions أوruntime/permission changes بعد150PG. [العقد](google-sheets.md).
+
+التاليNative189: actual worksheet/range capture بــdurable approved job وserver-side runtime tokens/refresh ضمنcurrent resource/job authority،دونborrowed SA Session أوكشفtoken إلىManager. ثمGoogle provenance وMapping/validation/duplicate review/shared approved intake/results وcurrent-scoped Export/jobs/history/recovery،دونfake CSV/MetaConnection/Session أوpipeline Leads مستقلة. بعدGoogle baseline انتقلإلىEmail/Notifications/Automation وبقيةModules الأساسية؛لاoptional Google refinements أوtwo-way sync.185–188 مطبقة ولا تُعدّل،والـLive verification معلّقة.
+
 ## أحدث checkpoint: Picker selection وindependent metadata — Native187 — 2026-11-17
 
 اكتملت current real-session tickets وdedicated nonce/CSP SDK document وminimal bootstrap وsingle-ID admission ثمindependent trusted metadata وresource/history/disable وar/en/fr UI معcancel/retry/pagination. **202Unit و148fullDockerPG(547.3s) و71fullEdgeBrowser(10.9m)** وBackend/Web build/typecheck و001–187development/test recheck ناجحة؛قبلها2focusedPG و3focusedGoogleBrowser(24.0s). لاruntime/Native change بعدfull PG. SDK/HTTP mocks فقط،ولاcells/Lead/import/export آثار. [العقد](google-sheets.md).
