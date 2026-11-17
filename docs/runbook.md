@@ -1,5 +1,11 @@
 # دليل التشغيل والتطوير
 
+## Google Sheets HTTP adapter — حالة التطوير
+
+توجد HTTP adapter واختبارات synthetic mocks فقط؛لا Google setup UI أوcallback أوjobs مسجلة بعد. لا credentials جديدة ولا env business setup مطلوبة لهذه المرحلة،ولا Google calls من تشغيل المنصة الحالي. [العقد والخطوة التالية](google-sheets.md). **Live Verification Pending External Credential/Approval**؛لا تُستخدم حسابات المطور أومفاتيح شخصية للتحقق.
+
+الاختبارات المركزة بعدbuild: `node --test dist/test/google-sheets.test.js`. اختبارات PostgreSQL والمتصفح العامة لهذه المرحلة هي regression للمنصة الحالية،وليست Google end-to-end. لا تُعد success callback أوtoken وحدهما إثباتًا لجاهزية integration؛مرحلة managed OAuth/current scope/DB proof/UI ما زالت مطلوبة. Preview تبقى OFF وPostgreSQL/ClamAV الحالية للتطوير والاختبار محفوظتان.
+
 ## actual approved Import — Native183–184
 
 طبّق001–184بعدbuild دونreset،واستخدم`npm run worker:imports` الحالية. منملفالاستيرادافتحsource receipts ثم«تنفيذ الاستيراد المعتمد»،واقرأpolicy ثمابدأصراحة. UIتعرضactualImported/Skipped/Invalid/NeedsAttention/Failed counts وDuplicate markers بصفحات25،وتاريخكلصفوالاستعادةبجلسةونسخةحاليتين. لااستدعاءProvider ولاbusinesscredentials جديدةلهذهالطبقة. [العقدالكامل](lead-import-execution.md).

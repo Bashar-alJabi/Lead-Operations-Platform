@@ -1,5 +1,15 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: Google Sheets HTTP boundary — 2026-11-17
+
+استؤنف من `95dbce3` مع حفظ التغييرات غير الملتزمة. اكتملت مراجعة HTTP adapter والاختبارات، وأُصلح إلغاء response body ذات MIME غير صالحة مع اختبار stream cancellation. تجديد token مع scope غائبة يحتاج previous verified scopes صريحة. [العقد والحدود](google-sheets.md).
+
+**البوابة النهائية:** 200/200 full Unit، منها7 Google HTTP mock tests؛142/142 full Docker PostgreSQL Integration (455.7s)، و68/68 full Edge Browser E2E (10.1m)، وBackend/Web build/typecheck وmigrations001–184 development/test recheck وdiff check ناجحة. أول Browser run انتهت44pass/1fail/23not-run بسبب `net::ERR_NO_BUFFER_SPACE` في startup `/api/campaigns` (network status -1 قبلHTTP)؛الصورة والـtrace أثبتتا Failed to fetch. أُعيدت المجموعة كاملة بعمليةBrowser جديدة فنجحت68 دون تغيير runtime أوtest assertions أوhidden retry. Docker Engine كان متوقفًا؛شُغّل Desktop ثم PostgreSQL/ClamAV الموجودتان بنفس volumes وهماhealthy،دون تهيئة بيانات التطوير أوPreview. JS981.01KB/gzip280.56KB؛chunk warning تبقىbacklog.
+
+**حدود الحالة:** `src/google/sheets.ts` غير مربوطة بعد بـConnection/routes/UI/worker؛Native185 لم تُنشأ. OAuth/PKCE/refresh/subject/metadata/bounded read/RAW write هي **HTTP Mock Verified** فقط. الـPG/Browser العامة regression للمنصة الحالية،وليست Google end-to-end؛لا credentials أوGoogle livecall. Google module والمنصة غير مكتملتين،و**Live Verification Pending External Credential/Approval**. لاgeneral two-way sync.
+
+**الخطوة التالية الدقيقة — Native185:** managed Google Connection/OAuth داخل المنصة؛encrypted client credentials وsealed PKCE/tokens،one-time state مثبتة إلى current Session/Role/Organization/Branch/Connection version،subject pinning وdurable exchange/refresh outcomes وUNKNOWN no-replay،معnative guards وAudit/history وtest/reconnect/disable/error UI وIntegration/Browser mocks. ثمPicker/explicit spreadsheet-worksheet-range/snapshot وshared import/export،وبعدGoogle baseline انتقل إلىgeneral Email/Notifications/Automation وبقية[الفجوات](platform-gap-review.md). لا إعادة لتنفيذCSV/Excel أوoptional provider/AI refinements.
+
 ## آخر حالة مستقرة: actual approved Import intake — Native183–184 — 2026-11-17
 
 استؤنف من `8fef3e6` النظيفة والمرفوعة،دون إعادة المنفذ أوreset/discard. اكتملت CSV/XLSX/XLS baseline منالمصدر المعتمد إلىLead فعلية: explicit execution start،durable per-row outcomes/history/retry،current account/role/scope/Field validation،shared Contact identity locks/Routing،وAPPROVED_IMPORT origin وSOURCE Field provenance مستقلتان عنHuman Session وMeta Connection/Mapping. UI ar/en/fr تعرضcounts/filters/results25/history25 والاستعادة وفتحLead وأصلها. مراجعةContact تشغيلية مخولة مستقلة عنخصوصية ملفUploader؛لاLead merge أوpayment/consent trust منraw claims. [العقد](lead-import-execution.md).

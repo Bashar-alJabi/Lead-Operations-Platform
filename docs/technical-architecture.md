@@ -1,5 +1,11 @@
 # المعمارية التقنية
 
+## Google Sheets HTTP boundary
+
+`src/google/sheets.ts` تعزل Google OAuth وSheets HTTP عن الـDomain. Transport قابلة للحقن،hosts ثابتة وredirects ممنوعة وحدود فعلية للـstream/deadline وpayload validation. consent تستخدم PKCE/S256 وoffline و`openid`/`drive.file`؛قراءة metadata لا تحمل cells،والقراءة محدودة وRAW write تحتاج exact acknowledgement. لا hidden retries،وuncertain code exchange/write تسجل UNKNOWN ولا تُعاد تلقائيًا. [العقد وحدود التحقق](google-sheets.md).
+
+هذه الطبقة لم تُربط بعد بـroutes أوConnection أوUI أوworker. إدارة state أحادية الاستعمال وربطها بالجلسة والـscope/version وencrypted credentials وGoogle subject proof مسؤولية مرحلة Native185 التالية؛Google authorization لا تُنشئ حسابًا في المنصة ولا تمنح Roles. الوصول للملفات/worksheet/range وapproved snapshots/current-scoped jobs منفصل عن مجرد امتلاك access token. هذه ليست Google baseline مكتملة،ولا تفعّل live integration.
+
 ## Approved Import row execution/provenance — Native183–184
 
 `lead_import_execution` explicitcurrent-sessionapproval تقرأimmutabledataset وتزرعdurable per-row results مرةواحدة؛لاتعتمدعلىquarantineTTL أوجلسةالموافقةالقديمة. DB-onlyrowtransactions تعيدcurrentaccount/role/scope/Fieldgrants/typedvalues وsharedContactidentitylocks/Routing. `lead_import_attempt` freshproofتربطnewLeadbirth وoriginalsource وSOURCEFieldprovenance وactualpost-routingreceipt بالـIMPORTEDresult،معdeferredall-effectsproof وimmutablehistory/Audit. APPROVED_IMPORT منفصلةعنHumanSession وMetaSOURCE،ولاrewrite لبياناتهماوسياقاتهماالتاريخية. [العقد](lead-import-execution.md).

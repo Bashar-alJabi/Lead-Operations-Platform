@@ -1,5 +1,11 @@
 # خطة التنفيذ
 
+## أحدث checkpoint: Google Sheets HTTP boundary — 2026-11-17
+
+استُعيدت WIP بعد95dbce3 وأُكملت HTTP adapter مستقلة مع OAuth/PKCE/refresh/subject/metadata/bounded read/RAW write و7HTTP mock tests. **200Unit/142fullPG(455.7s)/68fullEdgeBrowser(10.1m)** و001–184development/test recheck وBackend/Webbuild/typecheck ناجحة. أولBrowser فشلت بخطأsocket المحليERR_NO_BUFFER_SPACE ثمfull rerun نجحت دون تغيير assertions أوruntime؛[العقد والحدود](google-sheets.md). هذه HTTP Mock Verified فقط،ولاmanaged Google UI أوIntegration/Browser end-to-end بعد. Google والمنصة غيرمكتملتين وLive pending.
+
+التاليNative185 managed Connection/OAuth/one-time state/current session-scope-version/subject fences/encrypted credentials ودurable outcomes/UNKNOWN no-replay/Audit/history/test/reconnect/disable/UI ثمIntegration/Browser mocks. بعدهPicker/resources/range/snapshot/shared approved import/current-scoped export،ثمgeneral Email/Notifications/Automation وبقيةcore gaps. لاgeneric two-way sync أوoptional provider/AI polish.
+
 ## أحدث checkpoint: actual approved Import intake — Native183–184 — 2026-11-17
 
 اكتملتCSV/XLSX/XLS baseline منapproved source إلىactualLead: explicit start وdurable current-scoped row transactions/results/history/recovery وAPPROVED_IMPORT/native SOURCE Field provenance/shared Contacts/Routing،ومراجعةContact تشغيليةمستقلةعنprivatefile وar/en/fr UI. **193Unit/142fullDockerPG(409.8s)/68fullEdgeBrowser(8.8m)** و001–184development/test وBackend/Webbuild/typecheck ناجحة. fullBrowser أُعيدتبعدتصحيحانتظارappliedSavedView فياختبارExport؛لاruntimechange بعد142PG. [العقد](lead-import-execution.md). احفظdocs/commit/push قبلالتالي؛المنصةغيرمكتملةوالأقسامالتاليةتاريخية.
