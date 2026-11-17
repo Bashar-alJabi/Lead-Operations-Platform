@@ -1,10 +1,18 @@
 # دليل التشغيل والتطوير
 
+## Whole-file Import review — Native180
+
+طبّق migrations001–180 بعد البناء. استخدم `npm run worker:imports` الحالي؛لا خدمة جديدة ولا business credentials لهذه المراجعة المحلية. بعد scan وMapping افتح «مراجعة كامل ملف الاستيراد»،وأعد تحميل mappings ثم اختر الأوراق صراحة. Start يثبت versions/configuration وعدد الصفوف؛Refresh يعرض تقدم العامل،ثم READY تتيح25 صفًا وفلاتر Invalid/Duplicate/Unreviewed وقرارات Skip/Keep وسجلاتها. KEEP فرصة مستقلة مرشحة لموافقة لاحقة،ولا تنشئ Lead أوتختار Contact أوتؤكد Payment/Consent. [العقد](lead-import.md).
+
+كلcycle تشغّل حتى `IMPORT_WORKER_BATCH` عمليات scan وحتى العدد نفسه من دفعات review،كلدفعة≤100 صف داخل معاملة قصيرة. الإعدادات السابقة batch2 (1..20) وpoll2000ms (250..60000) وonce تبقى دونتغيير. راقب state/processed/total/attempt/error/history من الواجهة؛لا raw customer values في logs. FAILED بعد5 أخطاء يحتاج Retry بجلسة وصلاحيات حالية وversion CAS. عند STALE راجع mappings/configuration وابدأ مراجعة جديدة؛لا SQL repair ولا اعتماد snapshot قديمة. Cancel يحذف derived rows ويبقي metadata/decisions/history،وحذف الملف أوانتهاءTTL يمحو derived values أيضًا. الجلسة الأصلية المنتهية لا توقف worker مخولة،لكن كلread/decision يحتاج جلسة حقيقية جديدة. lost ACK يُعاد بنفس intent من الزر المخصص أو يُترك صراحة قبل reload.
+
+الـPreview تظل متوقفة؛PostgreSQL وClamAV للتطوير/الاختبار مستقلتان عنها. لا reinitialization أوseed لقاعدة التطوير،ولا provider/AI/payment send من مراجعة Import. الموافقة وdurable intake/results ليست جزءًا منفذًا من Native180.
+
 ## Import Mapping review — Native178–179
 
 طبّق migrations001–179 بعد البناء؛لا worker إضافية لهذه المراجعة read-only،ولا إعادة تهيئة للملفات أوالقواعد. افتح ملفًا REVIEW من Import واختر ورقة ثم اربط الأعمدة بـContact أوحقول Campaign الحالية واحفظ. استخدم Validate لمعاينة25 صفًا في كل مرة؛توضح الواجهة تنسيق الأرقام والمنطقية والقوائم والتواريخ وقيم Select والعملة. هذه مراجعة وليست Import approval،ولا تنشئ Leads أوPayments أوConsent. [العقد والحدود](lead-import.md).
 
-عند تغير الحقول أعد تحميل Mapping وراجعها من جديد؛لا SQL repair أوتجاوزconfiguration fingerprint. lost response يمكن إعادتها بنفس UUID/intent من الزر المخصص عبراللغة،أوترك retry ثم تحميل النسخة الحالية. failure clears مشتقات المعاينة؛انتهاء الملف أوإلغاؤه يمنع قراءتها حتى لو بقي سجل recipes/history. candidate المحجوبة تتطلب Super Admin ولايعاد إظهارها بتغيير Branch input. تحليل الملف كله وقرارات التكرار والموافقة وrow intake ما زالت Required.
+عند تغير الحقول أعد تحميل Mapping وراجعها من جديد؛لا SQL repair أوتجاوزconfiguration fingerprint. lost response يمكن إعادتها بنفس UUID/intent من الزر المخصص عبراللغة،أوترك retry ثم تحميل النسخة الحالية. failure clears مشتقات المعاينة؛انتهاء الملف أوإلغاؤه يمنع قراءتها حتى لو بقي سجل recipes/history. candidate المحجوبة تتطلب Super Admin ولايعاد إظهارها بتغيير Branch input. تحليل الملف كله وقراراته تنفذهما Native180 أعلاه؛الموافقة وrow intake ما زالت Required.
 
 ## Import quarantine/inspection — Native175–177
 

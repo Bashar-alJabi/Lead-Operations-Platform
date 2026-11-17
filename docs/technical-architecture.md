@@ -1,10 +1,18 @@
 # المعمارية التقنية
 
+## Durable Import dataset review — Native180
+
+تفصل `lead_import_review` المراجعة الشاملة عن quarantine وMapping وعن intake approval. envelope immutable تحدد sheets/revisions/configuration/actor Session؛بدء مراجعة بديلة يحتاج CAS ويلغي السابقة ذريًا مع حذف مشتقاتها. row decisions append-only لكلsheet/row بنسخ ومفاتيح request مستقلة وnative real-session/Audit/current-context proofs. لا تمتلك job أوقرارها origin HUMAN_MANUAL/SOURCE أوauthority لإنشاء Lead.
+
+العمل DB-only محدود100 صف/transaction،لذلك transaction/file/job locks هي claim بدلlease طويلة بلاexternal I/O. crash/timeout/Audit failure ترجع الدفعة،والعامل التالي يقرأ missing rows بــPK/keyset. native guards تقارن counts وتثبت fresh chunk Audit والتكوين الحالي وتمنع تعديل الصفوف أوhistory. worker الحالية تتناوب scan/review؛5 retries bounded ثم explicit current-session CAS recovery،وcurrent scope/config changes تجعل المراجعة STALE. عند القراءة تُقفل تعريفات وربوط Fields خلال فحص fingerprint وإرجاع typed values لحماية visibility من concurrent config update.
+
+التكرار row-level phone/email equality عبر dataset المختارة،بفهارس(review,normalized identity)،ويحسب عند READY دونcache لصلاحيات Contacts. لاname-only matching أوLead merge أوتخمين Contact؛current masked candidate lookup هي advice فقط. review rows مؤقتة وتتبع raw rows بـFK cascade وnative terminal delete proof؛metadata/decisions/history لا تحتوي raw values وتبقى بعدpurge. الموافقة التالية يجب أن تحفظ original SourceSubmission مستقلةعنTTL وتضيف APPROVED_IMPORT وField provenance قبل durable intake،دوناصطناع Meta Connection/Mapping أوHuman Session. [العقد والحدود](lead-import.md).
+
 ## Import review recipes وفصلها عن intake — Native178–179
 
 Mapping append-only لكلfile/sheet،وتستخدم column indices بدلobject keys/headers. Recipe مرتبطة بـreal Session وimmutable uploader scope وcurrent Field configuration fingerprint،معnative fresh Audit/CAS/request identity/typed-target proofs. لا تحمل raw customer values،ولا تشكل approval لإنشاءLead؛TTL/purge تفصل بيانات الملف المؤقتة عن recipe/history. current config mismatch يخفيentries/labels القديمة ويمنعvalidation/replay،فتحتاجمراجعةجديدة.
 
-التحقق لكلصفحة25 يعيد استخدام typed Field وContact normalization boundaries،مع lookup مجمعة للـContacts وعرض5 visible candidates كحدأقصى. Manager لا تحصل علىhidden/shared candidates أوتفاصيلها؛لاcontact merge أوselection آلية. UI لا تراكمField catalog بلاحد وتخفي مشتقاتfailed reads،وتحفظsame-key save intent عندlost ACK. file-wide duplicate review وexplicit approved durable intake مستقلان لاحقًا،ولا يجوزتحويلهذهrecipe إلىHUMAN_MANUAL أوMeta source authority مصطنعة. [العقد](lead-import.md).
+التحقق لكلصفحة25 يعيد استخدام typed Field وContact normalization boundaries،مع lookup مجمعة للـContacts وعرض5 visible candidates كحدأقصى. Manager لا تحصل علىhidden/shared candidates أوتفاصيلها؛لاcontact merge أوselection آلية. UI لا تراكمField catalog بلاحد وتخفي مشتقاتfailed reads،وتحفظsame-key save intent عندlost ACK. Native180 تضيفfile-wide duplicate review،وتبقىexplicit approved durable intake مستقلة لاحقًا؛لا يجوزتحويلهذهrecipe إلىHUMAN_MANUAL أوMeta source authority مصطنعة. [العقد](lead-import.md).
 
 ## Import: private quarantine ثم isolated inspection — Native175–177
 

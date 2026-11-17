@@ -11,6 +11,7 @@ import {sha256} from '../src/security.js';
 import {localMediaStorage} from '../src/media/storage.js';
 import {clamAvScanner} from '../src/media/scanner.js';
 import {processOneImportFile,cleanupImportStorage} from '../src/imports/service.js';
+import {processOneImportReview} from '../src/imports/review.js';
 const url=process.env.TEST_DATABASE_URL;if(!url||new URL(url).pathname!=='/lead_operations_test')throw Error('Isolated test database required');
 async function fixture(t:TestContext){
  process.env.APP_ORIGIN='http://127.0.0.1:5173';process.env.CREDENTIAL_ENCRYPTION_KEY=randomBytes(32).toString('hex');
@@ -42,6 +43,87 @@ async function addImportField(f:Awaited<ReturnType<typeof fixture>>,type:string,
  const b=await f.api('PUT','/api/campaigns/'+f.campaign+'/fields/'+id,{active:true,position:0,requiredStage:required?'LEAD_CREATION':'NONE',visibleToAgent:true,editableByAgent:mode==='MANUAL',visibleToManager:true,editableByManager:mode==='MANUAL',showInTable:true,showInDetails:true,filterable:true,usableByAutomation:false,usableByAi:false});assert.equal(b.statusCode,200,b.body);return id;
 }
 const csvBytes=(rows:(string|null)[][])=>Buffer.from(rows.map(r=>r.map(v=>'"'+(v??'').replaceAll('"','""')+'"').join(',')).join('\r\n'));
+
+async function reviewInput(f:Awaited<ReturnType<typeof fixture>>,id:string,indices=[0],entries:object[]=[{column:0,kind:'CONTACT_NAME'}],revision=0){
+ const configurationHash=(await f.api('GET','/api/lead-imports/'+id+'/fields')).json().configurationHash as string;
+ for(const sheet of indices){const m=await f.api('POST','/api/lead-imports/'+id+'/mapping',{sheet,version:0,configurationHash,requestId:randomUUID(),entries});assert.equal(m.statusCode,200,m.body);}
+ return {revision,requestId:randomUUID(),configurationHash,selection:indices.map(sheet=>({sheet,version:1}))};
+}
+
+test('Whole-file review validates bounded atomic chunks across selected sheets, survives logout/restart, finds identity duplicates and preserves explicit concurrent decisions without intake writes',async t=>{
+ const f=await fixture(t),{db,api}=f,n=await addImportField(f,'NUMBER','whole_quantity'),book=XLSX.utils.book_new();
+ for(let s=0;s<2;s++)XLSX.utils.book_append_sheet(book,XLSX.utils.aoa_to_sheet([['name','phone','email','quantity'],...Array.from({length:61+s},(_,i)=>[s===0&&i===0?'<svg onload=untrusted>':'Synthetic '+s+':'+i,i===0?'+33123456780':'+33'+String(120000000+s*1000+i),'IMPORT'+s+'_'+i+'@EXAMPLE.TEST',s===0&&i===1?'bad':'0'])]),'Sheet '+s);
+ const id=await f.create({label:'whole.xlsx',format:'XLSX'},XLSX.write(book,{type:'buffer',bookType:'xlsx'}) as Buffer);await f.work();const root='/api/lead-imports/'+id+'/reviews',body=await reviewInput(f,id,[0,1],[{column:0,kind:'CONTACT_NAME'},{column:1,kind:'CONTACT_PHONE'},{column:2,kind:'CONTACT_EMAIL'},{column:3,kind:'LEAD_FIELD',fieldId:n}]);
+ const start=await Promise.all(Array.from({length:8},()=>api('POST',root,body)));assert.ok(start.every(r=>r.statusCode===202),start.map(r=>r.body).join('\n'));const review=start[0]!.json().id as string,path=root+'/'+review;assert.ok(start.every(r=>r.json().id===review));
+ assert.equal((await db`SELECT count(*)::int n FROM lead_import_review`)[0]!.n,1);assert.equal((await api('POST',root,{...body,selection:[{sheet:0,version:1}]})).statusCode,409);
+ assert.equal((await api('GET',path+'/rows')).statusCode,409);assert.equal(await processOneImportReview(db),true);
+ const partial=(await api('GET',path)).json();assert.equal(partial.processed,100);assert.equal(partial.state,'VALIDATING');assert.equal(partial.total,123);
+ await db`UPDATE user_session SET revoked_at=clock_timestamp() WHERE id=${f.users.manager!.session}`;assert.equal((await api('GET',path)).statusCode,401);
+ await Promise.all(Array.from({length:8},()=>processOneImportReview(db)));assert.equal((await db`SELECT state FROM lead_import_review WHERE id=${review}`)[0]!.state,'READY');
+ const token=randomBytes(32).toString('hex');await db`INSERT INTO user_session(user_id,token_hash,expires_at) VALUES(${f.users.manager!.id},${sha256(token)},clock_timestamp()+interval '1 hour')`;f.users.manager!.cookie='lop_session='+token;
+ const done=(await api('GET',path)).json();assert.equal(done.processed,123);assert.equal(done.valid,122);assert.equal(done.invalid,1);assert.equal(done.summary.duplicates,2);assert.equal(done.summary.unreviewed,123);assert.equal(done.history.length,3);
+ const first=await api('GET',path+'/rows');assert.equal(first.statusCode,200,first.body);assert.equal(first.json().items.length,25);assert.equal(first.json().items[0].fields[0].value,0);assert.equal(first.json().targets[0].label,'Synthetic whole_quantity');assert.equal(first.json().items[0].contact.emailNormalized,'import0_0@example.test');
+ const keys=new Set<string>();let next:null|{sheet:number;row:number}=null;do{const r=await api('GET',path+'/rows'+(next?'?afterSheet='+next.sheet+'&afterRow='+next.row:''));for(const item of r.json().items){const key=item.sheet_index+':'+item.row_number;assert.ok(!keys.has(key));keys.add(key);}next=r.json().next;}while(next);assert.equal(keys.size,123);
+ const duplicates=(await api('GET',path+'/rows?filter=DUPLICATE')).json();assert.deepEqual(duplicates.items.map((r:any)=>[r.sheet_index,r.row_number]),[[0,2],[1,2]]);
+ assert.equal((await api('GET',path+'/rows?filter=INVALID')).json().items.length,1);assert.equal((await api('GET',path+'/rows?afterSheet=0')).statusCode,400);
+ const decision={sheet:0,row:2,version:0,requestId:randomUUID(),action:'KEEP_AS_NEW_LEAD'};const decisions=await Promise.all(Array.from({length:8},()=>api('POST',path+'/decisions',decision)));assert.ok(decisions.every(r=>r.statusCode===200),decisions.map(r=>r.body).join('\n'));
+ assert.equal((await db`SELECT count(*)::int n FROM lead_import_review_decision`)[0]!.n,1);assert.equal((await db`SELECT count(*)::int n FROM audit_log WHERE action='IMPORT_REVIEW_DECIDED'`)[0]!.n,1);
+ assert.equal((await api('POST',path+'/decisions',{...decision,action:'SKIP'})).statusCode,409);
+ const races=await Promise.all(Array.from({length:2},()=>api('POST',path+'/decisions',{...decision,version:1,requestId:randomUUID(),action:'SKIP'})));assert.deepEqual(races.map(r=>r.statusCode).sort(),[200,409]);
+ assert.equal((await api('POST',path+'/decisions',{...decision,row:3,requestId:randomUUID()})).statusCode,409);
+ for(let version=2;version<27;version++){const r=await api('POST',path+'/decisions',{...decision,version,requestId:randomUUID()});assert.equal(r.statusCode,200,r.body);}
+ const history=(await api('GET',path+'/decisions?sheet=0&row=2')).json();assert.equal(history.items.length,25);assert.equal((await api('GET',path+'/decisions?sheet=0&row=2&before='+history.nextVersion)).json().items.length,2);
+ assert.equal((await api('GET',path)).json().summary.kept,1);assert.equal((await api('GET',path)).json().summary.unreviewed,122);
+ for(const who of ['admin','agent','other','foreign'])for(const suffix of ['', '/rows','/decisions?sheet=0&row=2'])assert.equal((await api('GET',path+suffix,undefined,who)).statusCode,404);
+ const business=(await db`SELECT (SELECT count(*) FROM lead)::int leads,(SELECT count(*) FROM contact)::int contacts,(SELECT count(*) FROM source_submission)::int sources,(SELECT count(*) FROM payment_record)::int payments,(SELECT count(*) FROM enrollment)::int enrollments`)[0]!;assert.deepEqual({...business},{leads:0,contacts:0,sources:0,payments:0,enrollments:0});
+ await assert.rejects(db`UPDATE lead_import_review_row SET valid=false WHERE review_id=${review}`,/IMPORT_REVIEW_ROW_IMMUTABLE/);await assert.rejects(db`DELETE FROM lead_import_review_row WHERE review_id=${review}`,/IMPORT_REVIEW_ROWS_RETAINED/);
+ await assert.rejects(db`UPDATE lead_import_review_decision SET action='SKIP' WHERE review_id=${review}`,/IMPORT_REVIEW_DECISION_IMMUTABLE/);
+ const file=await f.status(id);assert.equal((await api('POST','/api/lead-imports/'+id+'/cancel',{version:file.version})).statusCode,200);assert.equal((await api('GET',path+'/rows')).statusCode,410);
+ assert.equal((await db`SELECT count(*)::int n FROM lead_import_review_row WHERE review_id=${review}`)[0]!.n,0);assert.equal((await db`SELECT count(*)::int n FROM lead_import_review_decision WHERE review_id=${review}`)[0]!.n,27);
+});
+
+test('Whole-file review invalidates partial and ready values on current config/mapping/role changes; new selections use CAS and never reuse stale validation',async t=>{
+ const f=await fixture(t),{db,api}=f,n=await addImportField(f,'NUMBER','stale_quantity'),id=await f.create({},csvBytes([['name','n'],...Array.from({length:105},(_,i)=>['Row '+i,'0'])]));await f.work();
+ const root='/api/lead-imports/'+id+'/reviews',input=await reviewInput(f,id,[0],[{column:0,kind:'CONTACT_NAME'},{column:1,kind:'LEAD_FIELD',fieldId:n}]);const r=await api('POST',root,input);assert.equal(r.statusCode,202,r.body);const path=root+'/'+r.json().id;await processOneImportReview(db);
+ await db`UPDATE campaign_field SET visible_to_manager=false,editable_by_manager=false,version=version+1 WHERE campaign_id=${f.campaign} AND field_id=${n}`;
+ const stale=await api('GET',path+'/rows');assert.equal(stale.statusCode,409,stale.body);assert.ok(!stale.body.includes(n));assert.equal((await api('GET',path)).json().state,'STALE');
+ await processOneImportReview(db);assert.equal((await db`SELECT count(*)::int n FROM lead_import_review_row`)[0]!.n,0);assert.equal((await db`SELECT state FROM lead_import_review`)[0]!.state,'STALE');
+ const current=(await api('GET','/api/lead-imports/'+id+'/fields')).json().configurationHash;
+ const mapping={sheet:0,version:1,configurationHash:current,requestId:randomUUID(),entries:[{column:0,kind:'CONTACT_NAME'}]};assert.equal((await api('POST','/api/lead-imports/'+id+'/mapping',mapping)).statusCode,200);
+ const next={...input,revision:1,requestId:randomUUID(),configurationHash:current,selection:[{sheet:0,version:2}]};const races=await Promise.all(Array.from({length:2},()=>api('POST',root,{...next,requestId:randomUUID()})));assert.deepEqual(races.map(r=>r.statusCode).sort(),[202,409]);const fresh=races.find(r=>r.statusCode===202)!.json().id as string;
+ await processOneImportReview(db);await processOneImportReview(db);assert.equal((await api('GET',root+'/'+fresh)).json().state,'READY');
+ assert.equal((await api('POST','/api/lead-imports/'+id+'/mapping',{...mapping,version:2,requestId:randomUUID()})).statusCode,200);
+ assert.equal((await api('GET',root+'/'+fresh+'/rows')).statusCode,409);assert.equal((await api('POST',root+'/'+fresh+'/decisions',{sheet:0,row:2,version:0,requestId:randomUUID(),action:'SKIP'})).statusCode,409);
+ await db`UPDATE user_account SET branch_id=${f.other} WHERE id=${f.users.manager!.id}`;assert.equal((await api('GET',root)).statusCode,403);
+});
+
+test('Whole-file review rolls back partially inserted chunks on failure, exhausts bounded retries, requires real-session CAS recovery and rejects native forgeries/Audit failure',async t=>{
+ const f=await fixture(t),{db,api,users}=f,id=await f.create({},csvBytes([['name'],...Array.from({length:2101},(_,i)=>['Failure row '+i])]));await f.work();const root='/api/lead-imports/'+id+'/reviews',input=await reviewInput(f,id),r=await api('POST',root,input);assert.equal(r.statusCode,202,r.body);const review=r.json().id as string,path=root+'/'+review;
+ await db`CREATE FUNCTION test_import_review_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.row_number=22 THEN RAISE EXCEPTION 'Synthetic private row failure';END IF;RETURN NEW;END $$`;
+ await db`CREATE TRIGGER test_import_review_failure BEFORE INSERT ON lead_import_review_row FOR EACH ROW EXECUTE FUNCTION test_import_review_failure()`;
+ f.cleanup.push(async()=>{await db`DROP TRIGGER IF EXISTS test_import_review_failure ON lead_import_review_row`;await db`DROP FUNCTION IF EXISTS test_import_review_failure()`;await db`DROP TRIGGER IF EXISTS test_import_review_audit ON audit_log`;await db`DROP FUNCTION IF EXISTS test_import_review_audit()`;});
+ for(let i=0;i<5;i++)await processOneImportReview(db,{retryDelaySeconds:0});const failed=(await api('GET',path)).json();assert.equal(failed.state,'FAILED');assert.equal(failed.processed,0);assert.equal(failed.errorCode,'IMPORT_REVIEW_PROCESSING_FAILED');assert.ok(!JSON.stringify(failed).includes('Synthetic private'));
+ assert.equal((await db`SELECT count(*)::int n FROM lead_import_review_row`)[0]!.n,0);assert.equal((await db`SELECT count(*)::int n FROM audit_log WHERE action='IMPORT_REVIEW_PROGRESS'`)[0]!.n,0);
+ await db`DROP TRIGGER test_import_review_failure ON lead_import_review_row`;
+ const retries=await Promise.all(Array.from({length:8},()=>api('POST',path+'/retry',{version:failed.version})));assert.equal(retries.filter(r=>r.statusCode===200).length,1);assert.equal(retries.filter(r=>r.statusCode===409).length,7);
+ for(let chunk=0;chunk<22;chunk++)assert.equal(await processOneImportReview(db),true);const completed=(await api('GET',path)).json();assert.equal(completed.state,'READY');assert.equal(completed.processed,2101);assert.equal(completed.history.length,25);assert.equal((await api('GET',path+'?before='+completed.nextVersion)).json().history.length,4);
+ await assert.rejects(db`UPDATE lead_import_review SET state='VALIDATING',version=version+1 WHERE id=${review}`,/IMPORT_REVIEW_TRANSITION/);
+ await assert.rejects(db`UPDATE lead_import_review SET total=1,version=version+1 WHERE id=${review}`,/IMPORT_REVIEW_IMMUTABLE/);
+ await assert.rejects(db`DELETE FROM lead_import_review_history WHERE review_id=${review}`,/IMPORT_REVIEW_HISTORY_IMMUTABLE/);
+ await assert.rejects(db`INSERT INTO lead_import_review_decision(review_id,sheet_index,row_number,version,request_key,session_id,action) VALUES(${review},0,2,1,${randomUUID()},${users.manager!.session},'SKIP')`,/IMPORT_REVIEW_DECISION_PROOF/);
+ await db`CREATE FUNCTION test_import_review_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='IMPORT_REVIEW_DECIDED' THEN RAISE EXCEPTION 'Synthetic review Audit failure';END IF;RETURN NEW;END $$`;
+ await db`CREATE TRIGGER test_import_review_audit BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION test_import_review_audit()`;
+ const decision={sheet:0,row:2,version:0,requestId:randomUUID(),action:'SKIP'};assert.equal((await api('POST',path+'/decisions',decision)).statusCode,500);assert.equal((await db`SELECT count(*)::int n FROM lead_import_review_decision`)[0]!.n,0);await db`DROP TRIGGER test_import_review_audit ON audit_log`;assert.equal((await api('POST',path+'/decisions',decision)).statusCode,200);
+ const version=(await api('GET',path)).json().version;await db`UPDATE user_session SET revoked_at=clock_timestamp() WHERE id=${users.manager!.session}`;assert.equal((await api('POST',path+'/cancel',{version})).statusCode,401);
+});
+
+test('Whole-file validation cannot continue after account revocation or raw-file DB-clock expiry; cancellation purges derived values and preserves metadata',async t=>{
+ const f=await fixture(t),{db,api}=f,id=await f.create({},csvBytes([['name'],...Array.from({length:105},(_,i)=>['Revoked '+i])]));await f.work();const root='/api/lead-imports/'+id+'/reviews',input=await reviewInput(f,id),r=await api('POST',root,input);assert.equal(r.statusCode,202,r.body);await processOneImportReview(db);
+ await db`UPDATE user_account SET active=false WHERE id=${f.users.manager!.id}`;await processOneImportReview(db);assert.equal((await db`SELECT state FROM lead_import_review WHERE id=${r.json().id}`)[0]!.state,'STALE');assert.equal((await db`SELECT count(*)::int n FROM lead_import_review_row`)[0]!.n,0);await db`UPDATE user_account SET active=true WHERE id=${f.users.manager!.id}`;
+ const previous=process.env.IMPORT_RETENTION_SECONDS;f.cleanup.push(async()=>{if(previous===undefined)delete process.env.IMPORT_RETENTION_SECONDS;else process.env.IMPORT_RETENTION_SECONDS=previous;});process.env.IMPORT_RETENTION_SECONDS='3';
+ const expiring=await f.create({},Buffer.from('name\nExpires')),expiredRoot='/api/lead-imports/'+expiring+'/reviews';await f.work();const exp=await api('POST',expiredRoot,await reviewInput(f,expiring));assert.equal(exp.statusCode,202,exp.body);await processOneImportReview(db);
+ await new Promise(resolve=>setTimeout(resolve,3100));assert.equal((await api('GET',expiredRoot+'/'+exp.json().id+'/rows')).statusCode,410);await f.work();assert.equal((await db`SELECT count(*)::int n FROM lead_import_review_row WHERE file_id=${expiring}`)[0]!.n,0);assert.equal((await db`SELECT count(*)::int n FROM lead_import_review_history WHERE review_id=${exp.json().id}`)[0]!.n,2);
+});
 
 test('Import mapping has native immutable revisions, concurrent same-key/CAS safety and paged typed preview without intake authority',async t=>{
  const f=await fixture(t),{db,api}=f,n=await addImportField(f,'NUMBER','quantity',true),b=await addImportField(f,'BOOLEAN','available'),tags=await addImportField(f,'TAGS','tags');

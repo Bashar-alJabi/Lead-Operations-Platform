@@ -1,5 +1,11 @@
 # خطة التنفيذ
 
+## أحدث checkpoint: Whole-file Import review — Native180 — 2026-11-17
+
+اكتملت مراجعةdataset المختارة فوق Mapping الحالية: transactional background chunks100،current configuration/scope fences وprogress/typed errors،cross-sheet identity duplicate analysis وcurrent masked Contact advice،ثمexplicit append-only per-row decisions/history/UI. 193full Unit و133full DockerPG (324.9s) و66full Edge Browser (4.0m)،001–180 development/test وBackend/Web build/typecheck ناجحة؛fixture2101صفًا/22دفعة وrollback/recovery/CAS/TTL وactual lostACK/locale/mobile failures مثبتة. [العقد](lead-import.md). احفظdocs/commit/push قبلالتالي؛هذه ليستImport كاملة. الأقسامالتاليةتاريخية.
+
+**التالي — Native181:** explicit immutable approved dataset/original SourceSubmission مستقلةعنquarantine TTL،real-session/current configuration approval وsame-key/row identity/native complete-capture proofs. ثمAPPROVED_IMPORT origin/Field provenance وdurable idempotent row intake/results/retry،current Contacts locks/resolution وFields/Routing وfresh post-routing receipt/Initial admission. لاfake HUMAN_MANUAL Session أوMeta Connection/Mapping،ولاLead merge أوfinancial/consent trust منCSV. أكمل Import baseline ثمSheets/general Email/بقيةNotifications/Automation وبقيةcore gaps؛لاoptional AI/provider/parser polish.
+
 ## أحدث checkpoint: Import Mapping/typed paged validation — Native178–179 — 2026-11-16
 
 أُنجزتread-only column-index recipes/current scoped Field catalog/config fingerprint وimmutable CAS/request/Audit/native proofs وtyped25-row preview وmasked existing-Contact advice وar/en/fr UI. 193Unit/129full DockerPG (422.7s)/65full Edge Browser (9.8m) و001–179development/test وBackend/Web build/typecheck ناجحة؛final PG10/10 (24.7s) بعدSA positive test-only assertions،دونruntime change. [العقد](lead-import.md). Import ليستمكتملة؛احفظcommit/push قبلالمرحلةالتالية. الأقسامالتاليةسجلتاريخي.
