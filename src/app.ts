@@ -1,6 +1,7 @@
 import {registerLeadImportRoutes} from './routes/lead-imports.js';
 import {registerGoogleConnectionRoutes} from './routes/google-connections.js';
 import {registerGooglePickerSettingsRoutes} from './routes/google-picker-settings.js';
+import {registerGooglePickerRoutes} from './routes/google-picker.js';
 import type {GoogleSheetsAdapter} from './google/sheets.js';
 import {registerLeadExportRoutes} from './routes/lead-exports.js';
 import {registerBulkFollowUpRoutes} from './routes/bulk-follow-ups.js';
@@ -209,5 +210,6 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   registerLeadExportRoutes(app,db);
   registerGoogleConnectionRoutes(app,db,options.googleSheetsAdapter);
   registerGooglePickerSettingsRoutes(app,db);
+  registerGooglePickerRoutes(app,db,options.googleSheetsAdapter);
   return app;
 }

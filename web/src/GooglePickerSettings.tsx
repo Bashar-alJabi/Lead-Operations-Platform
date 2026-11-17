@@ -1,4 +1,5 @@
 import {useEffect,useRef,useState} from 'react';
+import {GooglePickerWorkspace} from './GooglePickerWorkspace';
 type Api=<T>(path:string,options?:RequestInit)=>Promise<T>;
 type Locale='ar'|'en'|'fr';
 type Settings={configured:boolean;version:number;projectNumber:string|null;keyRevision:number|null;connectionVersion:number;verification:string};
@@ -9,7 +10,7 @@ const words={
  configured:['الإعداد محفوظ؛لم يُتحقق من اختيار ملف.','Configuration saved; file selection not verified.','Configuration enregistrée ; sélection de fichier non vérifiée.'],empty:['إعداد Picker غير محفوظ.','Picker not configured.','Picker non configuré.'],note:['حفظ هذه البيانات لا يختبر المفتاح ولا يقرأ أويرسل بيانات Sheets. لا يعطي صلاحية لفرع أوCampaign. يبقى اختيار الملف والتحقق المستقل والصلاحيات خطوة منفصلة.','Saving these prerequisites does not test the key or read or send spreadsheet data. It grants no Branch or Campaign access. File selection, independent verification and permissions remain separate.','Enregistrer ces prérequis ne teste pas la clé et ne lit ni ne transmet de cellules. Aucun accès Branch ou Campaign accordé. Sélection, vérification indépendante et permissions sont distinctes.'],
  retain:['اترك المفتاح فارغًا للاحتفاظ به؛لا يظهر بعد الحفظ.','Leave the key blank to retain it; it is never displayed after saving.','Laissez la clé vide pour la conserver ; elle ne sera jamais affichée.'],changed:['تغيّر المفتاح','Key changed','Clé modifiée'],loading:['جارٍ التحميل…','Loading…','Chargement…'],error:['تعذّر حفظ أوتحميل إعداد Picker. حدّث البيانات قبل إعادة المحاولة.','Picker configuration could not be saved or loaded. Refresh before retrying.','Échec du chargement ou de l’enregistrement de Picker. Actualisez avant de réessayer.'],
 } as const;
-export function GooglePickerSettings({locale,connectionId,connectionVersion,disabled,origin,api}:{locale:Locale;connectionId:string;connectionVersion:number;disabled:boolean;origin:string;api:Api}) {
+export function GooglePickerSettings({locale,connectionId,connectionVersion,connected,disabled,origin,api}:{locale:Locale;connectionId:string;connectionVersion:number;connected:boolean;disabled:boolean;origin:string;api:Api}) {
  const i=locale==='ar'?0:locale==='en'?1:2,t=(k:keyof typeof words)=>words[k][i],root='/api/google/connections/'+connectionId+'/picker';
  const [settings,setSettings]=useState<Settings|null>(null),[history,setHistory]=useState<History[]>([]),[before,setBefore]=useState<number|null>(null),[project,setProject]=useState(''),[key,setKey]=useState(''),[reason,setReason]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
  const live=useRef(true),sequence=useRef(0),lock=useRef(false);
@@ -31,6 +32,7 @@ export function GooglePickerSettings({locale,connectionId,connectionVersion,disa
     <button disabled={busy||disabled||reason.trim().length<3||!project||!settings.configured&&!key.trim()}>{t('save')}</button>
    </form><h5>{t('history')}</h5><ul data-google-picker-history>{history.map(h=><li key={connectionId+':'+h.version}>#{h.version} · {h.project_number} · {h.reason} · {new Date(h.created_at).toLocaleString(locale)}{h.secret_changed?' · '+t('changed'):''}</li>)}</ul>
    {before&&<button disabled={busy} onClick={()=>void run(async()=>{const r=await api<{items:History[];nextVersion:number|null}>(root+'/history?limit=20&before='+before);setHistory(old=>[...old,...r.items]);setBefore(r.nextVersion);})}>{t('more')}</button>}
+   {settings.configured&&<GooglePickerWorkspace key={connectionId+':'+settings.version} locale={locale} connectionId={connectionId} connectionVersion={connectionVersion} settingsVersion={settings.version} connected={connected} disabled={disabled||busy} api={api}/>}
   </>}
  </section>;
 }

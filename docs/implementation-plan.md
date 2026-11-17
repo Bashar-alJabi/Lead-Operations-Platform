@@ -1,5 +1,11 @@
 # خطة التنفيذ
 
+## أحدث checkpoint: Picker selection وindependent metadata — Native187 — 2026-11-17
+
+اكتملت current real-session tickets وdedicated nonce/CSP SDK document وminimal bootstrap وsingle-ID admission ثمindependent trusted metadata وresource/history/disable وar/en/fr UI معcancel/retry/pagination. **202Unit و148fullDockerPG(547.3s) و71fullEdgeBrowser(10.9m)** وBackend/Web build/typecheck و001–187development/test recheck ناجحة؛قبلها2focusedPG و3focusedGoogleBrowser(24.0s). لاruntime/Native change بعدfull PG. SDK/HTTP mocks فقط،ولاcells/Lead/import/export آثار. [العقد](google-sheets.md).
+
+التاليNative188: explicit Organization resource availability للفروع بواسطةSuper Admin،وcurrent scoped operational catalog/use منفصلةعنconfiguration/credentials. ثمworksheet/range snapshot وGoogle provenance فعلية وMapping/shared approved intake/results وcurrent-scoped Export/jobs/history/recovery. لاfake CSV/MetaConnection/Session أوgeneral two-way sync. بعدGoogle baseline المطلوبة انتقلإلىEmail/Notifications/Automation وبقيةالوحداتالأساسية،دونoptional Google refinements. ملفات185–187 مطبقة ولا تُعدّل؛Live verification معلّقة.
+
 ## أحدث checkpoint: Picker prerequisites — Native186 — 2026-11-17
 
 اكتملت managed project number/API key encrypted وretention/rotation وbothCAS/current scope/session وnative history/Audit وar/en/fr UI فوق59ebe28. **201Unit و146fullDockerPG(529.2s) و70fullEdgeBrowser(6.2m)** وBackend/Webbuild/typecheck و001–186development/test recheck ناجحة؛قبلهاfocusedPG1/focusedGoogleBrowser2. scope accessible label وRTL wildcard direction صُححتا وأُعيدت بوابة Web/fullBrowser وفُحصت الصورة. هذهCONFIGURED_NOT_VERIFIED ولاProvider call أوGooglefile claim.

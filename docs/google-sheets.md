@@ -4,7 +4,7 @@
 
 المطلوب في 00 §54 و03 §§39–40 و06 §18 هو Import وExport من داخل المنصة، مع بقاء DB هي Source of Truth. المزامنة الثنائية المستمرة ليست متطلبًا افتراضيًا، ولا تُضاف دون قواعد عمل صريحة.
 
-checkpoint `9c3e395` أثبتت HTTP adapter. Native185 تضيف managed Connection/OAuth وAPI وواجهة ar/en/fr،واجتازت201Unit و145fullDockerPG(409.5s) و69fullEdgeBrowser(11.0m) و001–185development/test وBackend/Webbuild/typecheck. الحالة **HTTP/Consent Mock Verified**،ولا Picker أوSpreadsheet/worksheet/range approval أوImport/Export jobs بعد. هذه ليست Google Sheets module end-to-end،ولا تمنح تصريح تشغيل حي. **Live Verification Pending External Credential/Approval**.
+HTTP adapter محفوظة في `9c3e395`،وmanaged OAuth في `59ebe28`،وPicker prerequisites في `da1f5b6`. Native187 تضيف tickets وSDK page وindependent metadata وscoped resources/history/UI؛نجحت202fullUnit و148fullDockerPG(547.3s) و71fullEdgeBrowser(10.9m) وBackend/Web build/typecheck و001–187development/test recheck؛قبلها2focusedPG و3focusedGoogleBrowser(24.0s). Google module مازالت جزئية: shared operational grants وworksheet/range snapshot وactual Import/Export jobs لازالت مطلوبة. **Mock Verified (SDK/HTTP)** لهذه المسارات المختبرة فقط،و**Live Verification Pending External Credential/Approval**؛لا تصريح تشغيل حي.
 
 ## عقد البروتوكول
 
@@ -42,6 +42,18 @@ CONNECTED تحتاج grant/scopes المطلوبة وrefresh token وsubject م�
 
 الواجهة تشرح مشروعOAuth نفسه،وتفعيلPicker API وتقييدkey إلىorigin المنصة و`https://docs.google.com/*`. لا يُستنتجproject number منClient ID. Picker تحتاجaccess token للملفاتالخاصة؛مرحلةselection ستستعملهذهفقطللعملية،دونClientSecret/refresh token. [Google Picker prerequisites](https://developers.google.com/workspace/drive/picker/guides/web-picker).
 
-## الخطوة التالية المطلوبة — Native187
+## اختيار الملف والتحقق المستقل — Native187
 
-بعدحفظNative186: dedicated Picker page/tickets/selection وindependent metadata/current resources/explicit shared-use grants،ثمSpreadsheet/worksheet/range snapshot →Mapping/validation/preview/duplicate review →shared approved intake/results،ثمcurrent-scoped Export معdurable immutable payload/reconciliation. يلزمGoogle source provenance فعلية،ولاfake CSV upload/MetaConnection/Human Session أوpipeline Lead مستقلة. هذهالوظائفواختباراتهاIntegration/Browser مازالتمطلوبةقبلbaseline Google كاملة.
+`google_picker_ticket` مرتبطة بنفس الحساب وSession وRole/Branch ونسخ Connection/settings/grant. request UUID نفسها تعيد التذكرة نفسها، وتغيير النية409؛ لاfallback إلى جلسة أخرى. تبدأ WAITING10m ثمPICKING، وبعد اختيار Spreadsheet واحدة تُحفظ VERIFYING60s معhistory/Audit قبل أيHTTP. الميزانيات بساعةDB تقنية. callback لا تقبل metadata أوURL أوtitle من المتصفح؛ Backend تقبل ID فقط ثم تقرأ metadata منGoogle adapter مستقلة دونcells، وتعيد فحص الصلاحيات والنسخ بعدHTTP وقبلpublication.
+
+صفحة Picker لهاCSP nonce وGoogle hosts ثابتة وLIST view دون إضعاف CSP العامة. POST bootstrap تعيد access token الحالية وAPI key وCloud project number اللازمة للـSDK فقط، دونclient secret أوrefresh token. هذا هو الاستثناء الضروري من قاعدة عدم إعادةtokens في واجهاتmetadata العامة؛ لاtokens ضمنapp URLs/HTML/logs/storage، ولاManager Org bootstrap أوconfiguration/catalog access. قد تستخدم Google SDK token داخل شبكتها وبروتوكولها؛ لا يُدّعى غيابها عن تفاصيل SDK الداخلية أوتقصير Google token lifetime إلىTTL التذكرة. سياسة `strict-origin-when-cross-origin` لصفحةSDK ترسلorigin فقط لدعمwebsite key restrictions، وbootstrap response تُرسل no-store؛ لاticket URL فيGoogle referrer. التطبيق لا يسجلquery أوresponse body.
+
+`google_resource` لها هوية واحدة لكلConnection/Spreadsheet. التحقق أوإعادة الاختيار ينشئ metadata version معsource ticket/history/Audit؛ التعطيل محلي ولا يحذف تاريخًا. لاpartial VERIFIED receipt دونmatching resource/history في نفسtransaction عبرdeferred proof. لا يُعاد عرض كل2000worksheet دفعة واحدة؛ API افتراضي25 والواجهة تتصفّح numeric index/id معsheet0 وunsupported types صريحة. resource summaries/history لا تعيدsheets الكاملة أوcell data.
+
+فشل metadata القابل للإعادة يُعاد صراحة بنفسID وبحد5 محاولات؛ لاhidden retry. final commit failure يبقيVERIFYING دونresource جزئية، ويُستعاد باختيار جديد بعد انتهاءlease أو من جلسة حالية جديدة؛ لاcode أوexternal write replay. UI تدعمlost ACK/same intent عبر اللغة وpopup/status/cancel/read-only retry وresource disable/history وfailed-read clearing، وتعرض الحالة باللغاتar/en/fr. Agent وotherBranch/Organization وSession أخرى ممنوعة منconfiguration/bootstrap؛ shared operational authorization مرحلة مستقلة لاحقة.
+
+الاختبارات مركزة علىconcurrency وclaim-before-HTTP وlate settings/role fences وwrong identity وretry exhaustion وAudit rollback وfresh-session recovery، وSDK browser mock معactual CSP/bootstrap/API/DB. لاGoogle consent/key/file Live verification بهذه المحاكاة، ولاLead/Payment/Enrollment أوimport/export آثار.
+
+## الخطوة التالية المطلوبة
+
+بعد checkpoint187: explicit shared-resource availability منSuper Admin للفروع،معoperational use/catalog scoped منفصلةعنconfiguration/credentials. ثمSpreadsheet/worksheet/range snapshot →Mapping/validation/preview/duplicate review →shared approved intake/results،ثمcurrent-scoped Export معdurable immutable payload/reconciliation. يلزمGoogle source provenance فعلية،ولاfake CSV upload/MetaConnection/Human Session أوpipeline Lead مستقلة. هذهالوظائفواختباراتهاIntegration/Browser لازالت مطلوبةقبلbaseline Google كاملة. بعدها انتقلإلىEmail/Notifications/Automation وبقيةالفجوات الأساسية دونprovider refinements.

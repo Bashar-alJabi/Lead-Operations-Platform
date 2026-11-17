@@ -1,5 +1,13 @@
 # المعمارية التقنية
 
+## اختيار موارد Google والتحقق المستقل — Native187
+
+تذكرة Picker مرتبطة بنفس Session/Role/Branch ونسخ Connection/settings/grant، ولا تحمل credentials في URL أوHTML. تبدأ WAITING لمدة10 دقائق بساعة DB، ثمPICKING، ثم claim بحالة VERIFYING لمدة60 ثانية تُحفظ مع history/Audit قبل قراءة metadata عبر HTTP خارج transaction. لا تُعتمد نتائج متأخرة بعد تغير الصلاحيات أوالإعدادات أوالتفويض. إعادة نفس requestId تعيد نفس التذكرة؛ تغيير النية يعيد409. worksheet metadata مستقلة عن SDK callback غير الموثوقة، ولا توجد cell data أوLead/financial effects. هذه budgets تقنية قابلة للمراجعة وليست Google guarantees.
+
+الـSDK داخل document منفصلة ذات nonce وCSP محددة لـGoogle hosts دون إضعاف CSP العامة. POST bootstrap تعيد access token اللازمة لـPicker وAPI key وproject number فقط إلى نفس Session الأصلية الحالية؛ لاclient secret أوrefresh token. هذا استثناء frontend authorization الضروري، ولا يمنح Manager حق فتح Organization Picker. لا تُدرج tokens في app URLs أوlogs/storage؛ Google SDK نفسها قد تستعمل token ضمن بروتوكولها ولا يُدّعى التحكم في تفاصيلها. الاختبارات SDK/HTTP mocks فقط وLive verification معلّقة.
+
+resource لها هوية واحدة لكل Connection/Spreadsheet، معmetadata versions وتعطيل محلي وتاريخ لا يُمحى. publication تحتاج fresh VERIFIED ticket وmetadata مطابقة وcurrent context ضمن نفس transaction، وdeferred complete-resource proof تمنع partial receipt. resource/history reads وworksheet pages تستخدم current backend configuration scope؛ shared operational grants مرحلة تالية مستقلة ولا تمنح credentials. فشل read يمكن إعادته صراحة بحد5 محاولات؛ فشل final commit يبقي VERIFYING دون resource جزئية، وبعد انتهاء lease تبدأ تذكرة جديدة وتتحقق metadata مجددًا. جميع المحاولات هنا read-only ولا code أوwrite replay.
+
 ## Managed Picker prerequisites — Native186
 
 إعدادPicker منفصلعنOAuth authorization: row ذاتversion وkey_revision وencrypted dedicated key/AAD،ومetadata-only immutable history/Audit. mutation تحتاجbothCAS (settings وcurrentConnection) وcurrent SA/Manager Session/scope؛key rotationلاتغيّرGoogle client identity أوOAuth grant. لاتُخزنkey فيconfig/capabilities ولا تُعادفيmetadata APIs. [العقد](google-sheets.md). حفظهذهالمتطلباتليسverification أوresource authorization،ولاexternal I/O. مرحلةtickets/SDK وtrusted metadata/explicit resource grants منفصلةلاحقة،مععدمإضعافCSP العامةللمنصة.

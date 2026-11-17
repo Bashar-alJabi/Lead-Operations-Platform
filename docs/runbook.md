@@ -1,5 +1,13 @@
 # دليل التشغيل والتطوير
 
+## اختيار Spreadsheet والتحقق من metadata — Native187
+
+بعد build وmigrations001–187 دون reset: افتح Connection المتحقق من OAuth فيها، واحفظ Picker prerequisites، ثم «تحضير اختيار ملف Google» و«فتح Google Picker». اسمح popup لهذه العملية إذا حجبها المتصفح؛ SDK تحتاج اتصال Google في الاستخدام الحي المصرح به وAPP_ORIGIN وsame-origin API صحيحين. لاcredentials شخصية أوlive verification في التطوير؛ Browser tests تستبدل SDK وGoogle HTTP ببيانات اصطناعية فقط.
+
+اختر Spreadsheet واحدة، ثم عد للإعدادات وحدّث حالة الاختيار. Backend تعتمد ID فقط وتقرأ metadata مستقلة؛ الأسماء والأبعاد لا تعني cells/import/export أوCampaign/Branch access. اعرض worksheet pages والتاريخ، أوعطّل resource محليًا بسبب موثق دون حذف تاريخها. نفس Session الأصلية مطلوبة لفتح Picker/bootstrap؛ جلسة أخرى لنفس المستخدم ليست بديلًا.
+
+عند فقد رد تحضير الاختيار، استعمل «إعادة طلب الاختيار نفسه» قبل إنشاء نية جديدة؛ يبقى request الأصلي حتى عند تغيير اللغة. metadata failure قابلة للإعادة تعرض زر إعادة الفحص بنفس ID وبحد5 محاولات. إعدادات أوصلاحيات متغيرة تتطلب اختيارًا جديدًا؛ جدّد access token عبر «اختبار التفويض وتجديده» إذا انتهت. VERIFYING بعد فشل الحفظ تبقى حتى انتهاء lease60s ثم ابدأ اختيارًا جديدًا؛ لاDB edits أوcode replay. cancellation منSDK أوالواجهة لا تحذف history أوresource سابقة. [العقد والحدود](google-sheets.md).
+
 ## إعداد متطلبات Google Picker — Native186
 
 طبّق001–186 بعدbuild دونreset. افتحConnection من«اتصالات Google Sheets» ثم«إعداد Google Picker». تعرضالواجهةرابطGoogle Cloud وتعليماتتفعيلPicker API فيمشروعOAuth نفسه وإدخالProject number والمفتاحالمخصصالمقيد؛Website patterns ظاهرتانللنسخباتجاهLTR حتىفيالعربية. أدخلreason واحفظ؛المفتاحلايُعادعرضهبعدالحفظ،وتركهفارغًافيالتعديل يحتفظبه. Key rotation/history وCAS منفصلتانعنOAuth،ولاتعيدreauthorization بلاسبب.

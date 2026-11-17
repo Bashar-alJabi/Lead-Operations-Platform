@@ -1,5 +1,17 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: Picker selection وindependent metadata — Native187 — 2026-11-17
+
+استؤنف من `da1f5b6` مع الحفاظ على WIP دون reset/discard. اكتملت real-session tickets وdedicated Picker document/CSP وminimal POST bootstrap،ثمsingle-ID admission وindependent trusted metadata وscoped resource/history/disable وar/en/fr UI معcancel/read-only retry وpagination. [العقد والحدود](google-sheets.md). لا إخفاق متبقٍ عند هذه البوابة.
+
+**البوابة النهائية:** Backend/Web build وtypecheck وdiff check؛**202/202 full Unit،148/148 full compiled Docker PostgreSQL Integration(547.3s)،71/71 full Edge Browser E2E(10.9m)**. قبلها2/2 focused PG و3/3 focused Google Browser(24.0s). Native187 اجتازتDDL preflight معrollback قبلتطبيقها؛migrations001–187development/test وrecheck ناجحة دونreset. لاruntime/Native changes بعدfull PG؛فُحصت صورةالعربية390px وassertions no overflow/XSS/duplicate keys. Web JS1013.33KB/gzip290.15KB وCSS12.47/gzip2.94؛chunk warning ضمنbacklog.
+
+**الإثبات:**8concurrent same-request admissions تنتج تذكرةواحدة؛Provider metadata بعدclaim ملتزمةفقط،والـreplay لايعيدHTTP أوresource. late settings/role وoriginal Session fences وwrong spreadsheet identity و5 retries وAudit rollback/fresh-session recovery مثبتة. Browser تثبتactual popup/CSP/bootstrap معSDK/HTTP mocks وlost ACK عبراللغة وretry metadata و27worksheet علىصفحتين وresource history/disable وfailed-read clearing. لاcell payload غيرالمطلوبة أوsecrets فيresource/history/Audit؛لاLead آثار.
+
+**حدود الحالة:** هذه الشريحة **Mock Verified (SDK/HTTP) وPostgreSQL/Local Browser Verified**،و**Live Verification Pending External Credential/Approval**. Google module والمنصة غيرمكتملتين؛لاcells/Lead/financial/import/export effects أوshared operational grants بهذهالشريحة. ملفات185–187 مطبقة ولا تُعدّل. PostgreSQL/ClamAV healthy وPreviewOFF؛بعدteardown لا4100 أو5174 listener. لاcredentials حقيقية أوmain/Production actions.
+
+**الخطوة التالية الدقيقة — Native188:** بعدحفظهذهcheckpoint،explicit Organization resource availability للفروع بواسطةSuper Admin وcurrent scoped operational catalog/use منفصلةعنconfiguration/credentials؛لاManager Org tokens أوPicker bootstrap/catalog configuration access. ثمworksheet/range snapshot وGoogle provenance فعلية وMapping/shared approved intake/results وcurrent-scoped Export/jobs/history/recovery،دونfake CSV/MetaConnection/Session أوtwo-way sync. بعدGoogle Import/Export baseline انتقلإلىEmail/Notifications/Automation وبقية[الفجوات](platform-gap-review.md)،ولاoptional Google refinements. الأقسامالتاليةتاريخية.
+
 ## آخر حالة مستقرة: managed Picker prerequisites — Native186 — 2026-11-17
 
 استؤنف من `59ebe28` النظيفة والمرفوعة. اكتملت managed Picker prerequisites داخل Google Connection: Cloud project number وencrypted dedicated API key وretention/rotation وboth-CAS(current Connection/settings versions) وcurrent SA/Manager Session/Organization/Branch،معnative immutable metadata history/Audit وar/en/fr UI. لاkey بعدالحفظأوفيGET/history/logs؛key rotation منفصلةعنOAuth ولا تغيّرهويتها أوتجبرreauthorization. [العقد](google-sheets.md).
