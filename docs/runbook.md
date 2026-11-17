@@ -1,10 +1,20 @@
 # دليل التشغيل والتطوير
 
-## Google Sheets HTTP adapter — حالة التطوير
+## Managed Google Connection/OAuth — Native185
 
-توجد HTTP adapter واختبارات synthetic mocks فقط؛لا Google setup UI أوcallback أوjobs مسجلة بعد. لا credentials جديدة ولا env business setup مطلوبة لهذه المرحلة،ولا Google calls من تشغيل المنصة الحالي. [العقد والخطوة التالية](google-sheets.md). **Live Verification Pending External Credential/Approval**؛لا تُستخدم حسابات المطور أومفاتيح شخصية للتحقق.
+بعد build طبّق migrations001–185 دون reset. من «اتصالات Google Sheets» تهيّئ Super Admin اتصال المؤسسة أوالفرع، وManager فرعها فقط. اتبع روابط Google Cloud والشرح، فعّل Sheets API وأعد Auth Platform/Audience/Test users/Data Access، وأنشئ OAuth Web application بالـredirect URI الدقيقة الظاهرة والقابلة للنسخ. أدخل Client ID وSecret وreason واحفظ، ثم اختر «الموافقة عبر Google» بالحساب المؤسسي المقصود. لا business env/CLI/DB edits. بنية النشر الحالية تحتاج APP_ORIGIN وcredential encryption key وsame-origin `/api` كما سبق؛ ليست هذه Google business credentials. [العقد](google-sheets.md).
 
-الاختبارات المركزة بعدbuild: `node --test dist/test/google-sheets.test.js`. اختبارات PostgreSQL والمتصفح العامة لهذه المرحلة هي regression للمنصة الحالية،وليست Google end-to-end. لا تُعد success callback أوtoken وحدهما إثباتًا لجاهزية integration؛مرحلة managed OAuth/current scope/DB proof/UI ما زالت مطلوبة. Preview تبقى OFF وPostgreSQL/ClamAV الحالية للتطوير والاختبار محفوظتان.
+CONNECTED هنا يثبت OAuth/scopes/refresh/subject فقط، ولا ينقل cells أويجعل Google module كاملة. اختبر التفويض وتجديده من الزر المخصص؛ تظهر status/last success/failure وattempts/history. account mismatch يتطلب Connection جديدة لحساب آخر؛ Client ID لا تتغير في مكانها. تعديل Secret أوreconnect يعطل grant الحالية ويحتاج موافقة جديدة؛ disable إيقاف محلي يحفظ التاريخ ولا يدعي إلغاء Google grant خارجيًا. الجلسة الأصلية نفسها مطلوبة للـcallback، وانتهاء الجلسة أوسحبها يتطلب موافقة جديدة من جلسة حالية.
+
+UNKNOWN لا تعيد code تلقائيًا؛ ابدأ موافقة جديدة. إذا انقطعت العملية بعد Provider وقبل commit فتبقى RUNNING حتى60ثانية، ثم بدء موافقة جديدة يسجل UNKNOWN ويسمح بالاستعادة. pending WAITING تنتهي بعد10دقائق، وموافقة جديدة تلغي السابقة؛ RUNNING غير منتهية تمنع البدء المتزامن. لا SQL repair أوفرض CONNECTED. عند Google401/auth failure أوgrant mismatch، راجع إعدادات المزود ثم أعد الموافقة؛ لا تُقبل success page أوادعاء المستخدم كإثبات تفويض.
+
+هذه الجلسة synthetic HTTP/consent mocks فقط، دون Google credentials أوبيانات عملاء. **Live Verification Pending External Credential/Approval**، وPreviewOFF وPostgreSQL/ClamAVdevelopment/test محفوظتان. Picker وresource grants/ranges/snapshot/import/export/jobs مازالت مطلوبة؛ لا general two-way sync. سجل البوابات الجارية والنهائية في progress/coverage.
+
+## Google Sheets HTTP adapter — checkpoint9c3e395 التاريخية
+
+checkpoint9c3e395 كانتHTTP adapter واختباراتsynthetic mocks فقط،دونGoogle setup UI/callback/jobs. Native185 الحاليةتضيفmanaged authorization أعلاه،ولاتضيفfile jobs. [العقد والخطوة التالية](google-sheets.md). **Live Verification Pending External Credential/Approval**؛لا تُستخدمحساباتالمطور أومفاتيحشخصيةللتحقق.
+
+الاختباراتالمركزةللطبقةHTTP بعدbuild: `node --test dist/test/google-sheets.test.js`. بوابةPG/Browser في9c3e395 كانتregression فقط؛Native185 لهااختباراتmanaged OAuth مركزةمستقلة،معHTTP/consent mocks وليستLive verification. لا تُعدsuccess callback أوtoken وحدهما إثباتًالجاهزيةSheets Import/Export. Preview تبقىOFF وPostgreSQL/ClamAV الحاليةمحفوظتان.
 
 ## actual approved Import — Native183–184
 

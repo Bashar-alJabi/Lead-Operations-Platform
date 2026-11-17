@@ -1,5 +1,17 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: managed Google Connection/OAuth — Native185 — 2026-11-17
+
+استؤنف من `9c3e395` النظيفة والمرفوعة. اكتملت مرحلة managed Google authorization: Organization/Branch Connections وencrypted client credentials/rotation، وone-time PKCE/state مثبتة إلى real current Session/Role/Branch/version، وdurable exchange/refresh/subject pinning، وnative guards/history/Audit وAPI وar/en/fr UI. callback تستخدم جلسة المنصة وSameSite=Lax الموجودة، ولا تنشئ Google platform login. [العقد](google-sheets.md).
+
+**البوابة النهائية:** migrations001–185 development/test وrecheck دون reset؛Backend/Web build/typecheck وdiff check؛**201/201 full Unit،145/145 full compiled Docker PostgreSQL Integration(409.5s)،69/69 full Edge Browser E2E(11.0m)**. قبلها focusedPG3/3(63.2s) وfocusedGoogleBrowser1/1(6.7s). أول fullBrowser انتهت68pass/1fail(10.8m) عند login قبلGoogle؛trace أثبتHTTP429 بسبب loopback bucket مشتركة. أُصلح test-only rate isolation الموجودة أصلًا لكلسياقاتcase،دون تغييرproduction key generator/IP أوحدودLogin أوassertions،ثمأعيدbuild/typecheck/201Unit وfull69 فنجحت. لاBackend/runtime/Native change بعد145PG. JS996.77KB/gzip285.81KB،CSS12.47/gzip2.94؛chunk warning backlog.
+
+**الإثبات:**8concurrent callbacks→code exchange واحدة،ولاProvider call قبلclaim/Audit محفوظتين. Session أخرىلنفسالحساب أوAgent/otherBranch/Organization محجوبة. rotation وrevocation وlate role/Branch/connection fences تمنعactivation وتحفظالاستجابةمشفرّة. account mismatch لاتبدلالـsubject المثبتة. refresh تحتفظبالـrefresh token السابقةعندغياببديلةوتستعملprevious verified scopes فقط. native identity/history/secret/forgedCONNECTED denials وAudit failure rollback مثبتة. فشلfinal commit يبقيRUNNING،وبعدreal DB60s تتحولUNKNOWN عندموافقةجديدة دونcode replay. UIاختبرتcallback/PKCE وmock consent/HTTP،refresh وUNKNOWN وrotation/disable/reconnect/status/lastsuccess/failure/history وscoped FR/AR390px safe clearing؛XSS/keys/no overflow assertions والصورةالأخيرةفُحصت.
+
+**حدود الحالة:** managed authorization **HTTP/Consent Mock Verified**؛لا Google credentials أوProvider account حقيقية أوبیانات عملاء،و**Live Verification Pending External Credential/Approval**. CONNECTED OAuth فقط،ولاGoogle file approval أوImport/Export baseline. Native185 مطبقة ولا تعدلملفها؛PreviewOFF وPostgreSQL/ClamAVdevelopment/test محفوظتان. GoogleModule والمنصة غيرمكتملتين؛الأقسامالتاليةتاريخيةولا تلغيالحالةالأحدث.
+
+**الخطوة التالية الدقيقة — Native186:** managed Google Picker prerequisites/selection وcurrent resources/explicit shared-use grants وtrusted independent Spreadsheet metadata،دونClientSecret/refresh token فيالمتصفح. ثمexplicit worksheet/range snapshot معGoogle source provenance فعلية وMapping/validation/duplicate review/shared approved intake/results،ثمcurrent-scoped Export/jobs/history/recovery. لاfake CSV/MetaConnection/Session أوgeneral two-way sync. بعدGoogle baseline انتقل إلىgeneral Email/Notifications/Automation وبقية[الفجوات](platform-gap-review.md)،دونoptional provider/AI refinements. احفظكلشريحةمستقرةبالوثائق/commit/push للفرعالمصرحبهفقط.
+
 ## آخر حالة مستقرة: Google Sheets HTTP boundary — 2026-11-17
 
 استؤنف من `95dbce3` مع حفظ التغييرات غير الملتزمة. اكتملت مراجعة HTTP adapter والاختبارات، وأُصلح إلغاء response body ذات MIME غير صالحة مع اختبار stream cancellation. تجديد token مع scope غائبة يحتاج previous verified scopes صريحة. [العقد والحدود](google-sheets.md).

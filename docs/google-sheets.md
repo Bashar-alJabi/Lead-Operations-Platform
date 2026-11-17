@@ -4,11 +4,11 @@
 
 المطلوب في 00 §54 و03 §§39–40 و06 §18 هو Import وExport من داخل المنصة، مع بقاء DB هي Source of Truth. المزامنة الثنائية المستمرة ليست متطلبًا افتراضيًا، ولا تُضاف دون قواعد عمل صريحة.
 
-المنفذ حاليًا في `src/google/sheets.ts` و`test/google-sheets.test.ts` هو طبقة HTTP مستقلة تستخدم fetch قابلة للحقن وبيانات اصطناعية. الحالة **HTTP Mock Verified** فقط؛ لا Connection أوOAuth callback أوPicker أوjobs أوSetup UI مسجلة في التطبيق بعد. هذه ليست Google Sheets end-to-end، ولا تمنح صلاحية تشغيل حي. **Live Verification Pending External Credential/Approval**.
+checkpoint `9c3e395` أثبتت HTTP adapter. Native185 تضيف managed Connection/OAuth وAPI وواجهة ar/en/fr،واجتازت201Unit و145fullDockerPG(409.5s) و69fullEdgeBrowser(11.0m) و001–185development/test وBackend/Webbuild/typecheck. الحالة **HTTP/Consent Mock Verified**،ولا Picker أوSpreadsheet/worksheet/range approval أوImport/Export jobs بعد. هذه ليست Google Sheets module end-to-end،ولا تمنح تصريح تشغيل حي. **Live Verification Pending External Credential/Approval**.
 
 ## عقد البروتوكول
 
-تدعم الطبقة بناء consent URL مع state وPKCE/S256 وoffline access، وتبادل code وتجديد token، وقراءة subject من userinfo مع تجاهل profile/email غير اللازمة. استهلاك state وربطها بالحساب والجلسة والـConnection/version والتخزين المشفر مسؤولية طبقة Application التالية، ولم تنفذ بعد. لا يُستخدم Google login لإنشاء حسابات أوتغيير Roles في المنصة. [Google Web Server OAuth](https://developers.google.com/identity/protocols/oauth2/web-server)، [Discovery](https://accounts.google.com/.well-known/openid-configuration).
+تدعم الطبقة بناء consent URL مع state وPKCE/S256 وoffline access،وتبادل code وتجديد token،وقراءة subject من userinfo مع تجاهل profile/email غير اللازمة. Native185 تنفذ استهلاك state وربطها بالحساب والجلسة والـConnection/version والتخزين المشفر كما يلي. لا يُستخدم Google login لإنشاء حسابات أوتغيير Roles في المنصة. [Google Web Server OAuth](https://developers.google.com/identity/protocols/oauth2/web-server)، [Discovery](https://accounts.google.com/.well-known/openid-configuration).
 
 Scopes المطلوبة هي `openid` و`drive.file`، مع `include_granted_scopes=false`. اختيار `drive.file` يعني أن الملفات الموجودة تحتاج اختيارًا مقصودًا، مثل Google Picker؛ مجرد معرفة Spreadsheet ID لا يمنح file authorization. لا تُطلب Drive-wide scopes للبحث في كل ملفات الحساب. Scopes Google لا تعزل worksheet داخل Spreadsheet؛ لذلك يلزم current backend resource/range authorization مستقلة. [Sheets scopes](https://developers.google.com/workspace/sheets/api/scopes)، [Drive scopes وPicker](https://developers.google.com/workspace/drive/api/guides/api-specific-auth).
 
@@ -20,10 +20,20 @@ Scopes المطلوبة هي `openid` و`drive.file`، مع `include_granted_sco
 
 Budgets الحالية تقنية: response8MiB قابلة للضبط حتى16MiB، deadline10s حتى30s، metadata2000sheet، read/write window حتى1000rows و64columns، 8192characters/cell، و8MiB encoded write body محسوبة قبل إنشاء JSON الكاملة. لا truncation. هذه حدود التطبيق وليست Google capacity guarantees. يلزم مواءمة window/serialization مع كامل Field types وقيمها قبل إعلان Export مكتملة؛ لا خفض صامت لقيم المنصة.
 
+## managed Connection/OAuth — Native185
+
+`GOOGLE/GOOGLE_SHEETS` تستعمل integration_connection وconnection_secret الحالية. Super Admin تدير نطاق المؤسسة أوالفروع،وManager نطاق فرعها فقط؛Agent محجوبة من API مباشرة. Connection identity تشمل Organization/Branch/provider/clientId ولا تتغير؛اسم الاتصال وSecret وreconnect/disable تخضع لنسخة CAS وreason وreal current Session/history/Audit. يلزم Connection جديدة لتطبيق OAuth آخر. Shared operational resource grants ستُنفذ مع اختيار الملفات؛وجود Organization Connection لا يمنح Manager حق إعدادها أوقراءة credentials.
+
+يبدأ Google Cloud setup من UI مع تعليمات إنشاء مشروع المؤسسة وGoogle Auth Platform وAudience/Test users وData Access وOAuth Web Client وredirect URI دقيقة. لا developer account أوbusiness env edits. Client secret تستعمل AES-GCM الحالية،وPKCE/results مشفرة تحت AAD مختلفة لكلoperation. APIs/الواجهة/history/Audit لا تعيد client secrets أوrefresh/access tokens أوstate/verifier أوprofile/email. Client ID عامة وليست credential سرية. APP_ORIGIN من إعداد النشر الحالي تحدد callback وعودة ثابتتين؛HTTPS مطلوبة باستثناء development loopback الصريحة. cookie SameSite=Lax الحالية تكفي؛لا إضعاف لـAuthentication.
+
+state عشوائية32bytes،وتُخزن SHA256 فقط؛verifier عشوائية48bytes معS256. WAITING لها10دقائق وRUNNING60ثانية بساعةDB،وهذهbudgets تقنية وليست provider guarantees. callback تحتاج نفس حساب المنصة و**نفس Session الأصلية** وRole/Branch الحالية. يتمقفلConnection ثمclaim RUNNING معAudit قبلأيHTTP،وتنتهيtransaction قبلcode exchange/userinfo. pending operation واحدة لكلConnection؛concurrent callback لا تعيدcode،والـterminal replay لا تستدعيProvider. state/requests query لا تُسجل،والردود no-store/referrer-policy:no-referrer.
+
+CONNECTED تحتاج grant/scopes المطلوبة وrefresh token وsubject منuserinfo الموثوقة عبرTLS/current context،لاsuccess URL أوcustomer claim أوdecoded id_token. أول subject تُحفظ SHA256 ثابتة؛account mismatch لا يبدل الحساب،ويحتاج المستخدم Connection جديدة إن أراد حسابًا آخر. CHECK تجدد token ثمتعيدsubject verification؛refresh token الغائبة فيrefresh تُستبدل بالسابقة المرتبطةبنفسgrant المثبتة،وscope الغائبة تستعملprevious verified scopes فقط. لا customer/Lead data فيهذهالطلبات.
+
+عندتغير Session/Role/Branch/connection version أوتعطيلالاتصال أثناءHTTP،تحفظالاستجابةمشفرّةكـSUPERSEDED ولا تُفعّل. Native guards تثبت current scope/real Session وtransitions وfresh configuration/credential revisions وimmutable identity/history،وAudit failure ترجعالآثارذريًا. الناتج بعدUNKNOWN أوفشلidentity/auth يحتاجموافقةجديدة؛لاcode replay تلقائية. إذاانهارتالعملية بعدإرسالcode وقبلحفظالنتيجة،تبقىRUNNING ثمتصبحUNKNOWN بعدانتهاء60ثانية عندبدءموافقةجديدة. هذهالمهلةاختُبرتفعليًادونتعطيلguards أوتعديلexpiration التاريخية.
+
+الواجهةتعرضscopes/callback قابلًاللنسخ وencrypted create/rotation وauthorize/test/reconnect/disable وstatus/last success/failure وattempts/history بصفحات20(max100 فيAPI). failed/revoked reads تمسحالسياقالقديم. تعطيلالاتصال إيقافمحليمعاحتفاظبالتاريخ؛لايدعيrevoke لجهةGoogle. الاختبارات Google HTTP وconsent mocks ببياناتاصطناعية؛ليست Google Cloud consent أوtoken rotation حية. كلحالات Live verification مازالتpending.
+
 ## الخطوة التالية المطلوبة
 
-Native185 تبدأ managed Connection/OAuth lifecycle: encrypted client credentials وsealed PKCE verifier/tokens، current SA/Manager/Organization/Branch/Session، one-time state وversion/subject fences، durable exchange/refresh outcomes وhistory/Audit وtest/reconnect/disable/error UI. UNKNOWN لا يعيد code exchange؛ ينشئ المستخدم authorization جديدة عند الحاجة. لا client secrets أوstored refresh tokens في المتصفح.
-
-يبدأ Google Cloud setup من UI مع تعليمات إنشاء App/consent وOAuth Web Client وredirect URI دقيقة وAPI prerequisites، ثم Picker/resource selection بحسب الصلاحيات. لا developer account أوbusiness env edits. يمكن بناء واختبار كل ذلك بـHTTP/browser mocks دون credentials حقيقية. لا تُعد Connection connected لمجرد callback أوcustomer claim؛ تحتاج subject/grant proof وcurrent context.
-
-بعد استقرار الاتصال: explicit Spreadsheet/worksheet/range snapshot →Mapping/validation/preview/duplicate review →shared approved intake/results، ثم current-scoped Export مع durable immutable payload/reconciliation تحت Authorization الحالية. لا fake MetaConnection أوHuman Session أوpipeline Lead مستقلة لكل source. تبقى import/export/managed UI وIntegration/Browser tests مطلوبة قبل baseline Google كاملة.
+بعدحفظ managedOAuth checkpoint: Picker/resource selection وexplicit shared-use grants/current resource scope،ثمSpreadsheet/worksheet/range snapshot →Mapping/validation/preview/duplicate review →shared approved intake/results،ثم current-scoped Export معdurable immutable payload/reconciliation. يلزمGoogle source provenance فعلية،ولاfake CSV upload/MetaConnection/Human Session أوpipeline Lead مستقلة. هذهالوظائفواختباراتهاIntegration/Browser مازالتمطلوبةقبلbaseline Google كاملة.

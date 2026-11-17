@@ -57,7 +57,19 @@ const paypalTransport=syntheticPayPalFinancialTransport();
 const almaPayments=new Map<string,{ intentId:string;merchant:string;amount:number;plan:{ installments_count:number;deferred_months:number;deferred_days:number };captured:boolean }>();
 let almaLoseResponse=false;let almaReadFailure=false;let almaWrites=0;
 let aiSendCalls=0;
+let googleMode:'GOOD'|'AUTH'|'UNKNOWN'|'OTHER'='GOOD',googleCodeCalls=0,googleRefreshCalls=0;
 globalThis.fetch=async(target,init)=> { if(String(target)===testPayPalCertUrl)return new Response(testPayPalCertificate);
+  if(String(target)==='https://oauth2.googleapis.com/token') {
+    if(init?.method!=='POST'||init.redirect!=='error')throw Error('UNEXPECTED_GOOGLE_TOKEN_REQUEST');
+    const body=new URLSearchParams(String(init.body));if(!body.get('client_secret')?.startsWith('BrowserGoogleSynthetic_'))return new Response('{}',{status:400,headers:{'content-type':'application/json'}});
+    const code=body.get('grant_type')==='authorization_code';if(code){googleCodeCalls++;if(!body.get('code_verifier')||body.get('redirect_uri')!=='http://127.0.0.1:4100/api/google/callback')throw Error('UNEXPECTED_GOOGLE_PKCE');}else{if(body.get('grant_type')!=='refresh_token')throw Error('UNEXPECTED_GOOGLE_GRANT');googleRefreshCalls++;}
+    if(googleMode==='UNKNOWN')throw Error('Synthetic lost Google token ACK');if(googleMode==='AUTH')return new Response('{}',{status:400,headers:{'content-type':'application/json'}});
+    return new Response(JSON.stringify({access_token:'BrowserGoogleAccess_'+(googleCodeCalls+googleRefreshCalls),refresh_token:code?'BrowserGoogleRefresh_Synthetic':undefined,token_type:'Bearer',expires_in:3600,scope:code?'openid https://www.googleapis.com/auth/drive.file':undefined}),{headers:{'content-type':'application/json'}});
+  }
+  if(String(target)==='https://openidconnect.googleapis.com/v1/userinfo') {
+    if(init?.redirect!=='error'||!new Headers(init.headers).get('authorization')?.startsWith('Bearer BrowserGoogleAccess_'))throw Error('UNEXPECTED_GOOGLE_USERINFO');
+    return new Response(JSON.stringify({sub:googleMode==='OTHER'?'BrowserSyntheticOtherGoogleAccount':'BrowserSyntheticGoogleAccount',name:'Ignored private synthetic profile',email:'unused@google.browser.test'}),{headers:{'content-type':'application/json'}});
+  }
   if(String(target)==='https://graph.facebook.com/v25.0/15550001111/messages') {
     if(init?.method!=='POST' || new Headers(init.headers).get('authorization')!=='Bearer test-fake-token-not-a-real-account')throw new Error('UNEXPECTED_AI_SEND_REQUEST');
     const payload=JSON.parse(init.body as string);if(payload.type==='text' ? typeof payload.text?.body!=='string' : payload.type!=='template'||typeof payload.template?.name!=='string'||typeof payload.template?.language?.code!=='string')throw new Error('UNEXPECTED_AI_SEND_CONTENT');
@@ -295,6 +307,12 @@ app.post<{Body:{failJobId?:string;fail?:boolean}}>('/__test__/exports',{schema:{
  let processed=0;while(processed<100&&await processOneExport(db))processed++;return {processed};
 });
 app.get('/',async (_request,reply)=>reply.type('text/html').send(await readFile(resolve('dist-web/index.html'))));
+app.post<{Body:{mode?:'GOOD'|'AUTH'|'UNKNOWN'|'OTHER'}}>('/__test__/google',{
+ schema:{body:{type:'object',additionalProperties:false,properties:{mode:{enum:['GOOD','AUTH','UNKNOWN','OTHER']}}}}
+},async request=>{
+ if(typeof request.headers.authorization!=='string'||!safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
+ if(request.body.mode)googleMode=request.body.mode;return {googleCodeCalls,googleRefreshCalls};
+});
 app.post<{Body:{phase?:'MATCH'|'EXECUTE';failRuleId?:string;fail?:boolean}}>('/__test__/automation',{
  schema:{body:{type:'object',additionalProperties:false,properties:{phase:{enum:['MATCH','EXECUTE']},failRuleId:{type:'string',format:'uuid'},fail:{type:'boolean'}}}},
 },async request=>{

@@ -1,4 +1,6 @@
 import {registerLeadImportRoutes} from './routes/lead-imports.js';
+import {registerGoogleConnectionRoutes} from './routes/google-connections.js';
+import type {GoogleSheetsAdapter} from './google/sheets.js';
 import {registerLeadExportRoutes} from './routes/lead-exports.js';
 import {registerBulkFollowUpRoutes} from './routes/bulk-follow-ups.js';
 import {registerAnalyticsRoutes} from './routes/analytics.js';
@@ -89,6 +91,7 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   leadSourceSubscriptionAdapter?: LeadSourceSubscriptionAdapter;
   paymentConnectionAdapters?:PaymentAdapterRegistry;
   aiConnectionAdapters?:AIAdapterRegistry;
+  googleSheetsAdapter?:GoogleSheetsAdapter;
   aiReadTestAdapters?:AIInferenceRegistry;
   mediaStorage?: MediaStorage;
   mediaScanner?: MediaScanner;
@@ -203,5 +206,6 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   registerBulkFieldRoutes(app,db);
   registerBulkFollowUpRoutes(app,db);
   registerLeadExportRoutes(app,db);
+  registerGoogleConnectionRoutes(app,db,options.googleSheetsAdapter);
   return app;
 }

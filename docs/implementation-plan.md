@@ -1,5 +1,11 @@
 # خطة التنفيذ
 
+## أحدث checkpoint: managed Google Connection/OAuth — Native185 — 2026-11-17
+
+اكتملت managed encrypted Connections وcurrent Role/Session/Branch/version وone-time PKCE/state وdurable exchange/refresh/subject pinning وnative history/Audit وtest/reconnect/disable/rotation/status/metadata UI. **201Unit و145fullDockerPG(409.5s) و69fullEdgeBrowser(11.0m)** و001–185development/test recheck وBackend/Webbuild/typecheck ناجحة،وقبلهاfocusedGoogleBrowser1/1. أولfullBrowser68pass/1fail بسببHTTP429 فيlogin؛صُححتtest-only rate isolation دونتغييرproduction limits أوBackend/runtime،ثمأعيدbuild/typecheck/201Unit وfull69 ونجحت. [العقد](google-sheets.md). هذهmanaged authorization HTTP/Consent Mock Verified فقط،ولاGooglefile baseline أوLiveverification.
+
+**التالي Native186 بعدحفظهذهالشريحة:** managed Picker prerequisites وselection/current resource scope وexplicit shared-use grants،معtrusted independent Spreadsheet metadata وعدمتمريرClientSecret/refresh token للمتصفح. اختيارProvider وحدهلايثبتBranch/Campaign authorization. ثمexplicit worksheet/range/snapshot وMapping/shared approved intake/results وcurrent-scoped Export/jobs/history/recovery. DBSourceofTruth وGoogleModule غيرمكتملة؛لاgeneric two-way sync أوLiveVerification أوoptional provider/AI refinements قبلبقيةModules الأساسية.
+
 ## أحدث checkpoint: Google Sheets HTTP boundary — 2026-11-17
 
 استُعيدت WIP بعد95dbce3 وأُكملت HTTP adapter مستقلة مع OAuth/PKCE/refresh/subject/metadata/bounded read/RAW write و7HTTP mock tests. **200Unit/142fullPG(455.7s)/68fullEdgeBrowser(10.1m)** و001–184development/test recheck وBackend/Webbuild/typecheck ناجحة. أولBrowser فشلت بخطأsocket المحليERR_NO_BUFFER_SPACE ثمfull rerun نجحت دون تغيير assertions أوruntime؛[العقد والحدود](google-sheets.md). هذه HTTP Mock Verified فقط،ولاmanaged Google UI أوIntegration/Browser end-to-end بعد. Google والمنصة غيرمكتملتين وLive pending.

@@ -1,10 +1,18 @@
 # المعمارية التقنية
 
-## Google Sheets HTTP boundary
+## Managed Google Connection/OAuth — Native185
+
+`google_connection_revision` و`google_oauth_operation` وimmutable subject/history تنفذ الاتصال فوق integration_connection/connection_secret الحالية. نفس SA/Manager scope وreal Session،مع current Role/Branch/version وactive Branch عندauthorization/verification. إعدادات Client ID/Organization/Branch immutable؛الـsubject تُثبت SHA256 بعدuserinfo موثوقة،ولا تكون Google login أوRole grant. credential revisions وconfiguration receipts تعتمد fresh transaction proof/Audit وتمنع التعديل دونCAS/history. [العقد التفصيلي](google-sheets.md).
+
+state hash وsealed PKCE قبلHTTP؛WAITING10m→RUNNING60s ثمterminal. Connection row lock وunique pending operation تمنع concurrent code exchange. لاtransaction مفتوحة أثناءnetwork. النتيجة sealed منفصلةعنactive grant،وcurrent-context recheck يمنع الردالمتأخر بعدrotation/revocation/role/Branch/disable. بعدlost final commit تبقىRUNNING ثمUNKNOWN ولاcode replay؛موافقةجديدةهيالاستعادة. CHECK تستعملrefresh مرتبطةبنفسverified grant وتعيدsubject verification،ولا تعيدUNKNOWN تلقائيًا. callback وreturn ثابتتان منAPP_ORIGIN الحالية؛SameSite=Lax القائمة دونتغيير.
+
+الواجهة وAPI تعرضانmetadata/status/history فقط دونtokens/verifier/profile/email. Native185 مرحلةmanaged authorization،وليستGoogle file access/Import/Export approval. Picker/current resources وexplicit shared grants وsnapshot/job approval مازالتمطلوبة،والـHTTP/consent mocks لا تثبتLive Google verification. لاgeneral two-way sync أوProvider secrets فيAI.
+
+## Google Sheets HTTP boundary — checkpoint9c3e395
 
 `src/google/sheets.ts` تعزل Google OAuth وSheets HTTP عن الـDomain. Transport قابلة للحقن،hosts ثابتة وredirects ممنوعة وحدود فعلية للـstream/deadline وpayload validation. consent تستخدم PKCE/S256 وoffline و`openid`/`drive.file`؛قراءة metadata لا تحمل cells،والقراءة محدودة وRAW write تحتاج exact acknowledgement. لا hidden retries،وuncertain code exchange/write تسجل UNKNOWN ولا تُعاد تلقائيًا. [العقد وحدود التحقق](google-sheets.md).
 
-هذه الطبقة لم تُربط بعد بـroutes أوConnection أوUI أوworker. إدارة state أحادية الاستعمال وربطها بالجلسة والـscope/version وencrypted credentials وGoogle subject proof مسؤولية مرحلة Native185 التالية؛Google authorization لا تُنشئ حسابًا في المنصة ولا تمنح Roles. الوصول للملفات/worksheet/range وapproved snapshots/current-scoped jobs منفصل عن مجرد امتلاك access token. هذه ليست Google baseline مكتملة،ولا تفعّل live integration.
+كانت checkpoint9c3e395 خاصةبالطبقةHTTP دونroutes/Connection/UI. Native185 أعلاه تضيفmanaged lifecycle؛تبقىالموارد/worksheet/range وapproved snapshots/current-scoped jobs منفصلةعنمجردامتلاكaccess token. هذه ليستGoogle baseline مكتملة،ولا تفعّلlive integration.
 
 ## Approved Import row execution/provenance — Native183–184
 
