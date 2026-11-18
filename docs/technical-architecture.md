@@ -1,5 +1,15 @@
 # المعمارية التقنية
 
+## Google Import عبر مدخل مشترك — Native190–192
+
+تُعمّم البنية التاريخية `lead_import_file` إلى مدخل محدد النوع، مع حفظ اسم الجدول وFK والتاريخ القائمة. `input_kind=FILE` تبقي CSV/Excel ومسار binary storage/scan/parser الحالي؛أما `GOOGLE_SHEETS` فتحتاج capture فعلية وmanifest أصلية،وتكونformat/hash/size/storage/scanner جميعهاNULL بقيودDB متبادلة. لا تحويل إلىCSV أوإيصال رفع/فحص مصطنع،ولاخدمةLead intake موازية. النسخ DB-only وذري: real-session/current capture approval →input/sheet/rows/history/Audit،معfresh-row وcomplete-capture proofs وunique capture/request،بنفسquota ومفتاحالقفل المشتركين معرفع الملفات.
+
+يحفظmanifest هويةConnection/resource/capture ونسخها،وGoogle sheetId/range وmetadata المقروءة وheader cells ووقت اكتمالالقراءة. يُنسخexpires_at مباشرة داخلDB بدقته الأصلية دونJS Date roundtrip أوتمديدrawTTL. تُرقّمصفوفالمراجعة نسبيًا بدءًا من2،ويحتفظschema3 فيoriginal SourceSubmission بالإحداثياتالفعلية للصفوالعمود وروابطinput/capture/dataset/Mapping. schema1/2 وoriginals السابقةلا تُعادكتابتها. يستخدمالاستيراد `IMPORT_GOOGLE_SHEETS` و`APPROVED_IMPORT` الحاليين كهويةمصدر وعقدصلاحية؛لاMeta Connection أوHuman Session بديلة.
+
+صلاحيةالمصدر الحالية مطلوبة للنسخ وraw preview وMapping/review/approval: Connection SHARE أولًا،ثمcurrent account/real Session/Branch/Campaign وcapture/resource/access versions. تعملNative guards أيضًا علىالمصدر الحالي. بعدapproval تُحفظdataset مستقلةعنrawTTL؛العامل الحالي يعيدcurrent internal account/scope/Fields/Contacts/Routing authority ولايستعملجلسةتاريخيةللمصادقة. سحبGoogle access يحجبالبياناتالخام قبلapproval،لكنلايمنعمالمالك المخوّلمنpurge،ولايلغيآثارمصدرمعتمد أوLead محفوظة. النسخ الخام مؤقتةوخاصة؛approved original lineage تبقىللتدقيق كمافيCSV/Excel.
+
+تُستخدم الخدمات والـUI الحالية لـMapping وtyped validation وwhole-dataset duplicate review وapproval وper-row intake/results/recovery وContact review وLead origin. first-selected-row كعناوين قرارظاهر قبلالنسخ؛Google cells نصوصغيرموثوقة دونتنفيذHTML أوformula أوتخمينlocale. لاPayment/Enrollment/consent أوcustomer send منclaims مستوردة،وقيدSource Messaging-enabled/AI-disabled السابق محفوظ. Native191 تصححقراءةxmin منactual row،و192 تحافظعلىlatest179 Mapping variable fix؛190–192 مطبقةdevelopment/test ولا تُعدّل. البوابة مستقرة:204Unit/156fullPG/74fullBrowser وBackend/Web build/typecheck؛[الأدلة](codex-progress.md). Google Export مازالتRequired وLive verification معلّقة.
+
 ## Google private range capture/runtime delegation — Native189
 
 تفصل `google_capture_job/row/history` طلب القراءة الخارجي الخاص والمؤقت عن مصدرImport المعتمد. تحفظ الموافقة من جلسة حقيقية actor/role/branch ونسخresource/access/Connection؛ويعيد العاملstateless فحص الصلاحيات الحالية دونSession مصطنعة. ترتيب الأقفال Connection→job،ثمclaim قبلHTTP معlease60s وقراءةDataFilter بواسطةsheetId عددية،ثمحفظ ذري للصفحة المتجاورة وprogress/history/Audit. تمنع native proofs صفوفًا بلاصفحة مثبتة أوتعديل التاريخ. تُفحص current ACL قبلقراءةraw وبعدI/O،ويحذفretention/cancel البيانات الخام فقط.

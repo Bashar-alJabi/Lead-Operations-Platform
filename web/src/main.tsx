@@ -113,6 +113,7 @@ function App() {
   const [notice, setNotice] = useState('');
   const [initialized, setInitialized] = useState<boolean | null>(null);
   const [page, setPage] = useState<Page>(initialGoogleId?'googleSetup':'leads');
+  const [initialImportId,setInitialImportId]=useState<string|null>(null);
   const [hasUnreadNotifications,setHasUnreadNotifications]=useState(false),[notificationRevision,setNotificationRevision]=useState(0);
   useEffect(()=>{
     let alive=true,sequence=0;setHasUnreadNotifications(false);
@@ -325,7 +326,7 @@ function App() {
     <nav>{(['leads','contacts','contactReviews','followups','campaigns','fields','branches','users','identityEmail','messagingSetup','metaSources','paymentSetup','aiSetup','googleSetup','analytics','automations','notifications','profile'] as Page[]).filter((item) =>
       item === 'identityEmail' || item === 'contactReviews' || item === 'messagingSetup' || item === 'metaSources' || item === 'paymentSetup' || item === 'aiSetup' || item === 'googleSetup' || item === 'automations' ? canManage : canManage || item === 'leads' || item === 'contacts' || item === 'profile' || item === 'followups' || item === 'notifications' || item === 'analytics').map((item) =>
       <button key={item} aria-label={t[item]} className={page === item ? 'selected' : ''} onClick={() => { setPage(item); setSelectedLead(null); setSelectedCampaign(null); setShowForm(false); setForm({}); setNotice(''); }}>{t[item]}{item==='notifications'&&hasUnreadNotifications&&<span role="status" aria-label={locale==='ar'?'إشعارات غير مقروءة':locale==='fr'?'Notifications non lues':'Unread notifications'} style={{marginInlineStart:'.5rem'}}>●</span>}</button>)}</nav>
-    <div className="sidebar-bottom">{language}<button onClick={() => { void api('/api/auth/logout', { method: 'POST' }).then(() => setUser(null)); }}>{t.logout}</button></div>
+    <div className="sidebar-bottom">{language}<button onClick={() => { void api('/api/auth/logout', { method: 'POST' }).then(() => {setInitialImportId(null);setUser(null);}); }}>{t.logout}</button></div>
   </aside><main className="content"><header><div><small>Lead Operations</small><h1>{selectedLead ? t.details : t[page]}</h1></div><button className="secondary" onClick={() => void (page === 'identityEmail' ? refreshDeliveryJobs() : page === 'contacts' || page === 'contactReviews' || page === 'fields' ? setWorkspaceRefresh((value) => value + 1) : refresh())} disabled={busy}>{t.retry}</button></header>
     {error && <div role="alert" className="error">{error}</div>}
     {notice && <div role="status" className="panel">{notice}</div>}
@@ -353,7 +354,7 @@ function App() {
           .catch((failure) => setError(String(failure))).finally(() => setBusy(false)); }}>{locale === 'ar' ? 'تحميل المزيد' : locale === 'fr' ? 'Afficher plus' : 'Load more'}</button>}
     </section> : page === 'paymentSetup' && canManage ? <PaymentSetup locale={locale} role={user.role as 'SUPER_ADMIN'|'MANAGER'} branches={branches} api={api} />
       : page === 'aiSetup' && canManage ? <AISetup locale={locale} role={user.role as 'SUPER_ADMIN'|'MANAGER'} branches={branches} api={api} />
-      : page === 'googleSetup' && canManage ? <GoogleSetup key={user.id} locale={locale} user={{...user,role:user.role as 'SUPER_ADMIN'|'MANAGER'}} branches={branches} api={api} initialId={initialGoogleId}/>
+      : page === 'googleSetup' && canManage ? <GoogleSetup key={user.id} locale={locale} user={{...user,role:user.role as 'SUPER_ADMIN'|'MANAGER'}} branches={branches} api={api} initialId={initialGoogleId} onImport={id=>{setInitialImportId(id);setSelectedLead(null);setPage('leads');}}/>
       : page === 'analytics' ? <AnalyticsWorkspace key={user.id} locale={locale} api={api} user={user} branches={branches} onOpenLead={id=>{setPage('leads');setSelectedLead(id);}}/>
       : page === 'automations' && canManage ? <AutomationWorkspace key={user.id} locale={locale} api={api} user={{...user,role:user.role as 'SUPER_ADMIN'|'MANAGER'}} branches={branches} onOpenLead={id=>{setPage('leads');setSelectedLead(id);}}/>
       : page === 'notifications' ? <NotificationCenter key={user.id} locale={locale} api={api} user={user} branches={branches} onOpenLead={id=>{setPage('leads');setSelectedLead(id);}} onChanged={()=>setNotificationRevision(n=>n+1)}/>
@@ -369,7 +370,7 @@ function App() {
       : page === 'profile' ? <section className="panel form-panel"><h2>{t.profile}</h2><p>{t.passwordChanged}</p>
       <form onSubmit={(event) => { event.preventDefault(); setBusy(true); setError('');
         void api('/api/auth/password', { method: 'POST', body: JSON.stringify({ currentPassword: form.currentPassword, newPassword: form.newPassword }) })
-          .then(() => { setUser(null); setForm({}); setPage('leads'); }).catch((failure) => setError(String(failure))).finally(() => setBusy(false)); }}>
+          .then(() => { setInitialImportId(null);setUser(null); setForm({}); setPage('leads'); }).catch((failure) => setError(String(failure))).finally(() => setBusy(false)); }}>
         {field('currentPassword', t.currentPassword, 'password')}{field('newPassword', t.newPassword, 'password')}
         <button disabled={busy}>{t.save}</button></form></section> : selectedLead && detail ? <section className="panel"><button className="link" onClick={() => setSelectedLead(null)}>{t.back}</button><h2>{contactLabel(detail.lead,locale)}</h2>
       <div className="facts"><div><small>{t.phone}</small><strong>{detail.lead.phone || '—'}</strong></div><div><small>{t.email}</small><strong>{detail.lead.email || '—'}</strong></div>
@@ -406,7 +407,7 @@ function App() {
       {page==='leads'&&<BulkFieldsWorkspace key={'bulk-fields:'+user.id+':'+user.role+':'+user.branchId} locale={locale} api={api} selected={leads.filter(l=>selectedLeadIds.includes(l.id)).map(l=>({id:l.id,version:l.version,label:contactLabel(l,locale)}))}/>}
       {page==='leads'&&<BulkFollowupsWorkspace key={'bulk-followups:'+user.id+':'+user.role+':'+user.branchId} locale={locale} api={api} role={user.role} selected={leads.filter(l=>selectedLeadIds.includes(l.id)).map(l=>({id:l.id,version:l.version,branchId:l.branch_id,label:contactLabel(l,locale)}))} onOpenLead={id=>setSelectedLead(id)}/>}
       {page==='leads'&&<ExportWorkspace key={'lead-exports:'+user.id+':'+user.role+':'+user.branchId} locale={locale} api={api} query={leadQuery} columns={leadColumns} selectedIds={selectedLeadIds}/>}
-      {page==='leads'&&canManage&&<ImportWorkspace key={'lead-imports:'+user.id+':'+user.role+':'+user.branchId} locale={locale} api={api} branchScope={user.role==='SUPER_ADMIN'?null:user.branchId} onOpenLead={id=>setSelectedLead(id)} onContactReviews={()=>{setPage('contactReviews');setSelectedLead(null);}}/>}
+      {page==='leads'&&canManage&&<ImportWorkspace key={'lead-imports:'+user.id+':'+user.role+':'+user.branchId} locale={locale} api={api} branchScope={user.role==='SUPER_ADMIN'?null:user.branchId} initialId={initialImportId} onOpenLead={id=>setSelectedLead(id)} onContactReviews={()=>{setPage('contactReviews');setSelectedLead(null);}}/>}
       <div className="toolbar">{canManage && (page !== 'branches' || isAdmin) && <button onClick={() => { setShowForm(!showForm); setForm({}); }}>{page === 'leads' ? t.newLead : page === 'campaigns' ? t.newCampaign : page === 'branches' ? t.newBranch : t.newUser}</button>}</div>
       {showForm && <section className="panel form-panel"><h2>{page === 'leads' ? t.newLead : page === 'campaigns' ? t.newCampaign : page === 'branches' ? t.newBranch : t.newUser}</h2>
         <form onSubmit={(event) => { event.preventDefault(); if (page === 'branches') void submit('/api/branches', { name: form.name, timezone: form.timezone });

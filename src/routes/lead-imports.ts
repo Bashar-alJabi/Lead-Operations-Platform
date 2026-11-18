@@ -4,7 +4,7 @@ import type {MediaStorage} from '../media/storage.js';
 import {HttpError,principalFromRequest,requireRole} from '../security.js';
 import {currentPaymentSession} from '../payments/access.js';
 import {importMaxBytes} from '../imports/types.js';
-import {importScope,importFile,importAvailable,importAudit,changeImport,uploadImport,type UploadInput} from '../imports/service.js';
+import {importScope,importFile,importAvailable,importRetained,importAudit,changeImport,uploadImport,type UploadInput} from '../imports/service.js';
 import {registerImportMappingRoutes} from './import-mapping.js';
 import {registerImportReviewRoutes} from './import-review.js';
 import {registerImportApprovalRoutes} from './import-approval.js';
@@ -65,8 +65,8 @@ export function registerLeadImportRoutes(app:FastifyInstance,db:Database,storage
    const j=await importFile(tx,actor,request,request.params.id);
    const h=await tx`SELECT version,state,attempt_count,row_count,error_code,created_at FROM lead_import_file_history WHERE file_id=${j.id}
     AND (${request.query.before??null}::integer IS NULL OR version<${request.query.before??null}) ORDER BY version DESC LIMIT 26`;
-   const sheets=j.state==='REVIEW'&&!j.expired?await tx`SELECT sheet_index,name,headers,header_row,row_count FROM lead_import_sheet WHERE file_id=${j.id} ORDER BY sheet_index`:[];
-   return {id:j.id,label:j.label,format:j.format,state:j.state,version:j.version,expired:j.expired,purged:Boolean(j.purged_at),rowCount:j.row_count,
+   const sheets=j.state==='REVIEW'&&!j.expired&&j.source_available?await tx`SELECT sheet_index,name,headers,header_row,row_count FROM lead_import_sheet WHERE file_id=${j.id} ORDER BY sheet_index`:[];
+   return {id:j.id,label:j.label,format:j.format,inputKind:j.input_kind,sourceAvailable:j.source_available,googleSource:j.input_kind==='GOOGLE_SHEETS'?{captureId:j.google_capture_id,captureVersion:j.google_capture_version,sheetId:j.google_manifest?.sheetId,row:j.google_manifest?.row,column:j.google_manifest?.column}:null,state:j.state,version:j.version,expired:j.expired,purged:Boolean(j.purged_at),rowCount:j.row_count,
     errorCode:(j as unknown as {error_code:string|null}).error_code,cleanupError:j.purged_at?null:(j as unknown as {cleanup_error_code:string|null}).cleanup_error_code,sheets,history:h.slice(0,25),nextVersion:h.length>25?h[24]!.version:null};
   });
  });
@@ -81,7 +81,7 @@ export function registerLeadImportRoutes(app:FastifyInstance,db:Database,storage
  });
  for(const action of ['cancel','retry'] as const)app.post<{Params:{id:string};Body:{version:number}}>(root+'/:id/'+action,{schema:{params,body:versionBody}},async(request,reply)=>{
   const actor=await principalFromRequest(request,db);reply.header('Cache-Control','no-store');return db.begin(async tx=>{
-   const j=await importFile(tx,actor,request,request.params.id,true);importAvailable(j);
+   const j=await importFile(tx,actor,request,request.params.id,true);if(action==='cancel')importRetained(j);else importAvailable(j);
    if(j.version!==request.body.version)throw new HttpError(409,'IMPORT_VERSION_CONFLICT');
    if(action==='retry'&&(j.state!=='DEAD_LETTER'||j.purged_at))throw new HttpError(409,'IMPORT_RETRY_NOT_ALLOWED');
    const session=await importScope(tx,actor,request,j.branch_id,j.campaign_id);

@@ -2,7 +2,7 @@ import {randomUUID} from 'node:crypto';
 import type {FastifyInstance} from 'fastify';
 import type {Database} from '../db.js';
 import {HttpError,principalFromRequest} from '../security.js';
-import {importFile,importScope} from '../imports/service.js';
+import {importFile,importScope,importSourceKind} from '../imports/service.js';
 import {importReview,reviewReady} from '../imports/review.js';
 
 const uuid={type:'string',format:'uuid'} as const;
@@ -32,14 +32,14 @@ export function registerImportApprovalRoutes(app:FastifyInstance,db:Database){
    await tx`INSERT INTO audit_log(organization_id,branch_id,actor_user_id,action,target_type,target_id,detail)
     VALUES(${j.organization_id},${j.branch_id},${actor.id},'IMPORT_DATASET_APPROVED','LEAD_IMPORT_DATASET',${id},
      ${tx.json({sessionId:session,requestId:b.requestId,reviewId:r.id,reviewVersion:r.version,configurationHash:r.configuration_hash,unreviewedPolicy:b.unreviewedPolicy,total:counts.total,ready:counts.ready,skipped:counts.skipped,invalid:counts.invalid,duplicates:counts.duplicates})})`;
-   await tx`INSERT INTO lead_import_dataset(id,file_id,review_id,request_key,review_version,session_id,unreviewed_policy,configuration_hash,total,ready_count,skipped_count,invalid_count,duplicate_count)
-    VALUES(${id},${j.id},${r.id},${b.requestId},${r.version},${session},${b.unreviewedPolicy},${r.configuration_hash},${counts.total},${counts.ready},${counts.skipped},${counts.invalid},${counts.duplicates})`;
+   await tx`INSERT INTO lead_import_dataset(id,file_id,review_id,request_key,review_version,session_id,unreviewed_policy,configuration_hash,total,ready_count,skipped_count,invalid_count,duplicate_count,source_schema)
+    VALUES(${id},${j.id},${r.id},${b.requestId},${r.version},${session},${b.unreviewedPolicy},${r.configuration_hash},${counts.total},${counts.ready},${counts.skipped},${counts.invalid},${counts.duplicates},${j.input_kind==='GOOGLE_SHEETS'?3:2})`;
    await tx`INSERT INTO lead_import_dataset_sheet(dataset_id,file_id,sheet_index,name,headers,header_row,row_count,mapping_version)
     SELECT ${id},s.file_id,s.sheet_index,s.name,s.headers,s.header_row,s.row_count,(sel->>'version')::int
     FROM lead_import_sheet s JOIN jsonb_array_elements(${tx.json(r.selection)}) sel ON (sel->>'sheet')::int=s.sheet_index WHERE s.file_id=${j.id}`;
    // Server-side set capture: no HTTP/JS loop over the complete file and no dependence on it after commit.
    await tx`INSERT INTO source_submission(organization_id,branch_id,campaign_id,source_kind,raw_payload,import_dataset_id,import_sheet_index,import_row_number)
-    SELECT ${j.organization_id},${j.branch_id},${j.campaign_id},${j.format==='CSV'?'IMPORT_CSV':'IMPORT_EXCEL'},lead_import_source_payload(${id},rw.sheet_index,rw.row_number),${id},rw.sheet_index,rw.row_number
+    SELECT ${j.organization_id},${j.branch_id},${j.campaign_id},${importSourceKind(j)},lead_import_source_payload(${id},rw.sheet_index,rw.row_number),${id},rw.sheet_index,rw.row_number
     FROM lead_import_review_row rw WHERE rw.review_id=${r.id} ORDER BY rw.sheet_index,rw.row_number`;
    await tx`INSERT INTO lead_import_dataset_row(dataset_id,file_id,sheet_index,row_number,submission_id,mapping_version,decision_version,disposition,duplicate,contact,fields,errors)
     SELECT ${id},rw.file_id,rw.sheet_index,rw.row_number,src.id,(sel->>'version')::int,COALESCE(d.version,0),lead_import_review_disposition(rw.review_id,rw.sheet_index,rw.row_number),

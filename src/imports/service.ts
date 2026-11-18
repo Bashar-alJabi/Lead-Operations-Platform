@@ -12,7 +12,8 @@ import {parseImportIsolated} from './parse-isolated.js';
 import {ImportParseError,importMaxBytes,type ImportFormat,type ParsedImport} from './types.js';
 
 export type ImportFile={id:string;organization_id:string;branch_id:string;campaign_id:string;actor_id:string;actor_role:Principal['role'];branch_scope:string|null;
- label:string;format:ImportFormat;delimiter:','|';'|'\t';content_sha256:string;size_bytes:number;storage_key:string;storage_backend:string;state:string;
+ input_kind:'FILE'|'GOOGLE_SHEETS';google_capture_id:string|null;google_capture_version:number|null;google_manifest:Record<string,postgres.JSONValue>|null;input_reason:string|null;source_available?:boolean;
+ label:string;format:ImportFormat|null;delimiter:','|';'|'\t'|null;content_sha256:string|null;size_bytes:number|null;storage_key:string|null;storage_backend:string|null;state:string;
  version:number;attempt_count:number;lease_token:string|null;purged_at:Date|null;expired:boolean;live_lease:boolean;row_count:number;cleanup_attempt_count:number};
 export async function importLimits(tx:postgres.TransactionSql){await tx`SET LOCAL statement_timeout='10s'`;await tx`SET LOCAL lock_timeout='750ms'`;}
 export async function importScope(tx:postgres.TransactionSql,actor:Principal,request:FastifyRequest,branchId:string,campaignId:string){
@@ -24,12 +25,15 @@ export async function importScope(tx:postgres.TransactionSql,actor:Principal,req
 }
 export async function importFile(tx:postgres.TransactionSql,actor:Principal,request:FastifyRequest,id:string,lock=false){
  const initial=(await tx`SELECT branch_id,campaign_id FROM lead_import_file WHERE id=${id} AND actor_id=${actor.id} AND organization_id=${actor.organizationId}`)[0];
- if(!initial)throw new HttpError(404,'IMPORT_FILE_NOT_FOUND');await importScope(tx,actor,request,initial.branch_id,initial.campaign_id);
- const j=(await tx`SELECT *,expires_at<=clock_timestamp() AS expired,lease_until>clock_timestamp() AS live_lease FROM lead_import_file
+ if(!initial)throw new HttpError(404,'IMPORT_FILE_NOT_FOUND');await lockImportSource(tx,id);await importScope(tx,actor,request,initial.branch_id,initial.campaign_id);
+ const j=(await tx`SELECT *,expires_at<=clock_timestamp() AS expired,lease_until>clock_timestamp() AS live_lease,google_import_source_current(lead_import_file) AS source_available FROM lead_import_file
   WHERE id=${id} ${lock?tx`FOR UPDATE`:tx``}`)[0] as ImportFile;
  if(j.actor_role!==actor.role||j.branch_scope!==actor.branchId)throw new HttpError(403,'IMPORT_CONTEXT_CHANGED');return j;
 }
-export function importAvailable(j:ImportFile){if(j.expired||['EXPIRED','CANCELLED'].includes(j.state))throw new HttpError(410,'IMPORT_FILE_UNAVAILABLE');}
+export async function lockImportSource(tx:postgres.TransactionSql,id:string){const g=(await tx`SELECT g.connection_id FROM lead_import_file f JOIN google_capture_job g ON g.id=f.google_capture_id WHERE f.id=${id}`)[0];if(g)await tx`SELECT id FROM integration_connection WHERE id=${g.connection_id} FOR SHARE`;}
+export function importSourceKind(j:ImportFile){return j.input_kind==='GOOGLE_SHEETS'?'IMPORT_GOOGLE_SHEETS':j.format==='CSV'?'IMPORT_CSV':'IMPORT_EXCEL';}
+export function importRetained(j:ImportFile){if(j.expired||['EXPIRED','CANCELLED'].includes(j.state))throw new HttpError(410,'IMPORT_FILE_UNAVAILABLE');}
+export function importAvailable(j:ImportFile){importRetained(j);if(j.input_kind==='GOOGLE_SHEETS'&&!j.source_available)throw new HttpError(403,'IMPORT_SOURCE_ACCESS_CHANGED');}
 export async function importAudit(tx:postgres.TransactionSql,j:Pick<ImportFile,'id'|'organization_id'|'branch_id'>,action:string,actor:string|null,detail:postgres.JSONValue){
  await tx`INSERT INTO audit_log(organization_id,branch_id,actor_user_id,action,target_type,target_id,detail)
   VALUES(${j.organization_id},${j.branch_id},${actor},${action},'LEAD_IMPORT_FILE',${j.id},${tx.json(detail)})`;
@@ -81,7 +85,7 @@ async function purgeRows(tx:postgres.TransactionSql,id:string){await tx`DELETE F
 export async function cleanupImportStorage(db:Database,storageOption?:MediaStorage){
  const j=(await db`SELECT * FROM lead_import_file WHERE state IN ('CANCELLED','EXPIRED','REJECTED','REVOKED') AND purged_at IS NULL AND cleanup_next_run_at<=clock_timestamp() ORDER BY cleanup_next_run_at,id LIMIT 1`)[0] as ImportFile|undefined;
  if(!j)return false;
- try{const storage=storageOption??configuredMediaStorage();if(storage.backend!==j.storage_backend)throw Error('Import storage backend unavailable');await storage.remove(j.storage_key);}
+ try{if(j.input_kind==='FILE'){const storage=storageOption??configuredMediaStorage();if(storage.backend!==j.storage_backend||!j.storage_key)throw Error('Import storage backend unavailable');await storage.remove(j.storage_key);}}
  catch{
   await db.begin(async tx=>{
    const row=(await tx`SELECT * FROM lead_import_file WHERE id=${j.id} FOR UPDATE`)[0] as ImportFile;
@@ -116,6 +120,7 @@ export async function processOneImportFile(db:Database,options:{storage?:MediaSt
  if(!j)return false;if('handled'in j)return true;
  let parsed:ParsedImport|null=null,scanner:string|null=null,error:string|null=null,retryable=false;
  try{
+  if(j.input_kind!=='FILE'||!j.storage_key||!j.format||!j.delimiter)throw new ImportParseError('IMPORT_BINARY_INPUT_REQUIRED');
   const storage=options.storage??configuredMediaStorage();if(storage.backend!==j.storage_backend)throw new MediaError('IMPORT_STORAGE_UNAVAILABLE',true);
   const bytes=await storage.get(j.storage_key,importMaxBytes);
   if(bytes.length!==j.size_bytes||createHash('sha256').update(bytes).digest('hex')!==j.content_sha256)throw new ImportParseError('IMPORT_STORAGE_INTEGRITY_FAILED');

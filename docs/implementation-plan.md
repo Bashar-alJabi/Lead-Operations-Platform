@@ -1,5 +1,11 @@
 # خطة التنفيذ
 
+## أحدث checkpoint: Google Import المشترك — Native190–192 — 2026-11-18
+
+اكتملت Google input/provenance/schema3 وshared Mapping/review/approval/intake/results وLead origin،معcurrent source authority قبلapproval ثمcurrent internal intake authority بعدها. نجحت **204Unit/156fullDockerPG(624.4s)/74fullEdgeBrowser(5.9m)** و001–192development/test recheck وBackend/Web build/typecheck وshared worker smoke. Native001–192 ثابتة؛أيSQL تصحيحforward. SDK/HTTP mocks فقط وLive pending. [العقد](google-sheets.md).
+
+الخطوة التالية Native193: Google Export باستخدام filters/Saved Views/selected IDs والأعمدة المرئية وCalculated Fields وخدمات Export القائمة. يلزم payload خلوية typed وimmutable،وهدف Spreadsheet/sheetId/range مثبت مع تأكيد المستخدم وفحص التعارض قبل الكتابة،وcurrent scope/Field authority. تُضاف صلاحية RUNTIME خاصة بـEXPORT job فعلية؛لا تُستعار capture job أوSession تاريخية للكتابة. يلزم durable before-I/O وRAW writes وindependent read/reconciliation وUNKNOWN دونblind replay،مع native guards/Audit/history وAPI/UI وHTTP mocks وPG/Browser tests. تُواءم حدود الخلية مع قيم Fields حتى20000 حرف دونtruncation. بعد baseline Import/Export المطلوبة انتقل إلى Email/Notifications/Automation وبقية الفجوات الأساسية؛لا optional Google refinements أوgeneral two-way sync.
+
 ## أحدث checkpoint: Google private range capture — Native189 — 2026-11-18
 
 اكتملتprivate approved range jobs وnumeric sheetId/DataFilter reads وRUNTIME refresh ضمنcurrent job/resource authority،وatomic bounded pages/history/Audit وworker/private UI/recovery/cancel/expiry. نجحت **204Unit و154full compiled DockerPG(666.1s) و73fullEdgeBrowser(11.4m)**،وBackend/Web build/typecheck و001–189development/test recheck وcompiled worker one-cycle smoke علىqueue اختبار فارغة. قبلها11focusedGooglePG ثمcapture4 معreal60s crash test و5focusedGoogleBrowser(37.5s). لاruntime/Native change بعد154PG؛احفظdocs/commit/push قبلFeature جديدة. [العقد وحدوداللقطة](google-sheets.md).

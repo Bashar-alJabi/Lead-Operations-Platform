@@ -1,9 +1,17 @@
 import type {FastifyInstance} from 'fastify';import type {Database} from '../db.js';import {principalFromRequest,HttpError} from '../security.js';
 import {captureJob,captureReceipt,createGoogleCapture,changeGoogleCapture,type CaptureInput} from '../google/capture.js';import {googleSession} from '../google/connections.js';
 import {decodeCursor,encodeCursor} from '../pagination.js';
+import {prepareGoogleImport,type GoogleImportInput} from '../google/import-input.js';import {importFile} from '../imports/service.js';
 const uuid={type:'string',format:'uuid'} as const,params={type:'object',additionalProperties:false,required:['id'],properties:{id:uuid}} as const;
 const text=(max:number)=>({type:'string',minLength:1,maxLength:max,pattern:'^[^\\x00-\\x1f\\x7f]+$'} as const);
 export function registerGoogleCaptureRoutes(app:FastifyInstance,db:Database){
+ app.post<{Params:{id:string};Body:GoogleImportInput}>('/api/google/captures/:id/import-input',{schema:{params,body:{type:'object',additionalProperties:false,required:['version','requestId','reason'],properties:{version:{type:'integer',minimum:1,maximum:2147483647},requestId:uuid,reason:text(500)}}},config:{rateLimit:{max:10,timeWindow:'1 minute'}}},async(request,reply)=>{
+  reply.header('Cache-Control','private, no-store');return reply.code(201).send(await prepareGoogleImport(db,await principalFromRequest(request,db),request,request.params.id,request.body));
+ });
+ app.get<{Params:{id:string}}>('/api/google/captures/:id/import-input',{schema:{params}},async(request,reply)=>{reply.header('Cache-Control','private, no-store');const actor=await principalFromRequest(request,db);return db.begin(async tx=>{
+  const g=await captureJob(tx,actor,request,request.params.id),found=(await tx`SELECT id FROM lead_import_file WHERE google_capture_id=${g.id} AND actor_id=${actor.id}`)[0];if(!found)return null;
+  const j=await importFile(tx,actor,request,found.id);return {id:j.id,inputKind:j.input_kind,state:j.state,version:j.version};
+ });});
  app.post<{Params:{id:string};Body:CaptureInput}>('/api/google/campaigns/:id/captures',{
   schema:{params,body:{type:'object',additionalProperties:false,required:['resourceId','connectionVersion','resourceVersion','sheetId','row','column','rows','columns','requestId','label','reason'],properties:{resourceId:uuid,requestId:uuid,connectionVersion:{type:'integer',minimum:1},resourceVersion:{type:'integer',minimum:1},sheetId:{type:'integer',minimum:0,maximum:2147483647},row:{type:'integer',minimum:1,maximum:2147483647},column:{type:'integer',minimum:1,maximum:18278},rows:{type:'integer',minimum:1,maximum:10000},columns:{type:'integer',minimum:1,maximum:64},label:text(200),reason:text(500)}}},config:{rateLimit:{max:30,timeWindow:'15 minutes'}}
  },async(request,reply)=>{reply.header('Cache-Control','private, no-store');return reply.code(202).send(await createGoogleCapture(db,await principalFromRequest(request,db),request,request.params.id,request.body));});

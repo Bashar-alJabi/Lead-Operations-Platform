@@ -1,5 +1,13 @@
 # دليل التشغيل والتطوير
 
+## Google range إلىImport — Native190–192
+
+190–192 مطبقةdevelopment/test؛البوابة مستقرة:204Unit/156fullPG/74fullBrowser وBackend/Web build/typecheck؛[الأدلة](codex-progress.md). لا تشغّلAPI/workers الجديدةقبلتطبيقكلmigrations المطلوبةدفعةًبالترتيب. لا تُعدّلmigration مطبقةأوتُشغّلgenerators .local القديمةعليها. افتحcapture READY خاصةبك،أدخلreason ثم«تحضير Google للمراجعة والاستيراد». تأكدأنأولصف محدد هوعناوين؛تنسخالبقية إلىمراجعةخاصة بنفسexpiry. عندlost ACK أعدطلبالتحضيرنفسه؛لاUUID جديدة. إنحُضّرتسابقًا،استخدم«فتح مراجعة استيراد Google» أومدخلهافيقائمةImport.
+
+راجعorigin banner والإحداثياتالأصلية،ثمMap columns وtyped validation وselected worksheet review. `worker:imports` الحاليةتعالجwhole-dataset review ثمintake؛لاworker أوcredentials Google إضافيةللمرحلةالداخلية بعدcapture. عالجالصفوفغيرالصالحةوالتكرار،فعّلCampaign وفقreadiness،ثموافقصراحةعلىdataset وابدأالاستيرادمنreceipt. راقبcounts/rows/history/recovery وافتحLead origin؛تظهرIMPORT_GOOGLE_SHEETS وAPPROVED_IMPORT. Google formatting المحليةغيرالقابلةللتحويللا تُخمّن؛تظهرvalidation errors للمراجعة.
+
+raw المصدر وMapping/approval تحتاجcurrent Source access وretention. سحبالإتاحةيمسحالبياناتالمعروضةبعدdenial،ولايمنعالمالك المخوّلمنحذفالمدخل الخاص. الإلغاء/purge لايحذفapproved source originals أوLead محفوظة،والـworker يعيدcurrent account/scope/Field rules بعدapproval دونجلسةتاريخية. لاادعاءpaid/consent/receipt منcell يؤكدPayment أوEnrollment أوconsent. HTTP/SDK mocks فقط فيالتطوير؛**Live Verification Pending External Credential/Approval**. Export إلىGoogle لمتُنفّذبهذهالشريحة.
+
 ## التقاط نطاق Google خاص — Native189
 
 بعدbuild وmigrations001–189: من«ملفاتGoogle المتاحةللحملة» اخترCampaign وresource وورقةGRID،ثمحددstart row/column وrow/column count وlabel/reason. إحداثياتالواجهة تبدأمن1،وsheet ID قدتكون0. راجعالطلبثموافق؛هذهالعمليةتقرأsnapshot مؤقتةخاصةولا تُدخلLeads. عندفقدACK استعملإعادةالطلب نفسه؛تحتفظالواجهةبالـUUID والنيةعبرتغييراللغةحتىتعرفالنتيجة أوتتخلىعنإعادةالطلب صراحة.

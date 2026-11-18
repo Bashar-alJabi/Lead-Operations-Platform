@@ -8,7 +8,7 @@ import {validateFieldValue} from '../fields.js';
 import {routeLead} from '../routing.js';
 import {recordLeadIntakeOrigin} from '../lead-intake-origin.js';
 import {lockSourceIdentities,sourceCandidatePage} from '../sources/intake.js';
-import {importLimits,type ImportFile} from './service.js';
+import {importLimits,importSourceKind,type ImportFile} from './service.js';
 import {importMappingTargets,importMappingHash} from './mapping.js';
 import {lockReviewFields,missingImportFields} from './review.js';
 
@@ -81,7 +81,7 @@ export async function intakeApprovedImport(tx:postgres.TransactionSql,locked:Non
  await tx`INSERT INTO lead_import_attempt(submission_id,result_version,lead_id,contact_id,configuration_hash,resolver_id,session_id,request_key,reason)
   VALUES(${r.submission_id},${version},${leadId},${contactId},${prepared.configurationHash},${choice?.actor.id??null},${choice?.sessionId??null},${choice?.requestId??null},${choice?.reason??null})`;
  await tx`INSERT INTO lead(id,organization_id,branch_id,campaign_id,contact_id,source_kind)
-  VALUES(${leadId},${j.organization_id},${j.branch_id},${j.campaign_id},${contactId},${j.format==='CSV'?'IMPORT_CSV':'IMPORT_EXCEL'})`;
+  VALUES(${leadId},${j.organization_id},${j.branch_id},${j.campaign_id},${contactId},${importSourceKind(j)})`;
  await tx`UPDATE source_submission SET state='PROCESSED',lead_id=${leadId},resolution_contact_id=${contactId},failure_code=NULL WHERE id=${r.submission_id}`;
  for(const f of row.fields){
   await tx`INSERT INTO lead_field_value(lead_id,field_id,value,source,updated_by,source_submission_id,source_mapping_version,source_import_dataset_id,source_import_sheet_index)

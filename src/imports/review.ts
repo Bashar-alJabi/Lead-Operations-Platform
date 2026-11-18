@@ -2,7 +2,7 @@ import type postgres from 'postgres';
 import type {FastifyRequest} from 'fastify';
 import type {Database} from '../db.js';
 import {HttpError,type Principal} from '../security.js';
-import {importFile,importAvailable,importLimits,type ImportFile} from './service.js';
+import {importFile,importAvailable,importLimits,lockImportSource,type ImportFile} from './service.js';
 import {currentImportMapping,mapImportRow,type ImportMappingEntry} from './mapping.js';
 
 export type ReviewSelection={sheet:number;version:number};
@@ -52,7 +52,7 @@ export async function processOneImportReview(db:Database,options:{retryDelaySeco
  const candidate=(await db`SELECT r.id,r.file_id,r.version,f.branch_id,f.campaign_id,f.actor_id FROM lead_import_review r JOIN lead_import_file f ON f.id=r.file_id
   WHERE r.state='VALIDATING' AND r.next_run_at<=clock_timestamp() ORDER BY r.next_run_at,r.id LIMIT 1`)[0];if(!candidate)return false;
  const lock=async(tx:postgres.TransactionSql)=>{
-  await importLimits(tx);await tx`SELECT id FROM branch WHERE id=${candidate.branch_id} FOR SHARE`;
+  await importLimits(tx);await lockImportSource(tx,candidate.file_id);await tx`SELECT id FROM branch WHERE id=${candidate.branch_id} FOR SHARE`;
   await tx`SELECT id FROM campaign WHERE id=${candidate.campaign_id} FOR SHARE`;await tx`SELECT id FROM user_account WHERE id=${candidate.actor_id} FOR SHARE`;
   const j=(await tx`SELECT *,expires_at<=clock_timestamp() expired FROM lead_import_file WHERE id=${candidate.file_id} FOR UPDATE SKIP LOCKED`)[0] as ImportFile|undefined;
   if(!j)return null;

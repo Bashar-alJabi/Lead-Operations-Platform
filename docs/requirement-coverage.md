@@ -1,5 +1,14 @@
 # مصفوفة تغطية المتطلبات
 
+## أحدث checkpoint: Google Import المشترك — Native190–192 — 2026-11-18
+
+| المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |
+|---|---|---|
+|00 §54،03 §§39–40/52/97،06 §18|Google capture إلىinput محددة النوع ثمshared Mapping/typed validation/duplicate review/approval/intake/results وLead origin،معphysical provenance/schema3|204fullUnit،156full compiledDockerPG(624.4s)،74fullEdgeBrowser(5.9m)،Backend/Web build/typecheck و001–192development/test recheck وcompiled Import worker smoke علىempty test queues؛[العقد](google-sheets.md)|
+|AGENTS §§8/14–16/27–28/38 و06 §§22–23|current real-session/private owner/Organization/Branch/Campaign/Field/source authority قبلapproval،ثمcurrent internal approved intake authority؛native immutable/fresh/complete input proofs وAudit/history|4concurrent prepare→input واحدة؛Audit rollback وactual mutex/session revocation وlong20000/zero/false وduplicate Keep/Skip وinvalid rows وprivate/scope/source denials؛29focusedPG(171.8s) و6focusedGoogleBrowser(22.9s) ناجحة|
+|Historical integrity وtrusted authority|schema3 original source تحفظphysical Google coordinates؛source cancel/raw purge/historical Session revoke لاتمحوالdataset المعتمدة أوLead؛نفسContacts/SOURCEFields/Routing services|real UI lostACK/retry/locale→Mapping/review/approve/execute→APPROVED_IMPORT Lead origin وArabic390px/XSS/keys/overflow؛لاfakebinary/scanner/Meta/Session أوfinancial/consent trust|
+|AGENTS §39 و06 §§18/27–30|Google Import **Implemented / PostgreSQL وLocal Browser Verified**؛SDK/HTTP **Mock Verified**|**Live Verification Pending External Credential/Approval**. Google Export مازالتRequired؛التاليNative193 ثمEmail/Notifications/Automation وبقيةcore gaps؛لاGoogle module Complete أوPlatform Complete|
+
 ## أحدث checkpoint: Google private range capture — Native189 — 2026-11-18
 
 | المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |

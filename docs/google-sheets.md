@@ -4,7 +4,7 @@
 
 المطلوب في 00 §54 و03 §§39–40 و06 §18 هو Import وExport من داخل المنصة، مع بقاء DB هي Source of Truth. المزامنة الثنائية المستمرة ليست متطلبًا افتراضيًا، ولا تُضاف دون قواعد عمل صريحة.
 
-HTTP/OAuth/Picker/selection وexplicit shared availability محفوظةحتى`4bd37a7`. Native189 تضيفprivate approved range capture وjob-scoped RUNTIME OAuth refresh وrows/history/Audit/worker وar/en/fr UI معrecovery/cancel/expiry. نجحت **204fullUnit و154fullDockerPG(666.1s) و73fullEdgeBrowser(11.4m)** وBackend/Web build/typecheck و001–189development/test recheck وcompiled worker one-cycle smoke علىempty test queue. Google module مازالت جزئية: Google source provenance وshared Mapping/approval/intake/results وExport jobs لازالت مطلوبة. **Mock Verified (SDK/HTTP)** فقط،و**Live Verification Pending External Credential/Approval**؛لا تصريح تشغيل حي.
+HTTP/OAuth/Picker/resource availability وprivate capture/runtime محفوظة حتى`aeb7851`. Native190–192 تكمل Google Import عبرinput حقيقية وshared Mapping/review/approval/intake/results وLead origin. نجحت **204fullUnit و156fullDockerPG(624.4s) و74fullEdgeBrowser(5.9m)** وBackend/Web build/typecheck و001–192development/test recheck وshared Import worker smoke. Google module مازالت جزئية: current-scoped Export لازمة. **Mock Verified (SDK/HTTP)** فقط،و**Live Verification Pending External Credential/Approval**؛لا تصريح تشغيل حي.
 
 ## عقد البروتوكول
 
@@ -78,6 +78,18 @@ effective availability تحتاجactive Branch/resource وCONNECTED Connection �
 
 الاختباراتsynthetic HTTP/SDK mocks فقط؛حالةالبوابة والأعدادالنهائيةفيprogress/coverage. **Live Verification Pending External Credential/Approval**. هذهقراءةومراجعةخاصةمؤقتة،ولا تعنيGoogle Import/Export baseline.
 
+## Google input ومراجعة الاستيراد المشتركة — Native190–192
+
+هذهالشريحة اجتازت204Unit/156fullPG/74fullBrowser و001–192development/test وBackend/Web build/typecheck؛التفاصيل فيprogress/coverage. تربطcapture READY بخدماتImport الحالية عبرinput نوعها`GOOGLE_SHEETS` معformat/binary/scanner metadata فارغة حقيقةً،وبنفسخصوصيةمالك الملف وcurrent Role/Organization/Branch/Campaign. يحفظmanifest هويةالمصدر ونسخConnection/resource/access/capture وsheetId/range وmetadata/header cells ووقت اكتمالالقراءة. تبقىجداولFK التاريخيةبأسمائها لحفظالتوافق؛لاCSV bytes أوupload/scanner receipt مصطنعة.
+
+منcapture UI تُحضّرالمراجعة بعدreason وتأكيد أنأولصف محدد هوheader. تُنسخ بقيةالصفوف ذريًا إلىمدخلخاص بنفسexpires_at الدقيقة منDB؛لاوقت إضافي ولاLead عندالنسخ. الحدالأعلى9999data rows منcapture10000row،و64column و20000character/cell وheader256character،و8MiB capture budget القائمة؛الحدودتقنيةوتُرفضالبياناتالمتجاوزةدونtruncation. نفسactor/request intent تعيدreceipt نفسها عبرlost ACK واللغة؛request مختلفةلـcapture محضرةتحتاجفتحinput الموجودة،ولاتعيدنسخالمصدر. النوايا والمصدرمحميتانبنفسorg private-input quota/advisory mutex.
+
+بعدالتحضير تنتقلالواجهةإلىImport workspace الحالية. تعادcurrent Google source authority عندraw/Mapping/review/approval،معمسحالمعلوماتالقديمةعندdenial. Source row numbers فيالمراجعة نسبية إلىالنطاق؛schema3 الأصليةتحفظphysical Google row/column وinput/capture/dataset/Mapping references والقيمكماقُرئت. أولصف محفوظضمنheader cells فيmanifest،وليسdata row منشأة. dataset/source originals تحتفظبالمعرفةالأصليةبعدraw purge،وschema1/2 القديمةلاتتغير.
+
+Mapping/normalization/typed validation/duplicate decisions/approval وBackground intake/results/recovery وContact review هيالخدمات نفسها المستخدمةبـCSV/Excel. Lead تحمل`IMPORT_GOOGLE_SHEETS` وnative `APPROVED_IMPORT` receipt وSOURCE Field lineage. لاContact merge أوPayment/Enrollment أوtrusted consent منraw claims. بعدapproval تعادcurrent internal permissions/Fields/Contacts/Routing؛انتهاءالجلسةالأصليةأوraw لايعطيصلاحيةتاريخيةدائمةولايمنعjob معتمدةضمنcurrent account/scope. سحبSource access يحجبraw/approval الجديدة،معإبقاءpurge المخولةوmetadata/results التاريخيةالخاصة؛لاprovider session مستعارة.
+
+الفحوص الحالية تشملtyped zero/false وduplicate decisions وphysical B12 origin،وconcurrent preparation وAudit rollback وrevocation أثناءانتظارقفلConnection حقيقي،وlong cells20000 وdenied raw/Mapping وimmutable proofs وpurge دونbinary storage. actual Browser journey تغطيlostACK/locale وMapping/approval/worker/Lead origin وArabic390px وXSS/keys/overflow. Google HTTP/SDK mocks فقط؛**Live Verification Pending External Credential/Approval**. Google Export مازالRequired قبلbaseline Google Import/Export كاملة.
+
 ## الخطوة التالية المطلوبة
 
-بعدحفظcheckpoint189: Google source provenance فعلية فوقcapture الحالية،وMapping/validation/preview/duplicate review ثمshared approved intake/results،وcurrent-scoped Export معdurable immutable payload/reconciliation. أعداستخدامخدماتImport/Contacts/Fields/Routing الحاليةبعقدمصدرصحيح؛لاfake CSV upload/MetaConnection/Human Session أوpipeline Lead مستقلة. هذهالوظائفواختباراتهاIntegration/Browser لازالت مطلوبةقبلbaseline Google كاملة. بعدها انتقلإلىEmail/Notifications/Automation وبقيةالفجوات الأساسية دونprovider refinements.
+الخطوة التالية Native193: Google Export باستخدام filters/Saved Views/selected IDs والأعمدة المرئية وCalculated Fields وخدمات Export القائمة. يلزم payload خلوية typed وimmutable،وهدف Spreadsheet/sheetId/range مثبت مع تأكيد المستخدم وفحص التعارض قبل الكتابة،وcurrent scope/Field authority. تُضاف صلاحية RUNTIME خاصة بـEXPORT job فعلية؛لا تُستعار capture job أوSession تاريخية للكتابة. يلزم durable before-I/O وRAW writes وindependent read/reconciliation وUNKNOWN دونblind replay،مع native guards/Audit/history وAPI/UI وHTTP mocks وPG/Browser tests. تُواءم حدود الخلية مع قيم Fields حتى20000 حرف دونtruncation. بعد baseline Import/Export المطلوبة انتقل إلى Email/Notifications/Automation وبقية الفجوات الأساسية؛لا optional Google refinements أوgeneral two-way sync.

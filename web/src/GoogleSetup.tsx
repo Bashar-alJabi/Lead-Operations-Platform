@@ -19,7 +19,7 @@ const words={
  success:['آخر تحقق ناجح','Last successful verification','Dernière vérification réussie'],failed:['آخر فشل','Last failure','Dernier échec'],
  WAITING:['بانتظار موافقة Google','Awaiting Google consent','Consentement Google attendu'],RUNNING:['جارٍ التحقق','Verification in progress','Vérification en cours'],VERIFIED:['متحقق','Verified','Vérifiée'],FAILED:['فشلت المحاولة','Attempt failed','Tentative échouée'],UNKNOWN:['نتيجة مجهولة','Result unknown','Résultat inconnu'],SUPERSEDED:['تغير السياق؛لم يُفعّل الرد','Context changed; response not activated','Contexte modifié ; réponse non activée'],EXPIRED:['انتهت صلاحية المحاولة','Attempt expired','Tentative expirée'],DENIED:['لم تُمنح الموافقة','Consent denied','Consentement refusé'],AUTHORIZE:['موافقة Google','Google consent','Consentement Google'],CHECK:['فحص وتجديد التفويض','Authorization check and refresh','Vérification et renouvellement'],
 } as const;
-export function GoogleSetup({locale,user,branches,api,initialId}:{locale:Locale;user:{id:string;role:'SUPER_ADMIN'|'MANAGER';branchId:string|null};branches:{id:string;name:string}[];api:Api;initialId:string|null}) {
+export function GoogleSetup({locale,user,branches,api,initialId,onImport}:{locale:Locale;user:{id:string;role:'SUPER_ADMIN'|'MANAGER';branchId:string|null};branches:{id:string;name:string}[];api:Api;initialId:string|null;onImport:(id:string)=>void}) {
  const index=locale==='ar'?0:locale==='en'?1:2,t=(k:keyof typeof words)=>words[k][index],state=(s:string)=>s in words?t(s as keyof typeof words):s;
  const [setup,setSetup]=useState<Setup|null>(null),[items,setItems]=useState<Connection[]>([]),[cursor,setCursor]=useState<string|null>(null),[selected,setSelected]=useState<Connection|null>(null);
  const [ops,setOps]=useState<Operation[]>([]),[opCursor,setOpCursor]=useState<string|null>(null),[history,setHistory]=useState<Revision[]>([]),[before,setBefore]=useState<number|null>(null);
@@ -67,6 +67,6 @@ export function GoogleSetup({locale,user,branches,api,initialId}:{locale:Locale;
    {before&&<button disabled={busy} onClick={()=>void run(async()=>{const r=await api<{items:Revision[];nextVersion:number|null}>(root+'/history?limit=20&before='+before);setHistory(old=>[...old,...r.items]);setBefore(r.nextVersion);})}>{t('moreHistory')}</button>}
    {setup&&<GooglePickerSettings key={current.id} locale={locale} connectionId={current.id} connectionVersion={current.version} connected={current.status==='CONNECTED'} disabled={current.status==='DISABLED'||busy} manageSharing={user.role==='SUPER_ADMIN'&&current.branch_id===null} origin={new URL(setup.redirectUri).origin} api={api}/>}
   </article>}
-  <GoogleOperationalResources key={user.id} locale={locale} api={api}/>
+  <GoogleOperationalResources key={user.id} locale={locale} api={api} onImport={onImport}/>
   </section>;
 }
