@@ -1,5 +1,13 @@
 # مصفوفة تغطية المتطلبات
 
+## أحدث checkpoint: Google Export preparation — Native194 — 2026-11-18
+
+| المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |
+|---|---|---|
+|00 §54،03 §§39–40/52/98،06 §18|تجهيز private typed cells من source Export مكتملة وعضويتها الحالية،وcurrent scoped destination catalog وreal-session intent وAPI/worker وواجهة ar/en/fr|208fullUnit،163full compiledDockerPG(508.4s)،75fullEdgeBrowser(8.1m)،Backend/Web build/typecheck و001–194development/test recheck دونتغيّر أعدادالأعمال،وcompiled preparation worker smoke علىeligible queue فارغة. focused Google+CSV Browser2/2(31.3s) ناجحة بعدتصحيحfixture isolation؛[العقد](google-sheets.md)|
+|AGENTS §§8/14–16/27–28/38 و06 §§22–23|Native194 current source/actor/Lead/Fields/target authority،مع إتاحة الهدف لكل source Branch،وimmutable payload/header/history،واكتمال الصفحات/Audit/CAS،وcancel/expiry/fresh-session recovery|8 concurrent intents إلىjob واحدة،concurrent preparation workers،62 rows و25 pagination وLONG_TEXT20000 وCalculated0 وliteral text؛Agent own data وmulti-Branch denials وAudit rollback/5 bounded failures وreal DB expiry5s وsession revoke أثناءقفل Connection فعلي|
+|06 §§18/20/25–29 وحدود الحالة|Browser lost ACK ثمsame request عبرFR،private preview/history وAR390px وXSS/overflow/React keys assertions،وسحب المورد ثمclear/purge منالقائمة|**Internal Preparation / PostgreSQL وLocal Browser Verified**؛لاGoogle HTTP أثناءالتجهيز. أولfull74pass/1fail بسببCSV fixture افترضتempty catalog؛ثبتتfixture الجديدة عدمPOST وعدمإضافةintent عندdismiss معحفظبياناتالرحلاتالسابقة،ثمfull75pass. **Export end-to-end غيرمكتملة** حتىNative195 durable dispatch/runtime/independent confirmation/reconciliation/UI/gates. **Live Verification Pending External Credential/Approval**|
+
 ## أحدث checkpoint: أساس Google Export — 2026-11-18
 
 | المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |

@@ -13,6 +13,7 @@
     "start": "node dist/src/server.js",
     "worker:imports": "node dist/src/import-worker.js",
     "worker:google": "node dist/src/google-capture-worker.js",
+    "worker:google-exports": "node dist/src/google-export-worker.js",
     "worker:exports": "node dist/src/export-worker.js",
     "worker:identity": "node dist/src/identity-worker.js",
     "worker:ai": "node dist/src/ai-worker.js",

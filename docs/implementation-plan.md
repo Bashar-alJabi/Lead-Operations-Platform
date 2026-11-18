@@ -1,5 +1,13 @@
 # خطة التنفيذ
 
+## أحدث checkpoint: معاينة Google Export الخاصة — Native194
+
+نُفّذت job وpayload/history أصلية وAPI/worker وواجهة ar/en/fr فوق CSV Export الحالية،بـcurrent Role/Session/Organization/Branch/Lead/Field/resource guards وall-source-Branches target availability. اجتازت208fullUnit و163full compiled PostgreSQL(508.4s) و75fullEdgeBrowser(8.1m) وBackend/Web build/typecheck و001–194development/test recheck وcompiled preparation worker smoke. نجحتfocused Google+CSV Browser2/2(31.3s) بعدتصحيحfixture isolation. تُحفظcheckpoint مستقرة وتُرفع قبلالتالي. Native194 مطبقة بعدrollback preflight،ولا تُعدّل. هذه معاينة خاصة فقط،ولا تعني موافقة لنقل البيانات.
+
+التالي Native195 يكمل **التنفيذ المطلوب**،وليس تحسينًا اختياريًا: افصل delivery intent/attempt عن prepared payload حتى لا تتحول الموافقة على المعاينة إلى موافقة إرسال. يلزم تأكيد واضح حقيقي لجلسة المالك على هدف جديد مثبت وpayload/version،وRUNTIME OAuth مرتبطة بـExport delivery وlease فعلية دون capture أوSession بديلة. يبدأ العامل بقفل Connection وفحص current actor/source/Fields/all-Branches resource authority،ويتحقق مستقلًا من metadata قبل الكتابة،ثم يحفظ محاولة durable قبل I/O. تستخدم الكتابة atomic AddSheet+UpdateCells والقيم typed literal؛لا overwrite/append لورقة قائمة.
+
+بعد ACK أوفقدها يلزم independent typed userEnteredValue read للهدف الرقمي المثبت،مع صفحات قراءة محدودة وإثبات matching header/cells وعدد الصفوف؛ACK لا تعني DONE. UNKNOWN أوcrash بعد محاولة الكتابة يمنعان write replay؛تكون recovery قراءة فقط بجلسة حقيقية وموافقة واضحة،ولا زر يعيد النقل تلقائيًا. تغيير النطاق أوالهدف أوانتهاء الاحتفاظ يوقف التنفيذ؛التاريخ لا يكشف الخلايا أوsecrets. تُضاف guards وAPI/worker وواجهة confirmation/reconciliation/history وIntegration/Browser mocks قبل Google Export baseline كاملة. بعد baseline انتقل مباشرة إلى general Email/Notifications ثمAutomation وبقية core gaps؛لا two-way sync أوGoogle refinements اختيارية.
+
 ## أحدث checkpoint: أساس Google Export — 2026-11-18
 
 Google Import محفوظةفي5d063a8. أُنجزتshared cell/header projection وCSV wrappers وatomic new worksheet HTTP protocol وindependent userEnteredValue read. نجحت208Unit/158fullPG(698.7s)/74Browser Regression(8.1m) وBackend/Web build/typecheck و001–193development/test recheck. Native193 لإصلاحcapture retention فقط؛Google Export jobs/UI وactual end-to-end مازالتRequired،وHTTP mocks فقط دونLive verification.

@@ -1,4 +1,5 @@
 import {useEffect,useRef,useState} from 'react';
+import {GoogleExportWorkspace} from './GoogleExportWorkspace';
 type Api=<T>(path:string,options?:RequestInit)=>Promise<T>;
 type Field={id:string;key:string;label:string;field_type:string};
 type Job={id:string;state:string;version:number;accessible?:boolean;created_at?:string};
@@ -36,5 +37,5 @@ export function ExportWorkspace({locale,api,query,columns,selectedIds}:{locale:'
   <div className="actions"><button disabled={busy} onClick={()=>{setError(false);void loadJobs();}}>{t.refresh}</button>{jobCursor&&<button disabled={busy} onClick={()=>void loadJobs(jobCursor)}>{t.older}</button>}</div>
   {!jobs.length&&<p>{t.empty}</p>}{jobs.map(j=><p key={j.id}><button type="button" onClick={()=>void loadJob(j.id)}>{t.open} · {j.id.slice(0,8)}</button> {j.state}{j.created_at?' · '+new Date(j.created_at).toLocaleString(locale):''} {!['CANCELLED','EXPIRED'].includes(j.state)&&<button disabled={busy} onClick={()=>void action('cancel',j)} aria-label={t.cancel+' · '+j.id.slice(0,8)}>{t.cancel}</button>}</p>)}
   {detail&&<div data-export-detail><p dir="ltr">{detail.id}</p><p role="status">{detail.state} · {t.progress}: {detail.rowCount}{detail.errorCode?' · '+detail.errorCode:''}</p><div className="actions"><button disabled={busy} onClick={()=>void loadJob(detail.id)}>{t.reload}</button>{detail.state==='DONE'&&<a href={'/api/lead-exports/'+detail.id+'/download'} target="_blank" rel="noopener noreferrer">{t.download}</a>}{['DEAD_LETTER','REVOKED'].includes(detail.state)&&<button disabled={busy} onClick={()=>void action('retry')}>{t.recover}</button>}<button disabled={busy} onClick={()=>void action('cancel')}>{t.cancel}</button></div><h4>{t.history}</h4><ul className="timeline">{detail.history.map(h=><li key={h.version}>{h.state} · {h.row_count} · {new Date(h.created_at).toLocaleString(locale)}</li>)}</ul>{detail.nextHistoryVersion&&<button disabled={busy} onClick={()=>void olderHistory()}>{t.moreHistory}</button>}</div>}
- </section>;
+ <GoogleExportWorkspace locale={locale} api={api} sourceId={detail?.state==='DONE'?detail.id:null}/></section>;
 }

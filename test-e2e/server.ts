@@ -2,6 +2,7 @@ import {processOneImportFile} from '../src/imports/service.js';
 import {processOneImportReview} from '../src/imports/review.js';
 import {processOneImportIntake} from '../src/imports/intake.js';
 import {processOneExport} from '../src/exports/service.js';
+import {processOneGoogleExportPreparation} from '../src/google/export-preparation.js';
 import {processOneAutomationMatch,processOneAutomationExecution} from '../src/automation.js';
 // Test-only HTTP entrypoint. Never imported by the production server or workers.
 import { randomBytes,createHmac } from 'node:crypto';
@@ -319,6 +320,10 @@ app.post<{Body:{failJobId?:string;fail?:boolean}}>('/__test__/exports',{schema:{
   await db`DROP TRIGGER IF EXISTS e2e_reject_export ON audit_log`;await db`CREATE TRIGGER e2e_reject_export BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION e2e_reject_export()`;
  }
  let processed=0;while(processed<100&&await processOneExport(db))processed++;return {processed};
+});
+app.post<{Body:{steps?:number}}>('/__test__/google-export-preparation',{schema:{body:{type:'object',additionalProperties:false,properties:{steps:{type:'integer',minimum:0,maximum:20}}}}},async request=>{
+ if(typeof request.headers.authorization!=='string'||!safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
+ let processed=0;for(let i=0;i<(request.body.steps??1);i++){if(!await processOneGoogleExportPreparation(db))break;processed++;}return {processed};
 });
 app.get('/',async (_request,reply)=>reply.type('text/html').send(await readFile(resolve('dist-web/index.html'))));
 app.post<{Body:{mode?:'GOOD'|'AUTH'|'UNKNOWN'|'OTHER';metadataFailure?:boolean;shortRefresh?:boolean;readFailure?:boolean;importGrid?:boolean}}>('/__test__/google',{

@@ -1,8 +1,18 @@
 # دليل التشغيل والتطوير
 
-## Google Export: حالة الأساس الحالي
+## Google Export preparation — Native194
 
-طبقةprojection وnew worksheet HTTP adapter مختبرة:208Unit/158fullPG/74Browser Regression وBackend/Web build/typecheck؛لا زر أوworker أوendpoint متاح للكتابة إلىGoogle بهذهالمرحلة. الاختبارات تستخدمsynthetic HTTP mocks فقط. لا تشغّلadapter يدويًا بcredentials،ولا تفعّل تكاملًا حيًا. Native193 مطبقةdevelopment/test بعدrollback preflight لإصلاحcapture retention: statement_timestamp للطلباتالجديدة وLEGACY_CLOCK للعقدالقديم؛لا تغييرexpiry تاريخية أوbusiness/deployment setting. تُطبق193 قبلتشغيلBackend الجديد،وتُترك001–192 كماهي. الخطوةالتالية هيdurable approved Export job/runtime وnative guards وUI واختباراتPG/Browser،ثمقبولbaseline كاملة. [العقد](google-sheets.md) و[الحالةالمثبتة](codex-progress.md).
+طبّق migrations حتى194 قبل Backend الجديد باستخدام مسار migrations المعتاد دون reset. Native194 مطبقة بالفعل في development/test لهذه checkpoint؛لا تعدّل ملفها أو ملفات001–193. لا تُعد تهيئة قواعد البيانات أو preview القديمة. تفاصيل البوابة المحلية في[التقدم](codex-progress.md).
+
+شغّل `npm run worker:google-exports` لتجهيز المعاينات الخاصة فقط. يضبط التشغيل التقني `GOOGLE_EXPORT_BATCH` (افتراضي2،من1 إلى20)،و`GOOGLE_EXPORT_POLL_MS` (افتراضي2000،من250 إلى60000)،و`GOOGLE_EXPORT_ONCE=1` لدورة محدودة. `GOOGLE_EXPORT_TTL_SECONDS` بين5 و86400،ولا يمكنه تجاوز expiry المصدر. لا يحتاج المشغّل إلى CLI لإعداد Connection/Spreadsheet؛هذه اختيارات إدارية من الواجهة القائمة. العامل الجديد لا يستدعي Google ولا ينقل بيانات خارجية.
+
+افتح CSV Export مكتملة واختر وجهة متاحة،ثم راجع المعاينة الخاصة. عند NEEDS_ATTENTION راجع current source/Fields/Lead access/resource availability؛تغيير النطاق أو تعريف الحقول يتطلب مصدرًا جديدًا. عند DEAD_LETTER أصلح السبب التشغيلي واستخدم recovery من الواجهة بجلسة حقيقية وسبب وversion حاليين. عند فقد ACK أعد الطلب نفسه قبل إنشاء intent جديدة. عند سحب المورد تصبح التفاصيل الخاصة ممنوعة،ويبقى حذف المعاينة من القائمة ممكنًا بمالكها الحالي؛لا تستخدم SQL لتجاوز guards. cancel/expiry يطهران raw cells فقط مع إبقاء التاريخ.
+
+لا زر نقل أو provider write أو Export RUNTIME بهذه المرحلة. لا تشغّل HTTP adapter يدويًا بcredentials ولا تدّع نجاح Export حي. يلزم native dispatch/confirmation/reconciliation وUI واختبارات مستقلة للمرحلة التالية قبل baseline. **Live Verification Pending External Credential/Approval**؛لا تكامل حي أوProduction deployment.
+
+## Google Export: بروتوكول HTTP وcapture retention — Native193
+
+طبقة projection وnew worksheet HTTP adapter اجتازت بوابة193:208Unit/158fullPG/74Browser Regression وBackend/Web build/typecheck. أضافت194 التجهيز الخاص الموضح أعلاه؛لا زر أوworker أوendpoint ينقل البيانات إلىGoogle بعد. الاختبارات تستخدمsynthetic HTTP mocks فقط. لا تشغّلadapter يدويًا بcredentials،ولا تفعّل تكاملًا حيًا. Native193 مطبقةdevelopment/test بعدrollback preflight لإصلاحcapture retention: statement_timestamp للطلبات الجديدة وLEGACY_CLOCK للعقدالقديم؛لا تغييرexpiry تاريخية أوbusiness/deployment setting. ملفات001–194 المطبقة ثابتة. التاليNative195 durable delivery/runtime/confirmation/reconciliation وUI/PG+Browser قبلbaseline كاملة. [العقد](google-sheets.md) و[الحالة المثبتة](codex-progress.md).
 
 ## Google range إلىImport — Native190–192
 

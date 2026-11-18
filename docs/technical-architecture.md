@@ -1,5 +1,15 @@
 # المعمارية التقنية
 
+## Google Export: فصل التجهيز الخاص عن إذن النقل — Native194
+
+يعيد تجهيز Google استخدام `lead_export_job` مكتملة فعلية، وعضويتها المثبتة، و`exportCellHeader/exportCellPage`؛لا تنزيل CSV أو إعادة تفسير صيغ CSV. تحفظ `google_export_job` هوية المالك والسياق والهدف ونسخ Connection/resource وFields/header وعدد الصفوف،وتحفظ `google_export_row` الخلايا typed بترتيب ثابت في صفحات لا تتجاوز100 صف. هذه snapshot داخلية خاصة؛لا استدعاء Provider ولا تفويض للكتابة بسبب READY. يلزم إجراء إرسال مستقل قبل أي نقل خارجي.
+
+تبدأ المعاملة بقفل Connection،ثم تعيد التحقق من Session حقيقية والسياق الحالي،مع idempotent request/hash وAudit جديدة. تستعمل guards نفس canonical Field metadata/header/current Lead manifest،وتشترط إتاحة الهدف **لكل الفروع الفعلية** في المصدر،بما فيها تصدير Super Admin العابر للفروع. يستطيع Agent تجهيز بياناته المصرح بها من مورد متاح دون الاطلاع على إعدادات Connection المؤسسة أو credentials. يثبت native guard اكتمال كل صفحة وربطها بعضوية Lead وCAS وhistory/Audit جديدة في المعاملة نفسها. فشل Audit يرجع الصفحة والتقدم معًا.
+
+لا يستعير العامل Session موظف؛يعمل ضمن current account/role/branch/Lead/Field/resource authority. سحب جلسة الموافقة الأصلية لا ينشئ جلسة بديلة،وتحتاج recovery جلسة حقيقية جديدة وسببًا وCAS وفحص النطاق. تبقى القراءة خاصة بالمالك وبالصلاحيات الحالية؛الـlist المحدودة تكشف حالة طلبه فقط عند فقد السياق،ولا تعيد خلايا أو إعدادات المورد. يسمح cancel بتطهير البيانات الخاصة بعد سحب المورد دون منح حق قراءة جديد.
+
+مدة الاحتفاظ لا تتجاوز expiry المصدر أو24 ساعة،أيهما أقرب،ولا تمدد الأصل التاريخي. يحذف cancel/expiry الخلايا الخاصة مع إبقاء history/Audit؛لا يتم الادعاء بحذف بيانات من Google. الحدود التقنية:10000 data rows،64 columns،20000 حرف للخلية،8MiB conservative serialized budget،مع preview25 وhistory20 وcatalog25 وprivate job list10. لا تحميل غير محدود أو مزج payload مع logs/history. هذه مرحلة تجهيز؛RUNTIME OAuth الخاصة بالتصدير وdurable dispatch وindependent reconciliation باقية قبل baseline كاملة. الأدلة وحالة البوابة في[التقدم](codex-progress.md).
+
 ## Capture retention: ساعة واحدة للإنشاء — Native193
 
 كشف Browser regression رفض `GOOGLE_CAPTURE_RETENTION_INVALID` عند إنشاء capture بالمدة القصوى؛لم يُقَس تغير ساعة الجهاز ولا يُفترض سببه. كانت expiry وفحص الحد الأعلى يعتمدان على قراءتين من `clock_timestamp()`، وهي تتغير داخل statement. تستخدم الطلبات الجديدة `retention_clock=STATEMENT` و`statement_timestamp()` نفسها لحساب expiry وفحصها وضبط created_at؛يبقى حد24h وحد الخدمة الأدنى5s،ولا تُمدد صلاحية سجل تاريخي. يحافظ DEFAULT `LEGACY_CLOCK` على عقد callers القديمة أثناء rolling upgrade،ويمنع guard تغيير mode بعد الإنشاء. تظل current authorization وexpiry/purge وimmutable history وno-replay مستقلة كما كانت. Native001–192 لا تُعدّل؛193 forward migration اجتازت rollback preflight قبل التطبيق. [توثيق PostgreSQL عن الساعات](https://www.postgresql.org/docs/current/functions-datetime.html#FUNCTIONS-DATETIME-CURRENT).
@@ -10,7 +20,7 @@
 
 الهدف الأساسي للتصدير هو worksheet جديدة داخل Spreadsheet مختارة، بهوية numeric sheetId ثابتة لكلjob ونطاق A1 مطابق لحجمpayload. يستخدم `createWorksheet` طلبًا واحدًا يجمع AddSheet وUpdateCells، ويكتب stringValue/numberValue/boolValue فقط، دونformulaValue أوparsed locale أوappend/overwrite لورقة قائمة. تمنع مراجعةshape/cell/byte budgets تجاوز10001صف معheader و64عمودًا و20000حرف للخلية و8MiB للطلب قبلHTTP؛هذه حدود تقنية وليستضمانProvider capacity.
 
-ACK موثقة الهوية لا تكفي لإعلان النجاح. تقرأ `readEnteredGrid` نطاقًا رقميًا محدودًا مستقلاً منuserEnteredValue، معرفضformulaValue والهوية أوoffset أوshape غيرالمطابقة؛لا تُستخدمالقيم المحسوبة أوformatted output كإثباتللنص. الوظائف الحالية طبقةبروتوكول؛لاjob أوruntime authority للكتابة ولاUI تشغيل بعد. يلزم Native194 بعقدapproved export فعلية وimmutable payload وnative guards/Audit/history وUNKNOWN reconciliation دونblind replay قبلتعريضها للتشغيل. [العقد والمصادرالرسمية](google-sheets.md).
+ACK موثقة الهوية لا تكفي لإعلان النجاح. تقرأ `readEnteredGrid` نطاقًا رقميًا محدودًا مستقلاً منuserEnteredValue، مع رفضformulaValue والهوية أوoffset أوshape غيرالمطابقة؛لا تُستخدم القيم المحسوبة أوformatted output كإثبات للنص. بعد194 توجد job وUI للمعاينة الداخلية الخاصة فقط كما سبق؛لا runtime authority أوworker للكتابة بعد. يلزم Native195 بعقدdelivery معتمدة منفصلة وbefore-I/O attempt وindependent reconciliation وUNKNOWN دونblind replay قبل تعريض النقل للتشغيل. [العقد والمصادر الرسمية](google-sheets.md).
 
 ## Google Import عبر مدخل مشترك — Native190–192
 
