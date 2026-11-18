@@ -1,5 +1,9 @@
 # دليل التشغيل والتطوير
 
+## Google Export: حالة الأساس الحالي
+
+طبقةprojection وnew worksheet HTTP adapter مختبرة:208Unit/158fullPG/74Browser Regression وBackend/Web build/typecheck؛لا زر أوworker أوendpoint متاح للكتابة إلىGoogle بهذهالمرحلة. الاختبارات تستخدمsynthetic HTTP mocks فقط. لا تشغّلadapter يدويًا بcredentials،ولا تفعّل تكاملًا حيًا. Native193 مطبقةdevelopment/test بعدrollback preflight لإصلاحcapture retention: statement_timestamp للطلباتالجديدة وLEGACY_CLOCK للعقدالقديم؛لا تغييرexpiry تاريخية أوbusiness/deployment setting. تُطبق193 قبلتشغيلBackend الجديد،وتُترك001–192 كماهي. الخطوةالتالية هيdurable approved Export job/runtime وnative guards وUI واختباراتPG/Browser،ثمقبولbaseline كاملة. [العقد](google-sheets.md) و[الحالةالمثبتة](codex-progress.md).
+
 ## Google range إلىImport — Native190–192
 
 190–192 مطبقةdevelopment/test؛البوابة مستقرة:204Unit/156fullPG/74fullBrowser وBackend/Web build/typecheck؛[الأدلة](codex-progress.md). لا تشغّلAPI/workers الجديدةقبلتطبيقكلmigrations المطلوبةدفعةًبالترتيب. لا تُعدّلmigration مطبقةأوتُشغّلgenerators .local القديمةعليها. افتحcapture READY خاصةبك،أدخلreason ثم«تحضير Google للمراجعة والاستيراد». تأكدأنأولصف محدد هوعناوين؛تنسخالبقية إلىمراجعةخاصة بنفسexpiry. عندlost ACK أعدطلبالتحضيرنفسه؛لاUUID جديدة. إنحُضّرتسابقًا،استخدم«فتح مراجعة استيراد Google» أومدخلهافيقائمةImport.

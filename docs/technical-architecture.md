@@ -1,5 +1,17 @@
 # المعمارية التقنية
 
+## Capture retention: ساعة واحدة للإنشاء — Native193
+
+كشف Browser regression رفض `GOOGLE_CAPTURE_RETENTION_INVALID` عند إنشاء capture بالمدة القصوى؛لم يُقَس تغير ساعة الجهاز ولا يُفترض سببه. كانت expiry وفحص الحد الأعلى يعتمدان على قراءتين من `clock_timestamp()`، وهي تتغير داخل statement. تستخدم الطلبات الجديدة `retention_clock=STATEMENT` و`statement_timestamp()` نفسها لحساب expiry وفحصها وضبط created_at؛يبقى حد24h وحد الخدمة الأدنى5s،ولا تُمدد صلاحية سجل تاريخي. يحافظ DEFAULT `LEGACY_CLOCK` على عقد callers القديمة أثناء rolling upgrade،ويمنع guard تغيير mode بعد الإنشاء. تظل current authorization وexpiry/purge وimmutable history وno-replay مستقلة كما كانت. Native001–192 لا تُعدّل؛193 forward migration اجتازت rollback preflight قبل التطبيق. [توثيق PostgreSQL عن الساعات](https://www.postgresql.org/docs/current/functions-datetime.html#FUNCTIONS-DATETIME-CURRENT).
+
+## أساس Google Export: projection مشتركة وورقة جديدة ذرية — 2026-11-18
+
+تُفصل `exportCellHeader` و`exportCellPage` عن تنسيق CSV، مع إبقاء queries وkeyset وcurrent Field visibility وLead scope وCalculated Fields نفسها. `exportHeader` و`exportPage` تغلفان القيم بـCSV encoder الحالي دون تغيير عقد التنزيل. لا يُعاد تحليل CSV لتغذية Google، لأن بادئات الحماية ستغيّر القيم الأصلية.
+
+الهدف الأساسي للتصدير هو worksheet جديدة داخل Spreadsheet مختارة، بهوية numeric sheetId ثابتة لكلjob ونطاق A1 مطابق لحجمpayload. يستخدم `createWorksheet` طلبًا واحدًا يجمع AddSheet وUpdateCells، ويكتب stringValue/numberValue/boolValue فقط، دونformulaValue أوparsed locale أوappend/overwrite لورقة قائمة. تمنع مراجعةshape/cell/byte budgets تجاوز10001صف معheader و64عمودًا و20000حرف للخلية و8MiB للطلب قبلHTTP؛هذه حدود تقنية وليستضمانProvider capacity.
+
+ACK موثقة الهوية لا تكفي لإعلان النجاح. تقرأ `readEnteredGrid` نطاقًا رقميًا محدودًا مستقلاً منuserEnteredValue، معرفضformulaValue والهوية أوoffset أوshape غيرالمطابقة؛لا تُستخدمالقيم المحسوبة أوformatted output كإثباتللنص. الوظائف الحالية طبقةبروتوكول؛لاjob أوruntime authority للكتابة ولاUI تشغيل بعد. يلزم Native194 بعقدapproved export فعلية وimmutable payload وnative guards/Audit/history وUNKNOWN reconciliation دونblind replay قبلتعريضها للتشغيل. [العقد والمصادرالرسمية](google-sheets.md).
+
 ## Google Import عبر مدخل مشترك — Native190–192
 
 تُعمّم البنية التاريخية `lead_import_file` إلى مدخل محدد النوع، مع حفظ اسم الجدول وFK والتاريخ القائمة. `input_kind=FILE` تبقي CSV/Excel ومسار binary storage/scan/parser الحالي؛أما `GOOGLE_SHEETS` فتحتاج capture فعلية وmanifest أصلية،وتكونformat/hash/size/storage/scanner جميعهاNULL بقيودDB متبادلة. لا تحويل إلىCSV أوإيصال رفع/فحص مصطنع،ولاخدمةLead intake موازية. النسخ DB-only وذري: real-session/current capture approval →input/sheet/rows/history/Audit،معfresh-row وcomplete-capture proofs وunique capture/request،بنفسquota ومفتاحالقفل المشتركين معرفع الملفات.

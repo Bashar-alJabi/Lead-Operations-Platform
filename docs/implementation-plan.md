@@ -1,5 +1,11 @@
 # خطة التنفيذ
 
+## أحدث checkpoint: أساس Google Export — 2026-11-18
+
+Google Import محفوظةفي5d063a8. أُنجزتshared cell/header projection وCSV wrappers وatomic new worksheet HTTP protocol وindependent userEnteredValue read. نجحت208Unit/158fullPG(698.7s)/74Browser Regression(8.1m) وBackend/Web build/typecheck و001–193development/test recheck. Native193 لإصلاحcapture retention فقط؛Google Export jobs/UI وactual end-to-end مازالتRequired،وHTTP mocks فقط دونLive verification.
+
+الخطوة التالية Native194 هيdurable Google Export job فعلية: current scoped target catalog وreal-session confirmation معfilters/views/columns/selected IDs الحالية،وprivate immutable payload/header rows وnative current Lead/Field/Resource guards وAudit/history. تُضافRUNTIME OAuth authority مرتبطةبـExport job وlease حقيقيتين دونcapture بديلة أوSession تاريخية. يلزمdispatch attempt قبلHTTP ثمindependent userEnteredValue reconciliation؛UNKNOWN يمنعwrite replay،وتكونrecovery قراءةمحدودة موثقة. أكمِل API/worker وar/en/fr UI وIntegration/Browser journeys قبلGoogle Export baseline. بعدbaseline Import/Export انتقلإلىEmail/Notifications/Automation وبقيةcore gaps؛لااختياريGoogle polish أوtwo-way sync.
+
 ## أحدث checkpoint: Google Import المشترك — Native190–192 — 2026-11-18
 
 اكتملت Google input/provenance/schema3 وshared Mapping/review/approval/intake/results وLead origin،معcurrent source authority قبلapproval ثمcurrent internal intake authority بعدها. نجحت **204Unit/156fullDockerPG(624.4s)/74fullEdgeBrowser(5.9m)** و001–192development/test recheck وBackend/Web build/typecheck وshared worker smoke. Native001–192 ثابتة؛أيSQL تصحيحforward. SDK/HTTP mocks فقط وLive pending. [العقد](google-sheets.md).

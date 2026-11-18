@@ -1,0 +1,3 @@
+export class GoogleSheetsError extends Error{
+ constructor(public code:'GOOGLE_INPUT_INVALID'|'GOOGLE_AUTH_FAILED'|'GOOGLE_RESOURCE_UNAVAILABLE'|'GOOGLE_RATE_LIMITED'|'GOOGLE_PROVIDER_UNAVAILABLE'|'GOOGLE_RESPONSE_INVALID'|'GOOGLE_RESULT_UNKNOWN',public retryable=false){super(code);}
+}

@@ -1,5 +1,14 @@
 # مصفوفة تغطية المتطلبات
 
+## أحدث checkpoint: أساس Google Export — 2026-11-18
+
+| المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |
+|---|---|---|
+|00 §§53–54،02 §69،03 §§39/52/98،06 §18|shared raw cell/header projection معنفسcurrent queries/Lead/Field visibility/Calculated Fields وCSV wrappers دونتغييرالحماية|208fullUnit،158fullcompiledDockerPG(698.7s)،74fullEdgeBrowser(8.1m) Regression،Backend/Web build/typecheck و001–193development/test recheck؛LONG_TEXT20000/Calculated0/Field revocation مثبتة|
+|AGENTS §§8/14–16/38 و06 §§21–23|numeric new worksheet atomic AddSheet+UpdateCells وtyped literal values دونformulaValue/CSV prefixes؛independent bounded userEnteredValue grid read|4synthetic HTTP Unit: exact target/ACK وlost ACK/503→UNKNOWN دونhidden retry،20000chars/precision/sparse blanks/invalid shapes و8MiB serialization fence؛HTTP Mock Verified فقط|
+|AGENTS §§15/16/28/30|Native193 تثبّت creation/expiry/retention fence علىstatement clock للطلباتالجديدة،وتحفظlegacy callers/history/current authority|PG exact86400/5seconds،native over/under duration rejection وmode immutability وlegacy rollback؛Browser capture500 السابقةأُصلحت والبوابةأُعيدت،دونclaim بقياسclock jump|
+|AGENTS §39 و06 §§18/27–30|مرحلةprotocol/projection منفذة ومختبرة؛لاoperator-facing Google write بعد|**Google Export baseline غيرمكتملة**: Native194 durable job/runtime/native guards/worker/confirmation/reconciliation/UI/PG+Browser journeys باقية. **Live Verification Pending External Credential/Approval**؛Browser الحاليةRegression وليستGoogle Export E2E|
+
 ## أحدث checkpoint: Google Import المشترك — Native190–192 — 2026-11-18
 
 | المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |

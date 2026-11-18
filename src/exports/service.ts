@@ -124,9 +124,11 @@ export async function processOneExport(db:Database):Promise<boolean>{
 }
 
 const headers:Record<ExportColumn,string[]>={id:['Lead ID'],contact:['Contact name','Phone','Email'],campaign:['Campaign'],branch:['Branch'],lifecycle:['Lifecycle'],owner:['Owner'],source:['Source'],created_at:['Created at (UTC)'],followup:['Next follow-up (UTC)']};
-export function exportHeader(input:ExportInput,fields:Field[]){return csvRow([...input.columns.flatMap(c=>headers[c]),...fields.map(f=>f.label+' ('+f.key+')')]);}
+export function exportCellHeader(input:ExportInput,fields:Field[]){return [...input.columns.flatMap(c=>headers[c]),...fields.map(f=>f.label+' ('+f.key+')')];}
+export function exportHeader(input:ExportInput,fields:Field[]){return csvRow(exportCellHeader(input,fields));}
 export type ExportCursor={at:string;id:string}|null;
-export async function exportPage(tx:postgres.TransactionSql,actor:Principal,j:ExportJob,after:ExportCursor,fieldSnapshot:Field[]){
+// Transport-neutral projection: CSV protection belongs to its encoder, never to stored/exported values.
+export async function exportCellPage(tx:postgres.TransactionSql,actor:Principal,j:ExportJob,after:ExportCursor,fieldSnapshot:Field[]){
  const size=Number(process.env.EXPORT_DOWNLOAD_PAGE_SIZE??25);if(!Number.isInteger(size)||size<1||size>100)throw Error('Invalid EXPORT_DOWNLOAD_PAGE_SIZE');
  const fields=await exportFields(tx,actor,exportInput(j));if(!bulkHash(fields).equals(bulkHash(fieldSnapshot)))throw new HttpError(409,'EXPORT_FIELDS_CHANGED');
  const asc=j.filters.sort==='CREATED_ASC';
@@ -134,7 +136,7 @@ export async function exportPage(tx:postgres.TransactionSql,actor:Principal,j:Ex
   AND (${after?.at??null}::text::timestamptz IS NULL OR ${asc} AND (lead_created_at,lead_id)>(${after?.at??null}::text::timestamptz,${after?.id??null}::uuid)
    OR NOT ${asc} AND (lead_created_at,lead_id)<(${after?.at??null}::text::timestamptz,${after?.id??null}::uuid))
   ORDER BY lead_created_at ${tx.unsafe(asc?'ASC':'DESC')},lead_id ${tx.unsafe(asc?'ASC':'DESC')} LIMIT ${size}`;
- if(!members.length)return {csv:'',count:0,next:null};
+ if(!members.length)return {cells:[] as unknown[][],count:0,next:null};
  const ids=members.map(m=>m.lead_id as string);
  // Lock only the bounded current page, then revalidate the real downloading session.
  const rows=await tx`SELECT l.id,l.branch_id,l.campaign_id,l.lifecycle,l.source_kind,to_char(l.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at,
@@ -147,7 +149,10 @@ export async function exportPage(tx:postgres.TransactionSql,actor:Principal,j:Ex
  const byId=new Map(rows.map(r=>[r.id,r]));
  if(members.some(m=>!byId.has(m.lead_id)||byId.get(m.lead_id)!.branch_id!==m.branch_id||byId.get(m.lead_id)!.campaign_id!==m.campaign_id))throw new HttpError(403,'EXPORT_SCOPE_CHANGED');
  const kinds=[...new Set(fields.flatMap(f=>f.calculation?[f.calculation.kind]:[]))],calculated=await calculateLeadFieldsBatch(tx,ids,kinds);
- const csv=ids.map(id=>{const r=byId.get(id)!;const base=j.columns.flatMap(c=>c==='contact'?[r.name,r.phone,r.email]:[c==='id'?id:c==='source'?r.source_kind:r[c]]);
-  return csvRow([...base,...fields.map(f=>f.calculation?calculated[id]?.[f.calculation.kind]:r.values?.[f.id]??null)]);}).join('');
- const last=members.at(-1)!;return {csv,count:members.length,next:{at:last.cursor_at as string,id:last.lead_id as string}};
+ const cells=ids.map(id=>{const r=byId.get(id)!;const base=j.columns.flatMap(c=>c==='contact'?[r.name,r.phone,r.email]:[c==='id'?id:c==='source'?r.source_kind:r[c]]);
+  return [...base,...fields.map(f=>f.calculation?calculated[id]?.[f.calculation.kind]:r.values?.[f.id]??null)];});
+ const last=members.at(-1)!;return {cells,count:members.length,next:{at:last.cursor_at as string,id:last.lead_id as string}};
+}
+export async function exportPage(tx:postgres.TransactionSql,actor:Principal,j:ExportJob,after:ExportCursor,fieldSnapshot:Field[]){
+ const page=await exportCellPage(tx,actor,j,after,fieldSnapshot);return {csv:page.cells.map(csvRow).join(''),count:page.count,next:page.next};
 }

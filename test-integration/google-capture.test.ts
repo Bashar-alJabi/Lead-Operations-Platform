@@ -35,6 +35,7 @@ async function setup(t:TestContext,gridRows?:Record<number,(string|number|boolea
 test('Google capture admits one scoped intent, refreshes through approved runtime authority after the real approval session is revoked, and publishes exact private paged rows/history without Leads or new sessions',async t=>{
  const f=await setup(t),{api,db}=f;await f.short();const responses=await Promise.all(Array.from({length:8},()=>api('POST',f.createPath,f.input,'manager')));assert.ok(responses.every(r=>r.statusCode===202),responses.map(r=>r.body).join());assert.equal(new Set(responses.map(r=>r.json().id)).size,1);
  const id=responses[0]!.json().id,root='/api/google/captures/'+id;assert.equal((await api('POST',f.createPath,{...f.input,rows:3},'manager')).statusCode,409);
+ const duration=(await db`SELECT retention_clock,extract(epoch FROM expires_at-created_at)::text seconds FROM google_capture_job WHERE id=${id}`)[0]!;assert.equal(duration.retention_clock,'STATEMENT');assert.equal(Number(duration.seconds),86400);
  const sessions=(await db`SELECT count(*)::int n FROM user_session`)[0]!.n;await db`UPDATE user_session SET revoked_at=clock_timestamp() WHERE id=${f.actors.manager!.sid}`;
  for(let i=0;i<6;i++)await Promise.all([f.worker(),f.worker()]);assert.equal((await api('GET',root,undefined,'alternate')).json().state,'READY');assert.equal((await api('GET',root,undefined,'manager')).statusCode,401);
  assert.equal((await db`SELECT count(*)::int n FROM user_session`)[0]!.n,sessions);assert.equal((await db`SELECT kind,session_id,actor_role,state FROM google_oauth_operation ORDER BY created_at DESC LIMIT 1`)[0]!.kind,'RUNTIME');assert.equal(f.counts().refreshes,2,'one human short grant and one runtime refresh');
@@ -66,8 +67,20 @@ test('Google runtime UNKNOWN never refreshes the same parent again; new consent 
  f.lose(true);await f.worker();const j=(await api('GET',root,undefined,'manager')).json();assert.equal(j.errorCode,'GOOGLE_RESULT_UNKNOWN');assert.equal(j.state,'NEEDS_ATTENTION');const count=f.counts().refreshes;
  assert.equal((await api('POST',f.cr+'/test',{version:1})).statusCode,409);await f.worker();assert.equal(f.counts().refreshes,count);
  f.lose(false);await f.authorize();assert.equal((await api('POST',root+'/recover',{version:j.version,reason:'New consent verified; resume range'},'alternate')).statusCode,200);await f.worker();assert.equal((await api('GET',root,undefined,'alternate')).json().state,'READY');assert.equal(f.counts().refreshes,count);
- process.env.GOOGLE_CAPTURE_TTL_SECONDS='5';const expired=await api('POST',f.createPath,{...f.input,rows:1,requestId:randomUUID()},'alternate');assert.equal(expired.statusCode,202,expired.body);await f.worker();await new Promise(r=>setTimeout(r,5100));await f.worker();assert.equal((await api('GET','/api/google/captures/'+expired.json().id,undefined,'alternate')).json().state,'EXPIRED');assert.equal((await api('GET','/api/google/captures/'+expired.json().id+'/rows',undefined,'alternate')).statusCode,410);
+ process.env.GOOGLE_CAPTURE_TTL_SECONDS='5';const expired=await api('POST',f.createPath,{...f.input,rows:1,requestId:randomUUID()},'alternate');assert.equal(expired.statusCode,202,expired.body);assert.equal(Number((await db`SELECT extract(epoch FROM expires_at-created_at)::text seconds FROM google_capture_job WHERE id=${expired.json().id}`)[0]!.seconds),5);await f.worker();await new Promise(r=>setTimeout(r,5100));await f.worker();assert.equal((await api('GET','/api/google/captures/'+expired.json().id,undefined,'alternate')).json().state,'EXPIRED');assert.equal((await api('GET','/api/google/captures/'+expired.json().id+'/rows',undefined,'alternate')).statusCode,410);
  assert.equal((await db`SELECT count(*)::int n FROM lead`)[0]!.n,0);
+});
+
+test('Google capture anchors exact retention to its creation statement, rejects native boundary forgeries and preserves rolling caller compatibility',async t=>{
+ const f=await setup(t),{api,db}=f;const created=await api('POST',f.createPath,{...f.input,rows:1},'manager');assert.equal(created.statusCode,202,created.body);const id=created.json().id;
+ const before=(await db`SELECT count(*)::int n FROM google_capture_job`)[0]!.n;
+ for(const seconds of [86400.000001,3.999999])await assert.rejects(()=>db`INSERT INTO google_capture_job SELECT (x).* FROM google_capture_job j CROSS JOIN LATERAL jsonb_populate_record(NULL::google_capture_job,to_jsonb(j)||jsonb_build_object('id',gen_random_uuid(),'request_id',gen_random_uuid(),'retention_clock','STATEMENT','expires_at',statement_timestamp()+${seconds}*interval '1 second')) x WHERE j.id=${id}`,/GOOGLE_CAPTURE_RETENTION_INVALID/);
+ await assert.rejects(()=>db`UPDATE google_capture_job SET retention_clock='LEGACY_CLOCK',version=version+1 WHERE id=${id}`,/GOOGLE_CAPTURE_IDENTITY_IMMUTABLE/);
+ await assert.rejects(()=>db.begin(async tx=>{
+  const [legacy]=await tx`INSERT INTO google_capture_job SELECT (x).* FROM google_capture_job j CROSS JOIN LATERAL jsonb_populate_record(NULL::google_capture_job,to_jsonb(j)||jsonb_build_object('id',gen_random_uuid(),'request_id',gen_random_uuid(),'retention_clock','LEGACY_CLOCK','expires_at',clock_timestamp()+interval '10 seconds')) x WHERE j.id=${id} RETURNING retention_clock`;
+  assert.equal(legacy!.retention_clock,'LEGACY_CLOCK');throw Error('SYNTHETIC_LEGACY_ROLLBACK');
+ }),/SYNTHETIC_LEGACY_ROLLBACK/);
+ assert.equal((await db`SELECT count(*)::int n FROM google_capture_job`)[0]!.n,before);assert.equal((await api('GET','/api/google/captures/'+id,undefined,'manager')).json().state,'WAITING');
 });
 
 test('a lost runtime refresh commit remains durably RUNNING until its real DB lease expires, then becomes UNKNOWN without replay or partial data',async t=>{

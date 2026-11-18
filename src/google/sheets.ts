@@ -1,9 +1,9 @@
 // HTTP boundary only. Callers own current scope, encrypted credentials, approved jobs and durable outcomes.
 import {createHash} from 'node:crypto';
+import {googleNewWorksheetBody,type GoogleNewWorksheet,type GoogleExportCell} from './export-cells.js';
+import {GoogleSheetsError} from './errors.js';
+export {GoogleSheetsError} from './errors.js';
 export const googleSheetsScopes=['openid','https://www.googleapis.com/auth/drive.file'] as const;
-export class GoogleSheetsError extends Error{
- constructor(public code:'GOOGLE_INPUT_INVALID'|'GOOGLE_AUTH_FAILED'|'GOOGLE_RESOURCE_UNAVAILABLE'|'GOOGLE_RATE_LIMITED'|'GOOGLE_PROVIDER_UNAVAILABLE'|'GOOGLE_RESPONSE_INVALID'|'GOOGLE_RESULT_UNKNOWN',public retryable=false){super(code);}
-}
 type Fetcher=typeof fetch;
 export type GoogleClient={clientId:string;clientSecret:string};
 export type GoogleTokens={accessToken:string;refreshToken:string|null;expiresIn:number;scopes:string[]};
@@ -80,6 +80,40 @@ export function googleSheetsAdapter(fetcher:Fetcher=fetch,options:{timeoutMs?:nu
   try{return tokens(value,previousScopes);}catch{throw new GoogleSheetsError('GOOGLE_RESULT_UNKNOWN');}
  }
  return {
+  // One atomic AddSheet + UpdateCells, always a fresh numeric ID. Acknowledgement is not reconciliation.
+  async createWorksheet(accessToken:string,spreadsheetId:string,input:GoogleNewWorksheet){
+   const body=googleNewWorksheetBody(input),value=await authorized(accessToken,id(spreadsheetId)+':batchUpdate',{
+    method:'POST',headers:{'content-type':'application/json'},body},true);
+   const p=object(value)&&Array.isArray(value.replies)&&value.replies.length===2&&object(value.replies[0])&&value.replies[0].addSheet?.properties;
+   if(!object(value)||value.spreadsheetId!==spreadsheetId||!object(p)||p.sheetId!==input.sheetId||p.title!==input.title||p.sheetType!=='GRID'
+    ||!object(p.gridProperties)||p.gridProperties.rowCount!==input.cells.length||p.gridProperties.columnCount!==input.cells[0]!.length
+    ||!object(value.replies[1])||Object.keys(value.replies[1]).length!==0)throw new GoogleSheetsError('GOOGLE_RESULT_UNKNOWN');
+   return {sheetId:input.sheetId,title:input.title,rows:input.cells.length,columns:input.cells[0]!.length};
+  },
+  async readEnteredGrid(accessToken:string,spreadsheetId:string,grid:GoogleSheetGrid){
+   if(!Number.isSafeInteger(grid.sheetId)||grid.sheetId<0||grid.sheetId>2147483647)invalid();googleGridRange({...grid,sheet:'validated-by-id'});
+   const fields='spreadsheetId,sheets(properties(sheetId,title,gridProperties(rowCount,columnCount)),data(startRow,startColumn,rowData(values(userEnteredValue))))';
+   const value=await authorized(accessToken,id(spreadsheetId)+':getByDataFilter?'+new URLSearchParams({fields}),{method:'POST',headers:{'content-type':'application/json'},
+    body:JSON.stringify({dataFilters:[{gridRange:{sheetId:grid.sheetId,startRowIndex:grid.row-1,endRowIndex:grid.row+grid.rows-1,startColumnIndex:grid.column-1,endColumnIndex:grid.column+grid.columns-1}}],includeGridData:true})});
+   if(!object(value)||value.spreadsheetId!==spreadsheetId||!Array.isArray(value.sheets)||value.sheets.length!==1)malformed();
+   const sheet=value.sheets[0],p=object(sheet)&&sheet.properties;
+   if(!object(p)||p.sheetId!==grid.sheetId||!text(p.title,256)||!object(p.gridProperties)||!positive(p.gridProperties.rowCount)||!positive(p.gridProperties.columnCount,18278)
+    ||p.gridProperties.rowCount<grid.row+grid.rows-1||p.gridProperties.columnCount<grid.column+grid.columns-1||sheet.data!==undefined&&(!Array.isArray(sheet.data)||sheet.data.length>1))malformed();
+   // Empty grid fields may be omitted. Metadata still pins the requested sheet and its bounds.
+   const data=sheet.data?.[0]??{startRow:grid.row-1,startColumn:grid.column-1};if(!object(data)||(data.startRow??0)!==grid.row-1||(data.startColumn??0)!==grid.column-1
+    ||data.rowData!==undefined&&!Array.isArray(data.rowData)||(data.rowData?.length??0)>grid.rows)malformed();
+   const cells:GoogleExportCell[][]=Array.from({length:grid.rows},(_,r)=>{
+    const row=data.rowData?.[r];if(row!==undefined&&(!object(row)||row.values!==undefined&&!Array.isArray(row.values)||(row.values?.length??0)>grid.columns))malformed();
+    return Array.from({length:grid.columns},(_,c)=>{const cell=row?.values?.[c];if(cell===undefined)return '';
+     if(!object(cell))malformed();const v=cell.userEnteredValue;if(v===undefined)return '';if(!object(v))malformed();
+     const keys=Object.keys(v);if(!keys.length)return '';if(keys.length!==1)malformed();
+     if(keys[0]==='stringValue'&&typeof v.stringValue==='string'&&v.stringValue.length<=20000&&!/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(v.stringValue)&&v.stringValue.isWellFormed())return v.stringValue;
+     if(keys[0]==='numberValue'&&typeof v.numberValue==='number'&&Number.isFinite(v.numberValue)&&Math.abs(v.numberValue)<=Number.MAX_SAFE_INTEGER)return v.numberValue;
+     if(keys[0]==='boolValue'&&typeof v.boolValue==='boolean')return v.boolValue;
+     malformed();
+    });
+   });return {sheetId:grid.sheetId,title:p.title as string,cells};
+  },
   async readGrid(accessToken:string,spreadsheetId:string,grid:GoogleSheetGrid){
    if(!Number.isSafeInteger(grid.sheetId)||grid.sheetId<0||grid.sheetId>2147483647)invalid();
    googleGridRange({...grid,sheet:'validated-by-id'});

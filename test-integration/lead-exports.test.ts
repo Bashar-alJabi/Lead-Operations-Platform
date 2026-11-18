@@ -4,7 +4,7 @@ import {randomBytes,randomUUID} from 'node:crypto';
 import {createDatabase} from '../src/db.js';
 import {buildApp} from '../src/app.js';
 import {sha256} from '../src/security.js';
-import {processOneExport,exportActor,exportVisible,exportPage,type ExportJob} from '../src/exports/service.js';
+import {processOneExport,exportActor,exportVisible,exportPage,exportCellPage,exportCellHeader,exportInput,type ExportJob} from '../src/exports/service.js';
 import {spawn} from 'node:child_process';
 import {resolve} from 'node:path';
 const url=process.env.TEST_DATABASE_URL;if(!url||new URL(url).pathname!=='/lead_operations_test')throw new Error('Isolated test database required');
@@ -53,6 +53,22 @@ test('Durable export captures authorized membership once across concurrent creat
  const filtered=await create(input({filters:{campaignId:body.filters.campaignId,fieldId:fields.visible,fieldValue:JSON.stringify('=CUSTOMER_FORMULA')},fieldIds:[],columns:['contact']}));
  await processOneExport(db);assert.equal((await status(filtered)).rowCount,1);assert.equal((await api('GET','/api/lead-exports/'+filtered+'/download')).statusCode,200);
  assert.equal((await api('POST','/api/lead-exports',input())).statusCode,404);
+});
+
+test('Shared export cell projection preserves literal/long values and calculated zero with current field visibility, without CSV encoding leaking into Google payloads',async t=>{
+ const {db,api,create,input,fields,leads,branch,campaigns}=await fixture(t);
+ const made=await api('POST','/api/fields',{scope:'CAMPAIGN',branchId:branch,campaignId:campaigns[0],key:'long_export',label:'=Long export',fieldType:'LONG_TEXT',valueMode:'MANUAL',options:[],validation:{}});assert.equal(made.statusCode,201,made.body);const longId=made.json().id;
+ const bound=await api('PUT','/api/campaigns/'+campaigns[0]+'/fields/'+longId,{active:true,position:0,requiredStage:'NONE',visibleToAgent:true,editableByAgent:true,visibleToManager:true,editableByManager:true,showInTable:true,showInDetails:true,filterable:true,usableByAutomation:false,usableByAi:false});assert.equal(bound.statusCode,200,bound.body);
+ const id=await create(input({fieldIds:[longId,fields.calculated]}));await processOneExport(db);
+ const text='=RAW()\n'+ 'ع'.repeat(19993),changed=await api('PUT','/api/leads/'+leads[0]+'/fields/'+longId,{value:text});assert.equal(changed.statusCode,200,changed.body);
+ await db.begin(async tx=>{
+  const j=(await tx`SELECT *,expires_at<=clock_timestamp() expired FROM lead_export_job WHERE id=${id}`)[0] as ExportJob,actor=await exportActor(tx,j),visible=await exportVisible(tx,actor,j);
+  const header=exportCellHeader(exportInput(j),visible),page=await exportCellPage(tx,actor,j,null,visible);assert.equal(page.count,2);assert.equal(header[4],'=Long export (long_export)');
+  assert.equal(page.cells[0]![0],'=HYPERLINK("https://invalid.test")');assert.equal(page.cells[0]![4],text);assert.equal(page.cells[0]![5],0);assert.ok(!JSON.stringify(page.cells).includes('SENSITIVE-SYNTHETIC-HIDDEN'));
+  const csv=await exportPage(tx,actor,j,null,visible);assert.ok(csv.csv.includes('"\t=RAW()'));assert.equal(page.cells[0]![4],text,'CSV encoder never mutates raw cells');assert.equal((await exportCellPage(tx,actor,j,page.next,visible)).count,0);
+ });
+ await db`UPDATE campaign_field SET visible_to_manager=false,editable_by_manager=false,version=version+1 WHERE field_id=${longId}`;
+ await assert.rejects(db.begin(async tx=>{const j=(await tx`SELECT *,expires_at<=clock_timestamp() expired FROM lead_export_job WHERE id=${id}`)[0] as ExportJob,actor=await exportActor(tx,j);return exportCellPage(tx,actor,j,null,[]);}),/EXPORT_FIELDS_NOT_AVAILABLE/);
 });
 
 test('Export denies hidden fields and foreign scope, respects current Agent ownership before processing/download/replay, and fails closed on session and role changes',async t=>{
