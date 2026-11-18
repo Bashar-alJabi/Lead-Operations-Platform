@@ -8,6 +8,7 @@ type Fetcher=typeof fetch;
 export type GoogleClient={clientId:string;clientSecret:string};
 export type GoogleTokens={accessToken:string;refreshToken:string|null;expiresIn:number;scopes:string[]};
 export type GoogleGrid={sheet:string;row:number;column:number;rows:number;columns:number};
+export type GoogleSheetGrid={sheetId:number;row:number;column:number;rows:number;columns:number};
 export type GoogleSpreadsheet={id:string;title:string;locale:string;timezone:string;sheets:{id:number;title:string;index:number;kind:string;rows:number|null;columns:number|null}[]};
 function invalid():never{throw new GoogleSheetsError('GOOGLE_INPUT_INVALID');}
 function malformed():never{throw new GoogleSheetsError('GOOGLE_RESPONSE_INVALID');}
@@ -79,6 +80,28 @@ export function googleSheetsAdapter(fetcher:Fetcher=fetch,options:{timeoutMs?:nu
   try{return tokens(value,previousScopes);}catch{throw new GoogleSheetsError('GOOGLE_RESULT_UNKNOWN');}
  }
  return {
+  async readGrid(accessToken:string,spreadsheetId:string,grid:GoogleSheetGrid){
+   if(!Number.isSafeInteger(grid.sheetId)||grid.sheetId<0||grid.sheetId>2147483647)invalid();
+   googleGridRange({...grid,sheet:'validated-by-id'});
+   const expected={sheetId:grid.sheetId,startRowIndex:grid.row-1,endRowIndex:grid.row+grid.rows-1,startColumnIndex:grid.column-1,endColumnIndex:grid.column+grid.columns-1};
+   // POST is a read here. A failed transport can be retried without replaying a write.
+   const value=await authorized(accessToken,id(spreadsheetId)+'/values:batchGetByDataFilter',{method:'POST',headers:{'content-type':'application/json'},
+    body:JSON.stringify({dataFilters:[{gridRange:expected}],majorDimension:'ROWS',valueRenderOption:'FORMATTED_VALUE'})});
+   if(!object(value)||value.spreadsheetId!==spreadsheetId||!Array.isArray(value.valueRanges)||value.valueRanges.length!==1)malformed();
+   const match=value.valueRanges[0];if(!object(match)||!Array.isArray(match.dataFilters)||match.dataFilters.length!==1)malformed();
+   const filter=match.dataFilters[0],range=object(filter)&&filter.gridRange;
+   if(!object(filter)||Object.keys(filter).some(k=>k!=='gridRange')||!object(range)||Object.keys(range).some(k=>!(k in expected))
+    ||Object.entries(expected).some(([k,v])=>(range[k]??0)!==v))malformed();
+   const result=match.valueRange;if(!object(result)||result.majorDimension!=='ROWS'||result.values!==undefined&&!Array.isArray(result.values))malformed();
+   const rows=result.values??[];if(rows.length>grid.rows)malformed();
+   return Array.from({length:grid.rows},(_,index)=>{
+    const row=rows[index]??[];if(!Array.isArray(row)||row.length>grid.columns)malformed();
+    const cells=Array.from({length:grid.columns},(_,c)=>{const cell=row[c];if(cell===undefined||cell===null)return null;
+     if(typeof cell!=='string'&&typeof cell!=='boolean'&&!(typeof cell==='number'&&Number.isFinite(cell)&&Math.abs(cell)<=Number.MAX_SAFE_INTEGER))malformed();
+     const text=String(cell);if(text.length>20000||/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(text))malformed();return text;
+    });return {rowNumber:grid.row+index,cells};
+   });
+  },
   async exchangeCode(c:GoogleClient,input:{code:string;redirectUri:string;verifier:string;allowLoopbackHttp?:boolean}){
    client(c);if(!text(input.code,8192))invalid();googlePkceChallenge(input.verifier);
    return tokenRequest(new URLSearchParams({client_id:c.clientId,client_secret:c.clientSecret,code:input.code,code_verifier:input.verifier,redirect_uri:callback(input.redirectUri,input.allowLoopbackHttp),grant_type:'authorization_code'}));

@@ -1,5 +1,11 @@
 # المعمارية التقنية
 
+## Google private range capture/runtime delegation — Native189
+
+تفصل `google_capture_job/row/history` طلب القراءة الخارجي الخاص والمؤقت عن مصدرImport المعتمد. تحفظ الموافقة من جلسة حقيقية actor/role/branch ونسخresource/access/Connection؛ويعيد العاملstateless فحص الصلاحيات الحالية دونSession مصطنعة. ترتيب الأقفال Connection→job،ثمclaim قبلHTTP معlease60s وقراءةDataFilter بواسطةsheetId عددية،ثمحفظ ذري للصفحة المتجاورة وprogress/history/Audit. تمنع native proofs صفوفًا بلاصفحة مثبتة أوتعديل التاريخ. تُفحص current ACL قبلقراءةraw وبعدI/O،ويحذفretention/cancel البيانات الخام فقط.
+
+تمدّد OAuth RUNTIME نموذج العمليات الدائمة الحالي بعقد محدود إلىjob/lease/parent grant. نتيجةrefresh مشفرة وهويةالحساب pinned؛ولا تمرOrg credentials إلىoperational catalog/API. تحمي قاعدةnative مشتركة بينCHECK/RUNTIME منreplay بعدUNKNOWN/SUPERSEDED؛ويُصنّف فقدcommit كـUNKNOWN بعدانتهاءlease الحقيقية. المسار التشغيلي هوconsent جديدة ثمjob recovery صريحة منجلسةحالية،دونجلسةSA مستعارة أوفرضCONNECTED. تفاصيلbudgets وخصوصيةsnapshot وعدمذريةالمصدر والاستعادة في[عقدGoogle](google-sheets.md) و[runbook](runbook.md). Google Import/Export الفعلية هيالمتطلب التالي؛لا تنشئ هذهالشريحةLead pipeline بديلة.
+
 ## Google shared operational availability — Native188
 
 تحتفظ `google_resource_access` بمنح Organization resource لفروع محددة منSuper Admin فقط، معcurrent Session وCAS للـConnection/resource/grant وreason وimmutable history/Audit. revoke مسموحة حتى بعد تعطيلConnection أوBranch أوresource، ولا تمحو التاريخ. identity هيresource/branch؛ لا تنتقلgrant إلىملف آخر. branch-scoped resource متاحة أصلًا ضمنفرعها دونمنح لمؤسسة أخرى.

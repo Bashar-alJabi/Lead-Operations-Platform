@@ -11,6 +11,7 @@ import {googleAuthorizationUrl,googlePkceChallenge,GoogleSheetsError,type Google
 type Tx=postgres.TransactionSql;
 type Row=postgres.Row;
 type StoredTokens=GoogleTokens&{expiresAt:string};
+export type {StoredTokens as StoredGoogleTokens};
 type Envelope={ciphertext:string;nonce:string;authTag:string;keyVersion:number};
 function sealed(context:string,value:unknown):Envelope {
  const s=sealOpaque(context,JSON.stringify(value));return {ciphertext:s.ciphertext.toString('base64'),nonce:s.nonce.toString('base64'),authTag:s.authTag.toString('base64'),keyVersion:s.keyVersion};
@@ -137,6 +138,7 @@ export async function checkGoogleConnection(db:Database,adapter:GoogleSheetsAdap
   if(c.status!=='CONNECTED'||!c.capabilities.grantId)throw new HttpError(409,'GOOGLE_NEW_AUTHORIZATION_REQUIRED');
   const parent=(await tx`SELECT * FROM google_oauth_operation WHERE id=${c.capabilities.grantId} AND connection_id=${id} AND connection_version=${version} AND state='VERIFIED'`)[0];
   if(!parent)throw new HttpError(409,'GOOGLE_NEW_AUTHORIZATION_REQUIRED');
+  if(!(await tx`SELECT google_refresh_parent_safe(${parent.id}) ok`)[0]!.ok)throw new HttpError(409,'GOOGLE_NEW_AUTHORIZATION_REQUIRED');
   const tokens=opened<StoredTokens>('google-result:'+parent.id,parent.result);if(!tokens.refreshToken)throw new HttpError(409,'GOOGLE_REFRESH_REQUIRED');
   const operationId=randomUUID(),credentials=await client(tx,c);
   await tx`INSERT INTO google_oauth_operation(id,connection_id,connection_version,kind,actor_id,session_id,actor_role,actor_branch_id,state,previous_operation_id)
@@ -146,3 +148,5 @@ export async function checkGoogleConnection(db:Database,adapter:GoogleSheetsAdap
  const r=await exchangeResult(()=>adapter.refresh(claim.credentials,claim.tokens.refreshToken!,claim.scopes),adapter,claim.tokens.refreshToken);
  return finish(db,actor,request,claim.id,id,r.tokens,r.subject,r.error);
 }
+// Internal application services only; HTTP routes must enforce their own current authority first.
+export {sealed as sealGoogleValue,opened as openGoogleValue,client as googleClientCredentials,health as applyGoogleHealth};

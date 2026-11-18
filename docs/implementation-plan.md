@@ -1,6 +1,12 @@
 # خطة التنفيذ
 
-## أحدث checkpoint: Google shared operational availability — Native188 — 2026-11-17
+## أحدث checkpoint: Google private range capture — Native189 — 2026-11-18
+
+اكتملتprivate approved range jobs وnumeric sheetId/DataFilter reads وRUNTIME refresh ضمنcurrent job/resource authority،وatomic bounded pages/history/Audit وworker/private UI/recovery/cancel/expiry. نجحت **204Unit و154full compiled DockerPG(666.1s) و73fullEdgeBrowser(11.4m)**،وBackend/Web build/typecheck و001–189development/test recheck وcompiled worker one-cycle smoke علىqueue اختبار فارغة. قبلها11focusedGooglePG ثمcapture4 معreal60s crash test و5focusedGoogleBrowser(37.5s). لاruntime/Native change بعد154PG؛احفظdocs/commit/push قبلFeature جديدة. [العقد وحدوداللقطة](google-sheets.md).
+
+التاليNative190: استكمالGoogle Import عبرinput نوعهاGOOGLE_SHEETS صريح وimmutable capture provenance ثمreuse خدماتMapping/typed validation/whole-dataset duplicate review/approval/intake/results الحالية. جداولومساراتالملفاتالتاريخيةيمكنتعميمهابعقدinput حقيقيةمعحفظتوافقCSV/Excel؛لاfake CSV/upload/scanner أوMeta/Human Session،ولاخدمةLead intake مستقلة. يحفظapproved dataset الأصلبعدrawTTL دونتمديدصلاحيةقراءةGoogle أوإعادةاستخدامجلسةتاريخيةكـruntime authority. ثمcurrent-scoped Export بــdurable payload/reconciliation وUNKNOWN no-replay. بعدbaseline المطلوبة انتقلإلىEmail/Notifications/Automation وبقية[الفجوات](platform-gap-review.md)،دونprovider/AI refinements اختيارية. Native001–189 مطبقة ولا تُعدّل؛أيSQL تصحيحforward.
+
+## checkpoint السابقة: Google shared operational availability — Native188 — 2026-11-17
 
 اكتملتSA Organization resource grants للفروع وcurrent Campaign catalogs/worksheet metadata دونManager Org credentials/configuration،معnative Session/tripleCAS/history/Audit وindexed availability view وar/en/fr UI. **202Unit و150fullDockerPG(552.4s) و72fullEdgeBrowser(5.6m)** و001–188development/test recheck وBackend/Web build/typecheck ناجحة؛قبلها2focusedPG و4focusedGoogleBrowser النهائية(15.3s). أولfullينكشفاtest-only mount/refresh waits معpagination؛صُححت وقُوّيتfixture21Campaign دونخفضassertions أوruntime/permission changes بعد150PG. [العقد](google-sheets.md).
 

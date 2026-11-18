@@ -1,5 +1,15 @@
 # دليل التشغيل والتطوير
 
+## التقاط نطاق Google خاص — Native189
+
+بعدbuild وmigrations001–189: من«ملفاتGoogle المتاحةللحملة» اخترCampaign وresource وورقةGRID،ثمحددstart row/column وrow/column count وlabel/reason. إحداثياتالواجهة تبدأمن1،وsheet ID قدتكون0. راجعالطلبثموافق؛هذهالعمليةتقرأsnapshot مؤقتةخاصةولا تُدخلLeads. عندفقدACK استعملإعادةالطلب نفسه؛تحتفظالواجهةبالـUUID والنيةعبرتغييراللغةحتىتعرفالنتيجة أوتتخلىعنإعادةالطلب صراحة.
+
+خدمةالبنيةالتحتيةالمخصصةبعدbuild: `npm run worker:google` باستخدامDATABASE_URL الصحيحة ومفتاحالتشفيرالحالي. لايلزمbusiness credentials فيenv؛Connection/OAuth/Picker/resource grants تُعدمنالواجهة. GOOGLE_CAPTURE_BATCH افتراضي2(max20)،وGOOGLE_CAPTURE_POLL_MS افتراضي2000(min250/max60000)،وGOOGLE_CAPTURE_ONCE=1 لدورةمحدودة. GOOGLE_CAPTURE_TTL_SECONDS افتراضي86400،ولايتجاوز24ساعة؛خفضهإلى5ثوانٍ مخصصلاختباراتexpiry. API وحدها لاتشغلالعامل. لا يُشغّلworker علىبياناتالتطويرتلقائيًا فياختباراتالجلسة؛الإعداداتالحيةتحتاجالموافقاتالمستقلة.
+
+حدّثقائمةلقطاتGoogle ثمحالةالعملية؛READY تتيحpreview خاصةبصفحات25 فقطلمالكهاالمخوّلحاليًا. البياناتتحذفبالإلغاءأوبانتهاءretention؛التاريخوالـAudit يبقيان. expired raw تُمنعفورًابساعةDB حتىقبلدورةpurge. cancel مفيدلإيقافعمليةجزئيةوحذفصفوفها،ولايلغيآثارGoogle grant. المصدرقديتغيربيندفعاتالقراءة؛لاrevision snapshot ذريةأومزامنةمستمرة.
+
+NEEDS_ATTENTION/DEAD_LETTER: أصلحcurrent resource/connection/availability ثمrefresh الحالةواستعدبـversion/reason. conflict409 تحتاجقراءةأحدثحالة. تغييرConnection/resource version يحتاجطلبالتقاطجديد. UNKNOWN فيتجديدOAuth تعنيلاreplay؛Super Admin أوManager المخوّلـConnection تبدأconsent جديدةمنواجهةالاتصال،ثممالكjob يستعيدهاصراحةمنجلسةحقيقيةحالية. job لاتحتاججلسةSA مستعارة،ولايعادإنشاءجلسةمنتهيةللعامل. أخطاءprovider تظهرcodes آمنة؛لارمزسريأومحتوىخلايافيlogs/Audit. راجع[العقدوالحدود](google-sheets.md) وprogress للأدلة؛Mock Verified فقط،والـLive pending.
+
 ## إتاحة Google resources للفروع — Native188
 
 بعدbuild وmigrations001–188،تفتح Super Admin ملفOrganization المتحقق منmetadata فيه منGoogle Connection →«عرض أوراق الملف وتاريخه»→«إتاحة ملف Google للفروع». اخترBranch منcatalog المرقمة،وفعّل أوألغِ السماح معreason واحفظ. version conflict409 تحتاجrefresh ومراجعةlatest grant/history؛ لاforce overwrite. سحب الإتاحة يبقى ممكنًا حتى بعد تعطيلBranch/Connection/resource ويحفظ التاريخ. grant active لا تعنيconnection healthy؛ تعطيل الاتصال أوالمورد يمنع الاستخدام الفعلي حتى استعادة الجاهزية.

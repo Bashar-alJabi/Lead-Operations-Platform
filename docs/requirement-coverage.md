@@ -1,5 +1,14 @@
 # مصفوفة تغطية المتطلبات
 
+## أحدث checkpoint: Google private range capture — Native189 — 2026-11-18
+
+| المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |
+|---|---|---|
+|00 §54/03 §§39–40/52 و06 §18|current-scoped private range approval وnumeric sheetId/DataFilter reads وdurable bounded worker وpaged preview/history/recovery/cancel/expiry وar/en/fr UI|204fullUnit،154full compiledDockerPG(666.1s)،73fullEdgeBrowser(11.4m)،Backend/Web build/typecheck و001–189development/test recheck بعدpreflight rollback،وcompiled worker one-cycle smoke علىempty test queue؛[العقد](google-sheets.md)|
+|AGENTS §§8/14–16/27–28/38 و06 §§22–23|real-session approval منفصلةعنcurrent runtime authority؛job-scoped durable RUNTIME refresh وencrypted tokens/subject pin وnative complete pages/history/Audit|concurrent intent/worker،205physicalrows/zero/false/empty/long text،Agent/foreign/private owner denials وlate grant revocation،atomic page rollback وbounded retry/recovery،real DB expiry/purge وimmutable rows/history؛11focusedGooglePG ثمcapture4 النهائية و5focusedGoogleBrowser ناجحة|
+|AGENTS §§13–16 و06 §§21/23|no replay بعدUNKNOWN/SUPERSEDED،new independently verified consent ثمexplicit current-session recovery،دونSA Session بديلة|lost provider ACK وlost final refresh commit→real60s lease→UNKNOWN دونHTTP refresh ثانية،CHECK لايتجاوزparent fence،ولاnew Sessions/customer/Lead/financial effects|
+|AGENTS §39 و06 §§18/27–30|capture **Implemented / PostgreSQL وLocal Browser Verified**؛Google HTTP/SDK **Mock Verified**|**Live Verification Pending External Credential/Approval**؛لاGoogle Import/Export baseline بعد. التاليGoogle source input/provenance وshared Mapping/approval/intake/results وcurrent-scoped Export،ثمEmail/Notifications/Automation وبقيةcore gaps. لاPlatform Complete أوlive claims|
+
 ## أحدث checkpoint: Google shared operational availability — Native188 — 2026-11-17
 
 | المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |
