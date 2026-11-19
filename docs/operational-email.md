@@ -4,7 +4,7 @@
 
 المراجع 00 §38 و01 §§40–41 و02 §64 و03 §§31/76–77/99 و06 §§19/21 تتطلب Email للإشعارات الداخلية عند تفعيله، مع إعداد من داخل المنصة وصلاحيات وPreferences وwording وقنوات مستقلة عن Customer Conversation. تنفذ Native196 دورة إدارة الاتصال اللازمة لذلك؛ وجود Connection لا يعني اكتمال الإشعارات أو إرسال بريد أو إثبات وصوله.
 
-اتصالات `operational_email_connection` متعددة، على Organization أوBranch، ومستقلة عن `identity_email_connection` للدعوات واستعادة الحسابات. لا تستعير secret أوحالة اتصال بريد الحسابات. يدير Super Admin حسابات Organization؛ ويدير Manager حسابات فرعه فقط؛ ولا يرى Agent إعدادات الاتصال أو credentials. لا تصبح Organization connection متاحة للفروع ضمنيًا؛ يأتي إعداد channel/binding التشغيلي في المرحلة التالية.
+اتصالات `operational_email_connection` متعددة، على Organization أوBranch، ومستقلة عن `identity_email_connection` للدعوات واستعادة الحسابات. لا تستعير secret أوحالة اتصال بريد الحسابات. يدير Super Admin حسابات Organization؛ ويدير Manager حسابات فرعه فقط؛ ولا يرى Agent إعدادات الاتصال أو credentials. لا تصبح Organization connection متاحة للفروع ضمنيًا؛ تحدد Native197 أدناه ربط القناة الصريح.
 
 البروتوكول الأول SMTP، ويمكن استعمال أكثر من حساب أو مزود SMTP. تفصل `OperationalEmailAdapters` عمليتي verify/send عن التطبيق وتعيد استخدام transport المشفرة الحالية. لا توجد provider calls داخل Business Domain أو اعتماد على حساب مطور. تحتاج إضافة protocol جديد إلى profile/adapter/validation واختبارات مناسبة، دون تغيير دلالات Notification.
 
@@ -24,8 +24,20 @@
 
 قائمة API بصفحات 25، وconfiguration history وprobe history بصفحات 20 مع keyset pagination. تخفي Branch/Organization غير المصرح بهما. الواجهة ar/en/fr وتدعم RTL، وتفرغ credentials بعد الحفظ والتفاصيل عند فشل القراءة، وتعرض empty/loading/error/history وحالة التحقق الحي بوضوح.
 
+## إعداد قناة الإشعارات — Native197
+
+من «الإشعارات» يمكن للمستخدم ضبط Email لكل نوع حدث ولغة إرسال ar/en/fr، على عنوان حسابه الحالي فقط. التفعيل الشخصي **معطل افتراضيًا**، ولا يغير Preferences الخاصة بـIN_APP. لا يقبل API عنوان مستلم بديلًا أو userId، ولا يدير Manager تفضيلات موظف آخر. تُحفظ لغة Email لعمليات الخلفية؛ أما IN_APP فتستمر باستخدام لغة الواجهة الحالية. لا تُضاف mandatory policies تجارية غير موثقة.
+
+يدير Super Admin قناة كل Branch، وManager قناة فرعه. يجب اختيار operational Connection صراحةً؛ لا fallback ضمني إلى identity email أو Organization account. لا يُفعّل الربط إلا لفرع نشط واتصال اجتاز فحص المصادقة وحالته CONNECTED، مع فحص Session/scope/version الحالية داخل API وDB. يمكن تعطيل قناة فرع غير نشط مع حفظ سجلها.
+
+لا يختار Manager إلا اتصال فرعه. يستطيع Super Admin ربط حساب Organization بفرع محدد؛ ويرى Manager هوية هذا الربط وحالته دون settings/credentials للحساب. يستطيع Manager تعطيله، لكنه يحتاج Super Admin لإنشائه أو إعادة تفعيله. يمكنه بدلًا منه ربط حساب فرعه المصرح به. يظل تعطيل Connection أو تغير health عائقًا مستقلًا للإرسال؛ وجود binding مفعلة لا يثبت صلاحية الاتصال الحالية أو وصول رسالة.
+
+تستعمل صياغات Email نفس خدمات النص الآمن والصلاحيات وhistory، بهوية Channel مستقلة: Campaign النشطة ← Branch ← Organization ← default آمن **لنفس Event/Language**. تعطيل صياغة يستخدم fallback، ولا يمحو السجل. النص plain text، والمتغيران الوحيدان `{{campaign}}` و`{{owner}}`؛ وعنوان Email لا يقبل CR/LF. تعرض الواجهة Preview بقيم اصطناعية وdefaults، وتدعم pagination وFR/AR/RTL ومسح التفاصيل بعد failed reads. لا تُعرض HTML أو بيانات دفع حساسة أو credentials.
+
+Native197 تضيف CAS وimmutable binding/preference histories وatomic Audit وcurrent real Session/Role/Branch checks. تبقى عقود IN_APP وسجلها وقيمها الافتراضية كما هي. لا تمنح هذه migration أو APIs صلاحية SMTP send، ولا تنشئ outbox أو ترسل رسائل عند حفظ الإعدادات. [التقدم](codex-progress.md) هو المرجع للبوابة الشاملة وحالة checkpoint.
+
 ## الحالة وما يلي
 
 حالة التنفيذ وأعداد الاختبارات الفعلية في [التقدم](codex-progress.md) و[التغطية](requirement-coverage.md). تستخدم اختبارات هذه المرحلة بيانات اصطناعية وSMTP adapter mock، دون حسابات شخصية أو credentials حقيقية. **Live Verification Pending External Credential/Approval**؛ لا يثبت نجاح mocks اتصالًا حيًا أو TLS مع مزود حقيقي.
 
-التالي بعد حفظ Connection checkpoint: channel configuration/bindings وEmail Preferences/wording وdurable current-recipient outbox/worker/history/failure/recovery. يجب فحص صلاحيات المستلم الحالية وعدم إرسال Lead لا يملكها، أو secrets أو بيانات دفع حساسة. لا يعتبر SMTP ACK إثبات قراءة أو تسليم نهائي، ولا يجوز blind retry إذا كانت النتيجة UNKNOWN. تبقى Notifications/Email جزئية حتى اجتياز وظائف الإرسال الفعلية واختباراتها؛ ولا يُضاف توسع اختياري في بروتوكولات البريد قبلها.
+التالي بعد حفظ إعدادات Native197: durable current-recipient outbox/worker/history/failure/recovery. يلزم منع إرسال backlog تاريخية لمجرد تفعيل القناة، وفحص صلاحيات المستلم وعنوان حسابه وPreferences/binding/Connection الحالية قبل الإرسال. لا تُرسل Lead لمستلم فقد الوصول، أو secrets أو بيانات دفع حساسة. لا يعتبر SMTP ACK إثبات قراءة أو تسليم نهائي، ولا يجوز blind retry إذا كانت النتيجة UNKNOWN. تبقى Notifications/Email جزئية حتى اجتياز وظائف الإرسال الفعلية واختباراتها؛ ولا يُضاف توسع اختياري في بروتوكولات البريد قبلها.

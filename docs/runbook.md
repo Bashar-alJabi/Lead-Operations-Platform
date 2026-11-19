@@ -1,5 +1,13 @@
 # دليل التشغيل والتطوير
 
+## إعداد قناة إشعارات البريد — Native197
+
+بعد migrations001–197، افتح «الإشعارات» لإعداد Email. يختار Manager حساب SMTP تشغيليًا لفرعه بعد فحصه من «البريد التشغيلي»، ثم يحفظ ربط القناة وتفعيله مع سبب. يختار Super Admin أيضًا حساب Organization لفرع محدد صراحةً؛ يستطيع Manager تعطيل ذلك الربط، ولا يعيد تفعيله دون Super Admin. لا تصل settings/credentials للمؤسسة إلى Manager أو Agent عبر هذه الشاشة.
+
+كل مستخدم يختار opt-in لكل Event ولغة الإرسال إلى عنوان حسابه؛ الافتراضي معطل. إعدادات IN_APP مستقلة. صياغة Email قابلة للإدارة بحسب الصلاحيات مع Preview وdefault fallback والسجل. لا تستعمل بيانات عملاء أو credentials في preview/wording. الحفظ لا يرسل بريدًا؛ هذه المرحلة لا تشغّل outbox أو worker تسليم. لا يعتبر نجاح auth probe إثباتًا لوصول Email.
+
+عند version conflict حدّث الإعداد بدل فرض overwrite؛ وعند تعطيل Branch أوConnection أوقف التفعيل أو صحح السبب عبر إعداداته المصرح بها. SQL لا تستعمل لتزوير الحالة أو حذف التاريخ. rollback preflight واختبارات PG/Browser/Unit وmigrations recheck موثقة في [التقدم](codex-progress.md)؛ Live SMTP ما زال Pending External Credential/Approval.
+
 ## إعداد البريد التشغيلي — Native196
 
 طبّق migrations المعتادة حتى196 قبل تشغيل النسخة التي تعرض «البريد التشغيلي». Native001–196 مطبقة وثابتة في development/test؛ لا reset أو تعديل لملفاتها. هذه دورة إدارة اتصال مستقلة عن إعداد بريد الحسابات، ولا تشغّل notification delivery أو worker بريد جديدة. [العقد والصلاحيات والحالة](operational-email.md).

@@ -1,5 +1,11 @@
 # خطة التنفيذ
 
+## أحدث checkpoint: إعداد قناة Email — Native197 — 2026-11-19
+
+اكتملت explicit Branch bindings وOrganization approval/revoke وpersonal opt-in/language وEmail wording/fallback/Preview وcurrent Session/CAS/native history/Audit وواجهة ar/en/fr. **208/208 Unit،176/176 full compiled Docker PostgreSQL Integration (754.2s)،78/78 full Edge Browser E2E (10.9m)**، مع Backend/Web build/typecheck وإعادة فحص migrations001–197 في development/test دون تغيير أعداد بيانات الأعمال. هذه إعدادات فقط دون SMTP send؛تبقى Email baseline جزئية وLive pending. Native001–197 ثابتة. [العقد](operational-email.md).
+
+التالي بعد حفظ ورفع checkpoint: ابدأ Native198 لمسار Email الفعلي: احفظ activation horizon لمنع إرسال أحداث تاريخية عند التفعيل، ثم أنشئ bounded current-recipient outbox وعامل معالجة. افحص account/address وLead access وPreferences/language وbinding/Connection والصياغة الحالية؛ امنع تكرار event/recipient واحفظ attempt قبل SMTP. تعني ACK حالة ACCEPTED فقط؛ لا تعِد الإرسال تلقائيًا بعد UNKNOWN أو انقطاع أعقب attempt. أكمل native guards وAuthorization وAudit وhistory/failure/recovery وواجهة ar/en/fr واختبارات Integration/Browser باستخدام mocks قبل إعلان Email baseline. لا تستعر identity-email أو Human Session تاريخية، ولا ترسل أسرارًا أو بيانات دفع حساسة أو Lead إلى مستلم فقد الوصول. بعدها أكمل unresolved/Lead/System/Integration Notifications وبقية Automation والوظائف الأساسية؛ لا تحسينات Google/SMTP/AI اختيارية أو تفعيل حي.
+
 ## أحدث checkpoint: Operational Email Connections — Native196 — 2026-11-19
 
 اكتملت multiple scoped SMTP connections وencrypted retention/rotation وcurrentSession/CAS/native guards وdurable auth probes وlate-result fences وdisable/history/Audit وواجهةar/en/fr. **208/208 Unit،173/173 full compiled Docker PostgreSQL Integration (569.5s)،77/77 full Edge Browser E2E (4.6m)**،وBackend/Web build/typecheck و001–196 development/test migrations recheck دون تغيير أعداد بيانات الأعمال. هذهConnection lifecycle مثبتةفقط،ولاترسلnotifications ولاتثبتFrom/delivery أوLiveTLS. SMTP Adapter Mock Verified وLive pending؛Native001–196 ثابتة. [العقد](operational-email.md).

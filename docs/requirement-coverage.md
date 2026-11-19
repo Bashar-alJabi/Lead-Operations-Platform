@@ -1,5 +1,13 @@
 # مصفوفة تغطية المتطلبات
 
+## أحدث checkpoint: إعداد قناة Email للإشعارات — Native197 — 2026-11-19
+
+| المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |
+|---|---|---|
+|00 §38،01 §§40–41،02 §64،03 §§31/76–77/99،06 §§19/21|explicit Branch channel binding لحساب تشغيلي مستقل، Organization approval محددة للـSuper Admin وManager revoke دون credentials، Preferences شخصية opt-in/language لكل Event، وEmail wording/fallback/Preview/history وar/en/fr UI|**208/208 Unit،176/176 full compiled Docker PostgreSQL Integration (754.2s)،78/78 full Edge Browser E2E (10.9m)**، مع Backend/Web build/typecheck وإعادة فحص migrations001–197 في development/test دون تغيير أعداد بيانات الأعمال. focused PG7/7 وBrowser3/3 النهائية وrollback DDL/API/native preflight ناجحة؛أُصلحLanguage selector وtest worker synchronization دونتغييرruntime/SQL أوإسقاطUNKNOWN/exact-effect/ACL assertions؛ [العقد](operational-email.md)|
+|AGENTS §§8/14–16/27–28/38 و06 §§22–23|current Session/scope/readiness/CAS وimmutable native histories/atomic Audit، مع فصل channel identities وIN_APP القديمة|عزل Branch/Organization/Agent و8concurrent CAS→واحدة، pagination23نسخة، actual lock-wait/revoke وinactive Branch disable وAudit rollback وforged session/history/scope denial؛subject CR/LF وunknown placeholders مرفوضة|
+|06 §§19–21/25–29 وحدود القبول|actual Manager/Agent/Super Admin journeys وFR/AR390px وsafe escaped Preview/history وfailed-read clearing|**Email channel configuration Implemented / PostgreSQL وLocal Browser Verified**؛ SMTP auth adapter Mock Verified وsend count=0. **Live Verification Pending External Credential/Approval**؛لا outbox/delivery أوEmail baseline بعد. التاليNative198 ثمبقيةNotifications/Automation،لاoptionalproviderpolish|
+
 ## أحدث checkpoint: Operational Email Connections — Native196 — 2026-11-19
 
 | المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |

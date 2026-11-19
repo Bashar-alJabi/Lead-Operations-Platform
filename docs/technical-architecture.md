@@ -1,5 +1,15 @@
 # المعمارية التقنية
 
+## إعداد قناة Email للإشعارات — Native197
+
+تعيد Email استخدام Notification Event وwording services الحالية دون خلط القناة مع Customer Conversation أو identity email. `notification_email_binding` تختار operational Connection واحدة صراحةً لكل Branch؛ يديرها Super Admin أو Manager فرعه لحسابات Branch. الموافقة على Organization account للفرع وإعادة تفعيلها للـSuper Admin، مع حق Manager بتعطيل الربط القائم دون كشف إعدادات الحساب. هذا يحافظ على حدود Organization configuration ولا يخلق صلاحية إدارية أو grant ضمنية للفرع.
+
+تعالج `notification_email_preference` opt-in الشخصية ولغة إرسال الخلفية؛ غياب الصف يعني disabled. فصلها عن IN_APP مقصود لاختلاف opt-in ولغة الخلفية وهوية history القديمة؛ لا تعاد كتابة current IN_APP preferences أو تاريخها. تستخدم templates نفس entity/services والـnative guards، مع Channel ضمن الهوية والـhistory ومجال Audit مستقل، ومنع CR/LF في subject. fallback محصور بنفس Event/Language/Channel.
+
+Binding writes تقفل Connection→Branch→current actor/real Session وتعيد CAS بعد الانتظار؛ Preferences تستخدم advisory lock لكل user/event ثم current Session. native triggers تحمي scope/readiness/version/identity وتكتب immutable history وAudit ذريًا؛ وللقراءات pagination وcurrent authorization. الواجهة لا ترسل credentials في طلبات القناة وتفصل إعدادات الفرع عن Preferences الشخصية.
+
+هذه إعدادات فقط. التالي Native198 للـoutbox وcurrent-recipient worker وactivation horizon وعدم إعادة إرسال التاريخ وdurable attempt قبل SMTP وحدود retry/UNKNOWN، دون استعارة Human Session تاريخية أو هوية بريد الحسابات. [العقد](operational-email.md) و[بوابة الاختبارات](codex-progress.md).
+
 ## Operational Email Connection lifecycle — Native196
 
 تفصل `operational_email_connection` حسابات SMTP التشغيلية المتعددة عن identity-email binding القائم، مع إعادة استخدام encrypted connection secrets وTLS SMTP transport عبر `OperationalEmailAdapters`. لا تُستعار secret أو حالة جاهزية من identity email، ولا توجد implicit Organization-to-Branch grant. إعداد Organization للـSuper Admin فقط، وManager ضمن فرعه؛ هوية connection/provider ثابتة والحساب المختلف يحتاج connection مستقلة.

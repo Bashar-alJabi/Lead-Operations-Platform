@@ -4,6 +4,7 @@ import {SLANotificationPreference} from './SLANotificationPreference.js';
 import {LeadNotificationPreferences} from './LeadNotificationPreferences.js';
 import {FollowUpNotificationPreference} from './FollowUpNotifications.js';
 import {attentionReasonLabel} from './notification-attention.js';
+import {EmailNotificationSettings} from './EmailNotificationSettings.js';
 export type NotificationApi=<T>(path:string,options?:RequestInit)=>Promise<T>;
 export type NotificationLocale='ar'|'en'|'fr';
 const words={
@@ -52,5 +53,6 @@ export function NotificationCenter({locale,api,user,branches,onOpenLead,onChange
   <LeadNotificationPreferences locale={locale} api={api} userId={user.id} onChanged={()=>{onChanged();void read();}}/>
   <FollowUpNotificationPreference locale={locale} api={api} userId={user.id} onChanged={()=>{onChanged();void read();}}/>
   <LeadNotificationPreferences financial locale={locale} api={api} userId={user.id} onChanged={()=>{onChanged();void read();}}/>
+  <EmailNotificationSettings locale={locale} api={api} user={user} branches={branches}/>
  </section>;
 }

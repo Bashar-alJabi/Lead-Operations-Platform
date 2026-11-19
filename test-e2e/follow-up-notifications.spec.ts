@@ -3,7 +3,7 @@ import {readFile} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
 const headers={origin:'http://127.0.0.1:4100'};
 async function login(page:Page,password:string,name='manager'){
- await page.goto('/');await page.getByRole('combobox',{name:'Language'}).selectOption('en');
+ await page.goto('/');await page.getByRole('combobox',{name:'Language',exact:true}).selectOption('en');
  await page.getByLabel('Email',{exact:true}).fill(name+'@browser.test');await page.getByLabel('Password',{exact:true}).fill(password);
  await page.getByRole('button',{name:'Sign in',exact:true}).click();await expect(page.getByRole('button',{name:'Sign out',exact:true})).toBeVisible();
 }
@@ -52,8 +52,8 @@ test('A real follow-up created in UI becomes a deduplicated due notice with word
   await center.getByRole('button',{name:'Refresh notifications',exact:true}).click();await expect(notice).toContainText('Historical due notice');
   expect((await page.request.patch('/api/followups/'+task.id,{headers,data:{version:2,status:'COMPLETED'}})).status()).toBe(200);
   await center.getByRole('button',{name:'Refresh notifications',exact:true}).click();await expect(notice).toContainText('Completed');
-  await agent.getByRole('combobox',{name:'Language'}).selectOption('fr');await expect(notice).toContainText('Notification d’échéance historique');await agent.getByRole('combobox',{name:'Language'}).selectOption('ar');await agent.setViewportSize({width:390,height:844});await expect(notice).toContainText('تنبيه استحقاق سابق');await center.screenshot({path:'.local/e2e/follow-up-notifications-ar.png'});expect(await agent.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
-  await agent.getByRole('combobox',{name:'Language'}).selectOption('en');await agent.route('**/api/notification-preferences/FOLLOW_UP_DUE',r=>r.fulfill({status:403,contentType:'application/json',body:JSON.stringify({error:'NOTIFICATION_ACCESS_REVOKED'})}));await pref.getByRole('button',{name:'Reload follow-up notification preference',exact:true}).click();await expect(pref.getByRole('alert')).toBeVisible();await expect(pref.getByLabel('Enable In-App follow-up due notifications',{exact:true})).toHaveCount(0);
+  await agent.getByRole('combobox',{name:'Language',exact:true}).selectOption('fr');await expect(notice).toContainText('Notification d’échéance historique');await agent.getByRole('combobox',{name:'Language',exact:true}).selectOption('ar');await agent.setViewportSize({width:390,height:844});await expect(notice).toContainText('تنبيه استحقاق سابق');await center.screenshot({path:'.local/e2e/follow-up-notifications-ar.png'});expect(await agent.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
+  await agent.getByRole('combobox',{name:'Language',exact:true}).selectOption('en');await agent.route('**/api/notification-preferences/FOLLOW_UP_DUE',r=>r.fulfill({status:403,contentType:'application/json',body:JSON.stringify({error:'NOTIFICATION_ACCESS_REVOKED'})}));await pref.getByRole('button',{name:'Reload follow-up notification preference',exact:true}).click();await expect(pref.getByRole('alert')).toBeVisible();await expect(pref.getByLabel('Enable In-App follow-up due notifications',{exact:true})).toHaveCount(0);
   expect(errors).toEqual([]);expect(await agent.evaluate(()=>Boolean((window as unknown as {dueXss?:unknown}).dueXss))).toBe(false);
  }finally{await context.close();await other.close();}
 });

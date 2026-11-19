@@ -1,5 +1,6 @@
 import {registerLeadImportRoutes} from './routes/lead-imports.js';
 import {registerOperationalEmailRoutes,type OperationalEmailAdapters} from './email-connections.js';
+import {registerNotificationEmailRoutes} from './routes/notification-email.js';
 import {registerGoogleConnectionRoutes} from './routes/google-connections.js';
 import {registerGooglePickerSettingsRoutes} from './routes/google-picker-settings.js';
 import {registerGooglePickerRoutes} from './routes/google-picker.js';
@@ -156,6 +157,7 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   registerConversationNotificationRoutes(app, db);
   registerFollowUpNotificationRoutes(app, db);
   registerNotificationTemplateRoutes(app, db);
+  registerNotificationEmailRoutes(app,db);
   registerAIHandoffClockRoutes(app, db);
   registerHandoffSLARoutes(app, db);
   registerAIActionJobRoutes(app, db);
