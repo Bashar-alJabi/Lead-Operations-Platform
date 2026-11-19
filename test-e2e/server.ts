@@ -3,6 +3,7 @@ import {processOneImportReview} from '../src/imports/review.js';
 import {processOneImportIntake} from '../src/imports/intake.js';
 import {processOneExport} from '../src/exports/service.js';
 import {processOneGoogleExportPreparation} from '../src/google/export-preparation.js';
+import {processOneGoogleExportDelivery} from '../src/google/export-delivery-worker.js';
 import {processOneAutomationMatch,processOneAutomationExecution} from '../src/automation.js';
 // Test-only HTTP entrypoint. Never imported by the production server or workers.
 import { randomBytes,createHmac } from 'node:crypto';
@@ -60,6 +61,8 @@ const almaPayments=new Map<string,{ intentId:string;merchant:string;amount:numbe
 let almaLoseResponse=false;let almaReadFailure=false;let almaWrites=0;
 let aiSendCalls=0;
 let googleMode:'GOOD'|'AUTH'|'UNKNOWN'|'OTHER'='GOOD',googleCodeCalls=0,googleRefreshCalls=0,googleMetadataCalls=0,googleMetadataFailure=false,googleShortRefresh=false,googleReadFailure=false,googleReadCalls=0,googleImportGrid=false;
+const googleExportSheets=new Map<number,{properties:{sheetId:number;title:string;index:number;sheetType:string;gridProperties:{rowCount:number;columnCount:number}};rows:{values:{userEnteredValue:object}[]}[]}>();
+let googleExportWrites=0,googleExportReads=0,googleExportLoseAck=false;
 globalThis.fetch=async(target,init)=> { if(String(target)===testPayPalCertUrl)return new Response(testPayPalCertificate);
   if(String(target)==='https://oauth2.googleapis.com/token') {
     if(init?.method!=='POST'||init.redirect!=='error')throw Error('UNEXPECTED_GOOGLE_TOKEN_REQUEST');
@@ -74,6 +77,20 @@ globalThis.fetch=async(target,init)=> { if(String(target)===testPayPalCertUrl)re
   }
   if(String(target).startsWith('https://sheets.googleapis.com/')) {
     const u=new URL(String(target));
+    if(u.pathname==='/v4/spreadsheets/BrowserSyntheticSpreadsheet_123:batchUpdate'){
+      if(init?.method!=='POST'||init.redirect!=='error'||!new Headers(init.headers).get('authorization')?.startsWith('Bearer BrowserGoogleAccess_'))throw Error('UNEXPECTED_GOOGLE_EXPORT_WRITE');
+      const body=JSON.parse(String(init.body)),properties=body.requests?.[0]?.addSheet?.properties,update=body.requests?.[1]?.updateCells;
+      if(body.requests?.length!==2||!properties||properties.sheetId<27||googleExportSheets.has(properties.sheetId)||update?.start?.sheetId!==properties.sheetId||update.fields!=='userEnteredValue')throw Error('UNEXPECTED_GOOGLE_EXPORT_TARGET');
+      googleExportWrites++;googleExportSheets.set(properties.sheetId,{properties:{...properties,index:27+googleExportSheets.size},rows:update.rows});
+      if(googleExportLoseAck)throw Error('Synthetic export ACK lost after the committed write');
+      return new Response(JSON.stringify({spreadsheetId:'BrowserSyntheticSpreadsheet_123',replies:[{addSheet:{properties}},{}]}),{headers:{'content-type':'application/json'}});
+    }
+    if(u.pathname==='/v4/spreadsheets/BrowserSyntheticSpreadsheet_123:getByDataFilter'){
+      if(init?.method!=='POST'||init.redirect!=='error'||!new Headers(init.headers).get('authorization')?.startsWith('Bearer BrowserGoogleAccess_'))throw Error('UNEXPECTED_GOOGLE_EXPORT_READ');
+      const body=JSON.parse(String(init.body)),g=body.dataFilters?.[0]?.gridRange,saved=googleExportSheets.get(g?.sheetId);
+      if(body.dataFilters?.length!==1||!saved||!body.includeGridData||g.startColumnIndex!==0)throw Error('UNEXPECTED_GOOGLE_EXPORT_READ_SCOPE');
+      googleExportReads++;return new Response(JSON.stringify({spreadsheetId:'BrowserSyntheticSpreadsheet_123',sheets:[{properties:saved.properties,data:[{startRow:g.startRowIndex,startColumn:g.startColumnIndex,rowData:saved.rows.slice(g.startRowIndex,g.endRowIndex)}]}]}),{headers:{'content-type':'application/json'}});
+    }
     if(u.pathname==='/v4/spreadsheets/BrowserSyntheticSpreadsheet_123/values:batchGetByDataFilter'){
       if(init?.method!=='POST'||init.redirect!=='error'||!new Headers(init.headers).get('authorization')?.startsWith('Bearer BrowserGoogleAccess_'))throw Error('UNEXPECTED_GOOGLE_GRID');
       const body=JSON.parse(String(init.body)),g=body.dataFilters[0].gridRange;if(body.dataFilters.length!==1||g.sheetId!==0||body.majorDimension!=='ROWS'||body.valueRenderOption!=='FORMATTED_VALUE')throw Error('UNEXPECTED_GOOGLE_GRID_SCOPE');googleReadCalls++;
@@ -83,7 +100,7 @@ globalThis.fetch=async(target,init)=> { if(String(target)===testPayPalCertUrl)re
     }
     if(u.pathname!=='/v4/spreadsheets/BrowserSyntheticSpreadsheet_123'||u.searchParams.get('includeGridData')!=='false'||init?.redirect!=='error'||!new Headers(init.headers).get('authorization')?.startsWith('Bearer BrowserGoogleAccess_'))throw Error('UNEXPECTED_GOOGLE_METADATA');
     googleMetadataCalls++;if(googleMetadataFailure)return new Response('{}',{status:503,headers:{'content-type':'application/json'}});
-    return new Response(JSON.stringify({spreadsheetId:'BrowserSyntheticSpreadsheet_123',properties:{title:'Trusted spreadsheet <img src=x onerror=alert(1)>',locale:'fr_FR',timeZone:'Europe/Paris'},sheets:Array.from({length:27},(_,i)=>({properties:{sheetId:i,title:'Trusted worksheet '+i,index:i,sheetType:i===26?'OBJECT':'GRID',gridProperties:{rowCount:1000,columnCount:10}},data:[{private:'UNREQUESTED_SYNTHETIC_CELL'}]}))}),{headers:{'content-type':'application/json'}});
+    return new Response(JSON.stringify({spreadsheetId:'BrowserSyntheticSpreadsheet_123',properties:{title:'Trusted spreadsheet <img src=x onerror=alert(1)>',locale:'fr_FR',timeZone:'Europe/Paris'},sheets:[...Array.from({length:27},(_,i)=>({properties:{sheetId:i,title:'Trusted worksheet '+i,index:i,sheetType:i===26?'OBJECT':'GRID',gridProperties:{rowCount:1000,columnCount:10}},data:[{private:'UNREQUESTED_SYNTHETIC_CELL'}]})),...Array.from(googleExportSheets.values(),s=>({properties:s.properties}))]}),{headers:{'content-type':'application/json'}});
   }
   if(String(target)==='https://graph.facebook.com/v25.0/15550001111/messages') {
     if(init?.method!=='POST' || new Headers(init.headers).get('authorization')!=='Bearer test-fake-token-not-a-real-account')throw new Error('UNEXPECTED_AI_SEND_REQUEST');
@@ -326,11 +343,15 @@ app.post<{Body:{steps?:number}}>('/__test__/google-export-preparation',{schema:{
  let processed=0;for(let i=0;i<(request.body.steps??1);i++){if(!await processOneGoogleExportPreparation(db))break;processed++;}return {processed};
 });
 app.get('/',async (_request,reply)=>reply.type('text/html').send(await readFile(resolve('dist-web/index.html'))));
-app.post<{Body:{mode?:'GOOD'|'AUTH'|'UNKNOWN'|'OTHER';metadataFailure?:boolean;shortRefresh?:boolean;readFailure?:boolean;importGrid?:boolean}}>('/__test__/google',{
- schema:{body:{type:'object',additionalProperties:false,properties:{mode:{enum:['GOOD','AUTH','UNKNOWN','OTHER']},metadataFailure:{type:'boolean'},shortRefresh:{type:'boolean'},readFailure:{type:'boolean'},importGrid:{type:'boolean'}}}}
+app.post<{Body:{mode?:'GOOD'|'AUTH'|'UNKNOWN'|'OTHER';metadataFailure?:boolean;shortRefresh?:boolean;readFailure?:boolean;importGrid?:boolean;exportLoseAck?:boolean;clearExportSheets?:boolean}}>('/__test__/google',{
+ schema:{body:{type:'object',additionalProperties:false,properties:{mode:{enum:['GOOD','AUTH','UNKNOWN','OTHER']},metadataFailure:{type:'boolean'},shortRefresh:{type:'boolean'},readFailure:{type:'boolean'},importGrid:{type:'boolean'},exportLoseAck:{type:'boolean'},clearExportSheets:{type:'boolean'}}}}
 },async request=>{
  if(typeof request.headers.authorization!=='string'||!safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
- if(request.body.mode)googleMode=request.body.mode;if(request.body.metadataFailure!==undefined)googleMetadataFailure=request.body.metadataFailure;if(request.body.shortRefresh!==undefined)googleShortRefresh=request.body.shortRefresh;if(request.body.readFailure!==undefined)googleReadFailure=request.body.readFailure;if(request.body.importGrid!==undefined)googleImportGrid=request.body.importGrid;return {googleCodeCalls,googleRefreshCalls,googleMetadataCalls,googleReadCalls};
+ if(request.body.mode)googleMode=request.body.mode;if(request.body.metadataFailure!==undefined)googleMetadataFailure=request.body.metadataFailure;if(request.body.shortRefresh!==undefined)googleShortRefresh=request.body.shortRefresh;if(request.body.readFailure!==undefined)googleReadFailure=request.body.readFailure;if(request.body.importGrid!==undefined)googleImportGrid=request.body.importGrid;if(request.body.exportLoseAck!==undefined)googleExportLoseAck=request.body.exportLoseAck;if(request.body.clearExportSheets)googleExportSheets.clear();return {googleCodeCalls,googleRefreshCalls,googleMetadataCalls,googleReadCalls,googleExportWrites,googleExportReads};
+});
+app.post<{Body:{steps?:number}}>('/__test__/google-export-delivery',{schema:{body:{type:'object',additionalProperties:false,properties:{steps:{type:'integer',minimum:0,maximum:20}}}}},async request=>{
+ if(typeof request.headers.authorization!=='string'||!safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
+ let processed=0;for(let i=0;i<(request.body.steps??1);i++){if(!await processOneGoogleExportDelivery(db))break;processed++;}return {processed};
 });
 app.post<{Body:{steps?:number}}>('/__test__/google-capture',{schema:{body:{type:'object',additionalProperties:false,properties:{steps:{type:'integer',minimum:0,maximum:20}}}}},async request=>{
  if(typeof request.headers.authorization!=='string'||!safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');

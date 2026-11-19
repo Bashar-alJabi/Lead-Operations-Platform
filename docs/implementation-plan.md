@@ -1,5 +1,11 @@
 # خطة التنفيذ
 
+## أحدث checkpoint: Google Import/Export baseline — Native195 — 2026-11-19
+
+اكتملت separate delivery approval وcurrent scoped RUNTIME/lease وcommitted unique attempt قبلHTTP وatomic new worksheet typed write وindependent typed read confirmation وUNKNOWN no-replay/readonly recovery وhistory/Audit وواجهة ar/en/fr. **208/208 Unit،170/170 full compiled Docker PostgreSQL Integration (571.2s)،76/76 full Edge Browser E2E (4.5m)**،وBackend/Web build/typecheck و001–195 development/test migrations recheck دون تغيير أعداد بيانات الأعمال،وcompiled worker smoke علىqueue فارغة. HTTP/SDK Mock Verified فقط وLive pending. لا تعاد هذهالمراحل أوتوسيع Google refinements اختيارية.
+
+بعد حفظ ورفع checkpoint ابدأ Native196 managed operational Email Connections مستقلة عن identity email،بنطاق Organization/Branch وmultiple SMTP accounts وencrypted credential retention/rotation وreal current session/scope/version وtest/disable/status/history/Audit وUI وIntegration/Browser. ثم general Notification channel preferences/templates وdurable current-recipient delivery،وunresolved/Lead/System/Integration alerts،ثم بقية Automation/core gaps في[المراجعة](platform-gap-review.md). لا ادعاء Notification/Email baseline مكتملة بمجرد Connection setup؛تحتاج actual durable dispatch/history/failure/UI tests.
+
 ## أحدث checkpoint: معاينة Google Export الخاصة — Native194
 
 نُفّذت job وpayload/history أصلية وAPI/worker وواجهة ar/en/fr فوق CSV Export الحالية،بـcurrent Role/Session/Organization/Branch/Lead/Field/resource guards وall-source-Branches target availability. اجتازت208fullUnit و163full compiled PostgreSQL(508.4s) و75fullEdgeBrowser(8.1m) وBackend/Web build/typecheck و001–194development/test recheck وcompiled preparation worker smoke. نجحتfocused Google+CSV Browser2/2(31.3s) بعدتصحيحfixture isolation. تُحفظcheckpoint مستقرة وتُرفع قبلالتالي. Native194 مطبقة بعدrollback preflight،ولا تُعدّل. هذه معاينة خاصة فقط،ولا تعني موافقة لنقل البيانات.

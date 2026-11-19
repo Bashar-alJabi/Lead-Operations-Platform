@@ -1,18 +1,30 @@
 # دليل التشغيل والتطوير
 
-## Google Export preparation — Native194
+## Google Export delivery والتعافي الآمن — Native195
+
+Native001–195 مطبقة وثابتة في development/test؛شغّل مسار migrations المعتاد قبل النسخة الجديدة دون reset أوتعديل migrations مطبقة. التصحيحات SQL التالية forward196+. لم تتغير أعدادLead/Contact/Payment/Enrollment/SourceSubmission عند recheck. لا إعادة Preview أوحذف بيانات أوvolumes؛PostgreSQL وClamAV للتطوير والاختبارات محفوظتان.
+
+أصبح npm run worker:google-exports يعالج private preparation ثم delivery المعتمدة في كل cycle،وليس التجهيز فقط. GOOGLE_EXPORT_BATCH افتراضي2(1–20)،وGOOGLE_EXPORT_POLL_MS افتراضي2000(250–60000)،وGOOGLE_EXPORT_ONCE=1 لدورة محدودة. كل delivery تحتاج موافقة نقل مستقلة من واجهة المالك بعد فتح المصدر والمعاينة ومراجعة الهدف. setup/consent/Picker/grants/approval/recovery داخل UI؛لا SQL أوCLI للمستخدم التشغيلي ولا token يدوي لتشغيل adapter.
+
+WAITING قبل محاولة الكتابة،SENDING تحت lease،VERIFYING/READING ليستا نجاحًا،وDONE بعد matching independent typed reads. عند UNKNOWN لا تعِد النقل ولا تُنشئ بديلًا لمجرد فقد الرد؛افتح طلبك الحالي واستخدم reconciliation بSession حقيقية وسبب. بعد attempt الاستعادة قراءة فقط لنفس الوجهة. عند read DEAD_LETTER أصلح health/authorization الحالية ثمrecover من الواجهة؛لا تصفيرfailures/attempt يدويًا. عند TARGET_EXISTS أوتغير Fields/source/availability قبل attempt راجع السبب واختر مصدرًا/وجهة جديدة صراحة عند اللزوم،دونoverwrite. Cancel متاحة قبل attempt فقط؛حذف المعاينة أوexpiry لا يحذفان worksheet خارجية.
+
+عند OAuth UNKNOWN/SUPERSEDED ابدأ consent جديدة من Connection الحالية ثمrecover؛لا تعاودrefresh token مجهولة النتيجة ولا تضبط CONNECTED يدويًا. سحب current scope يحجب private details/rows/history ويوقف المعالجة؛logout وحده لا ينشئ جلسة بديلة للعامل. بعد source expiry استخدم مصدرًا وموافقة جديدة عند الحاجة مع مراجعة الأثر الخارجي القديم،ولا تعتبرالقديم ملغى.
+
+للمراقبة تابع current delivery state/errorCode/verifiedRows/attempted/history من UI،وstructured events google_export_worker_started وgoogle_export_cycle_failed دون raw tokens/cells. lease60s؛crash بعد write لا يؤدي replay. نتائجالبوابة في [التقدم](codex-progress.md). الاختبارات synthetic HTTP/SDK mocks فقط؛**Live Verification Pending External Credential/Approval**،ولا تفعيل تكامل حي أوProduction deployment هنا.
+
+## مرحلة التجهيز المحفوظة — Native194 (تستكملها195 أعلاه)
 
 طبّق migrations حتى194 قبل Backend الجديد باستخدام مسار migrations المعتاد دون reset. Native194 مطبقة بالفعل في development/test لهذه checkpoint؛لا تعدّل ملفها أو ملفات001–193. لا تُعد تهيئة قواعد البيانات أو preview القديمة. تفاصيل البوابة المحلية في[التقدم](codex-progress.md).
 
-شغّل `npm run worker:google-exports` لتجهيز المعاينات الخاصة فقط. يضبط التشغيل التقني `GOOGLE_EXPORT_BATCH` (افتراضي2،من1 إلى20)،و`GOOGLE_EXPORT_POLL_MS` (افتراضي2000،من250 إلى60000)،و`GOOGLE_EXPORT_ONCE=1` لدورة محدودة. `GOOGLE_EXPORT_TTL_SECONDS` بين5 و86400،ولا يمكنه تجاوز expiry المصدر. لا يحتاج المشغّل إلى CLI لإعداد Connection/Spreadsheet؛هذه اختيارات إدارية من الواجهة القائمة. العامل الجديد لا يستدعي Google ولا ينقل بيانات خارجية.
+في194 كان `npm run worker:google-exports` يجهز المعاينات الخاصة فقط؛العقد الحالي195 أعلاه يشمل delivery المعتمدة. يضبط التشغيل التقني `GOOGLE_EXPORT_BATCH` (افتراضي2،من1 إلى20)،و`GOOGLE_EXPORT_POLL_MS` (افتراضي2000،من250 إلى60000)،و`GOOGLE_EXPORT_ONCE=1` لدورة محدودة. `GOOGLE_EXPORT_TTL_SECONDS` بين5 و86400،ولا يمكنه تجاوز expiry المصدر. لا يحتاج المشغّل إلى CLI لإعداد Connection/Spreadsheet؛هذه اختيارات إدارية من الواجهة القائمة. مرحلة preparation وحدها لا تستدعي Google؛مرحلة delivery195 تستدعي adapter بعد موافقة مستقلة.
 
 افتح CSV Export مكتملة واختر وجهة متاحة،ثم راجع المعاينة الخاصة. عند NEEDS_ATTENTION راجع current source/Fields/Lead access/resource availability؛تغيير النطاق أو تعريف الحقول يتطلب مصدرًا جديدًا. عند DEAD_LETTER أصلح السبب التشغيلي واستخدم recovery من الواجهة بجلسة حقيقية وسبب وversion حاليين. عند فقد ACK أعد الطلب نفسه قبل إنشاء intent جديدة. عند سحب المورد تصبح التفاصيل الخاصة ممنوعة،ويبقى حذف المعاينة من القائمة ممكنًا بمالكها الحالي؛لا تستخدم SQL لتجاوز guards. cancel/expiry يطهران raw cells فقط مع إبقاء التاريخ.
 
-لا زر نقل أو provider write أو Export RUNTIME بهذه المرحلة. لا تشغّل HTTP adapter يدويًا بcredentials ولا تدّع نجاح Export حي. يلزم native dispatch/confirmation/reconciliation وUI واختبارات مستقلة للمرحلة التالية قبل baseline. **Live Verification Pending External Credential/Approval**؛لا تكامل حي أوProduction deployment.
+هذه حدود194 التاريخية؛أضافت195 زر نقل وprovider worker وExport RUNTIME كماسبق. لا تشغّل HTTP adapter يدويًا بcredentials ولا تدّع نجاح Export حي. يلزم native dispatch/confirmation/reconciliation وUI واختبارات مستقلة للمرحلة التالية قبل baseline. **Live Verification Pending External Credential/Approval**؛لا تكامل حي أوProduction deployment.
 
 ## Google Export: بروتوكول HTTP وcapture retention — Native193
 
-طبقة projection وnew worksheet HTTP adapter اجتازت بوابة193:208Unit/158fullPG/74Browser Regression وBackend/Web build/typecheck. أضافت194 التجهيز الخاص الموضح أعلاه؛لا زر أوworker أوendpoint ينقل البيانات إلىGoogle بعد. الاختبارات تستخدمsynthetic HTTP mocks فقط. لا تشغّلadapter يدويًا بcredentials،ولا تفعّل تكاملًا حيًا. Native193 مطبقةdevelopment/test بعدrollback preflight لإصلاحcapture retention: statement_timestamp للطلبات الجديدة وLEGACY_CLOCK للعقدالقديم؛لا تغييرexpiry تاريخية أوbusiness/deployment setting. ملفات001–194 المطبقة ثابتة. التاليNative195 durable delivery/runtime/confirmation/reconciliation وUI/PG+Browser قبلbaseline كاملة. [العقد](google-sheets.md) و[الحالة المثبتة](codex-progress.md).
+طبقة projection وnew worksheet HTTP adapter اجتازت بوابة193:208Unit/158fullPG/74Browser Regression وBackend/Web build/typecheck. أضافت194 التجهيز الخاص ثم195 delivery كماسبق. الاختبارات تستخدمsynthetic HTTP mocks فقط. لا تشغّلadapter يدويًا بcredentials،ولا تفعّل تكاملًا حيًا. Native193 مطبقةdevelopment/test بعدrollback preflight لإصلاحcapture retention: statement_timestamp للطلبات الجديدة وLEGACY_CLOCK للعقدالقديم؛لا تغييرexpiry تاريخية أوbusiness/deployment setting. ملفات001–194 المطبقة ثابتة. التاليNative195 durable delivery/runtime/confirmation/reconciliation وUI/PG+Browser قبلbaseline كاملة. [العقد](google-sheets.md) و[الحالة المثبتة](codex-progress.md).
 
 ## Google range إلىImport — Native190–192
 

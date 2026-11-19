@@ -1,9 +1,19 @@
 import type {FastifyInstance} from 'fastify';import type {Database} from '../db.js';import {principalFromRequest} from '../security.js';
 import {exportSession} from '../exports/service.js';
 import {googleExportTargets,prepareGoogleExport,ownedGoogleExport,visibleGoogleExport,googleExportReceipt,actOnGoogleExport,type GoogleExportIntent} from '../google/export-preparation.js';
+import {approveGoogleExportDelivery,getGoogleExportDelivery,changeGoogleExportDelivery,type DeliveryApproval} from '../google/export-delivery.js';
 const uuid={type:'string',format:'uuid'} as const,params={type:'object',additionalProperties:false,required:['id'],properties:{id:uuid}} as const;
 const reason={type:'string',minLength:3,maxLength:500,pattern:'\\S.*\\S'} as const;
 export function registerGoogleExportRoutes(app:FastifyInstance,db:Database){
+ app.post<{Params:{id:string};Body:DeliveryApproval}>('/api/google/exports/:id/delivery',{schema:{params,body:{type:'object',additionalProperties:false,required:['version','requestId','reason','confirmed'],properties:{version:{type:'integer',minimum:1},requestId:uuid,reason,confirmed:{const:true}}}}},async(request,reply)=>{
+  const actor=await principalFromRequest(request,db);reply.code(202);return approveGoogleExportDelivery(db,actor,request,request.params.id,request.body);
+ });
+ app.get<{Params:{id:string};Querystring:{before?:number}}>('/api/google/exports/:id/delivery',{schema:{params,querystring:{type:'object',additionalProperties:false,properties:{before:{type:'integer',minimum:1}}}}},async request=>{
+  const actor=await principalFromRequest(request,db);return getGoogleExportDelivery(db,actor,request,request.params.id,request.query.before??null);
+ });
+ for(const action of ['cancel','reconcile'] as const)app.post<{Params:{id:string};Body:{version:number;reason:string}}>('/api/google/exports/:id/delivery/'+action,{schema:{params,body:{type:'object',additionalProperties:false,required:['version','reason'],properties:{version:{type:'integer',minimum:1},reason}}}},async request=>{
+  const actor=await principalFromRequest(request,db);return changeGoogleExportDelivery(db,actor,request,request.params.id,request.body,action==='cancel');
+ });
  app.get<{Params:{id:string};Querystring:{after?:string}}>('/api/lead-exports/:id/google-targets',{schema:{params,querystring:{type:'object',additionalProperties:false,properties:{after:uuid}}}},async request=>{
   const actor=await principalFromRequest(request,db);return googleExportTargets(db,actor,request,request.params.id,request.query.after??null);
  });

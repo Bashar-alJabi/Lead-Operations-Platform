@@ -1,5 +1,19 @@
 # تكامل Google Sheets
 
+## إرسال Export والمطابقة المستقلة — Native195
+
+أُضيفت delivery مستقلة لكل private preview جاهزة. من الواجهة راجع المصدر والخلايا والـSpreadsheet والورقة الجديدة المثبتة،ثم أدخل سببًا ووافق صراحة على نقل البيانات إلى Google. يمكن لمتعاوني الجدول قراءتها؛حذف المعاينة أوانتهاء TTL لا يحذف ورقة خارجية. لا تعني موافقة المعاينة موافقة نقل،ولا تتغير هوية الهدف أوالخلايا بعد approval. تحفظ الواجهة request UUID نفسها إذا فُقد الرد،حتى عند تغيير اللغة،وتتيح استكمال الموافقة نفسها دون إنشاء عملية كتابة ثانية.
+
+يعيد Backend وNative195 فحص real Session/current account وRole/Branch وLead/Fields والمصدر وresource availability لكل الفروع،ويحفظان immutable payload hash/version وapproval/history/Audit. delivery واحدة لكل preview وintent واحدة لكل actor/request؛التعارض مرفوض. العامل يأخذ Connection lock وlease60s ثميفحص metadata مستقلة للتأكد من عدم وجود sheetId أوtitle المطلوبين. يحفظ unique write attempt في معاملة ملتزمة **قبل** HTTP؛ثم يرسل AddSheet+UpdateCells ذرية بقيم stringValue/numberValue/boolValue فقط إلى worksheet جديدة. لا append أوoverwrite لورقة قائمة ولا hidden retries. [عقد batchUpdate الرسمي](https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets/batchUpdate).
+
+ACK تعني VERIFYING فقط. تقرأ المطابقة header والخلايا مستقلًا عبر numeric DataFilter وuserEnteredValue،بصفحات100 افتراضيًا وحتى1000 تقنيًا؛تقارن canonical hashes وتحفظ receipt/history/progress/Audit ذريًا. DONE تحتاج اكتمال كل الصفوف بما فيها header. الصيغة أوالقيمة أوهوية الورقة غير المطابقة توقف العملية. هذه قراءات متتابعة في أوقاتها،وليست snapshot ذرية أوضمانًا ضد تغيير المتعاونين لاحقًا. [getByDataFilter الرسمي](https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets/getByDataFilter).
+
+فقد ACK أوفشل commit بعد HTTP يبقيان محاولة durable ويؤديان إلى UNKNOWN؛لا إعادة كتابة تلقائية ولا زر resend. recovery الحالية بSession حقيقية وسبب وCAS تقرأ الوجهة المثبتة فقط بعد أي attempt؛خمسة إخفاقات قراءة متتالية →DEAD_LETTER،مع recovery قراءة محدودة. قبل attempt فقط يمكن cancel أوإعادة تجهيز/فحص بعد إصلاح السبب. بعد attempt لا يمكن الادعاء بإلغاء أثر خارجي. EXPIRY أوprivate purge تحافظان على سجل المحاولة وتحجبان القراءة/المعالجة اللاحقة دون حذف أوإعادة إنشاء worksheet.
+
+RUNTIME refresh خاصة بـexport delivery/lease/current parent grant،ولا تستخدم capture بديلة أوتنشئ Human Session. logout الأصلي لا يلغي موافقة خلفية قائمة ولا يمنح العامل صلاحيات تاريخية؛current account/Role/Lead/Fields/resource يعاد فحصها. UNKNOWN/SUPERSEDED refresh تمنع replay وتتطلب consent جديدة ثم recovery حالية. لا tokens أوraw cells في delivery history/Audit/API؛الخلايا تبقى في private preview المصرح بها فقط.
+
+Google Import/Export baseline اكتملت محليًا: **208/208 Unit،170/170 full compiled Docker PostgreSQL Integration (571.2s)،76/76 full Edge Browser E2E (4.5m)**،وBackend/Web build/typecheck و001–195 development/test migrations recheck دون تغيير أعداد بيانات الأعمال،وcompiled worker smoke؛focusedPG7/7 وBrowser2/2 ناجحتان. الأدلة في [التقدم](codex-progress.md). HTTP/SDK **Mock Verified**،و**Live Verification Pending External Credential/Approval**. لا تفعيل حي أوcredentials حقيقية في جلسة التطوير. بعد تثبيت baseline Import/Export ينتقل التنفيذ إلى Email/Notifications/Automation؛المزامنة الثنائية والتحسينات الاختيارية خارج هذه المرحلة.
+
 ## معاينة Export الخاصة — Native194
 
 من واجهة Export الحالية أنشئ طلبًا بالـfilters/Saved View/selected IDs والأعمدة والحقول المرئية،ثم افتح طلب CSV المكتمل. لا يلزم تنزيل الملف. اختر Spreadsheet من قائمة الموارد المتاحة حاليًا وأدخل سبب التجهيز ووافق على **المعاينة الداخلية فقط**. لا تتيح هذه الخطوة إرسال البيانات إلى Google. تظهر الطلبات الخاصة بالمالك وتقدم تجهيزها،ثم header وخلايا typed بصفحات25 وسجل التغييرات. لا CSV formula-protection prefixes في القيم؛تُعرض النصوص غير الموثوقة escaped،ولا تُنفذ HTML أو formulas.
@@ -8,13 +22,13 @@
 
 توجد حالات WAITING وREADY وNEEDS_ATTENTION وDEAD_LETTER وCANCELLED وEXPIRED. العامل يجمع صفحات محدودة داخل معاملات ذرية دون Google HTTP؛بعد خمسة إخفاقات داخلية متتالية ينتقل إلى DEAD_LETTER،وتحتاج recovery فحص الصلاحية الحالية وجلسة وسببًا وversion. يمكنك حذف المعاينة الخاصة من القائمة حتى بعد سحب الوجهة؛هذا يمحو الخلايا المحلية فقط ويحفظ السجل. تنتهي البيانات مع المصدر أو بعد24 ساعة،أيهما أقرب. الحدود10000 data rows و64 column و20000 حرف للخلية و8MiB conservative budget؛القيم الزائدة تُرفض ولا تُقص.
 
-هذه المرحلة **تجهيز فقط**،ولا تكمل Google Export end-to-end. يلزم بعد حفظ checkpoint إجراء نقل مستقل واضح الهدف بموافقة صريحة،وتفويض RUNTIME خاص بـExport حقيقية وlease،وحفظ محاولة قبل I/O،ثم independent typed read/reconciliation. لا يكفي ACK لتأكيد التصدير،ولا تُعاد كتابة UNKNOWN تلقائيًا. الاختبارات HTTP/SDK mocks وPostgreSQL/Browser محلية؛**Live Verification Pending External Credential/Approval**. تفاصيل الأعداد المثبتة في[التقدم](codex-progress.md) و[التغطية](requirement-coverage.md).
+Native194 مرحلة **تجهيز فقط**؛تستكملها Native195 بعقد الإرسال المستقل أعلاه. لا يكفي ACK لتأكيد التصدير،ولا تُعاد كتابة UNKNOWN تلقائيًا. الاختبارات HTTP/SDK mocks وPostgreSQL/Browser محلية؛**Live Verification Pending External Credential/Approval**. تفاصيل الأعداد المثبتة في[التقدم](codex-progress.md) و[التغطية](requirement-coverage.md).
 
 ## النطاق والحالة
 
 المطلوب في 00 §54 و03 §§39–40 و06 §18 هو Import وExport من داخل المنصة، مع بقاء DB هي Source of Truth. المزامنة الثنائية المستمرة ليست متطلبًا افتراضيًا، ولا تُضاف دون قواعد عمل صريحة.
 
-HTTP/OAuth/Picker/resource availability وprivate capture/runtime محفوظة حتى`aeb7851`. Native190–192 تكمل Google Import عبرinput حقيقية وshared Mapping/review/approval/intake/results وLead origin. نجحت **204fullUnit و156fullDockerPG(624.4s) و74fullEdgeBrowser(5.9m)** وBackend/Web build/typecheck و001–192development/test recheck وshared Import worker smoke. Google module مازالت جزئية: current-scoped Export لازمة. **Mock Verified (SDK/HTTP)** فقط،و**Live Verification Pending External Credential/Approval**؛لا تصريح تشغيل حي.
+HTTP/OAuth/Picker/resource availability وprivate capture/runtime محفوظة حتى`aeb7851`. Native190–192 تكمل Google Import عبرinput حقيقية وshared Mapping/review/approval/intake/results وLead origin. نجحت **204fullUnit و156fullDockerPG(624.4s) و74fullEdgeBrowser(5.9m)** وBackend/Web build/typecheck و001–192development/test recheck وshared Import worker smoke. هذه نتيجة Import التاريخية؛Export delivery أُضيفت في195 كمافي القسم الحالي أعلاه،وبوابتها في سجل التقدم. **Mock Verified (SDK/HTTP)** فقط،و**Live Verification Pending External Credential/Approval**؛لا تصريح تشغيل حي.
 
 ## عقد البروتوكول
 

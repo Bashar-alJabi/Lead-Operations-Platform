@@ -1,5 +1,13 @@
 # مصفوفة تغطية المتطلبات
 
+## أحدث checkpoint: Google Export Dispatch & Verification — Native195 — 2026-11-19
+
+| المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |
+|---|---|---|
+|00 §54،03 §§39–40/52/98،06 §18|موافقة نقل حقيقية مستقلة عن preview،current actor/Lead/Fields/resource لكل source Branch،immutable target/payload/version وidempotency،actual API/worker وar/en/fr UI|**208/208 Unit،170/170 full compiled Docker PostgreSQL Integration (571.2s)،76/76 full Edge Browser E2E (4.5m)**،وBackend/Web build/typecheck و001–195 development/test migrations recheck دون تغيير أعداد بيانات الأعمال وcompiled export worker empty-queue smoke دون provider calls؛focusedPG7/7 وBrowser2/2؛[العقد](google-sheets.md)|
+|AGENTS §§8/14–16/27–28/38 و06 §§22–23|export RUNTIME/real lease،unique committed before-I/O attempt،atomic new worksheet typed write،ACK pending وindependent paged read/hash receipts وimmutable history/Audit|21native/service assertions؛concurrency وindependent DB observer و63rows/3pages وscope/private denials وlate revoke وmismatch و5read failures/recovery؛actual RUNTIME refresh بعدlogout دونSession مصطنعة،وفشلcommit بعدHTTP/real60s expiry→UNKNOWN دون replay|
+|06 §§18/20/25–29 وحدود القبول|actual Browser lost approval ACK/same UUID عبرFR،provider UNKNOWN→readonly reconciliation→DONE بكتابة واحدة،history/AR390px/XSS/keys/overflow وفشل current read يمسح التفاصيل|Google Import/Export baselines **Implemented / Mock Verified (SDK/HTTP) / PostgreSQL وLocal Browser Verified**؛**Live Verification Pending External Credential/Approval**. لا atomic external snapshot أوexternal deletion claim. المنصة وبقية API/load/cross-module acceptance غير مكتملة؛التالي Email/Notifications/Automation دون optional Google polish|
+
 ## أحدث checkpoint: Google Export preparation — Native194 — 2026-11-18
 
 | المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |
