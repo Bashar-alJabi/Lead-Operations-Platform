@@ -60,6 +60,7 @@ const paypalTransport=syntheticPayPalFinancialTransport();
 const almaPayments=new Map<string,{ intentId:string;merchant:string;amount:number;plan:{ installments_count:number;deferred_months:number;deferred_days:number };captured:boolean }>();
 let almaLoseResponse=false;let almaReadFailure=false;let almaWrites=0;
 let aiSendCalls=0;
+let operationalEmailChecks=0,operationalEmailSends=0;
 let googleMode:'GOOD'|'AUTH'|'UNKNOWN'|'OTHER'='GOOD',googleCodeCalls=0,googleRefreshCalls=0,googleMetadataCalls=0,googleMetadataFailure=false,googleShortRefresh=false,googleReadFailure=false,googleReadCalls=0,googleImportGrid=false;
 const googleExportSheets=new Map<number,{properties:{sheetId:number;title:string;index:number;sheetType:string;gridProperties:{rowCount:number;columnCount:number}};rows:{values:{userEnteredValue:object}[]}[]}>();
 let googleExportWrites=0,googleExportReads=0,googleExportLoseAck=false;
@@ -265,6 +266,7 @@ const templates:ProviderTemplate[]=[{ externalId:'7000',name:'header_only_templa
 await mkdir(resolve('.local/e2e'),{ recursive:true });const mediaRoot=await mkdtemp(resolve('.local/e2e/media-'));
 const storage=localMediaStorage(mediaRoot);
 const app = await buildApp(db, { logger:false,globalRateLimitMax:10000,mediaStorage:storage,aiReadTestAdapters:aiInferenceAdapters,
+  operationalEmailAdapters:{SMTP:{verify:async(settings,password)=>{if(!settings.host.endsWith('.example.test')||!password.startsWith('BrowserSyntheticEmail_'))throw Error('Unexpected synthetic email account');operationalEmailChecks++;if(settings.host.startsWith('failed.'))throw Error('Synthetic private SMTP response must not be returned');},send:async()=>{operationalEmailSends++;throw Error('Connection setup must not send mail');}}},
   // Isolate loopback browser scenarios while retaining each route's actual limits.
   // Only this guarded test entrypoint reads this header; the production server uses request.ip.
   rateLimitKeyGenerator:(request)=>request.ip+':'+String(request.headers['x-e2e-rate-scope'] ?? 'shared').slice(0,100),
@@ -352,6 +354,10 @@ app.post<{Body:{mode?:'GOOD'|'AUTH'|'UNKNOWN'|'OTHER';metadataFailure?:boolean;s
 app.post<{Body:{steps?:number}}>('/__test__/google-export-delivery',{schema:{body:{type:'object',additionalProperties:false,properties:{steps:{type:'integer',minimum:0,maximum:20}}}}},async request=>{
  if(typeof request.headers.authorization!=='string'||!safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
  let processed=0;for(let i=0;i<(request.body.steps??1);i++){if(!await processOneGoogleExportDelivery(db))break;processed++;}return {processed};
+});
+app.post('/__test__/operational-email',async request=>{
+ if(typeof request.headers.authorization!=='string'||!safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
+ return {checks:operationalEmailChecks,sends:operationalEmailSends};
 });
 app.post<{Body:{steps?:number}}>('/__test__/google-capture',{schema:{body:{type:'object',additionalProperties:false,properties:{steps:{type:'integer',minimum:0,maximum:20}}}}},async request=>{
  if(typeof request.headers.authorization!=='string'||!safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');

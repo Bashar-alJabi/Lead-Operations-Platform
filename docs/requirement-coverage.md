@@ -1,5 +1,13 @@
 # مصفوفة تغطية المتطلبات
 
+## أحدث checkpoint: Operational Email Connections — Native196 — 2026-11-19
+
+| المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |
+|---|---|---|
+|00 §38،01 §§40–41،02 §64،03 §§31/76–77/99،06 §§19/21|multiple Organization/Branch operational SMTP connections مستقلة عنidentity-email،encrypted retention/rotation وcurrent Session/Role/Branch/CAS وtest/disable/reconfigure/status/history/Audit وar/en/fr UI|**208/208 Unit،173/173 full compiled Docker PostgreSQL Integration (569.5s)،77/77 full Edge Browser E2E (4.6m)**،وBackend/Web build/typecheck و001–196 development/test migrations recheck دون تغيير أعداد بيانات الأعمال. focusedPG3/3 وBrowser1/1 ناجحتان،وrollback DDL/API/nativeproof preflight قبلتطبيق196؛[العقد](operational-email.md)|
+|AGENTS §§8/14–16/27–28/38 و06 §§22–23|native immutable identity/history وdeferred fresh configuration/credential proofs،durable current-version probes قبلI/O وlate-result fences وsafe errors|scope/Agent/foreign denials،8concurrent CAS→واحدة،native state/history/proof rejection وAudit rollback،actualSession revoke أثناءConnection lock،lateconfig وlogout أثناءprobe→SUPERSEDED بلاactivation؛inactiveBranch revoke جائز وإعادةتشغيله ممنوعة|
+|06 §§19–21/25–29 وحدود القبول|actual create/verify/retain/fail/disable/history UI،FR/AR390px وescapedSVG/noXSS/keys/overflow وfailedread clearing|**Connection lifecycle Implemented / SMTP Adapter Mock Verified / PostgreSQL وLocal Browser Verified**؛mock send count=0. لاFrom/delivery أوLiveTLS proof. **Live Verification Pending External Credential/Approval**؛Email/Notifications ليستbaseline مكتملة حتىbinding/preferences/templates/durable current-recipient delivery/tests. التاليNative197،ولاoptionalSMTP/Google polish|
+
 ## أحدث checkpoint: Google Export Dispatch & Verification — Native195 — 2026-11-19
 
 | المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |

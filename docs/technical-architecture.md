@@ -1,5 +1,15 @@
 # المعمارية التقنية
 
+## Operational Email Connection lifecycle — Native196
+
+تفصل `operational_email_connection` حسابات SMTP التشغيلية المتعددة عن identity-email binding القائم، مع إعادة استخدام encrypted connection secrets وTLS SMTP transport عبر `OperationalEmailAdapters`. لا تُستعار secret أو حالة جاهزية من identity email، ولا توجد implicit Organization-to-Branch grant. إعداد Organization للـSuper Admin فقط، وManager ضمن فرعه؛ هوية connection/provider ثابتة والحساب المختلف يحتاج connection مستقلة.
+
+تفرض native revisions وdeferred configuration/secret receipts فحص actor/real Session/Branch/CAS الحالية، وتحفظ history/Audit ذريًا. يزيد update/rotation/reconfigure قيمة version ويعيد health إلى NOT_CONFIGURED؛ ويحتفظ حذف password من الطلب بالـciphertext. يحفظ disable التاريخ ويتيح تعطيل اتصال Branch غير نشطة دون تشغيلها. لا تُستمد permission من إخفاء الواجهة أو actor تاريخي.
+
+تُحفظ probe بحالة RUNNING قبل readonly SMTP verify، وواحدة فقط لكل connection بحد زمني60s. بعد I/O يعاد فحص Session/Role/config/Branch/expiry الحالية؛ وتحفظ النتيجة المتأخرة SUPERSEDED دون تغيير health. يحفظ logout أثناء I/O النتيجة غير المعتمدة ثم يرد403 خارج معاملة الحفظ، حتى لا يتراجع السجل. تثبت CONNECTED نجاح auth probe في وقتها فقط، دون From identity أو mail delivery. الأخطاء codes ثابتة دون raw provider text أو secrets. سجلات native histories غير قابلة للتعديل، ويلزم latest current-probe proof لنشر health، مع bounded keyset APIs وar/en/fr UI ومسح التفاصيل عند فشل القراءة.
+
+هذه dependency للتسليم التشغيلي القادم، وليست notification runtime أو outbox. سيحتاج الإرسال إلى current recipient access وPreferences/template/binding versions وdurable before-I/O/idempotency/uncertainty policy، مع فصل رسائل العملاء. [العقد](operational-email.md) و[التشغيل](runbook.md) و[الأدلة المثبتة](codex-progress.md). لم تُستخدم live credentials أو live SMTP verification في التطوير.
+
 ## Google Export delivery: إذن مستقل ومحاولة قبل I/O — Native195
 
 تفصل google_export_delivery طلب النقل عن google_export_job/payload الخاصة بـNative194. approval حقيقية حالية تحفظ actor/Session/request hash وcanonical payload SHA256/version وسببًا،بـunique job وactor/request. approval intent ليست provider confirmation. API current private owner/history وCAS/cancel/readonly recovery،والواجهة ar/en/fr تعرض إفصاح البيانات والهدف والتاريخ وحالات uncertainty دون ادعاء أن private purge تحذف أثر Google.

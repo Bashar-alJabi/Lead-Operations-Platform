@@ -1,4 +1,5 @@
 import {registerLeadImportRoutes} from './routes/lead-imports.js';
+import {registerOperationalEmailRoutes,type OperationalEmailAdapters} from './email-connections.js';
 import {registerGoogleConnectionRoutes} from './routes/google-connections.js';
 import {registerGooglePickerSettingsRoutes} from './routes/google-picker-settings.js';
 import {registerGooglePickerRoutes} from './routes/google-picker.js';
@@ -90,6 +91,7 @@ import { assertAIReadTestTransport } from './ai/read-transport.js';
 import type { AIInferenceRegistry } from './ai/inference-provider.js';
 
 export async function buildApp(db: Database, options: { logger?: boolean; emailAdapter?: IdentityEmailAdapter;
+  operationalEmailAdapters?:OperationalEmailAdapters;
   messagingAdapter?: MessagingProviderAdapter; messagingTemplateAdapter?: MessagingTemplateAdapter;
   messagingSendAdapter?: MessagingSendAdapter;
   leadSourceCatalogAdapter?: LeadSourceCatalogAdapter;
@@ -178,6 +180,7 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   registerConversationMessageRoutes(app, db);
   registerMessageDeliveryRoutes(app, db);
   registerIdentityEmailRoutes(app, db, options.emailAdapter ?? smtpEmailAdapter);
+  registerOperationalEmailRoutes(app,db,options.operationalEmailAdapters);
   registerMetaSourceRoutes(app,db,options.leadSourceCatalogAdapter);
   registerSourceBindingRoutes(app,db);
   registerSourceMappingRoutes(app,db);

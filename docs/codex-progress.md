@@ -1,5 +1,19 @@
 # تقدم التنفيذ
 
+## آخر حالة مستقرة: Operational Email Connections — Native196 — 2026-11-19
+
+Google Import/Export baseline محفوظة ومرفوعة في `3ca5157`. اكتملت دورة إدارة اتصالات البريد التشغيلي المستقلة عن identity-email: حسابات SMTP متعددة على Organization/Branch، وencrypted credential retention/rotation وcurrent Session/Role/Branch وCAS، مع durable authentication probes والتعطيل وإعادة التهيئة وhistory/Audit وواجهة ar/en/fr. هذه إعدادات اتصال فقط؛ لم تُنفذ notification outbox أو صلاحية إرسال بهذه المرحلة.
+
+**البوابة المثبتة:** **208/208 Unit،173/173 full compiled Docker PostgreSQL Integration (569.5s)،77/77 full Edge Browser E2E (4.6m)**، مع Backend/Web build/typecheck وإعادة فحص migrations001–196 في development/test دون تغيير أعداد بيانات الأعمال. نجحت focused PG3/3 (2.5s) وEdge Browser1/1 (4.4s). اجتازت Native196 rollback DDL/API preflight وأربع native negative assertions قبل التطبيق؛ وأصبحت ثابتة، وأي تصحيح SQL لاحق forward197+. التغييرات بعد البوابة توثيق فقط. شُغّل التطبيق ضمن Browser وأُغلق test server بعده؛ PreviewOFF وPostgreSQL/ClamAV محفوظتان. تحذير حجم Web chunk غير الحرج مسجل في backlog.
+
+**الإثبات:** عزل Manager/Branch/Organization ومنع Agent، تشفير secrets وعدم عرضها، retention/rotation/history، ونجاح تعديل واحد من8طلبات CAS متزامنة، مع رفض native state/history/proof المزورة وAudit rollback. تُحفظ RUNNING قبل adapter، وواحدة لكل Connection؛ وتصبح النتيجة المتأخرة SUPERSEDED بعد تغيير config أو logout دون تفعيل health. سحب Session أثناء انتظار Connection lock فعلي يمنع الكتابة. يبقي التعطيل التاريخ؛ ويمكن تعطيل اتصال Branch غير نشطة دون تشغيله.
+
+تثبت Browser الإنشاء والفحص والاحتفاظ بكلمة المرور والتعديل والفشل والتعطيل والسجل، مع FR ثم AR390px وescaped SVG دون XSS أو React key errors أو overflow. يمسح فشل history read التفاصيل وcredentials. **SMTP mock send count=0**؛ الفحص للمصادقة فقط ولا يثبت From address أو delivery. فُحصت الصورة العربية؛ ولا يوجد فشل متبقٍ في البوابة.
+
+**حدود الحالة:** Connection setup **Implemented / SMTP Adapter Mock Verified / PostgreSQL وLocal Browser Verified**؛ **Live Verification Pending External Credential/Approval**. لم تتصل الاختبارات بخادم SMTP فعلي أو تستخدم بيانات عملاء أو credentials حقيقية. تفرض transport الحالية TLS والتحقق من الشهادة، لكن mocks لا تثبت live TLS. Email delivery وNotifications والمنصة غير مكتملة. [العقد](operational-email.md) و[التشغيل](runbook.md) و[الفجوات](platform-gap-review.md).
+
+**الخطوة التالية الدقيقة بعد حفظ ورفع checkpoint:** Native197 لإعداد قناة Email: explicit Branch binding دون كشف Organization credentials، ثم opt-in Preferences وwording/templates لكل Event/Language مع current Session/scope/CAS/history/Audit وUI/tests، مع حفظ عقود IN_APP. بعدها durable current-recipient outbox/worker وbefore-I/O attempt وUNKNOWN دون blind replay وhistory/failure/recovery. لا تعتبر Email baseline مكتملة قبل Integration/Browser لهذا التسليم؛ ولا تستعر identity-email أو Session تاريخية ولا ترسل Lead لمستلم فقد الوصول. ثم unresolved/Lead/System/Integration notifications وبقية Automation/core gaps، دون Google/SMTP refinements اختيارية.
+
 ## آخر حالة مستقرة: Google Export Dispatch & Verification — Native195 — 2026-11-19
 
 استؤنف من 3a6271b دون reset/discard. اكتمل Google Export end-to-end: real-session delivery approval منفصلة عن private preparation،وimmutable target/payload/version وidempotency،وexport-specific RUNTIME OAuth/current lease،وindependent metadata ثم unique attempt ملتزمة قبل HTTP،وatomic new-worksheet typed write. ACK→VERIFYING فقط؛DONE تحتاج independent paged matching typed read receipts. UNKNOWN أوcrash بعد attempt لا يعيدان الكتابة؛recovery قراءة فقط من الوجهة المثبتة بجلسة حالية وسبب وCAS. Backend/DB/worker وواجهةar/en/fr والسجل والتعافي فعلية.

@@ -1,5 +1,11 @@
 # خطة التنفيذ
 
+## أحدث checkpoint: Operational Email Connections — Native196 — 2026-11-19
+
+اكتملت multiple scoped SMTP connections وencrypted retention/rotation وcurrentSession/CAS/native guards وdurable auth probes وlate-result fences وdisable/history/Audit وواجهةar/en/fr. **208/208 Unit،173/173 full compiled Docker PostgreSQL Integration (569.5s)،77/77 full Edge Browser E2E (4.6m)**،وBackend/Web build/typecheck و001–196 development/test migrations recheck دون تغيير أعداد بيانات الأعمال. هذهConnection lifecycle مثبتةفقط،ولاترسلnotifications ولاتثبتFrom/delivery أوLiveTLS. SMTP Adapter Mock Verified وLive pending؛Native001–196 ثابتة. [العقد](operational-email.md).
+
+التالي بعدحفظورفعcheckpoint: ابدأ Native197 general Email notification channel configuration: explicit Branch binding لاتصال متاح دون كشف Organization credentials،ثم Email event Preferences/default opt-in وallowed wording/templates ar/en/fr وcurrent real Session/scope/CAS/history/Audit وUI/tests،مع حفظ عقودIN_APP الحالية. بعدها durable current-recipient outbox/worker وbefore-I/O attempt وUNKNOWN no-blind-replay وhistory/failure/recovery وIntegration/Browser قبلEmail baseline. لا تستعمل identity-email Connection أوجلسة تاريخية كصلاحية ولا ترسل بيانات Lead لمستلم فقد الوصول. ثم unresolved/Lead/System/Integration notifications وبقيةAutomation/core gaps؛لا Google أوSMTP refinements اختيارية.
+
 ## أحدث checkpoint: Google Import/Export baseline — Native195 — 2026-11-19
 
 اكتملت separate delivery approval وcurrent scoped RUNTIME/lease وcommitted unique attempt قبلHTTP وatomic new worksheet typed write وindependent typed read confirmation وUNKNOWN no-replay/readonly recovery وhistory/Audit وواجهة ar/en/fr. **208/208 Unit،170/170 full compiled Docker PostgreSQL Integration (571.2s)،76/76 full Edge Browser E2E (4.5m)**،وBackend/Web build/typecheck و001–195 development/test migrations recheck دون تغيير أعداد بيانات الأعمال،وcompiled worker smoke علىqueue فارغة. HTTP/SDK Mock Verified فقط وLive pending. لا تعاد هذهالمراحل أوتوسيع Google refinements اختيارية.

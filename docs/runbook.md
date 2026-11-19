@@ -1,5 +1,15 @@
 # دليل التشغيل والتطوير
 
+## إعداد البريد التشغيلي — Native196
+
+طبّق migrations المعتادة حتى196 قبل تشغيل النسخة التي تعرض «البريد التشغيلي». Native001–196 مطبقة وثابتة في development/test؛ لا reset أو تعديل لملفاتها. هذه دورة إدارة اتصال مستقلة عن إعداد بريد الحسابات، ولا تشغّل notification delivery أو worker بريد جديدة. [العقد والصلاحيات والحالة](operational-email.md).
+
+أنشئ credential مخصصة لدى مزود SMTP، ثم أدخلها من الواجهة ضمن Organization بواسطة Super Admin أو Branch بواسطة Manager المصرح له. لا تعدل server/env/DB لتسجيل حساب. بعد الحفظ تظهر NOT_CONFIGURED؛ نفّذ الفحص الصريح. تعني CONNECTED نجاح connectivity/authentication فقط؛ ولا تثبت From address أو وصول الرسالة. تُفرض certificate validation وDirect TLS أو STARTTLS الإلزامي. لم تُستخدم credentials حقيقية أو live verification في هذه الجلسة.
+
+عند EMAIL_VERIFICATION_FAILED راجع host/port/TLS/credentials عند المزود، ثم عدّلها من الواجهة مع reason/version؛ لا تظهر raw provider response أو password في UI/history. عند SUPERSEDED حدّث الإعداد الحالي ولا تعتمد النتيجة القديمة. حد RUNNING الزمني 60s؛ وإعادة الفحص صريحة وبحد5طلبات/15min حسب rate scope الحالية. لا تستخدم SQL لتغيير CONNECTED أو حذف probe/revision. يحفظ التعطيل التاريخ ويوقف الفحص؛ وتحتاج إعادة التشغيل إلى حفظ الإعداد ثم فحص جديد. يمكن تعطيل اتصال فرع غير نشط، ويُمنع تشغيله ما دام الفرع معطلًا.
+
+قوائم API والسجل محدودة وتدعم pagination. تعرض الواجهة safe errors وempty/loading وحالة Mock/Live pending؛ لا تضع credentials في URL أو logs. لا تثبت اختبارات SMTP adapter mocks وPostgreSQL/Browser المحلية live TLS أو delivery. التالي channel preferences/templates وdurable current-recipient delivery؛ [بوابة التحقق](codex-progress.md) هي المرجع، ولا يعلن اكتمال Email/Notifications بمجرد setup.
+
 ## Google Export delivery والتعافي الآمن — Native195
 
 Native001–195 مطبقة وثابتة في development/test؛شغّل مسار migrations المعتاد قبل النسخة الجديدة دون reset أوتعديل migrations مطبقة. التصحيحات SQL التالية forward196+. لم تتغير أعدادLead/Contact/Payment/Enrollment/SourceSubmission عند recheck. لا إعادة Preview أوحذف بيانات أوvolumes؛PostgreSQL وClamAV للتطوير والاختبارات محفوظتان.
