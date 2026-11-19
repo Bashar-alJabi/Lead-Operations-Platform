@@ -1,5 +1,11 @@
 # خطة التنفيذ
 
+## أحدث checkpoint: نشر Email وتجهيز المستلمين — Native198 — 2026-11-19
+
+اكتملت fresh publication وactivation horizon وbounded current-recipient outbox وnative immutable receipts/Audit وpersonal queue/API/ar-en-fr UI وworker مستقلة، دون SMTP send authority. **208/208 Unit،179/179 full compiled Docker PostgreSQL Integration (764.6s)،79/79 full Edge Browser E2E (6.6m)**، مع Backend/Web build/typecheck وإعادة فحص migrations001–198 في development/test دون تغيير أعداد بيانات الأعمال وcompiled worker smoke. ملفات001–198 ثابتة؛Email baseline وLive verification غير مكتملتين. [العقد](operational-email.md).
+
+التالي بعد حفظ ورفع checkpoint: ابدأ Native199 لمسار SMTP dispatch الفعلي فوق outbox الحالية: افحص current account/address وLead access وactivation/Preferences/language وbinding/Connection/template versions، واحفظ attempt/lease دائمة قبل I/O. تعني ACK حالة ACCEPTED فقط؛ UNKNOWN أو crash بعد attempt لا يسمحان بإعادة الإرسال تلقائيًا. أكمل native guards وAudit وimmutable attempt history وdurable materialization backoff/dead-letter/recovery وbounded pre-I/O retries وواجهة ar/en/fr وIntegration/Browser mocks. لا تستعر identity-email أو Session بشرية تاريخية، ولا ترسل بيانات عملاء حقيقية أو secrets أو بيانات دفع حساسة. بعد Email baseline أكمل unresolved/Lead/System/Integration Notifications وبقية Automation والوظائف الأساسية؛ لا Google/SMTP/AI refinements اختيارية أو تفعيل حي.
+
 ## أحدث checkpoint: إعداد قناة Email — Native197 — 2026-11-19
 
 اكتملت explicit Branch bindings وOrganization approval/revoke وpersonal opt-in/language وEmail wording/fallback/Preview وcurrent Session/CAS/native history/Audit وواجهة ar/en/fr. **208/208 Unit،176/176 full compiled Docker PostgreSQL Integration (754.2s)،78/78 full Edge Browser E2E (10.9m)**، مع Backend/Web build/typecheck وإعادة فحص migrations001–197 في development/test دون تغيير أعداد بيانات الأعمال. هذه إعدادات فقط دون SMTP send؛تبقى Email baseline جزئية وLive pending. Native001–197 ثابتة. [العقد](operational-email.md).

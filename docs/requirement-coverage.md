@@ -1,5 +1,13 @@
 # مصفوفة تغطية المتطلبات
 
+## أحدث checkpoint: نشر Email وتجهيز المستلمين — Native198 — 2026-11-19
+
+| المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |
+|---|---|---|
+|00 §38،01 §§40–41،02 §64،03 §§31/99،06 §§19/21|publication للأحداث الجديدة عند تفعيل الربط، activation horizon، bounded current-recipient materialization وصفحات شخصية وworker/API/ar-en-fr UI|**208/208 Unit،179/179 full compiled Docker PostgreSQL Integration (764.6s)،79/79 full Edge Browser E2E (6.6m)**، مع Backend/Web build/typecheck وإعادة فحص migrations001–198 في development/test دون تغيير أعداد بيانات الأعمال؛ focused PG7/7 وBrowser3/3 وrollback native preflight وcompiled worker smoke ناجحة؛ [العقد](operational-email.md)|
+|AGENTS §§8/15–16/27–28/38،06 §§22–23|unique event/recipient وimmutable pages/outbox وfresh receipt proof وcurrent access وatomic Audit، دون Session مصطنعة|صفحات25/25/6 لعدد56مستلمًا وconcurrent workers وAudit rollback، منع historical/late opt-in وforged recipient/page/history/cursor، وتعطيل حساب أثناء Lead lock wait؛ personal pagination20+3 وعزل scopes والجلسات|
+|06 §§19/21/25–29 وحدود القبول|تجهيز وقراءة قائمة Email فقط؛ لا recipient address أوsubject/body أو SMTP authority في198|**Implemented / PostgreSQL وLocal Browser Verified** لهذه المرحلة؛ SMTP auth **Mock Verified** وsend count=0. **Live Verification Pending External Credential/Approval**. Email dispatch وNotifications ليستا مكتملتين؛ التاليNative199 ثم بقية المتطلبات الأساسية|
+
 ## أحدث checkpoint: إعداد قناة Email للإشعارات — Native197 — 2026-11-19
 
 | المتطلب ومصدره | التنفيذ المثبت | الإثبات وحدود الحالة |

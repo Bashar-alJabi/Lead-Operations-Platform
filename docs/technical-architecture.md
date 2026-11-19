@@ -1,5 +1,13 @@
 # المعمارية التقنية
 
+## نشر Email وتجهيز جمهور محدود — Native198
+
+تضيف notification_event في transaction نشرها صفًا واحدًا إلى notification_email_publication عند تفعيل الربط، دون fan-out على المستخدمين أو provider call داخل Core write. يثبت DB وقت النشر وbinding/Connection versions؛ ليس هناك backfill. تحفظ activation horizon للتفضيل الشخصي بوصفها أثرًا تقنيًا، ويستبعد أي opt-in لاحقة للنشر حتى لو بدأ worker متأخرًا.
+
+تجهيز25مرشحًا لكل صفحة ينتج immutable notification_email_materialization وnotification_email_outbox مع unique event/recipient. تشتق native triggers الجمهور والعدادات واللغة، وتلزم cursor progression بإيصال جديد وAudit في transaction نفسها. deferred proof يربط كل outbox بصفحتها الحالية، ويمنع استعمال صفحة قديمة أو لحدث آخر. تسبق أقفال Connection→Branch أقفال publication وLead/Campaign/Conversation/Task والمستلم والتفضيل؛ يعاد current scope بعد الانتظار. worker مستقلة وstateless وبحث محدود وSKIP LOCKED، دون استعارة Session بشرية أو صلاحية identity-email.
+
+يقتصر API القائمة على مستلمها وLead ACL الحالية وkeyset20، ولا يحمل snapshot نص محادثة أو عنوان بريد أو secrets. هذه authority للتجهيز فقط؛ لا توجد198 SMTP attempt أو send authority. يلزم في المرحلة التالية before-I/O receipt وcurrent settings/recipient/template checks وACK=ACCEPTED وUNKNOWN no-replay وإدارة failure/recovery. يظل SMTP live معطلًا في التطوير، ولا تعني هذه المرحلة اكتمال Email. [العقد والحدود](operational-email.md).
+
 ## إعداد قناة Email للإشعارات — Native197
 
 تعيد Email استخدام Notification Event وwording services الحالية دون خلط القناة مع Customer Conversation أو identity email. `notification_email_binding` تختار operational Connection واحدة صراحةً لكل Branch؛ يديرها Super Admin أو Manager فرعه لحسابات Branch. الموافقة على Organization account للفرع وإعادة تفعيلها للـSuper Admin، مع حق Manager بتعطيل الربط القائم دون كشف إعدادات الحساب. هذا يحافظ على حدود Organization configuration ولا يخلق صلاحية إدارية أو grant ضمنية للفرع.

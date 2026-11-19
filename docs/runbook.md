@@ -1,5 +1,11 @@
 # دليل التشغيل والتطوير
 
+## تجهيز مستلمي Email — Native198
+
+بعد تطبيق migrations حتى198 شغّل `npm run worker:email-notifications` كخدمة application worker مستقلة إذا أردت تجهيز قوائم البريد. الإعدادات التشغيلية من «البريد التشغيلي» و«الإشعارات»، ولا تعديل يدوي لقاعدة البيانات. تعالج هذه النسخة publication جديدة فقط وصفحات من25مرشحًا، ولا تتصل بـSMTP أو ترسل أي بريد. لا حاجة لتشغيلها على Preview المتوقفة.
+
+خيارات capacity التقنية: `EMAIL_NOTIFICATION_WORKER_BATCH` افتراضي25 وحده1..100، و`EMAIL_NOTIFICATION_WORKER_POLL_MS` افتراضي2000 وحده250..60000ms. يستخدم اختبار التشغيل `EMAIL_NOTIFICATION_WORKER_ONCE=1` على قاعدة test المحلية فقط. يظهر failure عام في structured event باسم `email_notification_materialization_failed` دون تفاصيل أو secrets؛ rollback يحفظ الصفحة WAITING ليعيد worker تجهيزها بأمان. لا تعدّل cursor أوصفحات history لتجاوز فشل Audit. SUPPRESSED تعني تغير إعداد الربط المثبت؛ لا تعاد publication قديمة عند إعادة التفعيل. يرى المستخدم قائمته المصرح بها من زر «تحديث قائمة البريد». ACK/UNKNOWN والتسليم الفعلي لم ينفذها198؛ راجع [العقد](operational-email.md) و[آخر بوابة مثبتة](codex-progress.md).
+
 ## إعداد قناة إشعارات البريد — Native197
 
 بعد migrations001–197، افتح «الإشعارات» لإعداد Email. يختار Manager حساب SMTP تشغيليًا لفرعه بعد فحصه من «البريد التشغيلي»، ثم يحفظ ربط القناة وتفعيله مع سبب. يختار Super Admin أيضًا حساب Organization لفرع محدد صراحةً؛ يستطيع Manager تعطيل ذلك الربط، ولا يعيد تفعيله دون Super Admin. لا تصل settings/credentials للمؤسسة إلى Manager أو Agent عبر هذه الشاشة.

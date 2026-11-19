@@ -4,6 +4,7 @@ import {processOneImportIntake} from '../src/imports/intake.js';
 import {processOneExport} from '../src/exports/service.js';
 import {processOneGoogleExportPreparation} from '../src/google/export-preparation.js';
 import {processOneGoogleExportDelivery} from '../src/google/export-delivery-worker.js';
+import {processOneEmailPublication} from '../src/notification-email-outbox.js';
 import {processOneAutomationMatch,processOneAutomationExecution} from '../src/automation.js';
 // Test-only HTTP entrypoint. Never imported by the production server or workers.
 import { randomBytes,createHmac } from 'node:crypto';
@@ -358,6 +359,12 @@ app.post<{Body:{steps?:number}}>('/__test__/google-export-delivery',{schema:{bod
 app.post('/__test__/operational-email',async request=>{
  if(typeof request.headers.authorization!=='string'||!safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
  return {checks:operationalEmailChecks,sends:operationalEmailSends};
+});
+app.post<{Body:{steps?:number}}>('/__test__/email-publications',{schema:{body:{type:'object',additionalProperties:false,
+ properties:{steps:{type:'integer',minimum:0,maximum:100}}}}},async request=>{
+ if(typeof request.headers.authorization!=='string'||!safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
+ let processed=0;for(let i=0;i<(request.body.steps??1);i++){if(!await processOneEmailPublication(db))break;processed++;}
+ return {processed,sends:operationalEmailSends};
 });
 app.post<{Body:{steps?:number}}>('/__test__/google-capture',{schema:{body:{type:'object',additionalProperties:false,properties:{steps:{type:'integer',minimum:0,maximum:20}}}}},async request=>{
  if(typeof request.headers.authorization!=='string'||!safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');

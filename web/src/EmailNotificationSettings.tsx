@@ -3,6 +3,7 @@ import type {NotificationApi,NotificationLocale} from './NotificationCenter.js';
 import {NotificationTemplates} from './NotificationTemplates.js';
 import {leadNotificationLabels,financialNotificationLabels} from './LeadNotificationPreferences.js';
 import {followUpNotificationLabel} from './FollowUpNotifications.js';
+import {EmailNotificationOutbox} from './EmailNotificationOutbox.js';
 
 const words={
  en:{title:'Email notifications',note:'Email is off by default for each event. Choose notifications for your account address and a delivery language. Saving settings sends no email and does not change In-App preferences.',event:'Email notification event',enabled:'Enable this email notification',language:'Email delivery language',save:'Save email preference',reload:'Reload email preferences',history:'Email preference history',older:'Older email changes',recipient:'Account recipient',binding:'Branch email channel',branch:'Email channel branch',connection:'Email channel connection',choose:'Choose an operational account',active:'Enable branch email channel',reason:'Email channel change reason',saveBinding:'Save branch email channel',reloadBinding:'Reload branch email channel',bindingHistory:'Email channel history',moreConnections:'Next email account page',organization:'Organization account',local:'Branch account',approval:'Only Super Admin can approve or reactivate an Organization account for a Branch. A Manager may disable its existing binding.',inactive:'This Branch is inactive. The channel may be disabled, but cannot be activated.',status:'Saved channel',on:'Enabled',off:'Disabled',version:'Version',empty:'No changes on this page.',setup:'Choose an authentication-checked operational account. Connection setup is in Operational email. Channel activation and personal opt-in are separate. No customer messaging, credentials or sensitive payment details belong in notification wording.'},
@@ -93,5 +94,6 @@ export function EmailNotificationSettings(props:Props){
  return <section className="panel" data-email-notification-settings style={{minWidth:0,overflowWrap:'anywhere'}}>
   <EmailPreferences {...props}/>{props.user.role!=='AGENT'&&<><EmailBranchSettings {...props}/><NotificationTemplates locale={props.locale} api={props.api}
    user={{...props.user,role:props.user.role}} branches={props.branches} channel="EMAIL"/></>}
+  <EmailNotificationOutbox locale={props.locale} api={props.api} userId={props.user.id} eventLabel={eventLabel}/>
  </section>;
 }
