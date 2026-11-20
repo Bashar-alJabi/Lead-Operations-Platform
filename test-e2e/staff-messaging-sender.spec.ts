@@ -2,7 +2,7 @@ import {expect,test} from '@playwright/test';
 import {readFile} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
 
-test('Manager reserves a dedicated sender and the customer setup excludes it',async({page})=>{
+test('Manager reserves a dedicated sender, excludes it from customer setup and binds approved static wording',async({page})=>{
  await page.setExtraHTTPHeaders({'x-e2e-rate-scope':randomUUID()});
  const {password}=JSON.parse(await readFile('.local/e2e/fixture.json','utf8')) as {password:string};
  await page.goto('/');
@@ -22,4 +22,19 @@ test('Manager reserves a dedicated sender and the customer setup excludes it',as
  await expect(defaults.getByRole('option').filter({hasText:'Browser Staff Sender'})).toHaveCount(0);
  await page.getByRole('combobox',{name:'Language',exact:true}).selectOption('fr');
  await expect(row).toContainText('Expéditeur interne uniquement');
+ await page.getByRole('combobox',{name:'Language',exact:true}).selectOption('en');
+ await page.getByRole('button',{name:'Notifications',exact:true}).click();
+ await page.getByText('Internal messaging notifications',{exact:true}).click();
+ const binding=page.locator('[data-staff-messaging-binding]');
+ await binding.getByLabel('Approved sender and template',{exact:true}).selectOption({label:'Browser Staff Sender · browser_staff_notice (en_US)'});
+ await expect(binding).toContainText('<img src=x> You have a staff alert in the platform.');
+ await expect(binding.locator('img')).toHaveCount(0);
+ await binding.getByLabel('Enable event',{exact:true}).check();
+ await binding.getByLabel('Internal template change reason',{exact:true}).fill('Approve synthetic staff wording');
+ await binding.getByRole('button',{name:'Save internal messaging binding',exact:true}).click();
+ await expect(binding.getByLabel('Internal template change reason',{exact:true})).toHaveValue('');
+ await binding.getByRole('button',{name:'History',exact:true}).click();
+ await expect(binding).toContainText('Approve synthetic staff wording');
+ const preferences=page.locator('[data-staff-messaging-preference]');
+ await expect(preferences.getByLabel('Enable event',{exact:true})).toBeDisabled();
 });

@@ -35,6 +35,16 @@ test('Staff can consent to a masked number configured by their Manager and withd
   await expect(owner).not.toContainText(number);
   await owner.getByRole('button',{name:'Number and consent history',exact:true}).click();
   await expect(owner).toContainText('Consent granted');
+  await staff.getByRole('button',{name:'Notifications',exact:true}).click();
+  await staff.getByText('Internal messaging notifications',{exact:true}).click();
+  const preferences=staff.locator('[data-staff-messaging-preference]');
+  await preferences.getByLabel('Internal messaging language',{exact:true}).selectOption('fr');
+  await preferences.getByLabel('Enable event',{exact:true}).check();
+  await preferences.getByRole('button',{name:'Save messaging preference',exact:true}).click();
+  await preferences.getByRole('button',{name:'History',exact:true}).click();
+  await expect(preferences).toContainText('Enabled · fr');
+  await expect(preferences.getByLabel('Internal messaging event',{exact:true}).locator('option[value="SYSTEM_ALERT"]')).toHaveCount(0);
+  await staff.getByRole('button',{name:'My account',exact:true}).click();
   await owner.getByRole('button',{name:'Withdraw consent',exact:true}).click();
   await expect(owner).toContainText('Awaiting staff consent');
   await staff.getByRole('combobox',{name:'Language',exact:true}).selectOption('ar');

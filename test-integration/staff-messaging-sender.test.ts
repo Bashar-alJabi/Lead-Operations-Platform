@@ -10,7 +10,7 @@ const url=process.env.TEST_DATABASE_URL;
 if(!url||new URL(url).pathname!=='/lead_operations_test'||!['localhost','127.0.0.1','[::1]'].includes(new URL(url).hostname))
  throw Error('Isolated local TEST_DATABASE_URL required');
 
-test('Staff sender reservations enforce branch scope, preserve customer pins and receive signed callbacks separately',async t=>{
+test('Staff sender reservations isolate callbacks and authorize only scoped static templates and consenting preferences',async t=>{
  const origin='http://127.0.0.1:5173';
  process.env.APP_ORIGIN=origin;
  process.env.CREDENTIAL_ENCRYPTION_KEY=randomBytes(32).toString('hex');
@@ -25,12 +25,14 @@ test('Staff sender reservations enforce branch scope, preserve customer pins and
  const {id:branch}=(await db`INSERT INTO branch(organization_id,name) VALUES(${org},'Staff branch') RETURNING id`)[0]!;
  const {id:other}=(await db`INSERT INTO branch(organization_id,name) VALUES(${org},'Other branch') RETURNING id`)[0]!;
  const cookies:Record<string,string>={};
+ const accounts:Record<string,string>={};
  for(const [name,role,scope] of [['manager','MANAGER',branch],['other','MANAGER',other],['agent','AGENT',branch]] as const){
   const {id}=(await db`INSERT INTO user_account(organization_id,branch_id,role,name,email,password_hash)
    VALUES(${org},${scope},${role},${name},${name+'@staff-sender.test'},'synthetic') RETURNING id`)[0]!;
   const token=randomBytes(32).toString('hex');
   await db`INSERT INTO user_session(user_id,token_hash,expires_at) VALUES(${id},${sha256(token)},now()+interval '1 hour')`;
   cookies[name]='lop_session='+token;
+  accounts[name]=id;
  }
  const api=(method:'GET'|'POST'|'PATCH'|'PUT',path:string,actor='manager',payload?:object)=>
   app.inject({method,url:path,headers:{origin,cookie:cookies[actor]!},payload});
@@ -86,4 +88,47 @@ test('Staff sender reservations enforce branch scope, preserve customer pins and
  assert.doesNotMatch(JSON.stringify(receipts),/15550090105|private synthetic staff reply|wamid/);
  assert.equal((await db`SELECT count(*)::int AS count FROM integration_event WHERE connection_id=${connection}`)[0]!.count,1);
  assert.equal((await db`SELECT count(*)::int AS count FROM audit_log WHERE target_id=${staff} AND action='STAFF_MESSAGING_SENDER_RESERVED'`)[0]!.count,1);
+
+ const template=async(externalId:string,language:string,body:string,conn=connection,status='APPROVED')=>
+  (await db`INSERT INTO provider_message_template(connection_id,external_template_id,name,language,status,components)
+   VALUES(${conn},${externalId},${externalId},${language},${status},${db.json([{type:'BODY',text:body}])}) RETURNING id`)[0]!.id as string;
+ const staticCopy='A staff alert is available in the platform.';
+ const good=await template('staff_notice','en_US',staticCopy);
+ const dynamic=await template('dynamic_staff_notice','en_US','This text includes {{1}}.');
+ const otherLanguage=await template('french_staff_notice','fr','Une alerte interne.');
+ const otherConnection=await template('other_staff_notice','en_US',staticCopy,aliasConnection);
+ const pending=await template('pending_staff_notice','en_US',staticCopy,connection,'PENDING');
+ const binding=`/api/notification-messaging/branches/${branch}/bindings/LEAD_ASSIGNED/en`;
+ const update={version:0,enabled:true,senderId:staff,templateId:good,reason:'Approve the staff alert'};
+ assert.equal((await api('GET',binding+'/options','other')).statusCode,404);
+ assert.equal((await api('GET',binding+'/options','agent')).statusCode,403);
+ const catalog=(await api('GET',binding+'/options')).json();
+ assert.deepEqual(catalog.items.map((row:{templateId:string;preview:string})=>[row.templateId,row.preview]),[[good,staticCopy]]);
+ for(const templateId of [dynamic,otherLanguage,otherConnection,pending]){
+  const rejected=await api('PUT',binding,'manager',{...update,templateId});
+  assert.equal(rejected.statusCode,409,rejected.body);
+ }
+ assert.equal((await api('PUT',binding,'manager',{...update,senderId:customer})).statusCode,409);
+ const changesRace=await Promise.all(Array.from({length:4},()=>api('PUT',binding,'manager',update)));
+ assert.equal(changesRace.filter(r=>r.statusCode===200).length,1);
+ assert.equal(changesRace.filter(r=>r.statusCode===409).length,3);
+ assert.equal((await api('GET',binding)).json().binding.templateCurrent,true);
+ await db`UPDATE provider_message_template SET components='[{"type":"BODY","text":"New static wording"}]' WHERE id=${good}`;
+ assert.equal((await api('GET',binding)).json().binding.templateCurrent,false);
+ assert.equal((await api('PUT',binding,'manager',{...update,version:1,enabled:false})).statusCode,200);
+ assert.equal((await api('GET',binding+'/history')).json().items.length,2);
+ await assert.rejects(db`DELETE FROM staff_messaging_configuration_history`,/STAFF_MESSAGING_CONFIGURATION_HISTORY_IMMUTABLE/);
+
+ const personal='/api/notification-messaging/preferences';
+ const settings={version:0,enabled:true,language:'en'};
+ assert.equal((await api('GET',personal,'agent')).json().items.length,11);
+ assert.equal((await api('PUT',personal+'/SYSTEM_ALERT','agent',settings)).statusCode,403);
+ assert.equal((await api('PUT',personal+'/LEAD_ASSIGNED','agent',settings)).statusCode,409);
+ const syntheticPhone='+15550090105';
+ assert.equal((await api('PUT',`/api/users/${accounts.agent}/notification-messaging-destination`,'manager',{version:0,phone:syntheticPhone})).statusCode,200);
+ assert.equal((await api('PUT','/api/notification-messaging/destination','agent',{version:1,enabled:true,phone:syntheticPhone})).statusCode,200);
+ assert.equal((await api('PUT',personal+'/LEAD_ASSIGNED','agent',settings)).statusCode,200);
+ assert.equal((await api('PUT',personal+'/LEAD_ASSIGNED','agent',settings)).statusCode,409);
+ assert.equal((await api('GET',personal+'/LEAD_ASSIGNED/history','agent')).json().items[0].snapshot.enabled,true);
+ assert.equal((await api('GET',personal+'/LEAD_ASSIGNED/history','manager')).json().items.length,0);
 });

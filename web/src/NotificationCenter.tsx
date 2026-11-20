@@ -8,6 +8,7 @@ import {EmailNotificationSettings} from './EmailNotificationSettings.js';
 import {LeadAttentionFailures} from './LeadAttentionFailures.js';
 import {MessagingInboundReview} from './MessagingInboundReview.js';
 import {OperationalNotificationControls,operationalConditionLabels} from './OperationalNotificationControls.js';
+import {StaffMessagingConfiguration} from './StaffMessagingConfiguration.js';
 export type NotificationApi=<T>(path:string,options?:RequestInit)=>Promise<T>;
 export type NotificationLocale='ar'|'en'|'fr';
 const words={
@@ -85,5 +86,6 @@ export function NotificationCenter({locale,api,user,branches,onOpenLead,onOpenIn
   {user.role!=='AGENT'&&<LeadAttentionFailures locale={locale} api={api} userId={user.id} openLead={onOpenLead}/>}
   {user.role!=='AGENT'&&<OperationalNotificationControls locale={locale} api={api} onChanged={()=>{onChanged();void read();}}/>}
   <EmailNotificationSettings locale={locale} api={api} user={user} branches={branches}/>
+  <StaffMessagingConfiguration locale={locale} api={api} user={user} branches={branches}/>
  </section>;
 }

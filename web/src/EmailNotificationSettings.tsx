@@ -21,7 +21,7 @@ type Connection={id:string;name:string;status:string;scope:'BRANCH'|'ORGANIZATIO
 type Binding={branchId:string;branchActive:boolean;version:number;enabled:boolean;connection:Connection|null;canEnableCurrent:boolean};
 type Catalog={items:Connection[];nextCursor:string|null};
 
-function eventLabel(event:string,locale:NotificationLocale){
+export function eventLabel(event:string,locale:NotificationLocale){
  const known:Record<string,string>={...leadNotificationLabels[locale],...financialNotificationLabels[locale],...operationalEventLabels[locale],FOLLOW_UP_DUE:followUpNotificationLabel[locale],
   AI_HANDOFF_REQUESTED:{ar:'طلب التحويل البشري',en:'Human handoff requested',fr:'Transfert humain demandé'}[locale],
   AI_HANDOFF_SLA_EXCEEDED:{ar:'تجاوز مدة الاستجابة',en:'Human response target exceeded',fr:'Délai de réponse dépassé'}[locale]};return known[event]??event;

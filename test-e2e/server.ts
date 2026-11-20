@@ -214,6 +214,9 @@ const staffSenderConnection=(await db`INSERT INTO integration_connection(organiz
     '{"graphVersion":"v25.0","wabaId":"5714285714"}') RETURNING id`)[0]!.id;
 await db`INSERT INTO messaging_sender(organization_id,connection_id,external_sender_id,display_name,health,capabilities)
   VALUES(${org},${staffSenderConnection},'15550001741','Browser Staff Sender','HEALTHY','{"text":true,"template":true}')`;
+await db`INSERT INTO provider_message_template(connection_id,external_template_id,name,language,status,components)
+  VALUES (${staffSenderConnection},'browser_staff_notice','browser_staff_notice','en_US','APPROVED',
+    '[{"type":"BODY","text":"<img src=x> You have a staff alert in the platform."}]')`;
 const contact = (await db`INSERT INTO contact (organization_id,name,phone,phone_normalized)
   VALUES (${org},'Browser Customer','+15550002222','+15550002222') RETURNING id`)[0]!.id;
 await db`INSERT INTO messaging_consent (contact_id,channel,status,source) VALUES (${contact},'WHATSAPP','GRANTED','TEST')`;
