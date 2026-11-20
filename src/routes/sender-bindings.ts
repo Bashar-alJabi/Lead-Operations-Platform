@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { Database } from '../db.js';
 import { HttpError, principalFromRequest, requireBranch, requireRole } from '../security.js';
 import { resolveConfiguredSender } from '../messaging/sender-resolution.js';
+import { currentPaymentSession } from '../payments/access.js';
 
 const idParam = { type: 'object', additionalProperties: false, required: ['id'],
   properties: { id: { type: 'string', format: 'uuid' } } } as const;
@@ -10,6 +11,50 @@ const bindingParam = { type: 'object', additionalProperties: false, required: ['
 const senderId = { anyOf: [{ type: 'string', format: 'uuid' }, { type: 'null' }] } as const;
 
 export function registerSenderBindingRoutes(app: FastifyInstance, db: Database): void {
+  app.post<{ Params: { id: string }; Body: { version: number; reason: string } }>(
+    '/api/messaging/senders/:id/reserve-for-staff', {
+      preValidation: async request => {
+        if (typeof request.body?.version !== 'number' || typeof request.body?.reason !== 'string')
+          throw new HttpError(400,'INVALID_STAFF_SENDER_REQUEST');
+      },
+      schema: { params: idParam, body: { type: 'object', additionalProperties: false, required: ['version','reason'],
+        properties: { version: { type: 'integer', minimum: 1, maximum: 2147483646 },
+          reason: { type: 'string', minLength: 3, maxLength: 500, pattern: '^[^\\x00-\\x1f\\x7f]+$' } } } },
+    }, async (request,reply) => {
+      const actor = await principalFromRequest(request, db);
+      requireRole(actor,'SUPER_ADMIN','MANAGER');
+      const reason = request.body.reason.trim();
+      if (reason.length<3) throw new HttpError(400,'STAFF_SENDER_REASON_REQUIRED');
+      try {
+        const result = await db.begin(async tx => {
+          const [connection] = await tx`SELECT c.id,c.branch_id FROM messaging_sender s
+            JOIN integration_connection c ON c.id=s.connection_id AND c.kind='MESSAGING' AND c.organization_id=s.organization_id
+            WHERE s.id=${request.params.id} AND c.organization_id=${actor.organizationId} AND c.branch_id IS NOT NULL
+              AND (${actor.role==='SUPER_ADMIN'} OR c.branch_id=${actor.branchId}) FOR NO KEY UPDATE OF c`;
+          if (!connection) throw new HttpError(404,'SENDER_NOT_FOUND');
+          await tx`SELECT id FROM branch WHERE id=${connection.branch_id} FOR SHARE`;
+          const [sender] = await tx`SELECT version FROM messaging_sender WHERE id=${request.params.id}
+            AND connection_id=${connection.id} FOR UPDATE`;
+          const session = await currentPaymentSession(tx,actor,request);
+          if (!session) throw new HttpError(403,'STAFF_SENDER_ACCESS_DENIED');
+          if (sender?.version!==request.body.version) throw new HttpError(409,'SENDER_VERSION_CONFLICT');
+          if ((await tx`SELECT 1 FROM staff_messaging_sender WHERE sender_id=${request.params.id}`).length)
+            throw new HttpError(409,'STAFF_SENDER_ALREADY_RESERVED');
+          const [reservation] = await tx`INSERT INTO staff_messaging_sender(sender_id,connection_id,actor_id,session_id,sender_version,reason)
+            VALUES(${request.params.id},${connection.id},${actor.id},${session},${request.body.version},${reason})
+            RETURNING sender_id AS "senderId",branch_id AS "branchId",sender_version+1 AS version,created_at AS "reservedAt"`;
+          return reservation;
+        });
+        return reply.code(201).send(result);
+      } catch (error) {
+        const code = error instanceof Error ? error.message : '';
+        if (['STAFF_SENDER_CUSTOMER_USE','STAFF_SENDER_EXTERNAL_ID_SHARED','STAFF_SENDER_UNAVAILABLE','SENDER_VERSION_CONFLICT'].includes(code))
+          throw new HttpError(409,code);
+        if (code==='STAFF_SENDER_ACCESS_DENIED') throw new HttpError(403,code);
+        throw error;
+      }
+    });
+
   app.get<{ Params: { id: string } }>('/api/messaging/campaigns/:id/effective-sender', {
     schema: { params: idParam },
   }, async (request) => {
@@ -31,12 +76,14 @@ export function registerSenderBindingRoutes(app: FastifyInstance, db: Database):
       const actor = await principalFromRequest(request, db);
       requireRole(actor, 'SUPER_ADMIN', 'MANAGER');
       return db.begin(async (tx) => {
-        const sender = (await tx`SELECT s.id, s.version, c.branch_id FROM messaging_sender s
+        const sender = (await tx`SELECT s.id, s.version, c.branch_id,
+          EXISTS(SELECT 1 FROM staff_messaging_sender i WHERE i.sender_id=s.id) AS staff_only FROM messaging_sender s
           JOIN integration_connection c ON c.id = s.connection_id WHERE s.id = ${request.params.id}
             AND s.organization_id = ${actor.organizationId} AND c.kind = 'MESSAGING'
           FOR UPDATE OF s`)[0];
         if (!sender || (actor.role !== 'SUPER_ADMIN' && sender.branch_id !== actor.branchId))
           throw new HttpError(404, 'SENDER_NOT_FOUND');
+        if (sender.staff_only) throw new HttpError(409, 'STAFF_SENDER_CUSTOMER_USE');
         if (sender.version !== request.body.version) throw new HttpError(409, 'SENDER_VERSION_CONFLICT');
         const row = (await tx`UPDATE messaging_sender SET operator_enabled = ${request.body.operatorEnabled},
           version = version + 1 WHERE id = ${sender.id} RETURNING version, operator_enabled`)[0]!;
@@ -119,6 +166,7 @@ export function registerSenderBindingRoutes(app: FastifyInstance, db: Database):
         LEFT JOIN sender_branch_binding b ON b.sender_id = s.id AND b.branch_id = ${request.params.id}
         WHERE s.organization_id = ${actor.organizationId} AND c.kind = 'MESSAGING'
           AND (c.branch_id = ${request.params.id} OR (c.branch_id IS NULL AND b.branch_id IS NOT NULL))
+          AND NOT EXISTS(SELECT 1 FROM staff_messaging_sender i WHERE i.sender_id=s.id)
           AND (${request.query.after ?? null}::uuid IS NULL OR s.id > ${request.query.after ?? null}::uuid)
         ORDER BY s.id LIMIT ${limit + 1}`;
       const items = rows.slice(0, limit);

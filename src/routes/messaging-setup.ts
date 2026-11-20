@@ -224,6 +224,7 @@ export function registerMessagingSetupRoutes(app: FastifyInstance, db: Database,
     const limit = request.query.limit ?? 50;
     const rows = await db`SELECT id, external_sender_id, display_name, active, operator_enabled, version,
         health, capabilities, provider_status, cooldown_until, last_provider_error_code,
+        EXISTS(SELECT 1 FROM staff_messaging_sender i WHERE i.sender_id=messaging_sender.id) AS staff_only,
         (SELECT COALESCE(jsonb_agg(jsonb_build_object('branchId', b.branch_id,
           'allowSharedFallback', b.allow_shared_fallback)), '[]'::jsonb)
           FROM sender_branch_binding b WHERE b.sender_id = messaging_sender.id

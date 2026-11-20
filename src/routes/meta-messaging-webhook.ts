@@ -239,33 +239,46 @@ export function registerMetaMessagingWebhookRoutes(app: FastifyInstance, db: Dat
           throw new HttpError(409, 'CONNECTION_VERSION_CONFLICT');
         const senderIds = [...new Set(events.map((item) => item.kind === 'DELIVERY_STATUS'
           ? item.status.senderExternalId : item.senderExternalId))];
-        const senderRows = await tx`SELECT id, external_sender_id FROM messaging_sender
-          WHERE connection_id = ${connection.id} AND external_sender_id IN ${tx(senderIds)}`;
-        const senderMap = new Map(senderRows.map((sender) => [sender.external_sender_id, sender.id]));
-        const records = events.map((item) => {
+        const senderRows = await tx`SELECT s.id,s.external_sender_id,i.sender_id IS NOT NULL AS staff_only FROM messaging_sender s
+          LEFT JOIN staff_messaging_sender i ON i.sender_id=s.id WHERE s.connection_id=${connection.id}
+            AND s.external_sender_id IN ${tx(senderIds)}`;
+        const senderMap = new Map(senderRows.map((sender) => [sender.external_sender_id, sender]));
+        const classified = events.map((item) => {
           const senderExternalId = item.kind === 'DELIVERY_STATUS' ? item.status.senderExternalId : item.senderExternalId;
           const eventId = item.kind === 'DELIVERY_STATUS'
             ? providerEventId('DELIVERY_STATUS', [senderExternalId, item.status.providerMessageId,
               item.status.status, item.status.providerTimestamp, item.status.recipient])
             : providerEventId('INBOUND_MESSAGE', [senderExternalId, item.messageId]);
+          return { item, senderExternalId, eventId, sender:senderMap.get(senderExternalId) };
+        });
+        const staffReceipts = classified.filter(row=>row.sender?.staff_only).map(row=>({
+          sender_id:row.sender!.id,provider_event_id:row.eventId,event_kind:row.item.kind,
+        }));
+        if(staffReceipts.length) {
+          const receipts=await tx`INSERT INTO staff_messaging_webhook_receipt(sender_id,provider_event_id,event_kind)
+            SELECT e.sender_id,e.provider_event_id,e.event_kind FROM jsonb_to_recordset(${tx.json(staffReceipts)}) AS e
+              (sender_id uuid,provider_event_id text,event_kind text) ON CONFLICT DO NOTHING RETURNING 1`;
+          created+=receipts.length;
+        }
+        const records = classified.filter(row=>!row.sender?.staff_only).map(({item,senderExternalId,eventId,sender}) => {
           const payload = item.kind === 'DELIVERY_STATUS' ? {
             senderExternalId, providerMessageId: item.status.providerMessageId,
             status: item.status.status, providerTimestamp: item.status.providerTimestamp,
           } : { senderExternalId, message: item.payload };
-          return { provider_event_id: eventId, event_kind: item.kind, sender_id: senderMap.get(senderExternalId) ?? null,
+          return { provider_event_id: eventId, event_kind: item.kind, sender_id: sender?.id ?? null,
             participant_ref: item.kind === 'DELIVERY_STATUS' ? item.status.recipient : item.participant, payload,
             state: item.kind === 'DELIVERY_STATUS' ? 'RECEIVED' : 'NEEDS_ATTENTION',
             failure_code: item.kind === 'INBOUND_MESSAGE' ? 'INBOUND_PROCESSING_NOT_READY' : null };
         });
         // Persist a bounded batch atomically; callbacks are processed outside the webhook request.
-        const inserted = await tx`INSERT INTO integration_event (connection_id, provider_event_id,
+        const inserted = !records.length ? [] : await tx`INSERT INTO integration_event (connection_id, provider_event_id,
           event_kind, sender_id, participant_ref, payload, state, failure_code)
           SELECT ${connection.id}, e.provider_event_id, e.event_kind, e.sender_id, e.participant_ref,
             e.payload, e.state, e.failure_code FROM jsonb_to_recordset(${tx.json(JSON.parse(JSON.stringify(records)))}) AS e
             (provider_event_id text, event_kind text, sender_id uuid, participant_ref text, payload jsonb,
               state text, failure_code text)
           ON CONFLICT (connection_id, provider_event_id) DO NOTHING RETURNING id`;
-        created = inserted.length;
+        created += inserted.length;
         // Only events newly accepted through this verified raw-body HMAC receive an authentication receipt.
         // Existing historical events are never retroactively promoted by a duplicate webhook.
         const inboundIds = records.filter(item => item.event_kind === 'INBOUND_MESSAGE').map(item => item.provider_event_id);

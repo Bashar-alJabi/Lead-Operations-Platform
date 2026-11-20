@@ -1,0 +1,25 @@
+import {expect,test} from '@playwright/test';
+import {readFile} from 'node:fs/promises';
+import {randomUUID} from 'node:crypto';
+
+test('Manager reserves a dedicated sender and the customer setup excludes it',async({page})=>{
+ await page.setExtraHTTPHeaders({'x-e2e-rate-scope':randomUUID()});
+ const {password}=JSON.parse(await readFile('.local/e2e/fixture.json','utf8')) as {password:string};
+ await page.goto('/');
+ await page.getByRole('combobox',{name:'Language',exact:true}).selectOption('en');
+ await page.getByLabel('Email',{exact:true}).fill('manager@browser.test');
+ await page.getByLabel('Password',{exact:true}).fill(password);
+ await page.getByRole('button',{name:'Sign in',exact:true}).click();
+ await page.getByRole('button',{name:'Messaging setup',exact:true}).click();
+ await page.getByRole('row').filter({hasText:'Browser Staff Connection'}).getByRole('button').click();
+ const row=page.getByRole('listitem').filter({hasText:'Browser Staff Sender'});
+ await row.getByRole('button',{name:'Reserve for internal notifications',exact:true}).click();
+ await row.getByLabel('Sender reservation reason',{exact:true}).fill('Reserve a synthetic staff-only sender');
+ await row.getByRole('button',{name:'Confirm sender reservation',exact:true}).click();
+ await expect(row).toContainText('Internal sender only');
+ await expect(row.getByRole('button',{name:'Enable sender',exact:true})).toHaveCount(0);
+ const defaults=page.getByRole('heading',{name:'Branch default sender',exact:true}).locator('..');
+ await expect(defaults.getByRole('option').filter({hasText:'Browser Staff Sender'})).toHaveCount(0);
+ await page.getByRole('combobox',{name:'Language',exact:true}).selectOption('fr');
+ await expect(row).toContainText('Expéditeur interne uniquement');
+});

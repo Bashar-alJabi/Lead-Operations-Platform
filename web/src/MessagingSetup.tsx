@@ -12,7 +12,7 @@ type Connection = { id: string; branch_id: string | null; name: string; provider
   version: number; config: { wabaId: string; graphVersion: string }; has_credential: boolean;
   last_success_at: string | null; last_failure_at: string | null; last_error_code: string | null };
 type Sender = { id: string; external_sender_id: string; display_name: string; health: string; active: boolean;
-  operator_enabled: boolean; version: number; bindings: { branchId: string; allowSharedFallback: boolean }[];
+  operator_enabled: boolean; staff_only: boolean; version: number; bindings: { branchId: string; allowSharedFallback: boolean }[];
   provider_status: { qualityRating?: string | null }; cooldown_until: string | null;
   last_provider_error_code: string | null };
 type QueueHealth = { status: string; cooldownUntil: string | null; lastErrorCode: string | null;
@@ -26,15 +26,22 @@ const labels = {
   fr: { title: 'Connexions de messagerie', explain: 'Créez un compte WhatsApp Business et une application Meta, puis obtenez le WABA ID, un jeton System User et le secret de l’application. Configurez-les ici. L’envoi et le webhook doivent être vérifiés séparément.', add: 'Ajouter', edit: 'Modifier', name: 'Nom', scope: 'Portée', organization: 'Organisation', branch: 'Agence', version: 'Version Graph API', waba: 'WABA ID', token: 'Jeton d’accès', appSecret: 'Secret de l’application', verifyToken: 'Jeton de vérification', save: 'Enregistrer', test: 'Tester et découvrir les numéros', disable: 'Désactiver', enable: 'Réactiver', senders: 'Numéros découverts', status: 'État', noSenders: 'Aucun numéro', noConnections: 'Aucune connexion', more: 'Plus', warning: 'Numéros découverts ; envoi et webhook non encore vérifiés.', existingSecret: 'Laissez les secrets vides pour conserver ceux enregistrés ; ils ne sont pas réaffichés.', bind: 'Lier', unbind: 'Délier', fallback: 'Secours partagé', senderEnable: 'Activer le numéro', senderDisable: 'Désactiver le numéro', defaultSender: 'Numéro par défaut de l’agence', noDefault: 'Aucun numéro par défaut', pending: 'Envoi indisponible tant que le test d’envoi manque.', sendingPolicy: 'Fenêtre d’envoi de l’agence', allDay: 'Aucune restriction horaire locale', starts: 'Début', ends: 'Fin', timezone: 'Fuseau horaire', policyNote: 'Une fenêtre traversant minuit est autorisée. Les règles du fournisseur et le consentement s’appliquent à l’envoi.' },
   en: { title: 'Messaging connections', explain: 'Create a Meta Business Portfolio, WhatsApp Business Account, and Meta app. Obtain the WABA ID, System User access token, and App Secret. Enter them here and discover senders. Webhook and outbound sending require separate verification.', add: 'Add connection', edit: 'Edit connection', name: 'Connection name', scope: 'Scope', organization: 'Organization', branch: 'Branch', version: 'Graph API version', waba: 'WABA ID', token: 'Access token', appSecret: 'App Secret', verifyToken: 'Webhook Verify Token', save: 'Save', test: 'Test and discover senders', disable: 'Disable', enable: 'Reconfigure', senders: 'Discovered senders', status: 'Status', noSenders: 'No senders discovered', noConnections: 'No connections', more: 'More', warning: 'Sender discovery succeeded; outbound sending and webhook are not yet verified.', existingSecret: 'Leave secrets blank to retain saved values; they are never displayed after saving.', bind: 'Bind', unbind: 'Unbind', fallback: 'Shared fallback', senderEnable: 'Enable sender', senderDisable: 'Disable sender', defaultSender: 'Branch default sender', noDefault: 'No default sender', pending: 'Sending remains unavailable until a send test succeeds.', sendingPolicy: 'Branch sending window', allDay: 'No local time restriction', starts: 'Starts', ends: 'Ends', timezone: 'Time zone', policyNote: 'A window may cross midnight. Provider rules and consent are enforced at send time.' },
 } as const;
+const staffSenderLabels = {
+  ar:{open:'حجز للإشعارات الداخلية',state:'مرسل داخلي فقط',hint:'يُخصص الرقم لهذا الفرع وتُمنع إضافته إلى محادثات العملاء.',reason:'سبب تخصيص الرقم',confirm:'تأكيد تخصيص المرسل',cancel:'إلغاء'},
+  en:{open:'Reserve for internal notifications',state:'Internal sender only',hint:'This reserves the number for this branch and prevents its use in customer conversations.',reason:'Sender reservation reason',confirm:'Confirm sender reservation',cancel:'Cancel'},
+  fr:{open:'Réserver aux notifications internes',state:'Expéditeur interne uniquement',hint:'Ce numéro sera réservé à cette agence et exclu des conversations client.',reason:'Motif de la réservation',confirm:'Confirmer la réservation',cancel:'Annuler'},
+} as const;
 
 export function MessagingSetup({ locale, role, branchId, branches, api }: {
   locale: Locale; role: 'SUPER_ADMIN'|'MANAGER'; branchId: string | null; branches: Branch[]; api: Api;
 }) {
   const t = labels[locale];
+  const internal = staffSenderLabels[locale];
   const [items, setItems] = useState<Connection[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [selected, setSelected] = useState<Connection | null>(null);
   const [senders, setSenders] = useState<Sender[]>([]);
+  const [reservation, setReservation] = useState<{id:string;reason:string}|null>(null);
   const [senderAfter, setSenderAfter] = useState<string | null>(null);
   const [queueHealth, setQueueHealth] = useState<QueueHealth | null>(null);
   const [editing, setEditing] = useState(false);
@@ -146,6 +153,16 @@ export function MessagingSetup({ locale, role, branchId, branches, api }: {
       await choose(selected); await load(); await loadDefault(setupBranchId);
     } catch (failure) { setError(String(failure)); } finally { setBusy(false); }
   }
+  async function reserveSender(sender: Sender) {
+    if (!selected || reservation?.id!==sender.id) return;
+    setBusy(true);setError('');
+    try {
+      await api(`/api/messaging/senders/${sender.id}/reserve-for-staff`,{method:'POST',body:JSON.stringify({
+        version:sender.version,reason:reservation.reason,
+      })});
+      setReservation(null);await choose(selected);await loadDefault(setupBranchId);
+    } catch (failure) {setError(String(failure));} finally {setBusy(false);}
+  }
   async function saveDefault() {
     if (!setupBranchId) return;
     setBusy(true); setError('');
@@ -193,9 +210,19 @@ export function MessagingSetup({ locale, role, branchId, branches, api }: {
         {sender.cooldown_until && new Date(sender.cooldown_until) > new Date() &&
           ` · ${locale === 'ar' ? 'متوقف حتى' : locale === 'fr' ? 'Pause jusqu’à' : 'Paused until'} ${new Date(sender.cooldown_until).toLocaleString(locale)}`}
         {sender.last_provider_error_code && ` · ${sender.last_provider_error_code}`}
-        {(role === 'SUPER_ADMIN' || selected.branch_id === branchId) && <button className="link" disabled={busy}
+        {!sender.staff_only && (role === 'SUPER_ADMIN' || selected.branch_id === branchId) && <button className="link" disabled={busy}
           onClick={() => void senderAction(sender, sender.operator_enabled ? 'disable' : 'enable')}>
           {sender.operator_enabled ? t.senderDisable : t.senderEnable}</button>}
+        {sender.staff_only && <strong> · {internal.state}</strong>}
+        {!sender.staff_only && sender.active && selected.branch_id && selected.status!=='DISABLED' &&
+          (role==='SUPER_ADMIN' || selected.branch_id===branchId) && (reservation?.id===sender.id
+            ? <form onSubmit={event=>{event.preventDefault();void reserveSender(sender);}}>
+                <p>{internal.hint}</p><label>{internal.reason}<input required minLength={3} maxLength={500} disabled={busy}
+                  value={reservation.reason} onChange={event=>setReservation({id:sender.id,reason:event.target.value})}/></label>
+                <button disabled={busy}>{internal.confirm}</button>
+                <button type="button" className="link" disabled={busy} onClick={()=>setReservation(null)}>{internal.cancel}</button>
+              </form>
+            : <button className="link" disabled={busy} onClick={()=>setReservation({id:sender.id,reason:''})}>{internal.open}</button>)}
         {role === 'SUPER_ADMIN' && selected.branch_id === null && <ul>{branches.map((branch) => {
           const binding = sender.bindings.find((item) => item.branchId === branch.id);
           return <li key={branch.id}>{branch.name} · {binding ? t.bind : t.unbind}
