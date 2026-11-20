@@ -82,6 +82,7 @@ import { registerAICustomerHistoryRoutes } from './routes/ai-customer-history.js
 import { registerWorkingHoursRoutes } from './routes/working-hours.js';
 import { registerNotificationRoutes } from './routes/notifications.js';
 import { registerOperationalNotificationRoutes } from './operational-notifications.js';
+import { registerStaffMessagingDestinationRoutes } from './routes/staff-messaging-destination.js';
 import { registerLeadAttentionRoutes } from './lead-attention-notifications.js';
 import {registerAutomationRoutes} from './routes/automations.js';
 import {registerConversationNotificationRoutes} from './routes/conversation-notifications.js';
@@ -158,6 +159,7 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   registerWorkingHoursRoutes(app, db);
   registerNotificationRoutes(app, db);
   registerOperationalNotificationRoutes(app, db);
+  registerStaffMessagingDestinationRoutes(app, db);
   registerLeadAttentionRoutes(app, db);
   registerConversationNotificationRoutes(app, db);
   registerFollowUpNotificationRoutes(app, db);

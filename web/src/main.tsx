@@ -24,6 +24,7 @@ import { AISetup } from './AISetup.js';
 import { AIHumanHandoffQueue } from './AIHumanHandoffQueue.js';
 import { LeadPaymentMethods } from './PaymentMethods.js';
 import { WorkingHoursEditor } from './WorkingHoursEditor.js';
+import { StaffMessagingDestination, staffMessagingLabel } from './StaffMessagingDestination.js';
 import {AutomationWorkspace} from './AutomationWorkspace.js';
 import {GoogleSetup} from './GoogleSetup.js';
 import { NotificationCenter, integrationPages } from './NotificationCenter.js';
@@ -138,6 +139,7 @@ function App() {
   const [bulkReason, setBulkReason] = useState('');
   const [bulkResults, setBulkResults] = useState<{ id: string; status: string; error?: string }[]>([]);
   const [users, setUsers] = useState<ManagedUser[]>([]);
+  const [staffDestination, setStaffDestination] = useState<{id:string;name:string}|null>(null);
   const [nextUserCursor, setNextUserCursor] = useState<string | null>(null);
   const [detail, setDetail] = useState<{ lead: Lead; activities: { id: number; event_type: string; created_at: string }[] } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -326,7 +328,7 @@ function App() {
   return <div className="app-shell"><aside className="sidebar"><div className="brand">{t.app}</div><div className="user-block"><strong>{user.name}</strong><span>{user.role.replace('_', ' ')}</span></div>
     <nav>{(['leads','contacts','contactReviews','followups','campaigns','fields','branches','users','emailSetup','identityEmail','messagingSetup','metaSources','paymentSetup','aiSetup','googleSetup','analytics','automations','notifications','profile'] as Page[]).filter((item) =>
       item === 'emailSetup' || item === 'identityEmail' || item === 'contactReviews' || item === 'messagingSetup' || item === 'metaSources' || item === 'paymentSetup' || item === 'aiSetup' || item === 'googleSetup' || item === 'automations' ? canManage : canManage || item === 'leads' || item === 'contacts' || item === 'profile' || item === 'followups' || item === 'notifications' || item === 'analytics').map((item) =>
-      <button key={item} aria-label={t[item]} className={page === item ? 'selected' : ''} onClick={() => { setPage(item); setSelectedLead(null); setSelectedCampaign(null); setShowForm(false); setForm({}); setNotice(''); }}>{t[item]}{item==='notifications'&&hasUnreadNotifications&&<span role="status" aria-label={locale==='ar'?'إشعارات غير مقروءة':locale==='fr'?'Notifications non lues':'Unread notifications'} style={{marginInlineStart:'.5rem'}}>●</span>}</button>)}</nav>
+      <button key={item} aria-label={t[item]} className={page === item ? 'selected' : ''} onClick={() => { setPage(item); setSelectedLead(null); setSelectedCampaign(null); setStaffDestination(null); setShowForm(false); setForm({}); setNotice(''); }}>{t[item]}{item==='notifications'&&hasUnreadNotifications&&<span role="status" aria-label={locale==='ar'?'إشعارات غير مقروءة':locale==='fr'?'Notifications non lues':'Unread notifications'} style={{marginInlineStart:'.5rem'}}>●</span>}</button>)}</nav>
     <div className="sidebar-bottom">{language}<button onClick={() => { void api('/api/auth/logout', { method: 'POST' }).then(() => {setInitialImportId(null);setUser(null);}); }}>{t.logout}</button></div>
   </aside><main className="content"><header><div><small>Lead Operations</small><h1>{selectedLead ? t.details : t[page]}</h1></div><button className="secondary" onClick={() => void (page === 'identityEmail' ? refreshDeliveryJobs() : page === 'contacts' || page === 'contactReviews' || page === 'fields' ? setWorkspaceRefresh((value) => value + 1) : refresh())} disabled={busy}>{t.retry}</button></header>
     {error && <div role="alert" className="error">{error}</div>}
@@ -334,6 +336,9 @@ function App() {
     {busy && <div className="loading">{t.loading}</div>}
     {hoursResource && (page==='users'||page==='branches') && <section className="panel"><h2>{hoursResource.name}</h2><button className="link" onClick={()=>setHoursResource(null)}>{t.back}</button>
       <WorkingHoursEditor scope={hoursResource.scope} id={hoursResource.id} locale={locale} api={api} initiallyOpen/></section>}
+    {page==='users' && canManage && staffDestination && <section className="panel"><h2>{staffDestination.name}</h2>
+      <button className="link" onClick={()=>setStaffDestination(null)}>{t.back}</button>
+      <StaffMessagingDestination key={user.id+':'+staffDestination.id} staffId={staffDestination.id} locale={locale} api={api}/></section>}
     {page === 'emailSetup' && canManage ? <EmailSetup key={user.id} locale={locale} api={api} user={{...user,role:user.role as 'SUPER_ADMIN'|'MANAGER'}} branches={branches}/> : page === 'identityEmail' ? <section className="panel form-panel"><h2>{t.identityEmail}</h2>
       {isAdmin && <>
       <p>{t.emailStatus}: {emailConnection?.status ?? 'NOT_CONFIGURED'}</p>
@@ -368,12 +373,13 @@ function App() {
       : page === 'campaigns' && selectedCampaign ? <CampaignWorkspace id={selectedCampaign} locale={locale} api={api}
         onBack={() => setSelectedCampaign(null)} onChanged={refresh} />
       : page === 'followups' ? <FollowupQueue locale={locale} api={api} onOpenLead={(id) => { setPage('leads'); setSelectedLead(id); }} />
-      : page === 'profile' ? <section className="panel form-panel"><h2>{t.profile}</h2><p>{t.passwordChanged}</p>
+      : page === 'profile' ? <><section className="panel form-panel"><h2>{t.profile}</h2><p>{t.passwordChanged}</p>
       <form onSubmit={(event) => { event.preventDefault(); setBusy(true); setError('');
         void api('/api/auth/password', { method: 'POST', body: JSON.stringify({ currentPassword: form.currentPassword, newPassword: form.newPassword }) })
           .then(() => { setInitialImportId(null);setUser(null); setForm({}); setPage('leads'); }).catch((failure) => setError(String(failure))).finally(() => setBusy(false)); }}>
         {field('currentPassword', t.currentPassword, 'password')}{field('newPassword', t.newPassword, 'password')}
-        <button disabled={busy}>{t.save}</button></form></section> : selectedLead && detail ? <section className="panel"><button className="link" onClick={() => setSelectedLead(null)}>{t.back}</button><h2>{contactLabel(detail.lead,locale)}</h2>
+        <button disabled={busy}>{t.save}</button></form></section>
+      {!isAdmin && <StaffMessagingDestination key={user.id} locale={locale} api={api}/>}</> : selectedLead && detail ? <section className="panel"><button className="link" onClick={() => setSelectedLead(null)}>{t.back}</button><h2>{contactLabel(detail.lead,locale)}</h2>
       <div className="facts"><div><small>{t.phone}</small><strong>{detail.lead.phone || '—'}</strong></div><div><small>{t.email}</small><strong>{detail.lead.email || '—'}</strong></div>
       <div><small>{t.lifecycle}</small><strong>{detail.lead.lifecycle}</strong></div><div><small>{t.assign}</small><strong>{leadCell(detail.lead,'owner')}</strong></div></div>
       {canManage && <div className="actions">{(['OPEN','CLOSED','ARCHIVED'] as const).filter((state) => state !== detail.lead.lifecycle).map((state) =>
@@ -438,7 +444,9 @@ function App() {
           {item.active && item.credential_state === 'INVITED' && <button className="link" disabled={busy} onClick={() => void submit(`/api/users/${item.id}/invitation`, {})}>{t.inviteAgain}</button>}
           <button className="link" disabled={busy} onClick={() => { setBusy(true); setError('');
             void api(`/api/users/${item.id}/status`, { method: 'PATCH', body: JSON.stringify({ active: !item.active }) })
-              .then(() => refresh()).catch((failure) => setError(String(failure))).finally(() => setBusy(false)); }}>{item.active ? t.disable : t.enable}</button></div>}{item.role !== 'SUPER_ADMIN' && (isAdmin || item.role === 'AGENT' && item.branch_id === user.branchId) && <button className="link" data-hours-open={item.id} onClick={()=>setHoursResource({scope:'USER',id:item.id,name:item.name})}>{locale==='ar'?'إعداد ساعات العمل':locale==='fr'?'Configurer les horaires':'Configure working hours'}</button>}</td></tr>)}
+              .then(() => { if(staffDestination?.id===item.id)setStaffDestination(null);return refresh(); }).catch((failure) => setError(String(failure))).finally(() => setBusy(false)); }}>{item.active ? t.disable : t.enable}</button></div>}{item.role !== 'SUPER_ADMIN' && (isAdmin || item.role === 'AGENT' && item.branch_id === user.branchId) && <>
+          <button className="link" data-hours-open={item.id} onClick={()=>setHoursResource({scope:'USER',id:item.id,name:item.name})}>{locale==='ar'?'إعداد ساعات العمل':locale==='fr'?'Configurer les horaires':'Configure working hours'}</button>
+          <button className="link" onClick={()=>setStaffDestination({id:item.id,name:item.name})}>{staffMessagingLabel(locale)}</button></>}</td></tr>)}
         </tbody></table></div>{(page === 'leads' ? leads : page === 'campaigns' ? campaigns : page === 'branches' ? branches : users).length === 0 && <div className="empty">{t.noData}</div>}
         {page === 'leads' && nextLeadCursor && <div className="load-more"><button className="secondary" disabled={busy} onClick={() => { setBusy(true);
           api<{ items: Lead[]; nextCursor: string | null }>(`/api/leads?${leadQuery ? leadQuery + '&' : ''}limit=50&cursor=${encodeURIComponent(nextLeadCursor)}`)
