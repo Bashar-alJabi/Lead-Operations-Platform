@@ -5,6 +5,7 @@ import {processOneExport} from '../src/exports/service.js';
 import {processOneGoogleExportPreparation} from '../src/google/export-preparation.js';
 import {processOneGoogleExportDelivery} from '../src/google/export-delivery-worker.js';
 import {processOneEmailPublication} from '../src/notification-email-outbox.js';
+import {processOneNotificationEmail} from '../src/notification-email-dispatch.js';
 import {processOneAutomationMatch,processOneAutomationExecution} from '../src/automation.js';
 // Test-only HTTP entrypoint. Never imported by the production server or workers.
 import { randomBytes,createHmac } from 'node:crypto';
@@ -365,6 +366,19 @@ app.post<{Body:{steps?:number}}>('/__test__/email-publications',{schema:{body:{t
  if(typeof request.headers.authorization!=='string'||!safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
  let processed=0;for(let i=0;i<(request.body.steps??1);i++){if(!await processOneEmailPublication(db))break;processed++;}
  return {processed,sends:operationalEmailSends};
+});
+app.post('/__test__/email-dispatch',async request=>{
+ if(typeof request.headers.authorization!=='string'||!safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
+ let sends=0;
+ for(let i=0;i<20;i++){
+  if(!await processOneNotificationEmail(db,async(settings,password,message)=>{
+   if(settings.host!=='queue.smtp.example.test'||password!=='BrowserSyntheticEmail_Queue'||!message.to.endsWith('@browser.test'))
+    throw Error('Unexpected email fixture');
+   sends++;
+   if(message.to==='agent@browser.test')throw Error('Synthetic SMTP acknowledgement lost');
+  }))break;
+ }
+ return {sends};
 });
 app.post<{Body:{steps?:number}}>('/__test__/google-capture',{schema:{body:{type:'object',additionalProperties:false,properties:{steps:{type:'integer',minimum:0,maximum:20}}}}},async request=>{
  if(typeof request.headers.authorization!=='string'||!safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');

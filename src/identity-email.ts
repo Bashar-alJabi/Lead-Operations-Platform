@@ -20,6 +20,27 @@ function transport(settings: EmailSettings, password: string) {
   });
 }
 
+export type NotificationSmtpSend = (
+  settings: EmailSettings,
+  password: string,
+  message: { to: string; subject: string; text: string },
+) => Promise<void>;
+
+export const sendNotificationSmtp: NotificationSmtpSend = async (settings, password, message) => {
+  const info = await transport(settings, password).sendMail({
+    from: { name: '', address: settings.fromAddress },
+    to: { name: '', address: message.to },
+    envelope: { from: settings.fromAddress, to: [message.to] },
+    subject: message.subject,
+    text: message.text,
+    disableFileAccess: true,
+    disableUrlAccess: true,
+  });
+  if (info.accepted?.length !== 1 || info.accepted[0] !== message.to || info.rejected?.length) {
+    throw new Error('SMTP acceptance could not be established');
+  }
+};
+
 export const smtpEmailAdapter: IdentityEmailAdapter = {
   async verify(settings, password) { await transport(settings, password).verify(); },
   async send(settings, password, message) {

@@ -94,6 +94,6 @@ export function EmailNotificationSettings(props:Props){
  return <section className="panel" data-email-notification-settings style={{minWidth:0,overflowWrap:'anywhere'}}>
   <EmailPreferences {...props}/>{props.user.role!=='AGENT'&&<><EmailBranchSettings {...props}/><NotificationTemplates locale={props.locale} api={props.api}
    user={{...props.user,role:props.user.role}} branches={props.branches} channel="EMAIL"/></>}
-  <EmailNotificationOutbox locale={props.locale} api={props.api} userId={props.user.id} eventLabel={eventLabel}/>
+  <EmailNotificationOutbox locale={props.locale} api={props.api} userId={props.user.id} eventLabel={eventLabel} canManage={props.user.role!=='AGENT'}/>
  </section>;
 }

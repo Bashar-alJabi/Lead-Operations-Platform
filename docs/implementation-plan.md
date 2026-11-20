@@ -1,5 +1,9 @@
 # خطة التنفيذ
 
+## أحدث checkpoint: تسليم Email — migration 199 — 2026-11-20
+
+أُثبت تجهيز وتسليم إشعارات البريد للأحداث الحالية مع SMTP mock وAudit وحالات ACCEPTED/UNKNOWN والتعافي قبل الإرسال. **208/208 Unit، 182/182 PostgreSQL Integration (792.1s)، 79/79 Edge Browser E2E (12.1m)** مع build/typecheck وmigrations 001–199. ابدأ أحداث Lead Needs Attention من الانتقالات الموثوقة في Lead، مع إيصال دائم وصلاحية Lead حالية وواجهة الإشعارات. ثم أدرج Unresolved inbound وIntegration/System alerts بنطاق Branch/Organization حقيقي وقناة الإشعار الداخلية. يليها Messaging الداخلي ثم Automation وبقية الاعتماديات. تبقى الأولوية للوظائف الأساسية.
+
 ## أحدث checkpoint: نشر Email وتجهيز المستلمين — Native198 — 2026-11-19
 
 اكتملت fresh publication وactivation horizon وbounded current-recipient outbox وnative immutable receipts/Audit وpersonal queue/API/ar-en-fr UI وworker مستقلة، دون SMTP send authority. **208/208 Unit،179/179 full compiled Docker PostgreSQL Integration (764.6s)،79/79 full Edge Browser E2E (6.6m)**، مع Backend/Web build/typecheck وإعادة فحص migrations001–198 في development/test دون تغيير أعداد بيانات الأعمال وcompiled worker smoke. ملفات001–198 ثابتة؛Email baseline وLive verification غير مكتملتين. [العقد](operational-email.md).

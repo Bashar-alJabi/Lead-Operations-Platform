@@ -36,11 +36,7 @@
 
 Native197 تضيف CAS وimmutable binding/preference histories وatomic Audit وcurrent real Session/Role/Branch checks. تبقى عقود IN_APP وسجلها وقيمها الافتراضية كما هي. لا تمنح هذه migration أو APIs صلاحية SMTP send، ولا تنشئ outbox أو ترسل رسائل عند حفظ الإعدادات. [التقدم](codex-progress.md) هو المرجع للبوابة الشاملة وحالة checkpoint.
 
-## الحالة وما يلي
-
-### تجهيز جمهور الأحداث — Native198
-
-حدود هذه المرحلة: فشل transaction تجهيز صفحة يبقيها WAITING دون أي أثر جزئي أو provider call. لا يوجد في198 عداد دائم لفشل التجهيز أو dead-letter/recovery UI؛ يجب إكمالهما مع dispatch في199 قبل إعلان Email baseline. يبقى التشغيل الحي غير متحقق، ولا تستبدل إعادة تشغيل worker إصلاح سبب فشل Audit أو صلاحيات المصدر.
+## تجهيز جمهور الأحداث — Native198
 
 ينشئ نشر Notification Event جديدة publication واحدة إذا كانت قناة فرعها مفعلة وقت النشر. لا backfill للأحداث السابقة، ولا مسحًا متكررًا للتاريخ. تحفظ publication وقت النشر من ساعة DB وإصداري binding وConnection؛ لا تستخدم timestamp من العميل أو session قديمة بوصفها صلاحية تشغيل. يحفظ التفضيل الشخصي enabled_since، وتبدأ هذه الساعة من جديد بعد التعطيل وإعادة التفعيل. تغيير اللغة وحده لا يعيد الساعة ولا يرسل التاريخ. الإعدادات القائمة عند ترقية198 تبدأ من وقت الترقية دون تغيير opt-in التجارية.
 
@@ -52,4 +48,12 @@ Native197 تضيف CAS وimmutable binding/preference histories وatomic Audit �
 
 حالة التنفيذ وأعداد الاختبارات الفعلية في [التقدم](codex-progress.md) و[التغطية](requirement-coverage.md). تستخدم اختبارات هذه المرحلة بيانات اصطناعية وSMTP adapter mock، دون حسابات شخصية أو credentials حقيقية. **Live Verification Pending External Credential/Approval**؛ لا يثبت نجاح mocks اتصالًا حيًا أو TLS مع مزود حقيقي.
 
-التالي بعد حفظ Native198: ابدأ Native199 لمسار SMTP dispatch الفعلي فوق outbox الحالية: افحص current account/address وLead access وactivation/Preferences/language وbinding/Connection/template versions، واحفظ attempt/lease دائمة قبل I/O. تعني ACK حالة ACCEPTED فقط؛ UNKNOWN أو crash بعد attempt لا يسمحان بإعادة الإرسال تلقائيًا. أكمل native guards وAudit وimmutable attempt history وdurable materialization backoff/dead-letter/recovery وbounded pre-I/O retries وواجهة ar/en/fr وIntegration/Browser mocks. لا تستعر identity-email أو Session بشرية تاريخية، ولا ترسل بيانات عملاء حقيقية أو secrets أو بيانات دفع حساسة. بعد Email baseline أكمل unresolved/Lead/System/Integration Notifications وبقية Automation والوظائف الأساسية؛ لا Google/SMTP/AI refinements اختيارية أو تفعيل حي.
+## التسليم والتعافي — migration 199
+
+ينشئ النظام مهمة تسليم واحدة لكل outbox receipt. يستعيد العامل عنوان الحساب الفعلي والتفضيل واللغة والربط وإصدار الاتصال والصياغة السارية عند تجهيز الإرسال. تُختار الصياغة من Campaign ثم Branch ثم Organization ثم النص الافتراضي للحدث واللغة. يستخدم SMTP عنوانًا مفردًا ونصًا عاديًا من القالب المعتمد. تقتصر متغيرات النص على اسم الحملة والمالك. يسجل العامل الإصدارات فحسب ويحتفظ بالعنوان والنص وبيانات الاعتماد في الذاكرة طوال المحاولة. [عقد SMTP envelope](https://nodemailer.com/smtp/envelope)
+
+تُحفظ محاولة واحدة مع lease قبل I/O. يفحص العامل من جديد عنوان الحساب وإصدار التفضيل والصياغة وصلاحية Lead والاتصال قبل استدعاء المزود. تستعمل المعاملات أقفالًا قصيرة وتحررها قبل الشبكة. يتعامل التحقق مع أي تعديل اكتمل قبل آخر فحص بوصفه تغيّرًا في سياق الإرسال. تحدد حالة ACCEPTED قبول خادم SMTP، ويشير UNKNOWN إلى محاولة لم يتوفر لها إقرار صالح ضمن المهلة. تبقى النتيجة المجهولة محفوظة، وتعرض الواجهة الرجوع إلى المزود للتحقق منها. يمكن متابعة كل انتقال من السجل الشخصي، وفق صلاحية Lead الحالية.
+
+يتراجع تجهيز الصفحة بالكامل عند الفشل، ويسجل العامل عدادًا دائمًا وتأخيرًا متزايدًا. تتوقف الصفحة بعد المحاولة الخامسة ويستطيع Super Admin أو Manager المخوّل في الفرع طلب إعادة تجهيزها من واجهة الإشعارات. تطبق مهام البريد حدودًا مماثلة على فشل التحضير قبل وجود SMTP attempt. يستعيد المستلم المخوّل عمله غير المرسل من قائمته بعد إصلاح السبب. لكل تعافٍ Session حالية ونسخة متوقعة وسجل Audit، وتستعمل المحاولات دائمًا السياق الحالي.
+
+قدرة التشغيل الحي مغلقة افتراضيًا. الاختبارات تستخدم بيانات اصطناعية وSMTP mock. حالة المزود **Live Verification Pending External Credential/Approval**. [التقدم والبوابات](codex-progress.md)

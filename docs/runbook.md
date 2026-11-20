@@ -1,10 +1,10 @@
 # دليل التشغيل والتطوير
 
-## تجهيز مستلمي Email — Native198
+## تشغيل إشعارات Email — migrations 198–199
 
-بعد تطبيق migrations حتى198 شغّل `npm run worker:email-notifications` كخدمة application worker مستقلة إذا أردت تجهيز قوائم البريد. الإعدادات التشغيلية من «البريد التشغيلي» و«الإشعارات»، ولا تعديل يدوي لقاعدة البيانات. تعالج هذه النسخة publication جديدة فقط وصفحات من25مرشحًا، ولا تتصل بـSMTP أو ترسل أي بريد. لا حاجة لتشغيلها على Preview المتوقفة.
+بعد تطبيق migrations حتى199 شغّل `npm run worker:email-notifications` كخدمة مستقلة. يدير فريق التشغيل الاتصال والربط واللغة من «البريد التشغيلي» و«الإشعارات». يبدأ العامل بتجهيز المستلمين فقط. مفتاح النشر `EMAIL_NOTIFICATION_SMTP_ENABLED=1` يفتح مسار النقل بعد الموافقة على تشغيل SMTP الحي والتحقق من إعداد المزود. اترك المفتاح غير مفعّل في التطوير والاختبار المحليين. يستخدم Browser E2E مزودًا اصطناعيًا عبر test harness مستقل.
 
-خيارات capacity التقنية: `EMAIL_NOTIFICATION_WORKER_BATCH` افتراضي25 وحده1..100، و`EMAIL_NOTIFICATION_WORKER_POLL_MS` افتراضي2000 وحده250..60000ms. يستخدم اختبار التشغيل `EMAIL_NOTIFICATION_WORKER_ONCE=1` على قاعدة test المحلية فقط. يظهر failure عام في structured event باسم `email_notification_materialization_failed` دون تفاصيل أو secrets؛ rollback يحفظ الصفحة WAITING ليعيد worker تجهيزها بأمان. لا تعدّل cursor أوصفحات history لتجاوز فشل Audit. SUPPRESSED تعني تغير إعداد الربط المثبت؛ لا تعاد publication قديمة عند إعادة التفعيل. يرى المستخدم قائمته المصرح بها من زر «تحديث قائمة البريد». ACK/UNKNOWN والتسليم الفعلي لم ينفذها198؛ راجع [العقد](operational-email.md) و[آخر بوابة مثبتة](codex-progress.md).
+خيارات السعة هي `EMAIL_NOTIFICATION_WORKER_BATCH` (افتراضي 25، نطاق 1–100) و`EMAIL_NOTIFICATION_WORKER_POLL_MS` (افتراضي 2000، نطاق 250–60000ms). يستخدم فحص التشغيل `EMAIL_NOTIFICATION_WORKER_ONCE=1` على قاعدة test المحلية. يسجل العامل إخفاقات المعالجة في سجل التشغيل دون تفاصيل SMTP أو بيانات الاعتماد. تُظهر قائمة البريد الحالة والسجل بعد تحديثها. عند توقف التحضير بعد خمس حالات فشل، أصلح السبب ثم اختر «إعادة التجهيز» إن كنت مخوّلًا. عند UNKNOWN تحقّق من نتيجة المحاولة لدى المزود. ACCEPTED تعني أن المزوّد قبل الرسالة للمعالجة. [العقد](operational-email.md)
 
 ## إعداد قناة إشعارات البريد — Native197
 

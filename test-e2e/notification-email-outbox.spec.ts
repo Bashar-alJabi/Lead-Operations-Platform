@@ -1,7 +1,7 @@
 import {test,expect,type Page} from '@playwright/test';
 import {readFile} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
-test('Fresh opted-in notification emails appear in the actual personal queue without historical replay or SMTP and immediately lose current Lead access',async({browser})=>{
+test('Fresh opted-in emails expose SMTP acceptance and ambiguous outcomes with no replay and current Lead access',async({browser})=>{
  const f=JSON.parse(await readFile('.local/e2e/fixture.json','utf8')) as {password:string;testToken:string},headers={origin:'http://127.0.0.1:4100'},errors:string[]=[];
  const manager=await browser.newContext({extraHTTPHeaders:{'x-e2e-rate-scope':randomUUID()}}),agentContext=await browser.newContext({extraHTTPHeaders:{'x-e2e-rate-scope':randomUUID()}}),page=await manager.newPage(),agent=await agentContext.newPage();
  for(const p of [page,agent]){p.on('pageerror',e=>errors.push(e.message));p.on('console',m=>{if(m.type()==='error'&&/same key|unique.*key/i.test(m.text()))errors.push(m.text());});}
@@ -19,6 +19,16 @@ test('Fresh opted-in notification emails appear in the actual personal queue wit
   await expect.poll(async()=>{const r=await control();expect(r.status()).toBe(200);expect((await r.json()).sends).toBe(0);return(await(await agent.request.get('/api/notification-email/deliveries')).json()).items.some((x:{leadId:string})=>x.leadId===lead);},{timeout:10000,intervals:[50,100,250]}).toBe(true);
   const queue=agent.locator('[data-email-outbox]');await queue.getByRole('button',{name:'Refresh email queue',exact:true}).click();await expect(queue.locator('[data-email-outbox-item]')).toHaveCount(1);await expect(queue).toContainText('Waiting to send');await expect(queue).toContainText('fr');const feed=await(await agent.request.get('/api/notification-email/deliveries')).json();expect(feed.items.some((x:{leadId:string})=>x.leadId===historical)).toBe(false);expect(feed.items[0].leadId).toBe(lead);
   await agent.getByRole('combobox',{name:'Language',exact:true}).selectOption('fr');await expect(queue).toContainText('En attente d’envoi');await agent.getByRole('combobox',{name:'Language',exact:true}).selectOption('ar');await agent.setViewportSize({width:390,height:844});await expect(queue).toContainText('بانتظار الإرسال');expect(await agent.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await queue.screenshot({path:'.local/e2e/notification-email-outbox-ar.png'});
+  const dispatch=()=>page.request.post('/__test__/email-dispatch',{headers:{...headers,authorization:'Bearer '+f.testToken},data:{}});
+  const result=await dispatch();expect(result.status()).toBe(200);expect((await result.json()).sends).toBe(2);
+  const replay=await dispatch();expect(replay.status()).toBe(200);expect((await replay.json()).sends).toBe(0);
+  await queue.getByRole('button',{name:'تحديث قائمة البريد',exact:true}).click();
+  await expect(queue).toContainText('نتيجة الإرسال غير معروفة');
+  await expect(queue.getByRole('button',{name:'إعادة التجهيز',exact:true})).toHaveCount(0);
+  await queue.getByText('آخر تغيّرات الحالة',{exact:true}).click();await expect(queue).toContainText('قيد الإرسال');
+  const managerQueue=page.locator('[data-email-outbox]');
+  await managerQueue.getByRole('button',{name:'Refresh email queue',exact:true}).click();
+  await expect(managerQueue).toContainText('Accepted by mail provider');
   await agent.route('**/api/notification-email/deliveries',r=>r.fulfill({status:403,contentType:'application/json',body:JSON.stringify({error:'EMAIL_NOTIFICATION_ACCESS_REVOKED'})}));await queue.getByRole('button',{name:'تحديث قائمة البريد',exact:true}).click();await expect(queue.getByRole('alert')).toBeVisible();await expect(queue.locator('[data-email-outbox-detail]')).toHaveCount(0);await agent.unroute('**/api/notification-email/deliveries');
   expect((await page.request.post('/api/leads/'+lead+'/assignment',{headers,data:{version:2,agentId:null,reason:'Remove current email recipient access'}})).status()).toBe(200);await queue.getByRole('button',{name:'تحديث قائمة البريد',exact:true}).click();await expect(queue.locator('[data-email-outbox-item]')).toHaveCount(0);expect((await(await agent.request.get('/api/notification-email/deliveries')).json()).items).toEqual([]);expect(await agent.evaluate(()=>Boolean((window as unknown as Record<string,unknown>).queueXss))).toBe(false);expect(errors).toEqual([]);
  }finally{
