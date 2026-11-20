@@ -3,7 +3,7 @@ import {readFile} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
 
 test('Fresh lead and assignment inbox events support scoped wording, personal preferences, read history and current-owner revocation in localized UI',async({browser})=>{
- const f=JSON.parse(await readFile('.local/e2e/fixture.json','utf8')) as {password:string},origin='http://127.0.0.1:4100',headers={origin};
+ const f=JSON.parse(await readFile('.local/e2e/fixture.json','utf8')) as {password:string;testToken:string},origin='http://127.0.0.1:4100',headers={origin};
  const managerContext=await browser.newContext({extraHTTPHeaders:{'x-e2e-rate-scope':randomUUID()}}),agentContext=await browser.newContext({extraHTTPHeaders:{'x-e2e-rate-scope':randomUUID()}}),page=await managerContext.newPage(),agent=await agentContext.newPage(),errors:string[]=[];
  for(const p of [page,agent]){p.on('pageerror',e=>errors.push(e.message));p.on('console',m=>{if(m.type()==='error'&&/same key|unique.*key/i.test(m.text()))errors.push(m.text());});}
  const login=async(p:Page,name:string)=>{await p.goto('/');await p.getByRole('combobox',{name:'Language',exact:true}).selectOption('en');await p.getByLabel('Email',{exact:true}).fill(name+'@browser.test');await p.getByLabel('Password',{exact:true}).fill(f.password);await p.getByRole('button',{name:'Sign in',exact:true}).click();await expect(p.getByRole('button',{name:'Sign out',exact:true})).toBeVisible();};
@@ -30,6 +30,18 @@ test('Fresh lead and assignment inbox events support scoped wording, personal pr
   await agent.getByRole('combobox',{name:'Language',exact:true}).selectOption('en');await center.getByRole('button',{name:'Refresh notifications',exact:true}).click();await expect(notice).toHaveCount(0);
   expect((await agent.request.get('/api/notifications/'+created.id+'/history')).status()).toBe(404);expect((await agent.request.put('/api/notifications/'+created.id+'/state',{headers,data:{version:1,isRead:false}})).status()).toBe(404);
   expect((await events(page)).some((n:any)=>n.eventType==='LEAD_REASSIGNED')).toBe(true);
+  const publish=await page.request.post('/__test__/lead-attention',{headers:{...headers,authorization:'Bearer '+f.testToken},data:{}});
+  expect(publish.status()).toBe(200);
+  const flagged=(await events(page)).find((n:{eventType:string})=>n.eventType==='LEAD_NEEDS_ATTENTION');
+  expect(flagged).toBeTruthy();
+  expect((await events(agent)).some((n:{id:string})=>n.id===flagged.id)).toBe(false);
+  const managerCenter=page.locator('[data-notification-center]');
+  await managerCenter.getByRole('button',{name:'Refresh notifications',exact:true}).click();
+  const leadAttention=managerCenter.locator('[data-notification="'+flagged.id+'"] [data-lead-attention]');
+  await expect(leadAttention).toContainText('Lead still needs review');
+  await expect(leadAttention).toContainText('Unassigned by manager');
+  await page.getByRole('combobox',{name:'Language',exact:true}).selectOption('ar');
+  await expect(leadAttention).toContainText('الفرصة تحتاج مراجعة حاليًا');
   await agent.route('**/api/notification-preferences/LEAD_CREATED',r=>r.fulfill({status:403,contentType:'application/json',body:JSON.stringify({error:'NOTIFICATION_ACCESS_REVOKED'})}));await pref.getByRole('button',{name:'Reload lead notification preference',exact:true}).click();await expect(pref.getByRole('alert')).toBeVisible();await expect(pref.getByLabel('Enable this In-App notification',{exact:true})).toHaveCount(0);
   expect(errors).toEqual([]);expect(await agent.evaluate(()=>Boolean((window as unknown as {noticeXss?:unknown}).noticeXss))).toBe(false);
  }finally{await managerContext.close();await agentContext.close();}

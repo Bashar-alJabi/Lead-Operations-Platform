@@ -60,9 +60,12 @@ export function registerNotificationRoutes(app:FastifyInstance,db:Database) {
    }
    if(!await currentPaymentSession(tx,actor,request))throw new HttpError(403,'NOTIFICATION_ACCESS_REVOKED');
    const rows=candidates.length ? await tx`SELECT e.id,e.event_type,e.branch_id,e.campaign_id,e.lead_id,e.conversation_id,e.payment_id,e.enrollment_id,e.follow_up_id,o.due_at AS observed_due_at,f.due_at AS current_due_at,f.status AS follow_up_status,
-    attention.id AS attention_id,attention.reason_code AS attention_reason,
+    COALESCE(attention.id,la.id) AS attention_id,COALESCE(attention.reason_code,la.reason_code) AS attention_reason,
     ae.id AS automation_id,ae.rule_id,ae.rule_version,av.snapshot->>'name' AS automation_name,av.snapshot->>'note' AS automation_note,
-    attention.id IS NOT NULL AND cv.state<>'CLOSED' AND cv.needs_attention_reason IS NOT NULL AND NOT EXISTS(SELECT 1 FROM conversation_attention_transition newer WHERE newer.conversation_id=cv.id AND newer.ordinal>attention.ordinal) AS attention_current,
+    (attention.id IS NOT NULL AND cv.state<>'CLOSED' AND cv.needs_attention_reason IS NOT NULL AND NOT EXISTS(SELECT 1 FROM conversation_attention_transition newer WHERE newer.conversation_id=cv.id AND newer.ordinal>attention.ordinal)
+     OR la.id IS NOT NULL AND l.lifecycle='OPEN' AND l.needs_attention_reason IS NOT NULL AND NOT EXISTS(
+      SELECT 1 FROM lead_attention_transition newer WHERE newer.lead_id=l.id AND newer.ordinal>la.ordinal
+     )) AS attention_current,
     f.status='OPEN' AND f.due_at=o.due_at AND f.due_at<=clock_timestamp() AS currently_due,e.created_at,e.created_at::text AS cursor_at,c.name AS campaign_name,u.name AS owner_name,
     COALESCE(ns.version,0) AS version,COALESCE(ns.is_read,false) AS is_read,
     cv.ai_handoff_action_id=e.source_id AND cv.state='WAITING_FOR_HUMAN' AND cv.controller_type='NONE' AS waiting
@@ -70,6 +73,7 @@ export function registerNotificationRoutes(app:FastifyInstance,db:Database) {
     JOIN campaign c ON c.id=e.campaign_id AND c.branch_id=e.branch_id AND c.organization_id=e.organization_id
     LEFT JOIN conversation cv ON cv.id=e.conversation_id AND cv.lead_id=l.id
     LEFT JOIN conversation_attention_transition attention ON attention.id=e.conversation_attention_id AND attention.conversation_id=cv.id
+    LEFT JOIN lead_attention_transition la ON la.id=e.lead_attention_id AND la.lead_id=l.id
     LEFT JOIN automation_execution ae ON ae.id=e.automation_execution_id
     LEFT JOIN automation_rule_version av ON av.rule_id=ae.rule_id AND av.version=ae.rule_version
     LEFT JOIN follow_up f ON f.id=e.follow_up_id AND f.lead_id=l.id

@@ -2,8 +2,8 @@ import { HttpError } from './security.js';
 
 export type NotificationLanguage = 'ar'|'en'|'fr';
 export const notificationEvent = 'AI_HANDOFF_REQUESTED' as const;
-export type NotificationEventType=typeof notificationEvent|'AI_HANDOFF_SLA_EXCEEDED'|'LEAD_CREATED'|'LEAD_ASSIGNED'|'LEAD_REASSIGNED'|'FOLLOW_UP_DUE'|'PAYMENT_CONFIRMED'|'ENROLLMENT_CONFIRMED'|'CONVERSATION_NEEDS_ATTENTION'|'AUTOMATION_NOTICE';
-export const notificationEvents:readonly NotificationEventType[]=[notificationEvent,'AI_HANDOFF_SLA_EXCEEDED','LEAD_CREATED','LEAD_ASSIGNED','LEAD_REASSIGNED','FOLLOW_UP_DUE','PAYMENT_CONFIRMED','ENROLLMENT_CONFIRMED','CONVERSATION_NEEDS_ATTENTION','AUTOMATION_NOTICE'];
+export const notificationEvents=[notificationEvent,'AI_HANDOFF_SLA_EXCEEDED','LEAD_CREATED','LEAD_ASSIGNED','LEAD_REASSIGNED','FOLLOW_UP_DUE','PAYMENT_CONFIRMED','ENROLLMENT_CONFIRMED','CONVERSATION_NEEDS_ATTENTION','AUTOMATION_NOTICE','LEAD_NEEDS_ATTENTION'] as const;
+export type NotificationEventType=typeof notificationEvents[number];
 export function requireNotificationBodyTypes(value:unknown,flag:string,strings:readonly string[]=[]):void {
  if(!value||typeof value!=='object'||Array.isArray(value))throw new HttpError(400,'INVALID_NOTIFICATION_REQUEST');
  const body=value as Record<string,unknown>;
@@ -16,6 +16,11 @@ export const notificationDefaults = {
  fr:{title:'Suivi humain demandé — {{campaign}}',body:'La conversation nécessite un suivi humain. Ouvrez le prospect pour consulter les détails.',owner:'Non attribué'},
 } as const;
 export const notificationDefaultsByEvent:Record<NotificationEventType,Record<NotificationLanguage,{title:string;body:string;owner:string}>>={
+ LEAD_NEEDS_ATTENTION:{
+  ar:{...notificationDefaults.ar,title:'فرصة تحتاج مراجعة · {{campaign}}',body:'تغيّرت حالة الفرصة. افتحها لمراجعة صلاحية الإسناد والحالة الحالية.'},
+  en:{...notificationDefaults.en,title:'Lead needs review · {{campaign}}',body:'The lead was flagged for review. Open it to check its current status and assignment.'},
+  fr:{...notificationDefaults.fr,title:'Prospect à examiner · {{campaign}}',body:'Le prospect a été signalé. Ouvrez-le pour vérifier son état actuel et son attribution.'},
+ },
  AUTOMATION_NOTICE:{
   ar:{...notificationDefaults.ar,title:'إشعار أتمتة — {{campaign}}',body:'نفذت قاعدة تشغيل معتمدة إشعارًا داخليًا. افتح الفرصة لمراجعة الحالة الحالية.'},
   en:{...notificationDefaults.en,title:'Automation notice — {{campaign}}',body:'An approved operational rule recorded an internal notification. Open the lead to review its current state.'},

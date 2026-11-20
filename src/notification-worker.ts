@@ -1,14 +1,21 @@
 import {createDatabase} from './db.js';
 import {processOneFollowUpNotification} from './follow-up-notifications.js';
 import {processOneConversationAttentionNotification} from './conversation-attention-notifications.js';
+import {processOneLeadAttentionNotification} from './lead-attention-notifications.js';
 const db=createDatabase();let running=false,stopping=false;
 const batch=Number(process.env.NOTIFICATION_WORKER_BATCH??25),poll=Number(process.env.NOTIFICATION_WORKER_POLL_MS??2000);
 if(!Number.isInteger(batch)||batch<1||batch>100||!Number.isInteger(poll)||poll<250||poll>60000)throw new Error('Invalid notification worker capacity settings');
-let attentionNext=true;
+const processors=[processOneConversationAttentionNotification,processOneFollowUpNotification,processOneLeadAttentionNotification];
+let next=0;
 async function tick(){if(running||stopping)return;running=true;
  try{for(let n=0;n<batch&&!stopping;n++){
-  const first=attentionNext?processOneConversationAttentionNotification:processOneFollowUpNotification,second=attentionNext?processOneFollowUpNotification:processOneConversationAttentionNotification;attentionNext=!attentionNext;
-  if(!await first(db)&&!await second(db))break;
+  const start=next;
+  let handled=false;
+  for(let step=0;step<processors.length;step++){
+   const index=(start+step)%processors.length;
+   if(await processors[index]!(db)){next=(index+1)%processors.length;handled=true;break;}
+  }
+  if(!handled)break;
  }}
  catch{process.stderr.write(JSON.stringify({level:'error',event:'notification_worker_cycle_failed'})+'\n');}
  finally{running=false;}}

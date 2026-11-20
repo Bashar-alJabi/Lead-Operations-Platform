@@ -64,7 +64,7 @@ test('Email channel bindings require explicit scoped current approval, checked d
 });
 test('Email preferences are personal explicit opt-in with persisted language, per-event CAS/history, strict types and real current-session fences, preserving IN_APP',async t=>{
  const f=await setup(t),{db,api}=f,root='/api/notification-email/preferences',event='AI_HANDOFF_REQUESTED';
- const initial=(await api('GET',root,undefined,'agent')).json();assert.equal(initial.recipient,'agent@notification.example.test');assert.equal(initial.items.length,10);assert.ok(initial.items.every((p:{enabled:boolean;version:number})=>!p.enabled&&p.version===0));
+ const initial=(await api('GET',root,undefined,'agent')).json();assert.equal(initial.recipient,'agent@notification.example.test');assert.equal(initial.items.length,11);assert.ok(initial.items.every((p:{enabled:boolean;version:number})=>!p.enabled&&p.version===0));
  const save=(version:number,extra:object={})=>api('PUT',root+'/'+event,{version,enabled:true,language:'fr',...extra},'agent');
  assert.equal((await save(0)).statusCode,200);const oldInApp=(await api('GET','/api/notification-preferences',undefined,'agent')).json();assert.equal(oldInApp.enabled,true);assert.equal(oldInApp.version,0);
  const raced=await Promise.all(Array.from({length:8},()=>save(1)));assert.equal(raced.filter(r=>r.statusCode===200).length,1);assert.equal(raced.filter(r=>r.statusCode===409).length,7);

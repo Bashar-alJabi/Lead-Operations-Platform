@@ -4,6 +4,7 @@ import {randomBytes,randomUUID} from 'node:crypto';
 import {createDatabase} from '../src/db.js';
 import {buildApp} from '../src/app.js';
 import {sha256} from '../src/security.js';
+import {processOneLeadAttentionNotification} from '../src/lead-attention-notifications.js';
 const url=process.env.TEST_DATABASE_URL;
 if(!url||new URL(url).pathname!=='/lead_operations_test')throw new Error('Isolated TEST_DATABASE_URL required');
 
@@ -25,7 +26,7 @@ test('Lead and assignment notifications use fresh trusted sources, current acces
  const api=(method:'GET'|'POST'|'PUT',path:string,body?:object,who='manager')=>app.inject({method,url:path,payload:body,headers:{cookie:users[who]!.cookie,origin:process.env.APP_ORIGIN!}});
  let counter=0;const create=()=>api('POST','/api/leads',{branchId:branch,campaignId:campaign,contact:{name:'Synthetic notice',phone:'+1555444'+String(++counter).padStart(4,'0')}});
  const made=await create();assert.equal(made.statusCode,201,made.body);const lead=made.json().id;
- const feed=async(who='manager')=>(await api('GET','/api/notifications?language=en&limit=50',undefined,who)).json().items as {id:string;eventType:string;leadId:string;title:string;body:string;conversationId:null;version:number;isRead:boolean}[];
+ const feed=async(who='manager')=>(await api('GET','/api/notifications?language=en&limit=50',undefined,who)).json().items as {id:string;eventType:string;leadId:string;title:string;body:string;conversationId:null;version:number;isRead:boolean;attention:{reasonCode:string;currentlyNeedsAttention:boolean}|null}[];
  const notices=await feed();assert.deepEqual(notices.map(n=>n.eventType).sort(),['LEAD_ASSIGNED','LEAD_CREATED']);assert.ok(notices.every(n=>n.conversationId===null));
  assert.equal((await feed('agent')).length,2);for(const who of ['second','other','foreign'])assert.equal((await feed(who)).length,0);
  assert.equal((await api('GET','/api/notifications/indicator',undefined,'agent')).json().hasUnread,true);
@@ -70,6 +71,50 @@ test('Lead and assignment notifications use fresh trusted sources, current acces
  assert.equal((await db`SELECT count(*)::int AS n FROM notification_event WHERE event_type='LEAD_ASSIGNED'`)[0]!.n,5);
  const page=(await api('GET','/api/notifications?limit=2')).json();assert.equal(page.items.length,2);assert.ok(page.nextCursor);
  assert.ok((await api('GET','/api/notifications?limit=2&cursor='+encodeURIComponent(page.nextCursor))).json().items.every((n:any)=>!page.items.some((p:any)=>p.id===n.id)));
+ const [attentionSource]=await db`SELECT id FROM lead_attention_transition WHERE lead_id=${lead}`;
+ await assert.rejects(db`INSERT INTO notification_event(event_type,lead_attention_id) VALUES('LEAD_NEEDS_ATTENTION',${attentionSource!.id})`,/LEAD_ATTENTION_NOTIFICATION_PROOF_REQUIRED/);
+ await assert.rejects(db`UPDATE lead_attention_transition SET reason_code='REVIEW_REQUIRED' WHERE id=${attentionSource!.id}`,/LEAD_ATTENTION_TRANSITION_IMMUTABLE/);
+ const publications=await Promise.all([processOneLeadAttentionNotification(db),processOneLeadAttentionNotification(db)]);
+ assert.equal(publications.filter(Boolean).length,1);
+ const onlyAttention=async(who='manager')=>(await feed(who)).filter(n=>n.eventType==='LEAD_NEEDS_ATTENTION');
+ const [flagged]=await onlyAttention();
+ assert.equal(flagged!.leadId,lead);
+ assert.equal(flagged!.attention?.reasonCode,'UNASSIGNED_BY_MANAGER');
+ assert.equal(flagged!.attention?.currentlyNeedsAttention,true);
+ for(const who of ['agent','second','other','foreign'])assert.equal((await onlyAttention(who)).length,0);
+ assert.equal((await api('PUT','/api/notification-preferences/LEAD_NEEDS_ATTENTION',{version:0,enabled:false})).statusCode,200);
+ assert.equal((await onlyAttention()).length,0);
+ assert.equal((await api('PUT','/api/notification-preferences/LEAD_NEEDS_ATTENTION',{version:1,enabled:true})).statusCode,200);
+ assert.equal((await api('POST',assignment,{version:3,agentId:users.agent!.id})).statusCode,200);
+ assert.equal((await onlyAttention('agent'))[0]!.attention?.currentlyNeedsAttention,false);
+ assert.equal(await processOneLeadAttentionNotification(db),false);
+ assert.equal((await api('GET','/api/notifications/lead-attention/failures',undefined,'agent')).statusCode,403);
+ assert.equal((await api('POST',assignment,{version:4,agentId:null,reason:'Return to review queue'})).statusCode,200);
+ await db`CREATE FUNCTION reject_lead_attention_fixture() RETURNS trigger LANGUAGE plpgsql AS $$
+  BEGIN IF NEW.event_type='LEAD_NEEDS_ATTENTION' THEN RAISE EXCEPTION 'Synthetic alert publication failure'; END IF; RETURN NEW; END $$`;
+ await db`CREATE TRIGGER reject_lead_attention_fixture BEFORE INSERT ON notification_event FOR EACH ROW EXECUTE FUNCTION reject_lead_attention_fixture()`;
+ try{
+  for(let failure=1;failure<=5;failure++){
+   assert.equal(await processOneLeadAttentionNotification(db),true);
+   if(failure<5)await db`SELECT pg_sleep(${2**(failure-1)+0.05})`;
+  }
+  assert.equal(await processOneLeadAttentionNotification(db),false);
+  assert.equal((await onlyAttention()).length,1);
+ }finally{
+  await db`DROP TRIGGER reject_lead_attention_fixture ON notification_event`;
+  await db`DROP FUNCTION reject_lead_attention_fixture()`;
+ }
+ const failures='/api/notifications/lead-attention/failures';
+ const [failure]=(await api('GET',failures)).json().items;
+ assert.equal(failure.leadId,lead);
+ assert.deepEqual((await api('GET',failures,undefined,'other')).json().items,[]);
+ const retry=failures+'/'+failure.id+'/retry';
+ assert.equal((await api('POST',retry,{version:failure.version},'other')).statusCode,404);
+ const retries=await Promise.all([api('POST',retry,{version:failure.version}),api('POST',retry,{version:failure.version})]);
+ assert.deepEqual(retries.map(r=>r.statusCode).sort(),[200,409]);
+ assert.equal(await processOneLeadAttentionNotification(db),true);
+ assert.equal((await onlyAttention()).length,2);
+ assert.equal((await onlyAttention()).filter(n=>n.attention?.currentlyNeedsAttention).length,1);
  await db`UPDATE user_session SET revoked_at=clock_timestamp() WHERE id=${users.manager!.session}`;assert.equal((await api('GET','/api/notifications')).statusCode,401);
  assert.equal((await db`SELECT count(*)::int AS n FROM conversation`)[0]!.n,0);assert.equal((await db`SELECT count(*)::int AS n FROM background_job`)[0]!.n,0);
 });

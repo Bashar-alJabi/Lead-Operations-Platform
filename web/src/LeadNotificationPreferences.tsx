@@ -1,14 +1,14 @@
 import {useEffect,useRef,useState} from 'react';
 import type {NotificationApi,NotificationLocale} from './NotificationCenter.js';
-export const leadNotificationEvents=['LEAD_CREATED','LEAD_ASSIGNED','LEAD_REASSIGNED','CONVERSATION_NEEDS_ATTENTION','AUTOMATION_NOTICE'] as const;
+export const leadNotificationEvents=['LEAD_CREATED','LEAD_ASSIGNED','LEAD_REASSIGNED','CONVERSATION_NEEDS_ATTENTION','AUTOMATION_NOTICE','LEAD_NEEDS_ATTENTION'] as const;
 export type LeadNotificationEvent=typeof leadNotificationEvents[number];
 export const financialNotificationEvents=['PAYMENT_CONFIRMED','ENROLLMENT_CONFIRMED'] as const;
 export type FinancialNotificationEvent=typeof financialNotificationEvents[number];
 export const financialNotificationLabels={ar:{PAYMENT_CONFIRMED:'تأكيد دفع',ENROLLMENT_CONFIRMED:'تأكيد تسجيل'},en:{PAYMENT_CONFIRMED:'Payment confirmed',ENROLLMENT_CONFIRMED:'Enrollment confirmed'},fr:{PAYMENT_CONFIRMED:'Paiement confirmé',ENROLLMENT_CONFIRMED:'Inscription confirmée'}};
 export const leadNotificationLabels={
- ar:{LEAD_CREATED:'فرصة جديدة',LEAD_ASSIGNED:'إسناد فرصة',LEAD_REASSIGNED:'تغيير الإسناد',CONVERSATION_NEEDS_ATTENTION:'محادثة تحتاج انتباهًا',AUTOMATION_NOTICE:'إشعار أتمتة'},
- en:{LEAD_CREATED:'New lead',LEAD_ASSIGNED:'Lead assigned',LEAD_REASSIGNED:'Lead ownership changed',CONVERSATION_NEEDS_ATTENTION:'Conversation needs attention',AUTOMATION_NOTICE:'Automation notice'},
- fr:{LEAD_CREATED:'Nouveau prospect',LEAD_ASSIGNED:'Prospect attribué',LEAD_REASSIGNED:'Attribution modifiée',CONVERSATION_NEEDS_ATTENTION:'Conversation à examiner',AUTOMATION_NOTICE:'Notification automatique'},
+ ar:{LEAD_CREATED:'فرصة جديدة',LEAD_ASSIGNED:'إسناد فرصة',LEAD_REASSIGNED:'تغيير الإسناد',CONVERSATION_NEEDS_ATTENTION:'محادثة تحتاج انتباهًا',AUTOMATION_NOTICE:'إشعار أتمتة',LEAD_NEEDS_ATTENTION:'فرصة تحتاج مراجعة'},
+ en:{LEAD_CREATED:'New lead',LEAD_ASSIGNED:'Lead assigned',LEAD_REASSIGNED:'Lead ownership changed',CONVERSATION_NEEDS_ATTENTION:'Conversation needs attention',AUTOMATION_NOTICE:'Automation notice',LEAD_NEEDS_ATTENTION:'Lead needs review'},
+ fr:{LEAD_CREATED:'Nouveau prospect',LEAD_ASSIGNED:'Prospect attribué',LEAD_REASSIGNED:'Attribution modifiée',CONVERSATION_NEEDS_ATTENTION:'Conversation à examiner',AUTOMATION_NOTICE:'Notification automatique',LEAD_NEEDS_ATTENTION:'Prospect à examiner'},
 };
 const words={
  ar:{title:'إشعارات الفرص والإسناد',event:'نوع تفضيل إشعارات الفرص',enabled:'تفعيل هذا الإشعار داخل المنصة',reload:'تحديث تفضيل إشعارات الفرص',save:'حفظ تفضيل إشعارات الفرص',note:'إشعارات داخل المنصة فقط. الكتم يحتفظ بالأحداث وسجل القراءة. الوصول يتبع صلاحيتك الحالية على الفرصة.'},
