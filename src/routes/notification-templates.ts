@@ -3,11 +3,12 @@ import type postgres from 'postgres';
 import type { Database } from '../db.js';
 import { HttpError,principalFromRequest,requireRole,type Principal } from '../security.js';
 import { currentPaymentSession } from '../payments/access.js';
-import { notificationEvent,notificationEvents,notificationDefaultsByEvent,validateNotificationText,requireNotificationBodyTypes,type NotificationLanguage,type NotificationEventType } from '../notifications.js';
+import { notificationEvent,notificationEvents,notificationDefaultsByEvent,isOperationalNotification,validateNotificationText,requireNotificationBodyTypes,type NotificationLanguage,type NotificationEventType } from '../notifications.js';
 type Scope='GLOBAL'|'BRANCH'|'CAMPAIGN';
 type Params={scope:Scope;id:string;language:NotificationLanguage};
 async function access(tx:postgres.TransactionSql,actor:Principal,p:Params,request:FastifyRequest,write=false,event:NotificationEventType=notificationEvent,channel:'IN_APP'|'EMAIL'='IN_APP') {
  requireRole(actor,'SUPER_ADMIN','MANAGER');
+ if(p.scope==='CAMPAIGN'&&isOperationalNotification(event))throw new HttpError(400,'NOTIFICATION_TEMPLATE_SCOPE_UNSUPPORTED');
  if(p.scope==='GLOBAL') {
   requireRole(actor,'SUPER_ADMIN');if(p.id!==actor.organizationId)throw new HttpError(404,'NOTIFICATION_TEMPLATE_RESOURCE_NOT_FOUND');
   if(write)await tx`SELECT id FROM organization WHERE id=${p.id} FOR UPDATE`;else await tx`SELECT id FROM organization WHERE id=${p.id} FOR SHARE`;
@@ -35,13 +36,14 @@ export function registerNotificationTemplateRoutes(app:FastifyInstance,db:Databa
   const actor=await principalFromRequest(request,db),p=request.params;return db.begin(async tx=>{
    await access(tx,actor,p,request,false,event,channel);
    const row=(await tx`SELECT title,body,active,version,reason,updated_at FROM notification_template WHERE scope=${p.scope} AND resource_id=${p.id} AND event_type=${event as string} AND channel=${channel} AND language=${p.language}`)[0];
-   const defaults=notificationDefaultsByEvent[event][p.language];return {title:row?.title??defaults.title,body:row?.body??defaults.body,active:row?.active??false,version:row?.version??0,reason:row?.reason??null,updatedAt:row?.updated_at??null,eventType:event,channel,defaults:{title:defaults.title,body:defaults.body},tokens:['campaign','owner']};
+   const defaults=notificationDefaultsByEvent[event][p.language];return {title:row?.title??defaults.title,body:row?.body??defaults.body,active:row?.active??false,version:row?.version??0,reason:row?.reason??null,updatedAt:row?.updated_at??null,eventType:event,channel,defaults:{title:defaults.title,body:defaults.body},tokens:isOperationalNotification(event)?[]:['campaign','owner']};
   });
  });
  app.put<{Params:Params;Body:{title:string;body:string;active:boolean;version:number;reason:string}}>(root,{bodyLimit:16384,preValidation:async r=>requireNotificationBodyTypes(r.body,'active',['title','body','reason']),schema:{params,body:{type:'object',additionalProperties:false,required:['title','body','active','version','reason'],properties:{
   title:{type:'string',minLength:1,maxLength:160},body:{type:'string',minLength:1,maxLength:1000},active:{type:'boolean'},version:{type:'integer',minimum:0},reason:{type:'string',minLength:3,maxLength:500,pattern:'^[^\x00-\x1f\x7f]+$'}}}}},async request=>{
   const actor=await principalFromRequest(request,db),p=request.params,title=validateNotificationText(request.body.title,160),body=validateNotificationText(request.body.body,1000),reason=request.body.reason.trim();
   if(channel==='EMAIL'&&/[\r\n]/.test(title))throw new HttpError(400,'INVALID_EMAIL_NOTIFICATION_SUBJECT');
+  if(isOperationalNotification(event)&&/[{}]/.test(title+body))throw new HttpError(400,'INVALID_NOTIFICATION_TEMPLATE');
   if(reason.length<3)throw new HttpError(400,'NOTIFICATION_REASON_REQUIRED');
   return db.begin(async tx=>{
    const a=await access(tx,actor,p,request,true,event,channel),old=(await tx`SELECT version FROM notification_template WHERE scope=${p.scope} AND resource_id=${p.id} AND event_type=${event as string} AND channel=${channel} AND language=${p.language} FOR UPDATE`)[0];

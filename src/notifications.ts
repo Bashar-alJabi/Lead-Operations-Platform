@@ -2,8 +2,12 @@ import { HttpError } from './security.js';
 
 export type NotificationLanguage = 'ar'|'en'|'fr';
 export const notificationEvent = 'AI_HANDOFF_REQUESTED' as const;
-export const notificationEvents=[notificationEvent,'AI_HANDOFF_SLA_EXCEEDED','LEAD_CREATED','LEAD_ASSIGNED','LEAD_REASSIGNED','FOLLOW_UP_DUE','PAYMENT_CONFIRMED','ENROLLMENT_CONFIRMED','CONVERSATION_NEEDS_ATTENTION','AUTOMATION_NOTICE','LEAD_NEEDS_ATTENTION'] as const;
+export const operationalNotificationEvents=['INBOUND_REVIEW_REQUIRED','INTEGRATION_ALERT','SYSTEM_ALERT'] as const;
+export const notificationEvents=[notificationEvent,'AI_HANDOFF_SLA_EXCEEDED','LEAD_CREATED','LEAD_ASSIGNED','LEAD_REASSIGNED','FOLLOW_UP_DUE','PAYMENT_CONFIRMED','ENROLLMENT_CONFIRMED','CONVERSATION_NEEDS_ATTENTION','AUTOMATION_NOTICE','LEAD_NEEDS_ATTENTION',...operationalNotificationEvents] as const;
 export type NotificationEventType=typeof notificationEvents[number];
+export function isOperationalNotification(event: NotificationEventType): boolean {
+ return (operationalNotificationEvents as readonly NotificationEventType[]).includes(event);
+}
 export function requireNotificationBodyTypes(value:unknown,flag:string,strings:readonly string[]=[]):void {
  if(!value||typeof value!=='object'||Array.isArray(value))throw new HttpError(400,'INVALID_NOTIFICATION_REQUEST');
  const body=value as Record<string,unknown>;
@@ -16,6 +20,21 @@ export const notificationDefaults = {
  fr:{title:'Suivi humain demandé — {{campaign}}',body:'La conversation nécessite un suivi humain. Ouvrez le prospect pour consulter les détails.',owner:'Non attribué'},
 } as const;
 export const notificationDefaultsByEvent:Record<NotificationEventType,Record<NotificationLanguage,{title:string;body:string;owner:string}>>={
+ INBOUND_REVIEW_REQUIRED:{
+  ar:{...notificationDefaults.ar,title:'رسالة واردة تحتاج مراجعة',body:'راجع الرسالة الواردة وحدد وجهتها بعد التحقق من التطابق.'},
+  en:{...notificationDefaults.en,title:'Inbound message needs review',body:'Check the inbound message and verify its destination in the review queue.'},
+  fr:{...notificationDefaults.fr,title:'Message entrant à examiner',body:'Vérifiez le message entrant et sa destination dans la file de révision.'},
+ },
+ INTEGRATION_ALERT:{
+  ar:{...notificationDefaults.ar,title:'تنبيه اتصال',body:'سجّل الاتصال حالة تحتاج مراجعة. تحقق من حالته الحالية في إعدادات التكامل.'},
+  en:{...notificationDefaults.en,title:'Integration alert',body:'A connection reported a condition that needs attention. Check its current status in integration settings.'},
+  fr:{...notificationDefaults.fr,title:'Alerte d’intégration',body:'Une connexion a signalé un problème. Vérifiez son état actuel dans les paramètres d’intégration.'},
+ },
+ SYSTEM_ALERT:{
+  ar:{...notificationDefaults.ar,title:'تنبيه النظام',body:'توقف تجهيز تنبيه Lead بعد استنفاد المحاولات. راجع قائمة التنبيهات المتعثرة.'},
+  en:{...notificationDefaults.en,title:'System alert',body:'A Lead alert reached its preparation retry limit. Review the failed alerts list.'},
+  fr:{...notificationDefaults.fr,title:'Alerte système',body:'La préparation d’une alerte prospect a atteint sa limite de tentatives. Consultez les alertes en échec.'},
+ },
  LEAD_NEEDS_ATTENTION:{
   ar:{...notificationDefaults.ar,title:'فرصة تحتاج مراجعة · {{campaign}}',body:'تغيّرت حالة الفرصة. افتحها لمراجعة صلاحية الإسناد والحالة الحالية.'},
   en:{...notificationDefaults.en,title:'Lead needs review · {{campaign}}',body:'The lead was flagged for review. Open it to check its current status and assignment.'},
@@ -78,7 +97,7 @@ export function renderNotification(text:string,values:{campaign:string;owner:str
  return text.replace(/\{\{(campaign|owner)\}\}/g,(_match,key:'campaign'|'owner')=>values[key]);
 }
 export type NotificationTemplate = {scope:'GLOBAL'|'BRANCH'|'CAMPAIGN';resource_id:string;branch_id:string|null;title:string;body:string;version:number;active:boolean;event_type?:NotificationEventType};
-export function effectiveNotificationTemplate(templates:NotificationTemplate[],organization:string,branch:string,campaign:string,language:NotificationLanguage,event:NotificationEventType=notificationEvent) {
+export function effectiveNotificationTemplate(templates:NotificationTemplate[],organization:string,branch:string|null,campaign:string|null,language:NotificationLanguage,event:NotificationEventType=notificationEvent) {
  for (const [scope,id] of [['CAMPAIGN',campaign],['BRANCH',branch],['GLOBAL',organization]] as const) {
   const found=templates.find(t=>t.scope===scope && t.resource_id===id && t.active && (t.event_type??notificationEvent)===event && (scope==='GLOBAL'?t.branch_id===null:t.branch_id===branch));
   if(found)return {title:found.title,body:found.body,source:scope,version:found.version};

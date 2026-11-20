@@ -23,7 +23,7 @@ export function LeadAttentionFailures({locale,api,userId,openLead}:{locale:Notif
   }catch(e){if(job===epoch.current)setError(String(e));}
   finally{if(job===epoch.current)setBusy(false);}
  }
- return <section data-lead-attention-recovery>
+ return <section id="lead-attention-recovery" data-lead-attention-recovery>
   <button disabled={busy} onClick={()=>void load()}>{t.refresh}</button>{error&&<p role="alert">{error}</p>}
   {items.length>0&&<><h3>{t.title}</h3><ul>{items.map(item=><li key={item.id}>
    <p>{attentionReasonLabel(item.reasonCode,locale)} · <time dateTime={item.changedAt}>{new Date(item.changedAt).toLocaleString(locale)}</time></p>

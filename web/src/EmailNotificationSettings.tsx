@@ -4,6 +4,7 @@ import {NotificationTemplates} from './NotificationTemplates.js';
 import {leadNotificationLabels,financialNotificationLabels} from './LeadNotificationPreferences.js';
 import {followUpNotificationLabel} from './FollowUpNotifications.js';
 import {EmailNotificationOutbox} from './EmailNotificationOutbox.js';
+import {operationalEventLabels} from './OperationalNotificationControls.js';
 
 const words={
  en:{title:'Email notifications',note:'Email is off by default for each event. Choose notifications for your account address and a delivery language. Saving settings sends no email and does not change In-App preferences.',event:'Email notification event',enabled:'Enable this email notification',language:'Email delivery language',save:'Save email preference',reload:'Reload email preferences',history:'Email preference history',older:'Older email changes',recipient:'Account recipient',binding:'Branch email channel',branch:'Email channel branch',connection:'Email channel connection',choose:'Choose an operational account',active:'Enable branch email channel',reason:'Email channel change reason',saveBinding:'Save branch email channel',reloadBinding:'Reload branch email channel',bindingHistory:'Email channel history',moreConnections:'Next email account page',organization:'Organization account',local:'Branch account',approval:'Only Super Admin can approve or reactivate an Organization account for a Branch. A Manager may disable its existing binding.',inactive:'This Branch is inactive. The channel may be disabled, but cannot be activated.',status:'Saved channel',on:'Enabled',off:'Disabled',version:'Version',empty:'No changes on this page.',setup:'Choose an authentication-checked operational account. Connection setup is in Operational email. Channel activation and personal opt-in are separate. No customer messaging, credentials or sensitive payment details belong in notification wording.'},
@@ -21,7 +22,7 @@ type Binding={branchId:string;branchActive:boolean;version:number;enabled:boolea
 type Catalog={items:Connection[];nextCursor:string|null};
 
 function eventLabel(event:string,locale:NotificationLocale){
- const known:Record<string,string>={...leadNotificationLabels[locale],...financialNotificationLabels[locale],FOLLOW_UP_DUE:followUpNotificationLabel[locale],
+ const known:Record<string,string>={...leadNotificationLabels[locale],...financialNotificationLabels[locale],...operationalEventLabels[locale],FOLLOW_UP_DUE:followUpNotificationLabel[locale],
   AI_HANDOFF_REQUESTED:{ar:'طلب التحويل البشري',en:'Human handoff requested',fr:'Transfert humain demandé'}[locale],
   AI_HANDOFF_SLA_EXCEEDED:{ar:'تجاوز مدة الاستجابة',en:'Human response target exceeded',fr:'Délai de réponse dépassé'}[locale]};return known[event]??event;
 }

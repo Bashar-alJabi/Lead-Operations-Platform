@@ -64,7 +64,7 @@ async function prepareEmail(db: Database): Promise<DispatchPayload | boolean> {
       const [row] = await tx`SELECT u.email,c.config,s.ciphertext,s.nonce,s.auth_tag,s.key_version,e.event_type,
           e.organization_id,e.branch_id,e.campaign_id,campaign.name AS campaign_name,owner.name AS owner_name
         FROM notification_email_outbox o JOIN notification_event e ON e.id=o.event_id
-        JOIN lead l ON l.id=e.lead_id JOIN campaign ON campaign.id=e.campaign_id
+        LEFT JOIN lead l ON l.id=e.lead_id LEFT JOIN campaign ON campaign.id=e.campaign_id
         JOIN user_account u ON u.id=o.user_id JOIN integration_connection c ON c.id=${connectionId}
         JOIN connection_secret s ON s.connection_id=c.id
         LEFT JOIN follow_up f ON f.id=e.follow_up_id
@@ -99,7 +99,7 @@ async function prepareEmail(db: Database): Promise<DispatchPayload | boolean> {
         if (!template) throw Error('Selected notification wording is unavailable');
         wording = { title: template.title, body: template.body, owner: fallback.owner };
       }
-      const values = { campaign: singleLine(row.campaign_name), owner: singleLine(row.owner_name ?? fallback.owner) };
+      const values = { campaign: singleLine(row.campaign_name ?? ''), owner: singleLine(row.owner_name ?? fallback.owner) };
       const message = { to: row.email as string, subject: singleLine(renderNotification(wording.title, values)), text: renderNotification(wording.body, values) };
       await tx`UPDATE notification_email_dispatch SET state='SENDING' WHERE outbox_id=${id}`;
       return { id, connectionId, settings, password, message };

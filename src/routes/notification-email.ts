@@ -3,7 +3,7 @@ import type postgres from 'postgres';
 import type {Database} from '../db.js';
 import {HttpError,principalFromRequest,requireRole,type Principal} from '../security.js';
 import {currentPaymentSession} from '../payments/access.js';
-import {notificationEvents,requireNotificationBodyTypes,type NotificationEventType,type NotificationLanguage} from '../notifications.js';
+import {notificationEvents,isOperationalNotification,requireNotificationBodyTypes,type NotificationEventType,type NotificationLanguage} from '../notifications.js';
 
 type Tx=postgres.TransactionSql;
 const uuid={type:'string',format:'uuid'} as const;
@@ -77,7 +77,7 @@ export function registerNotificationEmailRoutes(app:FastifyInstance,db:Database)
  app.get('/api/notification-email/preferences',async r=>{
   const a=await principalFromRequest(r,db);return db.begin(async tx=>{
    await session(tx,a,r);const rows=await tx`SELECT event_type,enabled,language,version FROM notification_email_preference WHERE user_id=${a.id}`;
-   return {recipient:a.email,channel:'EMAIL',items:notificationEvents.map(event=>{
+   return {recipient:a.email,channel:'EMAIL',items:notificationEvents.filter(event=>a.role!=='AGENT'||!isOperationalNotification(event)).map(event=>{
     const p=rows.find(v=>v.event_type===event);return {eventType:event,enabled:p?.enabled??false,language:p?.language??'ar',version:p?.version??0,mandatory:false};
    })};
   });
@@ -85,7 +85,9 @@ export function registerNotificationEmailRoutes(app:FastifyInstance,db:Database)
  app.put<{Params:{event:NotificationEventType};Body:{version:number;enabled:boolean;language:NotificationLanguage}}>('/api/notification-email/preferences/:event',{
   preValidation:async r=>requireNotificationBodyTypes(r.body,'enabled',['language']),schema:{params:eventParams,body:{type:'object',additionalProperties:false,
    required:['version','enabled','language'],properties:{version,enabled:{type:'boolean'},language:{type:'string',enum:['ar','en','fr']}}}}},async r=>{
-  const a=await principalFromRequest(r,db);return db.begin(async tx=>{
+  const a=await principalFromRequest(r,db);
+  if(a.role==='AGENT'&&isOperationalNotification(r.params.event))throw new HttpError(403,'NOTIFICATION_ACCESS_DENIED');
+  return db.begin(async tx=>{
    await tx`SELECT pg_advisory_xact_lock(hashtextextended(${a.id+':email-notification:'+r.params.event},0))`;
    const sid=await session(tx,a,r),p=(await tx`SELECT version FROM notification_email_preference WHERE user_id=${a.id} AND event_type=${r.params.event} FOR UPDATE`)[0];
    if((p?.version??0)!==r.body.version)throw new HttpError(409,'EMAIL_NOTIFICATION_VERSION_CONFLICT');
@@ -97,7 +99,9 @@ export function registerNotificationEmailRoutes(app:FastifyInstance,db:Database)
   });
  });
  app.get<{Params:{event:NotificationEventType};Querystring:{before?:number}}>('/api/notification-email/preferences/:event/history',{schema:{params:eventParams,querystring:historyQuery}},async r=>{
-  const a=await principalFromRequest(r,db);return db.begin(async tx=>{
+  const a=await principalFromRequest(r,db);
+  if(a.role==='AGENT'&&isOperationalNotification(r.params.event))throw new HttpError(403,'NOTIFICATION_ACCESS_DENIED');
+  return db.begin(async tx=>{
    await session(tx,a,r);const rows=await tx`SELECT version,snapshot->'enabled' enabled,snapshot->>'language' language,created_at
     FROM notification_email_preference_history WHERE user_id=${a.id} AND event_type=${r.params.event}
      AND (${r.query.before??null}::integer IS NULL OR version<${r.query.before??null}) ORDER BY version DESC LIMIT 21`;

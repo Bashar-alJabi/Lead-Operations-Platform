@@ -4,7 +4,7 @@ import {randomBytes} from 'node:crypto';
 import {createDatabase} from '../src/db.js';
 import {buildApp} from '../src/app.js';
 import {sha256} from '../src/security.js';
-import {notificationEvents,effectiveNotificationTemplate,type NotificationTemplate} from '../src/notifications.js';
+import {notificationEvents,isOperationalNotification,effectiveNotificationTemplate,type NotificationTemplate} from '../src/notifications.js';
 const url=process.env.TEST_DATABASE_URL;
 if(!url||new URL(url).pathname!=='/lead_operations_test'||!['localhost','127.0.0.1','[::1]'].includes(new URL(url).hostname))throw Error('Isolated loopback test database required');
 async function setup(t:import('node:test').TestContext){
@@ -73,7 +73,7 @@ test('Email preferences are personal explicit opt-in with persisted language, pe
  for(let v=2;v<23;v++)assert.equal((await save(v,{enabled:false})).statusCode,200);
  const h=(await api('GET',root+'/'+event+'/history',undefined,'agent')).json();assert.equal(h.items.length,20);assert.equal(h.nextVersion,4);assert.equal((await api('GET',root+'/'+event+'/history?before=4',undefined,'agent')).json().items.length,3);
  assert.ok((await api('GET',root,undefined,'manager')).json().items.every((p:{version:number})=>p.version===0));
- for(const e of notificationEvents.filter(e=>e!==event))assert.equal((await api('PUT',root+'/'+e,{version:0,enabled:true,language:'en'},'agent')).statusCode,200);
+ for(const e of notificationEvents.filter(e=>e!==event))assert.equal((await api('PUT',root+'/'+e,{version:0,enabled:true,language:'en'},'agent')).statusCode,isOperationalNotification(e)?403:200);
  await assert.rejects(db`UPDATE notification_email_preference SET session_id=${f.actors.manager!.sid},version=version+1 WHERE user_id=${f.actors.agent!.id} AND event_type=${event}`,/EMAIL_NOTIFICATION_CURRENT_SESSION_REQUIRED/);
  await assert.rejects(db`UPDATE notification_email_preference_history SET snapshot='{}' WHERE user_id=${f.actors.agent!.id}`,/EMAIL_NOTIFICATION_HISTORY_IMMUTABLE/);
  await assert.rejects(db`DELETE FROM notification_email_preference WHERE user_id=${f.actors.agent!.id}`,/EMAIL_NOTIFICATION_HISTORY_PRESERVED/);
@@ -103,7 +103,10 @@ test('Email wording shares trusted scope/fallback and immutable native Audit whi
  assert.equal((await effective()).source,'CAMPAIGN');assert.equal((await api('PUT',campaignRoot,{...body,version:1,active:false})).statusCode,200);assert.equal((await effective()).source,'BRANCH');
  assert.equal((await api('PUT',root,{...body,version:1,active:false})).statusCode,200);assert.equal((await effective()).source,'GLOBAL');
  assert.equal((await api('PUT',global,{...body,version:1,active:false},'admin')).statusCode,200);assert.equal((await effective()).source,'DEFAULT');
- for(const event of notificationEvents.filter(e=>e!=='AI_HANDOFF_REQUESTED'))assert.equal((await api('PUT','/api/notification-email/templates/'+event+'/BRANCH/'+f.b+'/fr',body)).statusCode,200);
+ for(const event of notificationEvents.filter(e=>e!=='AI_HANDOFF_REQUESTED')){
+  const wording=isOperationalNotification(event)?{...body,title:'Operational alert',body:'Review integration settings.'}:body;
+  assert.equal((await api('PUT','/api/notification-email/templates/'+event+'/BRANCH/'+f.b+'/fr',wording)).statusCode,200);
+ }
  await assert.rejects(db`UPDATE notification_template SET title=E'Header\nInjected',version=version+1 WHERE scope='BRANCH' AND resource_id=${f.b} AND channel='EMAIL' AND language='en'`,/notification_email_subject_check/);
  await assert.rejects(db`UPDATE notification_template_history SET snapshot='{}' WHERE resource_id=${f.b} AND channel='EMAIL'`,/NOTIFICATION_HISTORY_IMMUTABLE/);
  assert.ok((await api('GET',root+'/history')).json().items.some((h:{body:string})=>h.body.includes('<svg')));assert.equal((await api('GET',oldRoot+'/history')).json().items.length,0);

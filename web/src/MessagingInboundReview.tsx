@@ -28,8 +28,8 @@ const labels = {
     unsupported: 'This message type cannot yet be attached automatically.', },
 } as const;
 
-export function MessagingInboundReview({ connectionId, locale, api }: {
-  connectionId: string; locale: 'ar'|'fr'|'en'; api: Api;
+export function MessagingInboundReview({ connectionId, locale, api, initialEventId }: {
+  connectionId: string; locale: 'ar'|'fr'|'en'; api: Api; initialEventId?: string;
 }) {
   const t = labels[locale];
   const [items, setItems] = useState<Row[]>([]);
@@ -51,8 +51,16 @@ export function MessagingInboundReview({ connectionId, locale, api }: {
     const value = await api<Detail>(`/api/messaging/connections/${connectionId}/inbound-review/${id}`);
     setDetail(value); setTarget(''); setReason(''); setError('');
   }
-  useEffect(() => { setItems([]); setDetail(null); setBefore(null); setError('');
-    void load().catch((failure) => setError(String(failure))); }, [connectionId]);
+  useEffect(() => {
+    let active=true;
+    setItems([]); setDetail(null); setBefore(null); setError('');
+    if(initialEventId){
+      void api<Detail>(`/api/messaging/connections/${connectionId}/inbound-review/${initialEventId}`)
+        .then(value=>{if(active)setDetail(value);})
+        .catch(failure=>{if(active)setError(String(failure));});
+    }else void load().catch((failure) => {if(active)setError(String(failure));});
+    return()=>{active=false;};
+  }, [connectionId,initialEventId]);
   async function resolve() {
     if (!detail || !target) return;
     setBusy(true); setError('');

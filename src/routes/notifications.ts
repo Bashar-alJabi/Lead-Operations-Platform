@@ -4,7 +4,7 @@ import type { Database } from '../db.js';
 import { HttpError,principalFromRequest,type Principal } from '../security.js';
 import { currentPaymentSession } from '../payments/access.js';
 import { decodeCursor,encodeCursor } from '../pagination.js';
-import { notificationEvent,notificationEvents,notificationDefaults,effectiveNotificationTemplate,renderNotification,requireNotificationBodyTypes,type NotificationEventType,type NotificationLanguage,type NotificationTemplate } from '../notifications.js';
+import { notificationEvent,notificationEvents,notificationDefaults,effectiveNotificationTemplate,renderNotification,requireNotificationBodyTypes,isOperationalNotification,type NotificationEventType,type NotificationLanguage,type NotificationTemplate } from '../notifications.js';
 
 async function eventAccess(tx:postgres.TransactionSql,actor:Principal,id:string,request:FastifyRequest) {
  const initial=(await tx`SELECT branch_id,lead_id,campaign_id,conversation_id,follow_up_id FROM notification_event WHERE id=${id} AND organization_id=${actor.organizationId}
@@ -26,12 +26,10 @@ export function registerNotificationRoutes(app:FastifyInstance,db:Database) {
   const actor=await principalFromRequest(request,db);return db.begin(async tx=>{
    if(!await currentPaymentSession(tx,actor,request))throw new HttpError(403,'NOTIFICATION_ACCESS_REVOKED');
    const row=(await tx`SELECT EXISTS(SELECT 1 FROM notification_event e
-    JOIN lead l ON l.id=e.lead_id AND l.organization_id=e.organization_id AND l.branch_id=e.branch_id AND l.campaign_id=e.campaign_id
-    JOIN campaign c ON c.id=l.campaign_id AND c.organization_id=e.organization_id AND c.branch_id=e.branch_id
-    LEFT JOIN conversation cv ON cv.id=e.conversation_id AND cv.lead_id=l.id
+    LEFT JOIN lead l ON l.id=e.lead_id
     LEFT JOIN notification_preference p ON p.user_id=${actor.id} AND p.event_type=e.event_type AND p.channel='IN_APP'
     LEFT JOIN notification_state ns ON ns.user_id=${actor.id} AND ns.event_id=e.id
-    WHERE (e.conversation_id IS NULL OR cv.id IS NOT NULL) AND e.organization_id=${actor.organizationId} AND (${actor.role==='SUPER_ADMIN'} OR e.branch_id=${actor.branchId})
+    WHERE e.organization_id=${actor.organizationId} AND (${actor.role==='SUPER_ADMIN'} OR e.branch_id=${actor.branchId})
      AND (${actor.role!=='AGENT'} OR l.assigned_agent_id=${actor.id}) AND notification_access(e.id,${actor.id}) AND COALESCE(p.enabled,true) AND NOT COALESCE(ns.is_read,false)) AS has_unread`)[0]!;
    return {hasUnread:row.has_unread};
   });
@@ -41,12 +39,10 @@ export function registerNotificationRoutes(app:FastifyInstance,db:Database) {
   return db.begin(async tx=>{
    // Only bounded identifiers are read before the current scope/session locks. No customer content is loaded.
    const candidates=await tx`SELECT e.id,e.branch_id,e.lead_id,e.campaign_id,e.conversation_id,e.follow_up_id FROM notification_event e
-    JOIN lead l ON l.id=e.lead_id AND l.organization_id=e.organization_id AND l.branch_id=e.branch_id AND l.campaign_id=e.campaign_id
-    JOIN campaign c ON c.id=e.campaign_id AND c.branch_id=e.branch_id AND c.organization_id=e.organization_id
-    LEFT JOIN conversation cv ON cv.id=e.conversation_id AND cv.lead_id=l.id
+    LEFT JOIN lead l ON l.id=e.lead_id
     LEFT JOIN notification_preference p ON p.user_id=${actor.id} AND p.event_type=e.event_type AND p.channel='IN_APP'
     LEFT JOIN notification_state ns ON ns.user_id=${actor.id} AND ns.event_id=e.id
-    WHERE (e.conversation_id IS NULL OR cv.id IS NOT NULL) AND e.organization_id=${actor.organizationId} AND (${actor.role==='SUPER_ADMIN'} OR e.branch_id=${actor.branchId})
+    WHERE e.organization_id=${actor.organizationId} AND (${actor.role==='SUPER_ADMIN'} OR e.branch_id=${actor.branchId})
      AND (${actor.role!=='AGENT'} OR l.assigned_agent_id=${actor.id}) AND notification_access(e.id,${actor.id}) AND COALESCE(p.enabled,true)
      AND (${!request.query.unreadOnly} OR NOT COALESCE(ns.is_read,false))
      AND (${cursor?.timestamp??null}::text::timestamptz IS NULL OR (e.created_at,e.id)<(${cursor?.timestamp??null}::text::timestamptz,${cursor?.id??null}::uuid))
@@ -61,6 +57,9 @@ export function registerNotificationRoutes(app:FastifyInstance,db:Database) {
    if(!await currentPaymentSession(tx,actor,request))throw new HttpError(403,'NOTIFICATION_ACCESS_REVOKED');
    const rows=candidates.length ? await tx`SELECT e.id,e.event_type,e.branch_id,e.campaign_id,e.lead_id,e.conversation_id,e.payment_id,e.enrollment_id,e.follow_up_id,o.due_at AS observed_due_at,f.due_at AS current_due_at,f.status AS follow_up_status,
     COALESCE(attention.id,la.id) AS attention_id,COALESCE(attention.reason_code,la.reason_code) AS attention_reason,
+    ops.condition AS operational_condition,ops.connection_id AS operational_connection_id,
+    ops.inbound_event_id,ic.kind AS integration_kind,ic.name AS integration_name,
+    CASE WHEN ops.id IS NOT NULL THEN operational_notification_current(ops.id) END AS operational_current,
     ae.id AS automation_id,ae.rule_id,ae.rule_version,av.snapshot->>'name' AS automation_name,av.snapshot->>'note' AS automation_note,
     (attention.id IS NOT NULL AND cv.state<>'CLOSED' AND cv.needs_attention_reason IS NOT NULL AND NOT EXISTS(SELECT 1 FROM conversation_attention_transition newer WHERE newer.conversation_id=cv.id AND newer.ordinal>attention.ordinal)
      OR la.id IS NOT NULL AND l.lifecycle='OPEN' AND l.needs_attention_reason IS NOT NULL AND NOT EXISTS(
@@ -69,8 +68,10 @@ export function registerNotificationRoutes(app:FastifyInstance,db:Database) {
     f.status='OPEN' AND f.due_at=o.due_at AND f.due_at<=clock_timestamp() AS currently_due,e.created_at,e.created_at::text AS cursor_at,c.name AS campaign_name,u.name AS owner_name,
     COALESCE(ns.version,0) AS version,COALESCE(ns.is_read,false) AS is_read,
     cv.ai_handoff_action_id=e.source_id AND cv.state='WAITING_FOR_HUMAN' AND cv.controller_type='NONE' AS waiting
-    FROM notification_event e JOIN lead l ON l.id=e.lead_id AND l.organization_id=e.organization_id AND l.branch_id=e.branch_id AND l.campaign_id=e.campaign_id
-    JOIN campaign c ON c.id=e.campaign_id AND c.branch_id=e.branch_id AND c.organization_id=e.organization_id
+    FROM notification_event e LEFT JOIN lead l ON l.id=e.lead_id AND l.organization_id=e.organization_id AND l.branch_id=e.branch_id AND l.campaign_id=e.campaign_id
+    LEFT JOIN campaign c ON c.id=e.campaign_id AND c.branch_id=e.branch_id AND c.organization_id=e.organization_id
+    LEFT JOIN operational_notification_source ops ON ops.id=e.operational_source_id
+    LEFT JOIN integration_connection ic ON ic.id=ops.connection_id
     LEFT JOIN conversation cv ON cv.id=e.conversation_id AND cv.lead_id=l.id
     LEFT JOIN conversation_attention_transition attention ON attention.id=e.conversation_attention_id AND attention.conversation_id=cv.id
     LEFT JOIN lead_attention_transition la ON la.id=e.lead_attention_id AND la.lead_id=l.id
@@ -90,9 +91,11 @@ export function registerNotificationRoutes(app:FastifyInstance,db:Database) {
      AND (scope='GLOBAL' OR scope='BRANCH' AND resource_id IN ${tx([...new Set(page.map(r=>r.branch_id))])}
       OR scope='CAMPAIGN' AND resource_id IN ${tx([...new Set(page.map(r=>r.campaign_id))])})` : [];
    const items=page.map(r=>{
-    const tpl=effectiveNotificationTemplate(templates as NotificationTemplate[],actor.organizationId,r.branch_id,r.campaign_id,language,r.event_type as NotificationEventType),values={campaign:r.campaign_name as string,owner:(r.owner_name??notificationDefaults[language].owner) as string};
+    const tpl=effectiveNotificationTemplate(templates as NotificationTemplate[],actor.organizationId,r.branch_id,r.campaign_id,language,r.event_type as NotificationEventType),values={campaign:(r.campaign_name??'') as string,owner:(r.owner_name??notificationDefaults[language].owner) as string};
     return {id:r.id,eventType:r.event_type,channel:'IN_APP',leadId:r.lead_id,conversationId:r.conversation_id,createdAt:r.created_at,version:r.version,isRead:r.is_read,waiting:Boolean(r.waiting),
      attention:r.attention_id?{id:r.attention_id,reasonCode:r.attention_reason,currentlyNeedsAttention:Boolean(r.attention_current)}:null,
+     operational:r.operational_condition?{condition:r.operational_condition,current:r.operational_current,
+      connectionId:r.operational_connection_id,inboundEventId:r.inbound_event_id,integrationKind:r.integration_kind,integrationName:r.integration_name}:null,
      automation:r.automation_id?{id:r.automation_id,ruleId:r.rule_id,ruleVersion:r.rule_version,name:r.automation_name,note:r.automation_note}:null,
      paymentId:r.payment_id,enrollmentId:r.enrollment_id,followUp:r.follow_up_id?{id:r.follow_up_id,observedDueAt:r.observed_due_at,currentDueAt:r.current_due_at,status:r.follow_up_status,currentlyDue:Boolean(r.currently_due)}:null,
      title:renderNotification(tpl.title,values),body:renderNotification(tpl.body,values),templateSource:tpl.source,templateVersion:tpl.version};
@@ -124,14 +127,18 @@ export function registerNotificationRoutes(app:FastifyInstance,db:Database) {
  for(const event of notificationEvents){
  const preferenceRoot='/api/notification-preferences'+(event===notificationEvent?'':'/'+event);
  app.get(preferenceRoot,async request=>{
-  const actor=await principalFromRequest(request,db);return db.begin(async tx=>{
+  const actor=await principalFromRequest(request,db);
+  if(actor.role==='AGENT'&&isOperationalNotification(event))throw new HttpError(403,'NOTIFICATION_ACCESS_DENIED');
+  return db.begin(async tx=>{
    if(!await currentPaymentSession(tx,actor,request))throw new HttpError(403,'NOTIFICATION_ACCESS_REVOKED');
    const p=(await tx`SELECT enabled,version FROM notification_preference WHERE user_id=${actor.id} AND event_type=${event as string} AND channel='IN_APP'`)[0];
    return {eventType:event,channel:'IN_APP',enabled:p?.enabled??true,version:p?.version??0,mandatory:false};
   });
  });
  app.put<{Body:{enabled:boolean;version:number}}>(preferenceRoot,{preValidation:async r=>requireNotificationBodyTypes(r.body,'enabled'),schema:{body:{type:'object',additionalProperties:false,required:['enabled','version'],properties:{enabled:{type:'boolean'},version:{type:'integer',minimum:0}}}}},async request=>{
-  const actor=await principalFromRequest(request,db);return db.begin(async tx=>{
+  const actor=await principalFromRequest(request,db);
+  if(actor.role==='AGENT'&&isOperationalNotification(event))throw new HttpError(403,'NOTIFICATION_ACCESS_DENIED');
+  return db.begin(async tx=>{
    await tx`SELECT pg_advisory_xact_lock(hashtextextended(${actor.id+':notification-preference:'+event},0))`;
    const session=await currentPaymentSession(tx,actor,request);if(!session)throw new HttpError(403,'NOTIFICATION_ACCESS_REVOKED');
    const p=(await tx`SELECT version FROM notification_preference WHERE user_id=${actor.id} AND event_type=${event as string} AND channel='IN_APP' FOR UPDATE`)[0];

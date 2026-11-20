@@ -26,7 +26,7 @@ import { LeadPaymentMethods } from './PaymentMethods.js';
 import { WorkingHoursEditor } from './WorkingHoursEditor.js';
 import {AutomationWorkspace} from './AutomationWorkspace.js';
 import {GoogleSetup} from './GoogleSetup.js';
-import { NotificationCenter } from './NotificationCenter.js';
+import { NotificationCenter, integrationPages } from './NotificationCenter.js';
 
 type Role = 'SUPER_ADMIN' | 'MANAGER' | 'AGENT';
 type User = { id: string; organizationId: string; branchId: string | null; role: Role; name: string; email: string };
@@ -358,7 +358,7 @@ function App() {
       : page === 'googleSetup' && canManage ? <GoogleSetup key={user.id} locale={locale} user={{...user,role:user.role as 'SUPER_ADMIN'|'MANAGER'}} branches={branches} api={api} initialId={initialGoogleId} onImport={id=>{setInitialImportId(id);setSelectedLead(null);setPage('leads');}}/>
       : page === 'analytics' ? <AnalyticsWorkspace key={user.id} locale={locale} api={api} user={user} branches={branches} onOpenLead={id=>{setPage('leads');setSelectedLead(id);}}/>
       : page === 'automations' && canManage ? <AutomationWorkspace key={user.id} locale={locale} api={api} user={{...user,role:user.role as 'SUPER_ADMIN'|'MANAGER'}} branches={branches} onOpenLead={id=>{setPage('leads');setSelectedLead(id);}}/>
-      : page === 'notifications' ? <NotificationCenter key={user.id} locale={locale} api={api} user={user} branches={branches} onOpenLead={id=>{setPage('leads');setSelectedLead(id);}} onChanged={()=>setNotificationRevision(n=>n+1)}/>
+      : page === 'notifications' ? <NotificationCenter key={user.id+':'+user.role+':'+user.branchId} locale={locale} api={api} user={user} branches={branches} onOpenLead={id=>{setPage('leads');setSelectedLead(id);}} onOpenIntegration={kind=>setPage(integrationPages[kind])} onChanged={()=>setNotificationRevision(n=>n+1)}/>
       : page === 'metaSources' && canManage ? <MetaSourceSetup locale={locale} role={user.role as 'SUPER_ADMIN'|'MANAGER'} branches={branches} api={api} />
       : page === 'messagingSetup' && canManage ? <MessagingSetup locale={locale} role={user.role as 'SUPER_ADMIN'|'MANAGER'}
       branchId={user.branchId} branches={branches} api={api} />

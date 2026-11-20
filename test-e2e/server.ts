@@ -7,6 +7,7 @@ import {processOneGoogleExportDelivery} from '../src/google/export-delivery-work
 import {processOneEmailPublication} from '../src/notification-email-outbox.js';
 import {processOneNotificationEmail} from '../src/notification-email-dispatch.js';
 import {processOneLeadAttentionNotification} from '../src/lead-attention-notifications.js';
+import {processOneOperationalNotification} from '../src/operational-notifications.js';
 import {processOneAutomationMatch,processOneAutomationExecution} from '../src/automation.js';
 // Test-only HTTP entrypoint. Never imported by the production server or workers.
 import { randomBytes,createHmac } from 'node:crypto';
@@ -385,6 +386,12 @@ app.post('/__test__/lead-attention',async request=>{
  if(typeof request.headers.authorization!=='string'||!safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
  for(let i=0;i<100;i++)if(!await processOneLeadAttentionNotification(db))break;
  return {ok:true};
+});
+app.post('/__test__/operational-alerts',async request=>{
+ if(typeof request.headers.authorization!=='string'||!safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
+ for(let i=0;i<100;i++)if(!await processOneInboundEvent(db))break;
+ for(let i=0;i<100;i++)if(!await processOneOperationalNotification(db))break;
+ return {connectionId:connection};
 });
 app.post<{Body:{steps?:number}}>('/__test__/google-capture',{schema:{body:{type:'object',additionalProperties:false,properties:{steps:{type:'integer',minimum:0,maximum:20}}}}},async request=>{
  if(typeof request.headers.authorization!=='string'||!safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
