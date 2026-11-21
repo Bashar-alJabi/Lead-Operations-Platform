@@ -10,5 +10,8 @@ const leadReasons={
  fr:{NO_ELIGIBLE_AGENT:'Aucun agent éligible',UNASSIGNED_BY_MANAGER:'Attribution retirée par le responsable',LEAD_UNASSIGNED:'Prospect à attribuer'},
 };
 export function attentionReasonLabel(code:string,locale:NotificationLocale){
+ if(code==='AUTOMATION_REVIEW_REQUIRED')return {
+  ar:'الأتمتة طلبت مراجعة بشرية',en:'Automation requested human review',fr:'Vérification humaine demandée par l’automatisation',
+ }[locale];
  return leadReasons[locale][code as keyof typeof leadReasons.en]??reasons[locale][code as keyof typeof reasons.en]??reasons[locale].REVIEW_REQUIRED;
 }

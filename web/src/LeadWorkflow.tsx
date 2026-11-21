@@ -1,6 +1,7 @@
 import {FollowUpHistory} from './FollowUpHistory.js';
 import { useEffect, useState } from 'react';
 import {FollowUpNotificationStatus} from './FollowUpNotifications.js';
+import { LeadAutomationReview } from './LeadAutomationReview.js';
 
 type Api = <T>(path: string, options?: RequestInit) => Promise<T>;
 type Locale = 'ar'|'fr'|'en';
@@ -17,6 +18,11 @@ const labels = {
   fr: { assignment: 'Attribution', current: 'Agent actuel', reason: 'Motif', unassigned: 'Non attribué', choose: 'Choisir un agent', search: 'Chercher un agent', moreAgents: 'Plus d’agents', reassign: 'Mettre à jour', assignmentHistory: 'Historique des attributions', notes: 'Note interne', addNote: 'Ajouter une note', followups: 'Suivis', due: 'Échéance', priority: 'Priorité', note: 'Détails', create: 'Créer un suivi', edit: 'Modifier', save: 'Enregistrer', complete: 'Terminer', cancel: 'Annuler', more: 'Afficher plus', activity: 'Activité', overdue: 'En retard', upcoming: 'À venir', completed: 'Terminé', cancelled: 'Annulé' },
   en: { assignment: 'Assignment', current: 'Current agent', reason: 'Reason', unassigned: 'Unassigned', choose: 'Choose agent', search: 'Search agents', moreAgents: 'More agents', reassign: 'Update assignment', assignmentHistory: 'Assignment history', notes: 'Internal note', addNote: 'Add note', followups: 'Follow-ups', due: 'Due at', priority: 'Priority', note: 'Task details', create: 'Create follow-up', edit: 'Edit', save: 'Save', complete: 'Complete', cancel: 'Cancel', more: 'Load more', activity: 'Activity', overdue: 'Overdue', upcoming: 'Upcoming', completed: 'Completed', cancelled: 'Cancelled' },
 } as const;
+const reviewActivity = {
+  ar: { AUTOMATION_HUMAN_REVIEW_REQUESTED: 'الأتمتة طلبت مراجعة بشرية', AUTOMATION_HUMAN_REVIEW_RESOLVED: 'اكتملت المراجعة البشرية' },
+  en: { AUTOMATION_HUMAN_REVIEW_REQUESTED: 'Automation requested a human review', AUTOMATION_HUMAN_REVIEW_RESOLVED: 'Human review completed' },
+  fr: { AUTOMATION_HUMAN_REVIEW_REQUESTED: 'Vérification humaine demandée par l’automatisation', AUTOMATION_HUMAN_REVIEW_RESOLVED: 'Vérification humaine terminée' },
+};
 
 export function LeadWorkflow({ lead, role, locale, api, onChanged }: {
   lead: Lead; role: Role; locale: Locale; api: Api; onChanged: () => Promise<void>;
@@ -73,6 +79,8 @@ export function LeadWorkflow({ lead, role, locale, api, onChanged }: {
     return new Date(date.getTime() - offset).toISOString().slice(0, 16);
   };
   return <div className="lead-workflow">
+    <LeadAutomationReview key={`${lead.id}:${lead.version}`} leadId={lead.id} locale={locale} api={api}
+      onResolved={() => void load().catch(failure => setError(String(failure)))} />
     {error && <p role="alert" className="error">{error}</p>}
     {role !== 'AGENT' && <section className="panel"><h3>{t.assignment}</h3>
       <p>{t.current}: {agents.find((agent) => agent.id === lead.assigned_agent_id)?.name ?? lead.assigned_agent_id ?? t.unassigned}</p>
@@ -128,7 +136,9 @@ export function LeadWorkflow({ lead, role, locale, api, onChanged }: {
         .catch((failure) => setError(String(failure))); }}>{t.more}</button>}
     </section>
     <section className="panel"><h3>{t.activity}</h3><ul className="timeline">{activity.map((item) => <li key={item.id}>
-      <span>{item.event_type}{item.event_type === 'NOTE_ADDED' && <small>{String(item.detail.text ?? '')}</small>}</span><time>{time(item.created_at)}</time>
+      <span>{reviewActivity[locale][item.event_type as keyof typeof reviewActivity.en] ?? item.event_type}
+        {(item.event_type === 'NOTE_ADDED' || item.event_type === 'AUTOMATION_HUMAN_REVIEW_RESOLVED') &&
+          <small>{String(item.detail.text ?? '')}</small>}</span><time>{time(item.created_at)}</time>
     </li>)}</ul>{activityCursor && <button className="secondary" onClick={() => { void api<Page<History>>(
       `/api/leads/${lead.id}/activity?before=${activityCursor}`)
       .then((page) => { setActivity((current) => [...current, ...page.items]); setActivityCursor(page.nextCursor as number | null); })

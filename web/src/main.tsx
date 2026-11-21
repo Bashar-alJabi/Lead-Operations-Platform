@@ -35,7 +35,7 @@ type Branch = { id: string; name: string; timezone: string; active: boolean };
 type Campaign = { id: string; branch_id: string; name: string; status: string; routing_method?: string; agents?: { agentId: string; name: string }[] };
 type Lead = { id: string; branch_id: string; campaign_id: string; assigned_agent_id: string | null; lifecycle: string; source_kind: string;
   contact_id:string|null; contact_name: string|null; phone: string | null; email: string | null; needs_attention_reason: string | null;
-  created_at: string; next_followup_at: string | null; version: number };
+  automation_review_pending?: boolean; created_at: string; next_followup_at: string | null; version: number };
 type ManagedUser = { id: string; branch_id: string | null; role: Role; name: string; email: string; active: boolean; credential_state: 'INVITED'|'READY' };
 type EmailConnection = { configured: boolean; id?: string; name?: string; status?: string; hasCredential?: boolean; settings?: { host: string; port: number; secure: boolean; username: string; fromAddress: string } };
 type DeliveryJob = { id: string; kind: string; status: string; attempts: number; max_attempts: number; last_error_code: string | null; email: string; name: string; created_at: string };
@@ -317,7 +317,7 @@ function App() {
       case 'contact': return <><strong>{contactLabel(lead,locale)}</strong><small>{lead.phone || lead.email}</small></>;
       case 'campaign': return campaigns.find((item) => item.id === lead.campaign_id)?.name || lead.campaign_id;
       case 'branch': return branches.find((item) => item.id === lead.branch_id)?.name || '—';
-      case 'lifecycle': return <><span className="badge">{lead.lifecycle}</span>{lead.needs_attention_reason && <small className="attention">{t.attention}</small>}</>;
+      case 'lifecycle': return <><span className="badge">{lead.lifecycle}</span>{(lead.needs_attention_reason || lead.automation_review_pending) && <small className="attention">{t.attention}</small>}</>;
       case 'owner': return users.find((item) => item.id === lead.assigned_agent_id)?.name ||
         (lead.assigned_agent_id === user.id ? user.name : lead.assigned_agent_id) || '—';
       case 'source': return lead.source_kind;

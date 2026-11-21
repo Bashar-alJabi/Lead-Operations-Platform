@@ -13,11 +13,12 @@ const historyQuery = { type: 'object', additionalProperties: false, properties: 
 } } as const;
 const dueSchema = { type: 'string', format: 'date-time' } as const;
 
-async function lockedLead(tx: postgres.TransactionSql, actor: Principal, id: string) {
+async function lockedLead(tx: postgres.TransactionSql, actor: Principal, id: string, write = true) {
   const rows = await tx`SELECT id, branch_id, campaign_id, assigned_agent_id, lifecycle, version FROM lead
     WHERE id = ${id} AND organization_id = ${actor.organizationId}
       AND (${actor.role === 'SUPER_ADMIN'} OR (${actor.role === 'MANAGER'} AND branch_id = ${actor.branchId})
-        OR (${actor.role === 'AGENT'} AND branch_id = ${actor.branchId} AND assigned_agent_id = ${actor.id})) FOR UPDATE`;
+        OR (${actor.role === 'AGENT'} AND branch_id = ${actor.branchId} AND assigned_agent_id = ${actor.id}))
+    ${write ? tx`FOR UPDATE` : tx`FOR SHARE`}`;
   if (!rows[0]) throw new HttpError(404, 'LEAD_NOT_FOUND');
   return rows[0];
 }
@@ -57,16 +58,66 @@ async function requireFollowup(tx: postgres.TransactionSql, actor: Principal, id
 }
 
 export function registerLeadWorkflowRoutes(app: FastifyInstance, db: Database): void {
+  app.get<{ Params: { id: string } }>('/api/leads/:id/automation-review', {
+    schema: { params: leadParam },
+  }, async (request, reply) => {
+    const actor = await principalFromRequest(request, db);
+    reply.header('Cache-Control', 'no-store');
+    return db.begin(async tx => {
+      const lead = await lockedLead(tx, actor, request.params.id, false);
+      if (!await currentPaymentSession(tx, actor, request)) throw new HttpError(403, 'AUTOMATION_REVIEW_ACCESS_REVOKED');
+      const [review] = await tx`SELECT execution_id AS id,note,created_at AS "createdAt" FROM automation_human_review
+        WHERE lead_id=${lead.id} AND organization_id=${actor.organizationId} AND branch_id=${lead.branch_id}
+          AND campaign_id=${lead.campaign_id} AND resolved_at IS NULL`;
+      return { review: review ?? null };
+    });
+  });
+
+  app.post<{ Params: { id: string }; Body: { reviewId: string; note: string } }>('/api/leads/:id/automation-review/resolve', {
+    schema: { params: leadParam, body: { type: 'object', additionalProperties: false, required: ['reviewId', 'note'],
+      properties: { reviewId: leadParam.properties.id, note: { type: 'string', minLength: 3, maxLength: 500 } },
+    } },
+  }, async request => {
+    const actor = await principalFromRequest(request, db);
+    const note = request.body.note.trim();
+    if (note.length < 3 || /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(note)) {
+      throw new HttpError(400, 'AUTOMATION_REVIEW_NOTE_INVALID');
+    }
+    return db.begin(async tx => {
+      const lead = await lockedLead(tx, actor, request.params.id);
+      await tx`SELECT id FROM campaign WHERE id=${lead.campaign_id} AND organization_id=${actor.organizationId}
+        AND branch_id=${lead.branch_id} FOR SHARE`;
+      const session = await currentPaymentSession(tx, actor, request);
+      if (!session) throw new HttpError(403, 'AUTOMATION_REVIEW_ACCESS_REVOKED');
+      const [review] = await tx`UPDATE automation_human_review SET resolved_by=${actor.id},
+        resolution_session_id=${session},resolution_note=${note}
+        WHERE execution_id=${request.body.reviewId} AND lead_id=${lead.id} AND organization_id=${actor.organizationId}
+          AND branch_id=${lead.branch_id} AND campaign_id=${lead.campaign_id} AND resolved_at IS NULL
+        RETURNING resolved_at AS "resolvedAt"`;
+      if (!review) throw new HttpError(409, 'AUTOMATION_REVIEW_NOT_PENDING');
+      return { resolvedAt: review.resolvedAt };
+    });
+  });
+
   app.get<{ Params: { id: string }; Querystring: { before?: number; limit?: number } }>('/api/leads/:id/activity', {
     schema: { params: leadParam, querystring: historyQuery },
   }, async (request) => {
     const actor = await principalFromRequest(request, db);
-    const lead = await requireLead(db, actor, request.params.id);
     const limit = request.query.limit ?? 30;
-    const rows = await db`SELECT id, actor_user_id, event_type, detail, created_at FROM lead_activity
-      WHERE lead_id = ${lead.id} AND (${request.query.before ?? null}::bigint IS NULL OR id < ${request.query.before ?? null})
-      ORDER BY id DESC LIMIT ${limit + 1}`;
-    return { items: rows.slice(0, limit), nextCursor: rows.length > limit ? rows[limit - 1]!.id : null };
+    return db.begin(async tx => {
+      const lead = await lockedLead(tx, actor, request.params.id, false);
+      if (!await currentPaymentSession(tx, actor, request)) throw new HttpError(403, 'LEAD_ACTIVITY_ACCESS_REVOKED');
+      const rows = await tx`SELECT a.id,a.actor_user_id,a.event_type,a.detail
+          || CASE WHEN r.execution_id IS NOT NULL THEN jsonb_build_object('text',r.resolution_note) ELSE '{}'::jsonb END AS detail,
+          a.created_at
+        FROM lead_activity a LEFT JOIN automation_human_review r ON r.execution_id=(
+          CASE WHEN a.event_type='AUTOMATION_HUMAN_REVIEW_RESOLVED' THEN a.detail->>'executionId' END
+        )::uuid AND r.lead_id=a.lead_id AND r.organization_id=${actor.organizationId}
+          AND r.branch_id=${lead.branch_id} AND r.campaign_id=${lead.campaign_id} AND r.resolved_at IS NOT NULL
+        WHERE a.lead_id=${lead.id} AND (${request.query.before ?? null}::bigint IS NULL OR a.id<${request.query.before ?? null})
+        ORDER BY a.id DESC LIMIT ${limit + 1}`;
+      return { items: rows.slice(0, limit), nextCursor: rows.length > limit ? rows[limit - 1]!.id : null };
+    });
   });
 
   app.get<{ Params: { id: string }; Querystring: { before?: number; limit?: number } }>('/api/leads/:id/assignments', {

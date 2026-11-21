@@ -62,9 +62,10 @@ export function registerNotificationRoutes(app:FastifyInstance,db:Database) {
     CASE WHEN ops.id IS NOT NULL THEN operational_notification_current(ops.id) END AS operational_current,
     ae.id AS automation_id,ae.rule_id,ae.rule_version,av.snapshot->>'name' AS automation_name,av.snapshot->>'note' AS automation_note,
     (attention.id IS NOT NULL AND cv.state<>'CLOSED' AND cv.needs_attention_reason IS NOT NULL AND NOT EXISTS(SELECT 1 FROM conversation_attention_transition newer WHERE newer.conversation_id=cv.id AND newer.ordinal>attention.ordinal)
-     OR la.id IS NOT NULL AND l.lifecycle='OPEN' AND l.needs_attention_reason IS NOT NULL AND NOT EXISTS(
+     OR la.automation_review_id IS NULL AND la.id IS NOT NULL AND l.lifecycle='OPEN' AND l.needs_attention_reason IS NOT NULL AND NOT EXISTS(
       SELECT 1 FROM lead_attention_transition newer WHERE newer.lead_id=l.id AND newer.ordinal>la.ordinal
-     )) AS attention_current,
+       AND newer.automation_review_id IS NULL
+     ) OR review.execution_id IS NOT NULL AND review.resolved_at IS NULL) AS attention_current,
     f.status='OPEN' AND f.due_at=o.due_at AND f.due_at<=clock_timestamp() AS currently_due,e.created_at,e.created_at::text AS cursor_at,c.name AS campaign_name,u.name AS owner_name,
     COALESCE(ns.version,0) AS version,COALESCE(ns.is_read,false) AS is_read,
     cv.ai_handoff_action_id=e.source_id AND cv.state='WAITING_FOR_HUMAN' AND cv.controller_type='NONE' AS waiting
@@ -75,6 +76,7 @@ export function registerNotificationRoutes(app:FastifyInstance,db:Database) {
     LEFT JOIN conversation cv ON cv.id=e.conversation_id AND cv.lead_id=l.id
     LEFT JOIN conversation_attention_transition attention ON attention.id=e.conversation_attention_id AND attention.conversation_id=cv.id
     LEFT JOIN lead_attention_transition la ON la.id=e.lead_attention_id AND la.lead_id=l.id
+    LEFT JOIN automation_human_review review ON review.execution_id=la.automation_review_id
     LEFT JOIN automation_execution ae ON ae.id=e.automation_execution_id
     LEFT JOIN automation_rule_version av ON av.rule_id=ae.rule_id AND av.version=ae.rule_version
     LEFT JOIN follow_up f ON f.id=e.follow_up_id AND f.lead_id=l.id

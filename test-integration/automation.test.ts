@@ -8,6 +8,7 @@ import {buildApp} from '../src/app.js';
 import {sha256} from '../src/security.js';
 import {processOneAutomationMatch,processOneAutomationExecution} from '../src/automation.js';
 import {processOneFollowUpNotification} from '../src/follow-up-notifications.js';
+import {processOneLeadAttentionNotification} from '../src/lead-attention-notifications.js';
 import {processOneInboundEvent} from '../src/messaging/inbound-events.js';
 import {sealSecret} from '../src/credentials.js';
 const url=process.env.TEST_DATABASE_URL;
@@ -36,6 +37,91 @@ async function fixture(t:TestContext){
  async function execute(){for(let i=0;i<200&&await processOneAutomationExecution(db);i++);}
  return {db,app,org,branch,other,campaign,users,api,def,rule,create,matches,execute};
 }
+
+test('Approved human review is deduplicated, scoped to current ownership and resolved with immutable history',async t=>{
+ const {db,branch,campaign,users,api,def,rule,create,matches,execute}=await fixture(t);
+ const definition={...def,actionType:'REQUEST_HUMAN_ATTENTION',delayMinutes:0,priority:'NORMAL',note:'Synthetic review <em>as text</em>'};
+ assert.equal((await api('POST','/api/automations',{...definition,branchId:branch,campaignId:campaign},'agent')).statusCode,403);
+ assert.equal((await api('POST','/api/automations',{...definition,branchId:branch,campaignId:campaign,actionAgentId:users.second!.id})).statusCode,400);
+ await rule(definition);
+ await rule({...definition,name:'Second rule for the same lead'});
+ await rule({...definition,name:'Repeat on a future assignment',triggerType:'LEAD_REASSIGNED'});
+ const leadId=await create(),path='/api/leads/'+leadId+'/automation-review';
+ await db`UPDATE lead SET needs_attention_reason='NO_ELIGIBLE_AGENT' WHERE id=${leadId}`;
+ await matches();
+ await Promise.all(Array.from({length:4},()=>processOneAutomationExecution(db)));
+ await execute();
+ const pending=await api('GET',path,undefined,'agent');
+ assert.equal(pending.statusCode,200,pending.body);
+ const original=pending.json().review;
+ assert.equal(original.note,definition.note);
+ const reads=await db`SELECT execution_id,lead_id,resolved_at FROM automation_human_review`;
+ assert.equal(reads.length,1);
+ assert.equal(reads[0]!.execution_id,original.id);
+ const effects=await db`SELECT detail->>'humanReviewId' AS id,detail->>'humanReviewOpened' AS opened FROM audit_log
+  WHERE action='AUTOMATION_ACTION_APPLIED' AND detail->>'action'='REQUEST_HUMAN_ATTENTION' ORDER BY detail->>'humanReviewOpened'`;
+ assert.deepEqual(effects.map(row=>[row.id,row.opened]),[[original.id,'false'],[original.id,'true']]);
+ await assert.rejects(db`INSERT INTO automation_human_review(execution_id) VALUES(${original.id})`,/AUTOMATION_REVIEW_PROOF_REQUIRED/);
+ await assert.rejects(db`UPDATE automation_human_review SET resolved_by=${users.second!.id},resolution_session_id=${users.second!.session},
+  resolution_note='Not the owner' WHERE execution_id=${original.id}`,/AUTOMATION_REVIEW_ACCESS_REVOKED/);
+ await assert.rejects(db`UPDATE automation_human_review SET note='Forged history' WHERE execution_id=${original.id}`,/AUTOMATION_REVIEW_IMMUTABLE/);
+ await assert.rejects(db`DELETE FROM automation_human_review WHERE execution_id=${original.id}`,/AUTOMATION_REVIEW_IMMUTABLE/);
+ assert.equal((await api('POST',path+'/resolve',{reviewId:original.id,note:'  '})).statusCode,400);
+ for(const who of ['second','other','foreign']){
+  assert.equal((await api('GET',path,undefined,who)).statusCode,404);
+  assert.equal((await api('POST',path+'/resolve',{reviewId:original.id,note:'Wrong scope'},who)).statusCode,404);
+ }
+ while(await processOneLeadAttentionNotification(db)){}
+ const inbox=async(who='agent')=>{
+  const response=await api('GET','/api/notifications?limit=50&language=en',undefined,who);
+  assert.equal(response.statusCode,200,response.body);
+  return response.json().items.filter((item:{leadId:string;eventType:string})=>item.leadId===leadId&&item.eventType==='LEAD_NEEDS_ATTENTION');
+ };
+ const notices=await inbox();
+ assert.deepEqual(notices.map((item:{attention:{reasonCode:string;currentlyNeedsAttention:boolean}})=>[
+  item.attention.reasonCode,item.attention.currentlyNeedsAttention,
+ ]).sort(),[['AUTOMATION_REVIEW_REQUIRED',true],['NO_ELIGIBLE_AGENT',true]]);
+ assert.equal((await inbox('second')).length,0);
+
+ await db`CREATE FUNCTION test_automation_review_audit() RETURNS trigger LANGUAGE plpgsql AS $$
+  BEGIN IF NEW.action='AUTOMATION_HUMAN_REVIEW_RESOLVED' THEN RAISE EXCEPTION 'Synthetic review Audit failure'; END IF; RETURN NEW; END $$`;
+ await db`CREATE TRIGGER test_automation_review_audit BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION test_automation_review_audit()`;
+ const resolve=(who='agent',id=original.id)=>api('POST',path+'/resolve',{reviewId:id,note:'Reviewed by the current owner'},who);
+ try {
+  assert.equal((await resolve()).statusCode,500);
+  assert.equal((await api('GET',path)).json().review.id,original.id);
+ }finally{
+  await db`DROP TRIGGER test_automation_review_audit ON audit_log`;
+  await db`DROP FUNCTION test_automation_review_audit()`;
+ }
+ const resolutions=await Promise.all(Array.from({length:7},()=>resolve()));
+ assert.deepEqual(resolutions.map(item=>item.statusCode).sort(),[200,409,409,409,409,409,409]);
+ assert.equal((await api('GET',path)).json().review,null);
+ assert.ok((await inbox()).find((item:{attention:{reasonCode:string}})=>item.attention.reasonCode==='NO_ELIGIBLE_AGENT').attention.currentlyNeedsAttention);
+ assert.equal((await inbox()).find((item:{attention:{reasonCode:string}})=>item.attention.reasonCode==='AUTOMATION_REVIEW_REQUIRED').attention.currentlyNeedsAttention,false);
+ const [proof]=await db`SELECT resolved_by,resolution_note FROM automation_human_review WHERE execution_id=${original.id}`;
+ assert.equal(proof!.resolved_by,users.agent!.id);
+ assert.equal(proof!.resolution_note,'Reviewed by the current owner');
+ const history=await db`SELECT actor_user_id,event_type FROM lead_activity WHERE lead_id=${leadId}
+  AND event_type LIKE 'AUTOMATION_HUMAN_REVIEW_%' ORDER BY id`;
+ assert.deepEqual(history.map(row=>[row.actor_user_id,row.event_type]),[[null,'AUTOMATION_HUMAN_REVIEW_REQUESTED'],[users.agent!.id,'AUTOMATION_HUMAN_REVIEW_RESOLVED']]);
+
+ const version=(await api('GET','/api/leads/'+leadId)).json().lead.version;
+ const reassigned=await api('POST','/api/leads/'+leadId+'/assignment',{version,agentId:users.second!.id});
+ assert.equal(reassigned.statusCode,200,reassigned.body);
+ await matches();await execute();
+ const replacement=(await api('GET',path,undefined,'second')).json().review;
+ assert.notEqual(replacement.id,original.id);
+ assert.equal((await api('GET',path,undefined,'agent')).statusCode,404);
+ assert.equal((await resolve('second')).statusCode,409);
+ await db`UPDATE user_session SET revoked_at=clock_timestamp() WHERE id=${users.second!.session}`;
+ assert.equal((await resolve('second',replacement.id)).statusCode,401);
+ const listed=(await api('GET','/api/leads?attention=YES')).json().items;
+ assert.ok(listed.some((item:{id:string;automation_review_pending:boolean})=>item.id===leadId&&item.automation_review_pending));
+ assert.equal((await resolve('manager',replacement.id)).statusCode,200);
+ assert.equal((await api('GET','/api/leads?attention=YES')).json().items.some((item:{id:string})=>item.id===leadId),false);
+ assert.equal((await db`SELECT count(*)::int AS n FROM conversation_message`)[0]!.n,0);
+});
 
 test('Approved assignment shares ownership effects, enforces eligibility and limits repeated reassignment',async t=>{
  const {db,org,branch,other,campaign,users,api,def,rule,create,matches,execute}=await fixture(t);

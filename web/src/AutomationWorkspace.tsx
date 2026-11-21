@@ -248,7 +248,9 @@ export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{local
   fr:{action:'Attribuer le prospect',recipient:'Agent destinataire',choose:'Choisir un agent',unavailable:'Agent indisponible ou non admissible',already:'Le prospect est déjà attribué à cet agent'},
  }[locale];
  const actionLabels={CREATE_FOLLOW_UP:t.follow,SEND_IN_APP_NOTIFICATION:t.notify,SET_FIELD_VALUE:fieldAction.action,ADD_TAGS:fieldAction.addTags,
-  ASSIGN_LEAD:assignment.action};
+  ASSIGN_LEAD:assignment.action,REQUEST_HUMAN_ATTENTION:{
+   ar:'طلب مراجعة بشرية',en:'Request human review',fr:'Demander une vérification humaine',
+  }[locale]};
  const causal={
   ar:{AUTOMATION_CAUSAL_REPEAT:'نُفذت القاعدة سابقًا في هذه السلسلة',AUTOMATION_CAUSAL_LIMIT:'بلغت السلسلة حد إجراءات الأتمتة'},
   en:{AUTOMATION_CAUSAL_REPEAT:'Rule already ran in this chain',AUTOMATION_CAUSAL_LIMIT:'Automation chain limit reached'},

@@ -57,7 +57,8 @@ export function analyticsCtes(tx:postgres.TransactionSql,actor:Principal,q:LeadF
    coalesce(t.human_tasks,0) AS human_tasks,coalesce(t.automation_tasks,0) AS automation_tasks,
    coalesce(p.paid,false) AS paid,EXISTS(SELECT 1 FROM enrollments e WHERE e.lead_id=s.id) AS enrolled,
    coalesce(q.ai_answered,false) AS ai_answered,coalesce(q.human_answered,false) AS human_answered,
-   s.needs_attention_reason IS NOT NULL OR EXISTS(SELECT 1 FROM cvs cv WHERE cv.lead_id=s.id AND cv.needs_attention_reason IS NOT NULL) AS attention,
+   s.needs_attention_reason IS NOT NULL OR automation_review_pending(s.id,s.branch_id,s.campaign_id)
+    OR EXISTS(SELECT 1 FROM cvs cv WHERE cv.lead_id=s.id AND cv.needs_attention_reason IS NOT NULL) AS attention,
    coalesce(CASE s.conversion_type WHEN 'PAYMENT_CONFIRMED' THEN p.paid WHEN 'ENROLLMENT_CONFIRMED' THEN EXISTS(SELECT 1 FROM enrollments e WHERE e.lead_id=s.id) ELSE false END,false) AS converted,
    coalesce(s.conversion_type IN ('PAYMENT_CONFIRMED','ENROLLMENT_CONFIRMED'),false) AS conversion_defined
   FROM selected s LEFT JOIN communication c ON c.lead_id=s.id LEFT JOIN tasks t ON t.lead_id=s.id LEFT JOIN payment_leads p ON p.lead_id=s.id LEFT JOIN qualification q ON q.lead_id=s.id

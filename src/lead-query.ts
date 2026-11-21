@@ -63,5 +63,7 @@ export function leadPredicate(tx:postgres.TransactionSql,actor:Principal,q:LeadF
   AND (${!q.payment} OR (${q.payment==='CONFIRMED'})=EXISTS(SELECT 1 FROM analytics_payment_fact pf WHERE pf.lead_id=l.id AND pf.organization_id=l.organization_id AND pf.state='CONFIRMED' AND (${q.paymentMode??'ALL'}='ALL' OR pf.mode=${q.paymentMode??'ALL'})))
   AND (${!q.enrollment} OR (${q.enrollment==='ENROLLED'})=EXISTS(SELECT 1 FROM enrollment e JOIN analytics_payment_fact pf ON pf.id=e.payment_id
    WHERE e.lead_id=l.id AND pf.lead_id=l.id AND pf.organization_id=l.organization_id AND pf.state='CONFIRMED' AND (${q.paymentMode??'ALL'}='ALL' OR pf.mode=${q.paymentMode??'ALL'})))
-  AND (${!q.attention} OR (${q.attention==='YES'})=(l.needs_attention_reason IS NOT NULL OR EXISTS(SELECT 1 FROM conversation cv WHERE cv.lead_id=l.id AND cv.needs_attention_reason IS NOT NULL)))`;
+  AND (${!q.attention} OR (${q.attention==='YES'})=(l.needs_attention_reason IS NOT NULL
+   OR automation_review_pending(l.id,l.branch_id,l.campaign_id)
+   OR EXISTS(SELECT 1 FROM conversation cv WHERE cv.lead_id=l.id AND cv.needs_attention_reason IS NOT NULL)))`;
 }
