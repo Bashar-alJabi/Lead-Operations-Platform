@@ -1,12 +1,12 @@
-# الأتمتة: القواعد المعتمدة والإجراءات الداخلية — Native168
+# الأتمتة: القواعد المعتمدة والإجراءات الداخلية
 
 ## نطاق الشريحة الحالية
 
-هذا تنفيذ فعلي لـ `Trigger → Conditions → Action`، وليس محرر إعدادات فقط. المصادر الحالية هي `LEAD_CREATED / LEAD_ASSIGNED / LEAD_REASSIGNED` من أحداث التشغيل الموثوقة السابقة، والإجراءان هما إنشاء Follow-up للمالك الحالي المؤهل أو إرسال إشعار In-App للمخولين بالفرصة. لا Customer send أو Payment/Enrollment confirmation أو تعديل Controller أو arbitrary SQL/JavaScript/AI tool من القاعدة.
+يدعم مسار `Trigger → Conditions → Action` إنشاء Follow-up للمالك الحالي المؤهل أو إرسال إشعار للمخولين بالفرصة. تأتي أحداث `LEAD_CREATED` و`LEAD_ASSIGNED` و`LEAD_REASSIGNED` من سجل التشغيل. تعتمد migration 207 كذلك حدثي `PAYMENT_CONFIRMED` و`ENROLLMENT_CONFIRMED` مستقلين، ولكل منهما سجل Notification Event مُشتق من مصدره الموثوق.
 
 كل قاعدة ضمن Organization، مع Branch اختياري و Campaign اختياري داخل ذلك الفرع. Super Admin يدير المستويات الثلاثة، و Manager يدير فرعه وحملاته فقط. Agent لا يدير القواعد أو سجل معالجتها؛يرى المهمة/الإشعار الناتج فقط إذا بقي مخولًا بالفرصة. لا Roles جديدة.
 
-بقية triggers الواردة في 01 §47، وشروط Dynamic Fields/Conversation/AI/financial/dates، وإجراءات Change Field/Assign Lead/Tags/Status/Human attention/approved AI workflows تبقى متطلبات غير مكتملة. لا يُستخدم هذا العقد لإعلان Automation أو المنصة Complete. لا يلزم Provider لهذا المسار الداخلي.
+تبقى بقية triggers الواردة في 01 §47، وشروط Dynamic Fields وConversation وAI والحقائق المالية والتواريخ، وإجراءات Change Field وAssign Lead وTags وStatus وHuman attention وapproved AI workflows مدرجة في [مراجعة الفجوات](platform-gap-review.md).
 
 ## الموافقة والنسخ
 
@@ -34,7 +34,7 @@
 
 ## التكرار والحلقات والاستعادة
 
-السبب محفوظ عبر Source → Rule version → Execution → Task/Notification. الإجراءات الحالية لا تنتج أي نوع من Lead triggers الثلاثة المسموحة، و`AUTOMATION_NOTICE` و Follow-up due غير مقبولتين كمصدر هنا؛الرسم السببي الحالي لا يحتوي دورة. إضافة triggers/actions أخرى تتطلب توسيع causation/loop guard أولًا، خصوصًا Assign Lead أو Field/Status أو Follow-up due. لا يُعاد استخدام هذا الاستبعاد المحدود كادعاء بأن جميع الحلقات المستقبلية محلولة.
+السبب محفوظ عبر Source → Rule version → Execution → Task/Notification. تقتصر مصادر هذه المرحلة على أحداث Lead المؤهلة وتأكيد Payment وتأكيد Enrollment. تقع آثارها في جداول المتابعة والإشعار فقط، لذلك لا تعيد تشغيل القاعدة. تستلزم إضافة مصادر Follow-up أو إجراءات تعديل Lead توسيع تتبع الأسباب وقواعد منع الحلقات.
 
 طابورتا matching/execution لهما تاريخ immutable لكل version. المحاولات الفاشلة تنتظر 1/2/4/8 ثوانٍ ثم `DEAD_LETTER` بعد خمس failures. لا raw DB/provider exception في DTO/history. Manager/Super Admin حالي ضمن النطاق يستطيع retry بعد إصلاح السبب، ب Session حقيقية و CAS و Audit؛المكتمل/المتخطى لا يقبل retry. الاستعادة لا ترسل للعميل ولا تعيد أثرًا محفوظًا. الشروط التي لم تتحقق تُسجل SKIPPED مع سبب، لا حلقة retries بلا حدود.
 

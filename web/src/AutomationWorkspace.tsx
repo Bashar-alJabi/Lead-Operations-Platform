@@ -69,7 +69,9 @@ export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{local
  async function retry(item:Processing){setBusy(true);setError('');setHistory(null);try{
   await api('/api/automation/'+kind+'/'+item.id+'/retry',{method:'POST',body:JSON.stringify({version:item.version})});await readProcessing();
  }catch{failed();}finally{setBusy(false);}}
- const triggers=[['LEAD_CREATED',t.created],['LEAD_ASSIGNED',t.assigned],['LEAD_REASSIGNED',t.reassigned]];
+ const financial={ar:['تأكيد الدفع','تأكيد التسجيل'],en:['Payment confirmed','Enrollment confirmed'],fr:['Paiement confirmé','Inscription confirmée']}[locale];
+ const triggers=[['LEAD_CREATED',t.created],['LEAD_ASSIGNED',t.assigned],['LEAD_REASSIGNED',t.reassigned],
+  ['PAYMENT_CONFIRMED',financial[0]],['ENROLLMENT_CONFIRMED',financial[1]]];
  const status=(s:string)=>(t.states as Record<string,string>)[s]??s,result=(s:string|null)=>s?(t.results as Record<string,string>)[s]??t.error:'';
  return <section className="panel" data-automation-workspace><h2>{t.title}</h2><p>{t.warning}</p><div className="actions"><button disabled={busy} onClick={()=>edit(null)}>{t.new}</button><button disabled={busy} onClick={()=>void readRules()}>{t.reload}</button></div>
   {busy&&<p role="status">{t.loading}</p>}{error&&<p role="alert">{error}</p>}

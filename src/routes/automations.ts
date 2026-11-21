@@ -5,10 +5,11 @@ import {HttpError,principalFromRequest,requireRole,type Principal} from '../secu
 import {currentPaymentSession} from '../payments/access.js';
 import {decodeCursor,encodeCursor} from '../pagination.js';
 
-type Definition={name:string;enabled:boolean;triggerType:'LEAD_CREATED'|'LEAD_ASSIGNED'|'LEAD_REASSIGNED';
+const triggers=['LEAD_CREATED','LEAD_ASSIGNED','LEAD_REASSIGNED','PAYMENT_CONFIRMED','ENROLLMENT_CONFIRMED'] as const;
+type Definition={name:string;enabled:boolean;triggerType:typeof triggers[number];
  lifecycle:'OPEN'|'CLOSED'|'ARCHIVED'|null;ownerCondition:'ANY'|'ASSIGNED'|'UNASSIGNED';
  actionType:'CREATE_FOLLOW_UP'|'SEND_IN_APP_NOTIFICATION';delayMinutes:number;priority:'LOW'|'NORMAL'|'HIGH';note:string;reason:string};
-const properties={name:{type:'string',minLength:1,maxLength:100},enabled:{type:'boolean'},triggerType:{enum:['LEAD_CREATED','LEAD_ASSIGNED','LEAD_REASSIGNED']},
+const properties={name:{type:'string',minLength:1,maxLength:100},enabled:{type:'boolean'},triggerType:{enum:triggers},
  lifecycle:{enum:['OPEN','CLOSED','ARCHIVED',null]},ownerCondition:{enum:['ANY','ASSIGNED','UNASSIGNED']},actionType:{enum:['CREATE_FOLLOW_UP','SEND_IN_APP_NOTIFICATION']},
  delayMinutes:{type:'integer',minimum:0,maximum:525600},priority:{enum:['LOW','NORMAL','HIGH']},note:{type:'string',maxLength:4000},reason:{type:'string',minLength:3,maxLength:500}} as const;
 const uuid={type:'string',format:'uuid'} as const,nullableUuid={anyOf:[uuid,{type:'null'}]} as const;
