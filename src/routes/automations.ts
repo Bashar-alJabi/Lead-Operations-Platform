@@ -4,13 +4,16 @@ import type {Database} from '../db.js';
 import {HttpError,principalFromRequest,requireRole,type Principal} from '../security.js';
 import {currentPaymentSession} from '../payments/access.js';
 import {decodeCursor,encodeCursor} from '../pagination.js';
+import {validateFieldValue,type FieldOption,type FieldType,type FieldValidation} from '../fields.js';
 
 const triggers=['LEAD_CREATED','LEAD_ASSIGNED','LEAD_REASSIGNED','PAYMENT_CONFIRMED','ENROLLMENT_CONFIRMED','FOLLOW_UP_DUE','MESSAGE_RECEIVED','CONVERSATION_STATE_CHANGED','FIELD_CHANGED'] as const;
 const financialConditions=['ANY','TEST_CONFIRMED','TEST_UNCONFIRMED','LIVE_CONFIRMED','LIVE_UNCONFIRMED'] as const;
 const conversationStates=['AI_ACTIVE','AI_WAITING_FOR_LEAD','AI_HANDOFF_REQUIRED','WAITING_FOR_HUMAN','HUMAN_ACTIVE','CLOSED'] as const;
 const conversationControllers=['AI','HUMAN','NONE'] as const;
+type FieldCondition={fieldId:string;value:unknown};
 type Definition={name:string;enabled:boolean;triggerType:typeof triggers[number];
  triggerFieldId?:string|null;
+ fieldCondition?:FieldCondition|null;
  paymentCondition?:typeof financialConditions[number];enrollmentCondition?:typeof financialConditions[number];
  conversationStateCondition?:typeof conversationStates[number]|null;controllerCondition?:typeof conversationControllers[number]|null;
  lifecycle:'OPEN'|'CLOSED'|'ARCHIVED'|null;ownerCondition:'ANY'|'ASSIGNED'|'UNASSIGNED';
@@ -20,6 +23,7 @@ const properties={name:{type:'string',minLength:1,maxLength:100},enabled:{type:'
  delayMinutes:{type:'integer',minimum:0,maximum:525600},priority:{enum:['LOW','NORMAL','HIGH']},note:{type:'string',maxLength:4000},reason:{type:'string',minLength:3,maxLength:500}} as const;
 const uuid={type:'string',format:'uuid'} as const,nullableUuid={anyOf:[uuid,{type:'null'}]} as const;
 const optionalProperties={triggerFieldId:nullableUuid,paymentCondition:{enum:financialConditions},enrollmentCondition:{enum:financialConditions},
+ fieldCondition:{anyOf:[{type:'null'},{type:'object',required:['fieldId','value'],additionalProperties:false,properties:{fieldId:uuid,value:{}}}]},
  conversationStateCondition:{enum:[...conversationStates,null]},controllerCondition:{enum:[...conversationControllers,null]}} as const;
 const params={type:'object',additionalProperties:false,required:['id'],properties:{id:uuid}} as const;
 const page={type:'object',additionalProperties:false,properties:{limit:{type:'integer',minimum:1,maximum:50},cursor:{type:'string',maxLength:256}}} as const;
@@ -56,9 +60,25 @@ function paged(rows:postgres.RowList<postgres.Row[]>,limit:number){const items=r
 async function writeDefinition<T>(write:()=>Promise<T>){
  try{return await write();}
  catch(error){
-  if(error instanceof Error&&error.message==='AUTOMATION_TRIGGER_FIELD_UNAVAILABLE')throw new HttpError(409,error.message);
+  if(error instanceof Error&&['AUTOMATION_TRIGGER_FIELD_UNAVAILABLE','AUTOMATION_CONDITION_FIELD_UNAVAILABLE'].includes(error.message))
+   throw new HttpError(409,error.message);
   throw error;
  }
+}
+async function fieldForCondition(tx:postgres.TransactionSql,actor:Principal,branchId:string|null,campaignId:string|null,id:string){
+ const [field]=await tx`SELECT f.id,f.key,f.label,f.field_type,f.value_mode,f.options,f.validation,f.version
+  FROM field_definition f WHERE f.id=${id} AND f.organization_id=${actor.organizationId}
+   AND automation_field_trigger_available(f.id,${actor.organizationId},${branchId},${campaignId},${actor.role==='MANAGER'})
+  FOR SHARE OF f`;
+ if(!field)throw new HttpError(404,'AUTOMATION_CONDITION_FIELD_UNAVAILABLE');
+ return field;
+}
+async function prepareFieldCondition(tx:postgres.TransactionSql,actor:Principal,branchId:string|null,campaignId:string|null,condition?:FieldCondition|null){
+ if(!condition)return null;
+ const field=await fieldForCondition(tx,actor,branchId,campaignId,condition.fieldId);
+ const value=validateFieldValue(field.field_type as FieldType,condition.value,field.options as FieldOption[],field.validation as FieldValidation);
+ if(value===null)throw new HttpError(400,'FIELD_VALUE_INVALID');
+ return {id:field.id,version:field.version,value:tx.json(value as postgres.JSONValue)};
 }
 export function registerAutomationRoutes(app:FastifyInstance,db:Database){
  app.get<{Querystring:{branchId?:string;campaignId?:string;after?:string}}>('/api/automations/trigger-fields',{
@@ -75,11 +95,23 @@ export function registerAutomationRoutes(app:FastifyInstance,db:Database){
    return {items:rows.slice(0,50),nextAfter:rows.length>50?rows[49]!.id:null};
   });
  });
+ app.get<{Params:{id:string};Querystring:{branchId?:string;campaignId?:string}}>('/api/automations/trigger-fields/:id',{
+  schema:{params,querystring:{type:'object',additionalProperties:false,properties:{branchId:uuid,campaignId:uuid}}},
+ },async request=>{
+  const actor=await principalFromRequest(request,db);requireRole(actor,'SUPER_ADMIN','MANAGER');
+  const branchId=request.query.branchId??actor.branchId,campaignId=request.query.campaignId??null;
+  return db.begin(async tx=>{
+   await scope(tx,actor,branchId,campaignId,request);
+   return fieldForCondition(tx,actor,branchId,campaignId,request.params.id);
+  });
+ });
  app.get<{Querystring:Page}>('/api/automations',{schema:{querystring:page}},async request=>{
   const actor=await principalFromRequest(request,db);requireRole(actor,'SUPER_ADMIN','MANAGER');const cursor=decodeCursor(request.query.cursor),limit=request.query.limit??20;
   return db.begin(async tx=>{if(!await currentPaymentSession(tx,actor,request))throw new HttpError(403,'AUTOMATION_ACCESS_REVOKED');
    const rows=await tx`SELECT r.id,r.name,r.branch_id,r.campaign_id,b.name AS branch_name,c.name AS campaign_name,r.version,r.enabled,r.trigger_type,r.trigger_field_id,r.lifecycle,r.owner_condition,
     r.payment_condition,r.enrollment_condition,r.conversation_state_condition,r.controller_condition,
+    r.condition_field_id,CASE WHEN automation_field_trigger_available(r.condition_field_id,r.organization_id,r.branch_id,r.campaign_id,${actor.role==='MANAGER'})
+      THEN r.condition_field_value END AS condition_field_value,
     r.action_type,r.delay_minutes,r.priority,r.note,r.reason,r.created_at,r.created_at::text AS cursor_at,r.updated_at FROM automation_rule r
     LEFT JOIN branch b ON b.id=r.branch_id LEFT JOIN campaign c ON c.id=r.campaign_id WHERE r.organization_id=${actor.organizationId}
      AND (${actor.role==='SUPER_ADMIN'} OR r.branch_id=${actor.branchId}) AND (${cursor?.timestamp??null}::text::timestamptz IS NULL
@@ -91,9 +123,12 @@ export function registerAutomationRoutes(app:FastifyInstance,db:Database){
   required:[...Object.keys(properties),'branchId','campaignId'],properties:{...properties,...optionalProperties,branchId:nullableUuid,campaignId:nullableUuid}}}},async(request,reply)=>{
   const actor=await principalFromRequest(request,db);requireRole(actor,'SUPER_ADMIN','MANAGER');const input=request.body;validate(input);
   const id=await writeDefinition(()=>db.begin(async tx=>{const session=await scope(tx,actor,input.branchId,input.campaignId,request);
+   const field=await prepareFieldCondition(tx,actor,input.branchId,input.campaignId,input.fieldCondition);
    return (await tx`INSERT INTO automation_rule(organization_id,branch_id,campaign_id,name,version,enabled,trigger_type,trigger_field_id,lifecycle,owner_condition,
+    condition_field_id,condition_field_value,condition_field_definition_version,
     payment_condition,enrollment_condition,conversation_state_condition,controller_condition,action_type,delay_minutes,priority,note,actor_id,session_id,reason)
     VALUES(${actor.organizationId},${input.branchId},${input.campaignId},${input.name},1,${input.enabled},${input.triggerType},${input.triggerFieldId??null},${input.lifecycle},${input.ownerCondition},
+     ${field?.id??null},${field?.value??null},${field?.version??null},
      ${input.paymentCondition??'ANY'},${input.enrollmentCondition??'ANY'},${input.conversationStateCondition??null},
      ${input.controllerCondition??null},${input.actionType},
      ${input.delayMinutes},${input.priority},${input.note},${actor.id},${session},${input.reason}) RETURNING id`)[0]!.id;
@@ -102,9 +137,14 @@ export function registerAutomationRoutes(app:FastifyInstance,db:Database){
  app.put<{Params:{id:string};Body:Definition&{version:number}}>('/api/automations/:id',{schema:{params,body:{type:'object',additionalProperties:false,
   required:[...Object.keys(properties),'version'],properties:{...properties,...optionalProperties,version:{type:'integer',minimum:1}}}}},async request=>{
   const actor=await principalFromRequest(request,db);requireRole(actor,'SUPER_ADMIN','MANAGER');const input=request.body;validate(input);
-  return writeDefinition(()=>db.begin(async tx=>{await ruleAccess(tx,actor,request.params.id,request);const session=await currentPaymentSession(tx,actor,request);
+  return writeDefinition(()=>db.begin(async tx=>{const scope=await ruleAccess(tx,actor,request.params.id,request);const session=await currentPaymentSession(tx,actor,request);
    const r=(await tx`SELECT version FROM automation_rule WHERE id=${request.params.id} FOR UPDATE`)[0]!;if(r.version!==input.version)throw new HttpError(409,'AUTOMATION_VERSION_CONFLICT');
+   const field=await prepareFieldCondition(tx,actor,scope.branch_id,scope.campaign_id,input.fieldCondition);
+   const replacesField=input.fieldCondition!==undefined;
    await tx`UPDATE automation_rule SET name=${input.name},enabled=${input.enabled},trigger_type=${input.triggerType},trigger_field_id=${input.triggerFieldId??null},lifecycle=${input.lifecycle},owner_condition=${input.ownerCondition},action_type=${input.actionType},
+    condition_field_id=CASE WHEN ${replacesField} THEN ${field?.id??null} ELSE condition_field_id END,
+    condition_field_value=CASE WHEN ${replacesField} THEN ${field?.value??null} ELSE condition_field_value END,
+    condition_field_definition_version=CASE WHEN ${replacesField} THEN ${field?.version??null} ELSE condition_field_definition_version END,
     payment_condition=COALESCE(${input.paymentCondition??null},payment_condition),
     enrollment_condition=COALESCE(${input.enrollmentCondition??null},enrollment_condition),
     conversation_state_condition=CASE WHEN ${input.conversationStateCondition!==undefined} THEN ${input.conversationStateCondition??null} ELSE conversation_state_condition END,
@@ -115,7 +155,7 @@ export function registerAutomationRoutes(app:FastifyInstance,db:Database){
  });
  app.get<{Params:{id:string};Querystring:{before?:number}}>('/api/automations/:id/history',{schema:{params,querystring:{type:'object',additionalProperties:false,properties:{before:{type:'integer',minimum:1}}}}},async request=>{
   const actor=await principalFromRequest(request,db);requireRole(actor,'SUPER_ADMIN','MANAGER');return db.begin(async tx=>{
-   await ruleAccess(tx,actor,request.params.id,request);const rows=await tx`SELECT version,created_at,snapshot-'session_id'-'approval_xid' AS definition FROM automation_rule_version
+   await ruleAccess(tx,actor,request.params.id,request);const rows=await tx`SELECT version,created_at,snapshot-'session_id'-'approval_xid'-'condition_field_value' AS definition FROM automation_rule_version
     WHERE rule_id=${request.params.id} AND (${request.query.before??null}::integer IS NULL OR version<${request.query.before??null}) ORDER BY version DESC LIMIT 11`;
    return {items:rows.slice(0,10),nextVersion:rows.length>10?rows[9]!.version:null};
   });

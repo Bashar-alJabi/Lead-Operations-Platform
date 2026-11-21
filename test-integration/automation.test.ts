@@ -37,6 +37,53 @@ async function fixture(t:TestContext){
  return {db,app,org,branch,other,campaign,users,api,def,rule,create,matches,execute};
 }
 
+test('Field equality uses typed current values, withholds the criterion after revocation and skips pending work',async t=>{
+ const {db,branch,campaign,api,def,rule,create,matches,execute}=await fixture(t);
+ const made=await api('POST','/api/fields',{scope:'CAMPAIGN',branchId:branch,campaignId:campaign,key:'automation_score',
+  label:'Synthetic automation score',fieldType:'NUMBER',valueMode:'MANUAL',options:[],validation:{}});
+ assert.equal(made.statusCode,201,made.body);
+ const fieldId=made.json().id as string,binding='/api/campaigns/'+campaign+'/fields/'+fieldId;
+ const settings={active:true,position:0,requiredStage:'NONE',visibleToAgent:true,editableByAgent:true,visibleToManager:true,
+  editableByManager:true,showInTable:false,showInDetails:true,filterable:false,usableByAutomation:true,usableByAi:false};
+ assert.equal((await api('PUT',binding,settings)).statusCode,200);
+ const details='/api/automations/trigger-fields/'+fieldId+'?branchId='+branch+'&campaignId='+campaign;
+ assert.equal((await api('GET',details)).json().field_type,'NUMBER');
+ assert.equal((await api('GET',details,undefined,'other')).statusCode,404);
+ assert.equal((await api('GET',details,undefined,'agent')).statusCode,403);
+ const wrongType=await api('POST','/api/automations',{...def,branchId:branch,campaignId:campaign,fieldCondition:{fieldId,value:'0'}});
+ assert.equal(wrongType.statusCode,400);
+ const id=await rule({fieldCondition:{fieldId,value:0}}),root='/api/automations/'+id;
+ const readRule=async()=>(await api('GET','/api/automations')).json().items.find((item:{id:string})=>item.id===id);
+ assert.equal((await readRule()).condition_field_value,0);
+ const versionHistory=await api('GET',root+'/history');
+ assert.equal(Object.hasOwn(versionHistory.json().items[0].definition,'condition_field_value'),false);
+ assert.equal(versionHistory.json().items[0].definition.condition_field_id,fieldId);
+ const fieldValue=(lead:string,value:number,version?:number)=>api('PUT','/api/leads/'+lead+'/fields/'+fieldId,{value,version},'agent');
+ const eligible=await create(),changed=await create(),absent=await create();
+ for(const lead of [eligible,changed])assert.equal((await fieldValue(lead,0)).statusCode,200);
+ await matches();
+ assert.equal((await fieldValue(changed,5,1)).statusCode,200);
+ await execute();
+ const processing=async()=>db`SELECT s.lead_id,e.state,e.result_code FROM automation_execution e
+  JOIN automation_source s ON s.id=e.source_id WHERE e.rule_id=${id}`;
+ const first=await processing();
+ assert.equal(first.find(row=>row.lead_id===eligible)?.state,'SUCCEEDED');
+ for(const lead of [changed,absent])assert.equal(first.find(row=>row.lead_id===lead)?.result_code,'CONDITIONS_NOT_MET');
+ const revoked=await create();
+ assert.equal((await fieldValue(revoked,0)).statusCode,200);
+ await matches();
+ const hidden=await api('PUT',binding,{...settings,visibleToManager:false,editableByManager:false,version:1});
+ assert.equal(hidden.statusCode,200,hidden.body);
+ assert.equal((await api('GET',details)).statusCode,404);
+ assert.equal((await readRule()).condition_field_value,null);
+ await execute();
+ assert.equal((await processing()).find(row=>row.lead_id===revoked)?.result_code,'AUTOMATION_CONDITION_FIELD_UNAVAILABLE');
+ assert.equal((await db`SELECT id FROM follow_up WHERE kind='AUTOMATION'`).length,1);
+ assert.equal((await api('PUT',root,{...def,version:1,enabled:false})).statusCode,200);
+ const restored=await api('PUT',root,{...def,version:2,enabled:true});
+ assert.equal(restored.statusCode,409,restored.body);
+});
+
 test('Only a changed, approved field matches its rule and revoking its binding stops pending execution',async t=>{
  const {db,branch,campaign,api,def,rule,create,matches,execute}=await fixture(t);
  const lead=await create();
