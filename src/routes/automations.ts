@@ -11,7 +11,7 @@ const financialConditions=['ANY','TEST_CONFIRMED','TEST_UNCONFIRMED','LIVE_CONFI
 const conversationStates=['AI_ACTIVE','AI_WAITING_FOR_LEAD','AI_HANDOFF_REQUIRED','WAITING_FOR_HUMAN','HUMAN_ACTIVE','CLOSED'] as const;
 const conversationControllers=['AI','HUMAN','NONE'] as const;
 const dateBases=['LEAD_CREATED','EVENT_CAPTURED'] as const;
-const actions=['CREATE_FOLLOW_UP','SEND_IN_APP_NOTIFICATION','SET_FIELD_VALUE'] as const;
+const actions=['CREATE_FOLLOW_UP','SEND_IN_APP_NOTIFICATION','SET_FIELD_VALUE','ASSIGN_LEAD'] as const;
 type FieldCondition={fieldId:string;value:unknown};
 type FieldOperation='SET'|'ADD_TAGS';
 type DateCondition={basis:typeof dateBases[number];from?:string;through?:string};
@@ -19,6 +19,7 @@ type Definition={name:string;enabled:boolean;triggerType:typeof triggers[number]
  triggerFieldId?:string|null;
  fieldCondition?:FieldCondition|null;
  fieldAction?:(FieldCondition&{operation?:FieldOperation})|null;
+ actionAgentId?:string|null;
  conditionAgentId?:string|null;dateCondition?:DateCondition|null;
  paymentCondition?:typeof financialConditions[number];enrollmentCondition?:typeof financialConditions[number];
  conversationStateCondition?:typeof conversationStates[number]|null;controllerCondition?:typeof conversationControllers[number]|null;
@@ -38,6 +39,7 @@ type FieldQuery={branchId?:string;campaignId?:string;usage?:FieldUsage};
 const fieldScopeSchema={branchId:uuid,campaignId:uuid,usage:{enum:['ACTION','TAGS']}} as const;
 const optionalProperties={triggerFieldId:nullableUuid,paymentCondition:{enum:financialConditions},enrollmentCondition:{enum:financialConditions},
  conditionAgentId:{type:['string','null'],format:'uuid'},
+ actionAgentId:{type:['string','null'],format:'uuid'},
  dateCondition:{type:['object','null'],required:['basis'],minProperties:2,additionalProperties:false,
   properties:{basis:{enum:dateBases},from:utcDay,through:utcDay}},
  fieldCondition:fieldValueInput,fieldAction:fieldActionInput,
@@ -49,6 +51,7 @@ function validate(input:Definition){if(!input.name.trim()||input.reason.trim().l
  ||(input.triggerType==='FIELD_CHANGED')!==Boolean(input.triggerFieldId)
  ||(input.dateCondition?.from&&input.dateCondition.through&&input.dateCondition.from>input.dateCondition.through)
  ||(input.fieldAction&&input.actionType!=='SET_FIELD_VALUE')
+ ||(input.actionAgentId&&input.actionType!=='ASSIGN_LEAD')
  ||input.actionType!=='CREATE_FOLLOW_UP'&&(input.delayMinutes!==0||input.priority!=='NORMAL'))throw new HttpError(400,'INVALID_AUTOMATION_DEFINITION');}
 async function scope(tx:postgres.TransactionSql,actor:Principal,branchId:string|null,campaignId:string|null,request:FastifyRequest){
  if(actor.role==='MANAGER'&&branchId!==actor.branchId)throw new HttpError(404,'AUTOMATION_SCOPE_NOT_FOUND');
@@ -80,7 +83,7 @@ async function writeDefinition<T>(write:()=>Promise<T>){
  try{return await write();}
  catch(error){
   if(error instanceof Error&&['AUTOMATION_TRIGGER_FIELD_UNAVAILABLE','AUTOMATION_CONDITION_FIELD_UNAVAILABLE',
-    'AUTOMATION_CONDITION_AGENT_UNAVAILABLE','AUTOMATION_ACTION_FIELD_UNAVAILABLE'].includes(error.message))
+    'AUTOMATION_CONDITION_AGENT_UNAVAILABLE','AUTOMATION_ACTION_FIELD_UNAVAILABLE','AUTOMATION_ASSIGNMENT_AGENT_UNAVAILABLE'].includes(error.message))
    throw new HttpError(409,error.message);
   if(error instanceof Error&&error.message==='AUTOMATION_ACTION_FIELD_INVALID')
    throw new HttpError(400,'FIELD_VALUE_INVALID');
@@ -151,6 +154,7 @@ export function registerAutomationRoutes(app:FastifyInstance,db:Database){
   return db.begin(async tx=>{if(!await currentPaymentSession(tx,actor,request))throw new HttpError(403,'AUTOMATION_ACCESS_REVOKED');
    const rows=await tx`SELECT r.id,r.name,r.branch_id,r.campaign_id,b.name AS branch_name,c.name AS campaign_name,r.version,r.enabled,r.trigger_type,r.trigger_field_id,r.lifecycle,r.owner_condition,
     r.condition_agent_id,a.name AS condition_agent_name,r.condition_date_basis,
+    r.action_agent_id,assignee.name AS action_agent_name,
     r.condition_date_from::text AS condition_date_from,r.condition_date_through::text AS condition_date_through,
     r.payment_condition,r.enrollment_condition,r.conversation_state_condition,r.controller_condition,
     r.condition_field_id,CASE WHEN automation_field_trigger_available(r.condition_field_id,r.organization_id,r.branch_id,r.campaign_id,${actor.role==='MANAGER'})
@@ -161,6 +165,8 @@ export function registerAutomationRoutes(app:FastifyInstance,db:Database){
     LEFT JOIN branch b ON b.id=r.branch_id LEFT JOIN campaign c ON c.id=r.campaign_id
     LEFT JOIN user_account a ON a.id=r.condition_agent_id AND a.organization_id=r.organization_id AND a.active
      AND a.role='AGENT' AND (r.branch_id IS NULL OR a.branch_id=r.branch_id)
+    LEFT JOIN user_account assignee ON assignee.id=r.action_agent_id AND assignee.organization_id=r.organization_id AND assignee.active
+     AND assignee.role='AGENT' AND (r.branch_id IS NULL OR assignee.branch_id=r.branch_id)
     WHERE r.organization_id=${actor.organizationId}
      AND (${actor.role==='SUPER_ADMIN'} OR r.branch_id=${actor.branchId}) AND (${cursor?.timestamp??null}::text::timestamptz IS NULL
       OR (r.created_at,r.id)<(${cursor?.timestamp??null}::text::timestamptz,${cursor?.id??null}::uuid)) ORDER BY r.created_at DESC,r.id DESC LIMIT ${limit+1}`;
@@ -172,6 +178,7 @@ export function registerAutomationRoutes(app:FastifyInstance,db:Database){
   const actor=await principalFromRequest(request,db);requireRole(actor,'SUPER_ADMIN','MANAGER');const input=request.body;validate(input);
   if(input.conditionAgentId&&input.ownerCondition==='UNASSIGNED')throw new HttpError(400,'INVALID_AUTOMATION_DEFINITION');
   if(input.actionType==='SET_FIELD_VALUE'&&!input.fieldAction)throw new HttpError(400,'INVALID_AUTOMATION_DEFINITION');
+  if(input.actionType==='ASSIGN_LEAD'&&!input.actionAgentId)throw new HttpError(400,'INVALID_AUTOMATION_DEFINITION');
   const id=await writeDefinition(()=>db.begin(async tx=>{const session=await scope(tx,actor,input.branchId,input.campaignId,request);
    const field=await prepareFieldValue(tx,actor,input.branchId,input.campaignId,input.fieldCondition);
    const operation=input.fieldAction?.operation??'SET';
@@ -179,12 +186,12 @@ export function registerAutomationRoutes(app:FastifyInstance,db:Database){
    return (await tx`INSERT INTO automation_rule(organization_id,branch_id,campaign_id,name,version,enabled,trigger_type,trigger_field_id,lifecycle,owner_condition,
     condition_field_id,condition_field_value,condition_field_definition_version,
     condition_agent_id,condition_date_basis,condition_date_from,condition_date_through,
-    action_field_id,action_field_value,action_field_definition_version,action_field_operation,
+    action_field_id,action_field_value,action_field_definition_version,action_field_operation,action_agent_id,
     payment_condition,enrollment_condition,conversation_state_condition,controller_condition,action_type,delay_minutes,priority,note,actor_id,session_id,reason)
     VALUES(${actor.organizationId},${input.branchId},${input.campaignId},${input.name},1,${input.enabled},${input.triggerType},${input.triggerFieldId??null},${input.lifecycle},${input.ownerCondition},
      ${field?.id??null},${field?.value??null},${field?.version??null},
      ${input.conditionAgentId??null},${input.dateCondition?.basis??null},${input.dateCondition?.from??null},${input.dateCondition?.through??null},
-     ${target?.id??null},${target?.value??null},${target?.version??null},${operation},
+     ${target?.id??null},${target?.value??null},${target?.version??null},${operation},${input.actionAgentId??null},
      ${input.paymentCondition??'ANY'},${input.enrollmentCondition??'ANY'},${input.conversationStateCondition??null},
      ${input.controllerCondition??null},${input.actionType},
      ${input.delayMinutes},${input.priority},${input.note},${actor.id},${session},${input.reason}) RETURNING id`)[0]!.id;
@@ -194,11 +201,13 @@ export function registerAutomationRoutes(app:FastifyInstance,db:Database){
   required:[...Object.keys(properties),'version'],properties:{...properties,...optionalProperties,version:{type:'integer',minimum:1}}}}},async request=>{
   const actor=await principalFromRequest(request,db);requireRole(actor,'SUPER_ADMIN','MANAGER');const input=request.body;validate(input);
   return writeDefinition(()=>db.begin(async tx=>{const scope=await ruleAccess(tx,actor,request.params.id,request);const session=await currentPaymentSession(tx,actor,request);
-   const r=(await tx`SELECT version,condition_agent_id,action_field_id FROM automation_rule WHERE id=${request.params.id} FOR UPDATE`)[0]!;if(r.version!==input.version)throw new HttpError(409,'AUTOMATION_VERSION_CONFLICT');
+   const r=(await tx`SELECT version,condition_agent_id,action_field_id,action_agent_id FROM automation_rule WHERE id=${request.params.id} FOR UPDATE`)[0]!;if(r.version!==input.version)throw new HttpError(409,'AUTOMATION_VERSION_CONFLICT');
    const agent=input.conditionAgentId===undefined?r.condition_agent_id:input.conditionAgentId;
    if(agent&&input.ownerCondition==='UNASSIGNED')throw new HttpError(400,'INVALID_AUTOMATION_DEFINITION');
    const keepsTarget=input.actionType==='SET_FIELD_VALUE'&&input.fieldAction===undefined&&r.action_field_id!==null;
    if(input.actionType==='SET_FIELD_VALUE'&&!keepsTarget&&!input.fieldAction)throw new HttpError(400,'INVALID_AUTOMATION_DEFINITION');
+   const assignee=input.actionType==='ASSIGN_LEAD'?(input.actionAgentId===undefined?r.action_agent_id:input.actionAgentId):null;
+   if(input.actionType==='ASSIGN_LEAD'&&!assignee)throw new HttpError(400,'INVALID_AUTOMATION_DEFINITION');
    const field=await prepareFieldValue(tx,actor,scope.branch_id,scope.campaign_id,input.fieldCondition);
    const operation=input.fieldAction?.operation??'SET';
    const target=await prepareFieldValue(tx,actor,scope.branch_id,scope.campaign_id,input.fieldAction,operation==='ADD_TAGS'?'TAGS':'ACTION');
@@ -215,6 +224,7 @@ export function registerAutomationRoutes(app:FastifyInstance,db:Database){
     action_field_value=CASE WHEN ${keepsTarget} THEN action_field_value ELSE ${target?.value??null} END,
     action_field_definition_version=CASE WHEN ${keepsTarget} THEN action_field_definition_version ELSE ${target?.version??null} END,
     action_field_operation=CASE WHEN ${keepsTarget} THEN action_field_operation ELSE ${operation} END,
+    action_agent_id=${assignee},
     payment_condition=COALESCE(${input.paymentCondition??null},payment_condition),
     enrollment_condition=COALESCE(${input.enrollmentCondition??null},enrollment_condition),
     conversation_state_condition=CASE WHEN ${input.conversationStateCondition!==undefined} THEN ${input.conversationStateCondition??null} ELSE conversation_state_condition END,

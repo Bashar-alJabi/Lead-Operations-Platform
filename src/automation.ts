@@ -18,7 +18,8 @@ export async function processOneAutomationMatch(db:Database):Promise<boolean> {
 }
 
 export async function processOneAutomationExecution(db:Database):Promise<boolean> {
- const candidates=await db`SELECT e.id,s.branch_id,s.lead_id,s.campaign_id,e.rule_id,f.field_id,r.condition_field_id,r.action_field_id FROM automation_execution e
+ const candidates=await db`SELECT e.id,s.branch_id,s.lead_id,s.campaign_id,e.rule_id,f.field_id,r.condition_field_id,r.action_field_id,
+  r.action_type FROM automation_execution e
   JOIN automation_source s ON s.id=e.source_id JOIN automation_rule r ON r.id=e.rule_id
   LEFT JOIN automation_field_change f ON f.id=s.field_change_id
   WHERE e.state='QUEUED' AND e.next_run_at<=statement_timestamp()
@@ -27,12 +28,14 @@ export async function processOneAutomationExecution(db:Database):Promise<boolean
   try{
    const processed=await db.begin(async tx=>{
     await tx`SET LOCAL lock_timeout='750ms'`;await tx`SET LOCAL statement_timeout='5s'`;
-    await tx`SELECT id FROM branch WHERE id=${item.branch_id} FOR SHARE`;
+    if(item.action_type==='ASSIGN_LEAD')await tx`SELECT id FROM branch WHERE id=${item.branch_id} FOR NO KEY UPDATE`;
+    else await tx`SELECT id FROM branch WHERE id=${item.branch_id} FOR SHARE`;
     await tx`SELECT id FROM lead WHERE id=${item.lead_id} FOR UPDATE`;
     await tx`SELECT id FROM campaign WHERE id=${item.campaign_id} FOR SHARE`;
     if(item.field_id||item.condition_field_id||item.action_field_id)await tx`SELECT id FROM field_definition
       WHERE id IN (${item.field_id},${item.condition_field_id},${item.action_field_id}) ORDER BY id FOR SHARE`;
     await tx`SELECT id FROM user_account WHERE id IN (SELECT actor_id FROM automation_rule WHERE id=${item.rule_id}
+     UNION SELECT action_agent_id FROM automation_rule WHERE id=${item.rule_id}
      UNION SELECT assigned_agent_id FROM lead WHERE id=${item.lead_id}) ORDER BY id FOR SHARE`;
     await tx`SELECT id FROM automation_rule WHERE id=${item.rule_id} FOR SHARE`;
     const e=(await tx`SELECT id FROM automation_execution WHERE id=${item.id} AND state='QUEUED'

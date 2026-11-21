@@ -9,7 +9,7 @@ type Lead = { id: string; campaign_id: string; assigned_agent_id: string | null;
 type Followup = { kind:string; id: string; owner_user_id: string | null; due_at: string; status: string; priority: string; note: string | null; version: number };
 type History = { id: number; event_type: string; detail: Record<string, unknown>; created_at: string };
 type Assignment = { id: number; old_agent_id: string | null; old_agent_name: string | null;
-  new_agent_id: string | null; new_agent_name: string | null; reason: string | null; created_at: string };
+  new_agent_id: string | null; new_agent_name: string | null; method: string; reason: string | null; created_at: string };
 type Agent = { id: string; name: string };
 type Page<T> = { items: T[]; nextCursor: string | number | null };
 const labels = {
@@ -90,7 +90,10 @@ export function LeadWorkflow({ lead, role, locale, api, onChanged }: {
         .catch((failure) => setError(String(failure))); }}>{t.moreAgents}</button>}
     </section>}
     <section className="panel"><h3>{t.assignmentHistory}</h3><ul className="timeline">{assignments.map((item) => <li key={item.id}>
-      <span>{item.old_agent_name ?? t.unassigned} → {item.new_agent_name ?? t.unassigned}{item.reason && <small>{item.reason}</small>}</span><time>{time(item.created_at)}</time>
+      <span>{item.old_agent_name ?? t.unassigned} → {item.new_agent_name ?? t.unassigned}
+        {item.method==='AUTOMATION'?<small>{{ar:'إسناد آلي',en:'Assigned by automation',fr:'Attribution automatisée'}[locale]}</small>:
+          item.reason&&<small>{item.reason}</small>}
+      </span><time>{time(item.created_at)}</time>
     </li>)}</ul>{assignmentCursor && <button className="secondary" onClick={() => { void api<Page<Assignment>>(
       `/api/leads/${lead.id}/assignments?before=${assignmentCursor}`)
       .then((page) => { setAssignments((current) => [...current, ...page.items]); setAssignmentCursor(page.nextCursor as number | null); })

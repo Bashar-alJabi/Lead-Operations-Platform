@@ -37,6 +37,73 @@ async function fixture(t:TestContext){
  return {db,app,org,branch,other,campaign,users,api,def,rule,create,matches,execute};
 }
 
+test('Approved assignment shares ownership effects, enforces eligibility and limits repeated reassignment',async t=>{
+ const {db,org,branch,other,campaign,users,api,def,rule,create,matches,execute}=await fixture(t);
+ const first=users.agent!.id,second=users.second!.id;
+ const options={actionType:'ASSIGN_LEAD',delayMinutes:0,priority:'NORMAL',note:''};
+ const foreign=(await db`INSERT INTO user_account(organization_id,branch_id,role,name,email,password_hash)
+  VALUES(${org},${other},'AGENT','Other branch agent','assignment-other@automation.test','synthetic') RETURNING id`)[0]!.id;
+ const approve={...def,branchId:branch,campaignId:campaign,...options};
+ assert.equal((await api('POST','/api/automations',{...approve,actionAgentId:foreign})).statusCode,409);
+ assert.equal((await api('POST','/api/automations',{...approve,actionAgentId:second},'agent')).statusCode,403);
+ const origin=await rule({...options,actionAgentId:second,ownerCondition:'ANY'});
+ const rebound=await rule({...options,triggerType:'LEAD_REASSIGNED',actionAgentId:first});
+ const leadId=await create();
+ const task=await api('POST','/api/leads/'+leadId+'/followups',{dueAt:new Date(Date.now()+3600_000).toISOString()});
+ assert.equal(task.statusCode,201,task.body);
+ const conn=(await db`INSERT INTO integration_connection(organization_id,branch_id,kind,provider,name)
+  VALUES(${org},${branch},'MESSAGING','FAKE','Assignment fixture') RETURNING id`)[0]!.id;
+ const sender=(await db`INSERT INTO messaging_sender(organization_id,connection_id,external_sender_id,display_name)
+  VALUES(${org},${conn},'assignment-fixture','Assignment fixture') RETURNING id`)[0]!.id;
+ const human=(await db`INSERT INTO conversation(lead_id,connection_id,sender_id,channel,participant_ref,controller_type,controller_user_id,state)
+  VALUES(${leadId},${conn},${sender},'TEST','Synthetic human','HUMAN',${first},'HUMAN_ACTIVE') RETURNING id`)[0]!.id;
+ const ai=(await db`INSERT INTO conversation(lead_id,connection_id,sender_id,channel,participant_ref,controller_type,state)
+  VALUES(${leadId},${conn},${sender},'WHATSAPP','Synthetic AI','AI','AI_ACTIVE') RETURNING id`)[0]!.id;
+ const addToCampaign=(capacityOverride:number|null)=>api('PUT','/api/campaigns/'+campaign+'/agents',{agentId:second,capacityOverride});
+ assert.equal((await addToCampaign(null)).statusCode,200);
+ await matches();await execute();
+ const owner=async(id:string)=>(await db`SELECT assigned_agent_id FROM lead WHERE id=${id}`)[0]!.assigned_agent_id;
+ assert.equal(await owner(leadId),second);
+ assert.equal((await db`SELECT owner_user_id FROM follow_up WHERE id=${task.json().id}`)[0]!.owner_user_id,second);
+ assert.equal((await db`SELECT controller_user_id FROM conversation WHERE id=${human}`)[0]!.controller_user_id,second);
+ assert.equal((await db`SELECT controller_type FROM conversation WHERE id=${ai}`)[0]!.controller_type,'AI');
+ assert.equal((await api('GET','/api/leads/'+leadId,undefined,'agent')).statusCode,404);
+ assert.equal((await api('GET','/api/leads/'+leadId+'/assignments',undefined,'second')).json().items[0].method,'AUTOMATION');
+ const effects=()=>db`SELECT id,automation_execution_id,actor_user_id,new_agent_id FROM assignment_history
+  WHERE lead_id=${leadId} AND method='AUTOMATION' ORDER BY id`;
+ await matches();await execute();await matches();await execute();
+ assert.equal(await owner(leadId),first);
+ const history=await effects();
+ assert.deepEqual(history.map(row=>row.new_agent_id),[second,first]);
+ assert.ok(history.every(row=>row.actor_user_id===null));
+ const [repeat]=await db`SELECT e.result_code,s.causal_rule_ids,s.parent_execution_id FROM automation_execution e
+  JOIN automation_source s ON s.id=e.source_id WHERE s.lead_id=${leadId} AND e.rule_id=${rebound} AND e.state='SKIPPED'`;
+ assert.equal(repeat!.result_code,'AUTOMATION_CAUSAL_REPEAT');
+ assert.deepEqual(repeat!.causal_rule_ids,[origin,rebound]);
+ assert.equal(repeat!.parent_execution_id,history[1]!.automation_execution_id);
+ await assert.rejects(db`UPDATE assignment_history SET reason='Changed' WHERE id=${history[0]!.id}`,/IMMUTABLE/);
+ await assert.rejects(db`SELECT apply_scoped_lead_assignment(${leadId},3,${second},NULL,NULL,'Replay',
+  ${history[0]!.automation_execution_id})`,/AUTOMATION_ASSIGNMENT_EFFECT_REQUIRED/);
+ assert.equal((await db`SELECT count(*)::int AS n FROM audit_log WHERE target_id=${leadId} AND action='LEAD_REASSIGNED'`)[0]!.n,2);
+
+ await db`UPDATE campaign SET routing_method='MANUAL' WHERE id=${campaign}`;
+ const outcome=async(id:string)=>(await db`SELECT e.result_code FROM automation_execution e
+  JOIN automation_source s ON s.id=e.source_id WHERE s.lead_id=${id} AND e.rule_id=${origin}`)[0]!.result_code;
+ assert.equal((await addToCampaign(0)).statusCode,200);
+ const full=await create();await matches();await execute();
+ assert.equal(await owner(full),null);assert.equal(await outcome(full),'AUTOMATION_ASSIGNMENT_AGENT_UNAVAILABLE');
+ assert.equal((await addToCampaign(1)).statusCode,200);
+ const hours='/api/users/'+second+'/working-hours';
+ assert.equal((await api('PUT',hours,{version:0,hours:{mon:[]},reason:'Close synthetic working hours'})).statusCode,200);
+ const unavailable=await create();await matches();await execute();
+ assert.equal(await owner(unavailable),null);assert.equal(await outcome(unavailable),'AUTOMATION_ASSIGNMENT_AGENT_UNAVAILABLE');
+ assert.equal((await api('PUT',hours,{version:1,hours:{},reason:'Reopen synthetic working hours'})).statusCode,200);
+ const contenders=[await create(),await create()];await matches();
+ await Promise.all([execute(),execute()]);
+ assert.deepEqual((await Promise.all(contenders.map(outcome))).sort(),['APPLIED','AUTOMATION_ASSIGNMENT_AGENT_UNAVAILABLE']);
+ assert.equal((await Promise.all(contenders.map(owner))).filter(id=>id===second).length,1);
+});
+
 test('Adding tags merges current values under competing workers, skips duplicates and respects the field limit',async t=>{
  const {db,branch,campaign,api,def,rule,create,matches,execute}=await fixture(t);
  const bind={active:true,position:0,requiredStage:'NONE',visibleToAgent:true,editableByAgent:true,visibleToManager:true,
