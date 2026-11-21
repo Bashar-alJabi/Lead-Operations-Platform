@@ -12,6 +12,10 @@ const eventTypes=['AI_HANDOFF_REQUESTED','AI_HANDOFF_SLA_EXCEEDED','LEAD_CREATED
  'PAYMENT_CONFIRMED','ENROLLMENT_CONFIRMED','CONVERSATION_NEEDS_ATTENTION','AUTOMATION_NOTICE','LEAD_NEEDS_ATTENTION','INBOUND_REVIEW_REQUIRED','INTEGRATION_ALERT','SYSTEM_ALERT'];
 type User={role:'SUPER_ADMIN'|'MANAGER'|'AGENT';branchId:string|null};
 type Props={locale:NotificationLocale;api:NotificationApi;user:User;branches:{id:string;name:string}[]};
+type Publication={id:string;eventType:string;state:'WAITING'|'DONE'|'SUPPRESSED'|'DEAD_LETTER';failures:number;
+ version:number;createdAt:string;recoverable:boolean};
+type PublicationPage={items:Publication[];nextCursor:string|null};
+type RecoveryHistory={items:{version:number;reason:string;createdAt:string}[];nextVersion:number|null};
 type History={items:{version:number;changedAt:string;snapshot:{enabled:boolean;language:string;reason?:string}}[];nextVersion:number|null};
 type Choice={senderId:string;templateId:string;senderName:string;templateName:string;providerLanguage:string;preview:string};
 type Catalog={items:Choice[];nextCursor:string|null};
@@ -59,7 +63,7 @@ function BranchBinding({api,locale,branches,user}:Props) {
   });
  }
  const readHistory=(before?:number)=>void run(async()=>setHistory(await api<History>(path+'/history'+(before?`?before=${before}`:''))));
- return <section className="panel form-panel" data-staff-messaging-binding><h4>{t.bindings}</h4>
+ return <><section className="panel form-panel" data-staff-messaging-binding><h4>{t.bindings}</h4>
   {user.role==='SUPER_ADMIN'&&<label>{t.branch}<select aria-label={t.branch} disabled={busy} value={branch} onChange={e=>setBranch(e.target.value)}>
    {branches.map(row=><option key={row.id} value={row.id}>{row.name}</option>)}</select></label>}
   <label>{t.event}<select aria-label={t.event} value={event} disabled={busy} onChange={e=>setEvent(e.target.value)}>
@@ -87,6 +91,68 @@ function BranchBinding({api,locale,branches,user}:Props) {
    })}>{t.more}</button>}
    <button disabled={busy} onClick={()=>readHistory()}>{t.history}</button>{history&&<Changes locale={locale} history={history} older={readHistory}/>}
   </>}
+ </section>
+ {branch&&<PublicationRecovery key={branch+':'+language} api={api} locale={locale} path={root+'/branches/'+branch+'/publications/'+language}/>}
+ </>;
+}
+
+function PublicationRecovery({api,locale,path}:Pick<Props,'api'|'locale'>&{path:string}) {
+ const t={
+  ar:{title:'تعافي تجهيز الإشعارات',load:'تحميل التجهيز المتعثر',empty:'لا مهام تجهيز متعثرة أو مستعادة.',WAITING:'بانتظار تجهيز الجمهور',
+   DONE:'اكتمل التجهيز',SUPPRESSED:'أوقف لتغيّر الإعداد',DEAD_LETTER:'توقف التجهيز',reason:'سبب استعادة التجهيز',retry:'استئناف التجهيز',
+   unavailable:'تغير إعداد الإشعار الأصلي.',error:'تعذر تحميل التجهيز أو استئنافه. حدّث القائمة.'},
+  en:{title:'Notification preparation recovery',load:'Load failed preparations',empty:'No failed or recovered preparations.',WAITING:'Waiting to prepare audience',
+   DONE:'Preparation complete',SUPPRESSED:'Suppressed after a change',DEAD_LETTER:'Preparation stopped',reason:'Preparation recovery reason',retry:'Resume preparation',
+   unavailable:'The original notification settings changed.',error:'Could not load or resume preparation. Refresh the list.'},
+  fr:{title:'Reprise de la préparation des notifications',load:'Charger les préparations en échec',empty:'Aucune préparation en échec ou reprise.',WAITING:'En attente de préparation',
+   DONE:'Préparation terminée',SUPPRESSED:'Bloquée après modification',DEAD_LETTER:'Préparation interrompue',reason:'Motif de reprise de la préparation',retry:'Reprendre la préparation',
+   unavailable:'Les paramètres de la notification ont changé.',error:'Impossible de charger ou reprendre la préparation. Actualisez la liste.'},
+ }[locale];
+ const [page,setPage]=useState<PublicationPage|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(false);
+ const [selected,setSelected]=useState<string|null>(null),[reason,setReason]=useState('');
+ const [history,setHistory]=useState<{id:string;data:RecoveryHistory}|null>(null);
+ async function run(action:()=>Promise<void>) {
+  setBusy(true); setError(false);
+  try{await action();}
+  catch{setPage(null);setHistory(null);setSelected(null);setReason('');setError(true);}
+  finally{setBusy(false);}
+ }
+ const load=(cursor?:string)=>run(async()=>{
+  setSelected(null);setReason('');setHistory(null);
+  setPage(await api<PublicationPage>(path+(cursor?'?cursor='+encodeURIComponent(cursor):'')));
+ });
+ const readHistory=(id:string,before?:number)=>run(async()=>{
+  const data=await api<RecoveryHistory>(path+'/'+id+'/history'+(before?'?before='+before:''));
+  setHistory({id,data});
+ });
+ const recover=(p:Publication)=>run(async()=>{
+  await api(path+'/'+p.id+'/recover',{method:'POST',body:JSON.stringify({version:p.version,reason})});
+  setSelected(null);setReason('');setHistory(null);
+  setPage(await api<PublicationPage>(path));
+ });
+ return <section className="panel" data-staff-messaging-recovery>
+  <h4>{t.title}</h4>
+  <button disabled={busy} onClick={()=>void load()}>{t.load}</button>
+  {error&&<p role="alert">{t.error}</p>}
+  {page&&!page.items.length&&<p>{t.empty}</p>}
+  {page?.items.map(p=><article key={p.id} data-staff-messaging-publication={p.id}>
+   <h5>{eventLabel(p.eventType,locale)}</h5>
+   <p>{t[p.state]} · {p.failures}/5 · {new Date(p.createdAt).toLocaleString(locale)}</p>
+   {p.state==='DEAD_LETTER'&&!p.recoverable&&<p>{t.unavailable}</p>}
+   {p.recoverable&&<form onSubmit={event=>{event.preventDefault();void recover(p);}}>
+    <label>{t.reason}<input required minLength={3} maxLength={500} disabled={busy}
+     value={selected===p.id?reason:''} onChange={event=>{setSelected(p.id);setReason(event.target.value);}}/></label>
+    <button disabled={busy||selected!==p.id||reason.trim().length<3}>{t.retry}</button>
+   </form>}
+   {p.version>0&&<button disabled={busy} onClick={()=>void readHistory(p.id)}>{labels[locale].history}</button>}
+   {history?.id===p.id&&<>
+    <ul>{history.data.items.map(entry=><li key={entry.version}>
+     {new Date(entry.createdAt).toLocaleString(locale)} · <bdi>{entry.reason}</bdi>
+    </li>)}</ul>
+    {history.data.nextVersion&&<button disabled={busy} onClick={()=>void readHistory(p.id,history.data.nextVersion!)}>{labels[locale].older}</button>}
+   </>}
+  </article>)}
+  {page?.nextCursor&&<button disabled={busy} onClick={()=>void load(page.nextCursor!)}>{labels[locale].older}</button>}
  </section>;
 }
 

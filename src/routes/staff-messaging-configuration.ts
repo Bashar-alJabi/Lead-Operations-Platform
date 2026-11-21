@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type postgres from 'postgres';
 import type { Database } from '../db.js';
 import { currentPaymentSession } from '../payments/access.js';
+import { decodeCursor,encodeCursor } from '../pagination.js';
 import { isOperationalNotification, notificationEvents, requireNotificationBodyTypes, type NotificationEventType, type NotificationLanguage } from '../notifications.js';
 import { HttpError, principalFromRequest, requireRole, type Principal } from '../security.js';
 
@@ -9,6 +10,7 @@ type Tx=postgres.TransactionSql;
 type BindingKey={branchId:string;event:NotificationEventType;language:NotificationLanguage};
 type PreferenceKey={event:NotificationEventType};
 type HistoryQuery={before?:number};
+type PublicationKey={branchId:string;language:NotificationLanguage};
 const root='/api/notification-messaging';
 const uuid={type:'string',format:'uuid'} as const;
 const event={type:'string',enum:notificationEvents} as const;
@@ -46,6 +48,74 @@ async function configured<T>(change:()=>Promise<T>) {
 }
 
 export function registerStaffMessagingConfigurationRoutes(app:FastifyInstance,db:Database) {
+ const publication=root+'/branches/:branchId/publications/:language';
+ const publicationParams={type:'object',additionalProperties:false,required:['branchId','language'],properties:{branchId:uuid,language}} as const;
+ const publicationItemParams={...publicationParams,required:['branchId','language','id'],properties:{...publicationParams.properties,id:uuid}} as const;
+ async function publicationAccess(tx:Tx,actor:Principal,p:PublicationKey&{id:string},request:FastifyRequest) {
+  await branchAccess(tx,actor,p.branchId);
+  const session=await currentSession(tx,actor,request);
+  const [result]=await tx<{recovery_version:number;state:string}[]>`SELECT p.recovery_version,p.state FROM staff_messaging_publication p
+    WHERE p.event_id=${p.id} AND p.language=${p.language} AND p.branch_id=${p.branchId}
+     AND (p.state='DEAD_LETTER' OR p.recovery_version>0) AND notification_access(p.event_id,${actor.id})`;
+  if(!result)throw new HttpError(404,'STAFF_MESSAGING_PUBLICATION_NOT_FOUND');
+  return {session,...result};
+ }
+ app.get<{Params:PublicationKey;Querystring:{cursor?:string}}>(publication,{
+  schema:{params:publicationParams,querystring:{type:'object',additionalProperties:false,properties:{cursor:{type:'string',maxLength:256}}}},
+ },async request=>{
+  const actor=await principalFromRequest(request,db),p=request.params,cursor=decodeCursor(request.query.cursor);
+  return db.begin(async tx=>{
+   await branchAccess(tx,actor,p.branchId);
+   await currentSession(tx,actor,request);
+   const rows=await tx`SELECT s.event_id AS id,e.event_type AS "eventType",s.state,s.failures,s.recovery_version AS version,
+    s.created_at AS "createdAt",s.created_at::text AS cursor_at,s.state='DEAD_LETTER' AND EXISTS(
+     SELECT 1 FROM staff_messaging_current_binding(s.event_id,s.language,s.binding_version)) AS recoverable
+    FROM staff_messaging_publication s JOIN notification_event e ON e.id=s.event_id
+    WHERE s.branch_id=${p.branchId} AND s.language=${p.language} AND e.organization_id=${actor.organizationId}
+     AND (s.state='DEAD_LETTER' OR s.recovery_version>0) AND notification_access(e.id,${actor.id})
+     AND (${cursor?.timestamp??null}::text::timestamptz IS NULL OR
+      (s.created_at,s.event_id)<(${cursor?.timestamp??null}::text::timestamptz,${cursor?.id??null}::uuid))
+    ORDER BY s.created_at DESC,s.event_id DESC LIMIT 21`;
+   const items=rows.slice(0,20),last=items.at(-1);
+   return {items:items.map(({cursor_at:_cursor,...row})=>row),
+    nextCursor:rows.length>20&&last?encodeCursor({timestamp:last.cursor_at,id:last.id}):null};
+  });
+ });
+ app.get<{Params:PublicationKey&{id:string};Querystring:HistoryQuery}>(publication+'/:id/history',{
+  schema:{params:publicationItemParams,querystring:historyQuery},
+ },async request=>{
+  const actor=await principalFromRequest(request,db),p=request.params;
+  return db.begin(async tx=>{
+   await publicationAccess(tx,actor,p,request);
+   const rows=await tx`SELECT version,reason,created_at AS "createdAt" FROM staff_messaging_publication_recovery
+    WHERE event_id=${p.id} AND language=${p.language} AND
+     (${request.query.before??null}::integer IS NULL OR version<${request.query.before??null})
+    ORDER BY version DESC LIMIT 21`;
+   return {items:rows.slice(0,20),nextVersion:rows.length>20?rows[19]!.version:null};
+  });
+ });
+ app.post<{Params:PublicationKey&{id:string};Body:{version:number;reason:string}}>(publication+'/:id/recover',{
+  schema:{params:publicationItemParams,body:{type:'object',additionalProperties:false,required:['version','reason'],
+   properties:{version,reason:{type:'string',minLength:3,maxLength:500}}}},
+ },async request=>{
+  const actor=await principalFromRequest(request,db),p=request.params,body=request.body;
+  if(!Number.isInteger(body.version)||typeof body.reason!=='string'||body.reason.trim().length<3||/[\u0000-\u001f\u007f]/.test(body.reason))
+   throw new HttpError(400,'INVALID_STAFF_MESSAGING_RECOVERY');
+  try {
+   return await db.begin(async tx=>{
+    const job=await publicationAccess(tx,actor,p,request);
+    if(job.state!=='DEAD_LETTER'||job.recovery_version!==body.version)throw new HttpError(409,'STAFF_MESSAGING_RECOVERY_CONFLICT');
+    await tx`INSERT INTO staff_messaging_publication_recovery(event_id,language,version,actor_id,session_id,reason)
+     VALUES(${p.id},${p.language},${body.version+1},${actor.id},${job.session},${body.reason})`;
+    return {version:body.version+1};
+   });
+  }catch(error){
+   if(error instanceof Error&&error.message==='STAFF_MESSAGING_RECOVERY_CONFLICT')throw new HttpError(409,error.message);
+   if(error instanceof Error&&error.message==='STAFF_MESSAGING_RECOVERY_DENIED')throw new HttpError(403,error.message);
+   throw error;
+  }
+ });
+
  const binding=root+'/branches/:branchId/bindings/:event/:language';
  app.get<{Params:BindingKey}>(binding,{schema:{params:bindingParams}},async request=>{
   const actor=await principalFromRequest(request,db),p=request.params;

@@ -59,8 +59,25 @@ test('Manager reserves and binds a sender while the Agent sees prepared, accepte
   expect(lead.status()).toBe(201);
   const {id:leadId}=await lead.json();
   expect((await page.request.post(`/api/leads/${leadId}/assignment`,{headers,data:{version:1,agentId:actor.id,reason:'Trigger a synthetic staff alert'}})).status()).toBe(200);
+  const control={...headers,authorization:'Bearer '+testToken};
+  const interrupted=await page.request.post('/__test__/staff-messaging-publication-failure',{headers:control,data:{leadId}});
+  expect(interrupted.status(),await interrupted.text()).toBe(200);
+  const {id:publicationId}=await interrupted.json();
+  const recovery=page.locator('[data-staff-messaging-recovery]');
+  const publication=recovery.locator(`[data-staff-messaging-publication="${publicationId}"]`);
+  await recovery.getByRole('button',{name:'Load failed preparations',exact:true}).click();
+  await expect(publication).toContainText('Preparation stopped');
+  await expect(publication).not.toContainText('Staff test lead');
+  await expect(publication).not.toContainText(phone);
+  const recoveryPath=`${base}/branches/${actor.branchId}/publications/en/${publicationId}`;
+  expect((await staff.request.post(recoveryPath+'/recover',{headers,data:{version:0,reason:'Synthetic agent denial'}})).status()).toBe(403);
+  await publication.getByLabel('Preparation recovery reason',{exact:true}).fill('Fixed synthetic preparation failure');
+  await publication.getByRole('button',{name:'Resume preparation',exact:true}).click();
+  await expect(publication).toContainText('Waiting to prepare audience');
+  await publication.getByRole('button',{name:'History',exact:true}).click();
+  await expect(publication).toContainText('Fixed synthetic preparation failure');
   const prepared=await page.request.post('/__test__/staff-messaging-publication',{
-   headers:{...headers,authorization:'Bearer '+testToken},
+   headers:control,
   });
   expect(prepared.status(),await prepared.text()).toBe(200);
   await staff.getByRole('button',{name:'Notifications',exact:true}).click();
@@ -69,7 +86,11 @@ test('Manager reserves and binds a sender while the Agent sees prepared, accepte
   await activity.getByRole('button',{name:'Reload settings',exact:true}).click();
   await expect(activity).toContainText('Prepared');
   await expect(activity).not.toContainText(phone);
-  const control={...headers,authorization:'Bearer '+testToken};
+  await recovery.getByRole('button',{name:'Load failed preparations',exact:true}).click();
+  await expect(publication).toContainText('Preparation complete');
+  await page.getByRole('combobox',{name:'Language',exact:true}).selectOption('fr');
+  await expect(publication).toContainText('Préparation terminée');
+  await page.getByRole('combobox',{name:'Language',exact:true}).selectOption('en');
   const dispatch=async(result:'ACK'|'UNKNOWN')=>{
    const response=await page.request.post('/__test__/staff-messaging-dispatch',{headers:control,data:{result}});
    expect(response.status(),await response.text()).toBe(200);

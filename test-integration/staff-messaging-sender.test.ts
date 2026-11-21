@@ -242,4 +242,66 @@ test('Staff sender reservations isolate callbacks and authorize only scoped stat
  assert.equal((await api('GET',outbox,'agent')).json().items.find((r:{id:string})=>r.id===limited).state,'ACCEPTED');
  assert.equal((await db`SELECT attempts FROM staff_messaging_dispatch WHERE event_id=${limited}`)[0]!.attempts,2);
  assert.equal(sends,4);
+
+ // Commit a complete page before a genuine failure on the next one.
+ await db`INSERT INTO user_account(id,organization_id,branch_id,role,name,email,password_hash)
+  SELECT ('ffffffff-ffff-ffff-ffff-'||lpad(n::text,12,'0'))::uuid,${org},${branch},'AGENT','Synthetic audience',
+   'audience-'||n::text||'@staff-sender.test','synthetic' FROM generate_series(1,30) g(n)`;
+ const interrupted=await createLead('Private recovery lead','+15550678007');
+ assert.equal((await assign(interrupted,1,accounts.agent!)).statusCode,200);
+ const publication=(await db`SELECT p.event_id FROM staff_messaging_publication p JOIN notification_event e ON e.id=p.event_id
+  WHERE e.lead_id=${interrupted} AND p.language='en'`)[0]!;
+ const key=publication.event_id;
+ const preparation=()=>db`SELECT state,after_user_id,failures,recovery_version FROM staff_messaging_publication WHERE event_id=${key}`;
+ assert.equal(await processOneStaffMessagingPublication(db),true);
+ const cursor=(await preparation())[0]!.after_user_id;
+ assert.ok(cursor);
+ assert.equal(await processOneStaffMessagingDispatch(db,{META_WHATSAPP_CLOUD:async()=>({providerMessageId:'wamid.synthetic-prepared-before-recovery'})}),true);
+ await db`CREATE FUNCTION fail_staff_recovery_fixture() RETURNS trigger LANGUAGE plpgsql AS $$
+  BEGIN IF NEW.action IN ('STAFF_MESSAGING_AUDIENCE_PREPARED','STAFF_MESSAGING_PUBLICATION_RECOVERED')
+   THEN RAISE EXCEPTION 'Never disclose synthetic recovery failure'; END IF; RETURN NEW; END $$`;
+ await db`CREATE TRIGGER fail_staff_recovery_fixture BEFORE INSERT ON audit_log
+  FOR EACH ROW EXECUTE FUNCTION fail_staff_recovery_fixture()`;
+ const recovery=`/api/notification-messaging/branches/${branch}/publications/en`;
+ const recover=(actor='manager',version=0)=>api('POST',recovery+'/'+key+'/recover',actor,{version,reason:'Review synthetic preparation failure'});
+ try {
+  for(let attempt=1;attempt<=5;attempt++){
+   await db`UPDATE staff_messaging_publication SET run_at=clock_timestamp() WHERE event_id=${key}`;
+   assert.equal(await processOneStaffMessagingPublication(db),true);
+   assert.equal((await preparation())[0]!.failures,attempt);
+  }
+  assert.equal((await preparation())[0]!.state,'DEAD_LETTER');
+  const failed=await recover();
+  assert.equal(failed.statusCode,500,failed.body);
+  assert.doesNotMatch(failed.body,/Never disclose/);
+  assert.equal((await preparation())[0]!.recovery_version,0);
+  assert.equal((await db`SELECT 1 FROM staff_messaging_publication_recovery WHERE event_id=${key}`).length,0);
+ } finally {
+  await db`DROP TRIGGER fail_staff_recovery_fixture ON audit_log`;
+  await db`DROP FUNCTION fail_staff_recovery_fixture()`;
+ }
+ const overview=await api('GET',recovery);
+ assert.equal(overview.statusCode,200,overview.body);
+ assert.equal(overview.json().items[0].id,key);
+ assert.equal(overview.json().items[0].recoverable,true);
+ assert.doesNotMatch(overview.body,/Private recovery lead|15550090105/);
+ assert.equal((await api('GET',recovery,'other')).statusCode,404);
+ assert.equal((await recover('other')).statusCode,404);
+ assert.equal((await recover('agent')).statusCode,403);
+ await assert.rejects(db`UPDATE staff_messaging_publication SET state='WAITING',recovery_version=1 WHERE event_id=${key}`,
+  /STAFF_MESSAGING_PUBLICATION_IDENTITY/);
+ const resumes=await Promise.all(Array.from({length:4},()=>recover()));
+ assert.deepEqual(resumes.map(r=>r.statusCode).sort(),[200,409,409,409]);
+ const resumed=(await preparation())[0]!;
+ assert.equal(resumed.after_user_id,cursor);
+ assert.equal(resumed.recovery_version,1);
+ assert.equal(resumed.failures,0);
+ assert.equal(await processOneStaffMessagingPublication(db),true);
+ assert.equal((await preparation())[0]!.state,'DONE');
+ assert.equal((await db`SELECT 1 FROM staff_messaging_outbox WHERE event_id=${key}`).length,1);
+ assert.equal(await processOneStaffMessagingDispatch(db,adapters),false);
+ const history=await api('GET',recovery+'/'+key+'/history');
+ assert.equal(history.json().items[0].reason,'Review synthetic preparation failure');
+ assert.doesNotMatch(history.body,/session|actor|wamid/);
+ assert.equal((await db`SELECT id FROM audit_log WHERE action='STAFF_MESSAGING_PUBLICATION_RECOVERED' AND target_id=${key}`).length,1);
 });

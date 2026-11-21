@@ -411,6 +411,28 @@ app.post('/__test__/staff-messaging-publication',async request=>{
  for(let i=0;i<100;i++)if(!await processOneStaffMessagingPublication(db))break;
  return {ok:true};
 });
+app.post<{Body:{leadId:string}}>('/__test__/staff-messaging-publication-failure',{
+ schema:{body:{type:'object',additionalProperties:false,required:['leadId'],properties:{leadId:{type:'string',format:'uuid'}}}},
+},async request=>{
+ if(typeof request.headers.authorization!=='string'||!safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
+ return db.begin(async tx=>{
+  const [job]=await tx`SELECT p.event_id,p.language FROM staff_messaging_publication p JOIN notification_event e ON e.id=p.event_id
+   WHERE e.lead_id=${request.body.leadId} AND e.organization_id=${org} AND e.event_type='LEAD_ASSIGNED' AND p.state='WAITING'`;
+  if(!job)throw new HttpError(404,'SYNTHETIC_STAFF_PUBLICATION_NOT_FOUND');
+  await tx`CREATE FUNCTION e2e_fail_staff_messaging_audience() RETURNS trigger LANGUAGE plpgsql AS $$
+   BEGIN IF NEW.action='STAFF_MESSAGING_AUDIENCE_PREPARED' THEN RAISE EXCEPTION 'Synthetic audience preparation failure';END IF;RETURN NEW;END $$`;
+  await tx`CREATE TRIGGER e2e_fail_staff_messaging_audience BEFORE INSERT ON audit_log
+   FOR EACH ROW EXECUTE FUNCTION e2e_fail_staff_messaging_audience()`;
+  for(let attempt=0;attempt<5;attempt++){
+   await tx`UPDATE staff_messaging_publication SET run_at=clock_timestamp()
+    WHERE event_id=${job.event_id} AND language=${job.language}`;
+   await tx`SELECT materialize_staff_messaging_page(${job.event_id},${job.language})`;
+  }
+  await tx`DROP TRIGGER e2e_fail_staff_messaging_audience ON audit_log`;
+  await tx`DROP FUNCTION e2e_fail_staff_messaging_audience()`;
+  return {id:job.event_id};
+ });
+});
 app.post<{Body:{result:'ACK'|'UNKNOWN'}}>('/__test__/staff-messaging-dispatch',{
  schema:{body:{type:'object',additionalProperties:false,required:['result'],properties:{result:{enum:['ACK','UNKNOWN']}}}},
 },async request=>{
