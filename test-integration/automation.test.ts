@@ -37,6 +37,59 @@ async function fixture(t:TestContext){
  return {db,app,org,branch,other,campaign,users,api,def,rule,create,matches,execute};
 }
 
+test('Adding tags merges current values under competing workers, skips duplicates and respects the field limit',async t=>{
+ const {db,branch,campaign,api,def,rule,create,matches,execute}=await fixture(t);
+ const bind={active:true,position:0,requiredStage:'NONE',visibleToAgent:true,editableByAgent:true,visibleToManager:true,
+  editableByManager:true,showInTable:false,showInDetails:true,filterable:false,usableByAutomation:true,usableByAi:false};
+ async function defineField(fieldType:'TAGS'|'NUMBER',key:string){
+  const added=await api('POST','/api/fields',{scope:'CAMPAIGN',branchId:branch,campaignId:campaign,key,label:key,
+   fieldType,valueMode:'MANUAL',options:[],validation:{}});
+  assert.equal(added.statusCode,201,added.body);
+  const id=added.json().id as string;
+  assert.equal((await api('PUT','/api/campaigns/'+campaign+'/fields/'+id,bind)).statusCode,200);
+  return id;
+ }
+ const tags=await defineField('TAGS','automated_tags'),number=await defineField('NUMBER','ordinary_automation_field');
+ const available=await api('GET','/api/automations/trigger-fields?usage=TAGS&branchId='+branch+'&campaignId='+campaign);
+ assert.deepEqual(available.json().items.map((item:{id:string})=>item.id),[tags]);
+ const action={actionType:'SET_FIELD_VALUE',delayMinutes:0,priority:'NORMAL',note:''};
+ const approval={...def,branchId:branch,campaignId:campaign,...action};
+ const fieldAction=(value:unknown,fieldId=tags)=>({fieldId,value,operation:'ADD_TAGS'});
+ assert.equal((await api('POST','/api/automations',{...approval,fieldAction:fieldAction(12,number)})).statusCode,409);
+ assert.equal((await api('POST','/api/automations',{...approval,fieldAction:fieldAction([])})).statusCode,400);
+ const priority=await rule({...action,name:'Add the priority tag',fieldAction:fieldAction(['priority','keep'])});
+ await rule({...action,name:'Add the contact tag',fieldAction:fieldAction(['contacted','keep'])});
+ const history=(await api('GET','/api/automations/'+priority+'/history')).json().items;
+ assert.equal(history[0].definition.action_field_operation,'ADD_TAGS');
+
+ async function intakeWithTags(value:string[]){
+  const id=await create();
+  const set=await api('PUT','/api/leads/'+id+'/fields/'+tags,{value});
+  assert.equal(set.statusCode,200,set.body);
+  await matches();
+  return id;
+ }
+ const leadId=await intakeWithTags(['keep','original']);
+ await Promise.all([execute(),execute()]);
+ const [latest]=await db`SELECT value,version FROM lead_field_value WHERE lead_id=${leadId} AND field_id=${tags}`;
+ assert.deepEqual(latest!.value.slice(0,2),['keep','original']);
+ assert.deepEqual(new Set(latest!.value),new Set(['keep','original','priority','contacted']));
+ assert.equal(latest!.value.length,4);assert.equal(latest!.version,3);
+ const changes=await db`SELECT operation,previous_version FROM automation_field_effect WHERE lead_id=${leadId} ORDER BY previous_version`;
+ assert.deepEqual(changes.map(row=>[row.operation,row.previous_version]),[['ADD_TAGS',1],['ADD_TAGS',2]]);
+
+ const full=Array.from({length:50},(_,index)=>'existing-'+index);
+ for(const [value,reason] of [[full,'AUTOMATION_TAG_LIMIT_REACHED'],[['keep','priority','contacted'],'FIELD_ALREADY_MATCHES']] as const){
+  const id=await intakeWithTags([...value]);await execute();
+  const [unchanged]=await db`SELECT value,version FROM lead_field_value WHERE lead_id=${id} AND field_id=${tags}`;
+  assert.deepEqual(unchanged!.value,value);assert.equal(unchanged!.version,1);
+  const results=await db`SELECT e.state,e.result_code FROM automation_execution e
+   JOIN automation_source s ON s.id=e.source_id WHERE s.lead_id=${id}`;
+  assert.deepEqual(results.map(row=>[row.state,row.result_code]),[['SKIPPED',reason],['SKIPPED',reason]]);
+  assert.equal((await db`SELECT 1 FROM automation_field_effect WHERE lead_id=${id}`).length,0);
+ }
+});
+
 test('Scoped automation writes typed fields atomically and propagates the source chain to stop repeated rules',async t=>{
  const {db,branch,campaign,api,def,rule,create,matches,execute}=await fixture(t);
  const settings={active:true,position:0,requiredStage:'NONE',visibleToAgent:true,editableByAgent:true,visibleToManager:true,
