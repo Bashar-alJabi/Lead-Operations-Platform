@@ -110,12 +110,25 @@ test('Notification publication failure leaves actual UNKNOWN durable, bounds ret
 });
 test('Capturing attention under a Conversation lock does not wait on the Lead lock held by actual concurrent reassignment',async t=>{
  const f=await fixture();t.after(f.close);const {db,api,cv,lead,users}=f;let release!:()=>void,ready!:()=>void;
+ let conversationLocker=0;
  const gate=new Promise<void>(r=>{release=r;}),held=new Promise<void>(r=>{ready=r;});
- const writer=db.begin(async tx=>{await tx`SET LOCAL statement_timeout='5s'`;await tx`SELECT id FROM conversation WHERE id=${cv} FOR UPDATE`;ready();await gate;await tx`UPDATE conversation SET needs_attention_reason='DELIVERY_FAILED' WHERE id=${cv}`;});await held;
+ const writer=db.begin(async tx=>{
+  await tx`SET LOCAL statement_timeout='5s'`;
+  await tx`SELECT id FROM conversation WHERE id=${cv} FOR UPDATE`;
+  conversationLocker=(await tx`SELECT pg_backend_pid() AS pid`)[0]!.pid;
+  ready();await gate;
+  await tx`UPDATE conversation SET needs_attention_reason='DELIVERY_FAILED' WHERE id=${cv}`;
+ });await held;
  const assignment=api('POST','/api/leads/'+lead+'/assignment',{version:1,agentId:users.second!.id,reason:'Actual lock-order race'});
  try{
-  let waiting=false;for(let n=0;n<80&&!waiting;n++){waiting=(await db`SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname='lead_operations_test' AND state='active' AND wait_event_type='Lock' AND query LIKE 'UPDATE conversation SET controller_user_id%') AS ok`)[0]!.ok;if(!waiting)await delay(25);}
-  assert.equal(waiting,true,'Assignment must hold Lead and wait for the actual Conversation lock');
+  let waiting=false;
+  for(let n=0;n<80&&!waiting;n++){
+   waiting=(await db`SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database()
+    AND wait_event_type='Lock' AND ${conversationLocker}=ANY(pg_blocking_pids(pid))) AS ok`)[0]!.ok;
+   if(!waiting)await delay(25);
+  }
+  assert.equal(waiting,true,'Assignment must wait for the actual Conversation lock');
+  await assert.rejects(db`SELECT id FROM lead WHERE id=${lead} FOR UPDATE NOWAIT`,{code:'55P03'});
  }finally{release();await writer;}
  const response=await assignment;assert.equal(response.statusCode,200,response.body);assert.equal(await processOne(db),true);
  assert.equal((await f.feed('agent')).length,0);const notices=await f.feed('second');assert.equal(notices.length,1);assert.equal(notices[0]!.attention.currentlyNeedsAttention,false);

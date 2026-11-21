@@ -18,8 +18,14 @@ test('Lead intake origin shows authorized historical routing separately from cur
     const made = await manager.request.post('/api/leads', { headers, data: { branchId: me.branchId, campaignId: campaign, contact: { name, phone: '+15556667782' } } }); expect(made.status()).toBe(201); const lead = (await made.json()).id, root = '/api/leads/'+lead+'/intake-origin';
     const origin = (await (await manager.request.get(root)).json()).origin; expect(origin.originKind).toBe('HUMAN_MANUAL'); expect(origin.routing.ownerId).toBeNull();
     expect((await page.request.get(root)).status()).toBe(404);
-    let version = (await (await manager.request.get('/api/leads/'+lead)).json()).lead.version;
-    expect((await manager.request.post('/api/leads/'+lead+'/assignment', { headers, data: { version, agentId: agent.id, reason: 'Current ownership differs from original intake' } })).status()).toBe(200);
+    await manager.reload();
+    await manager.locator(`[data-lead-row="${lead}"]`).getByRole('button', { name: 'Details', exact: true }).click();
+    const assignment = manager.locator('section.panel').filter({ has: manager.getByRole('heading', { name: 'Assignment', exact: true }) });
+    await assignment.getByRole('combobox', { name: 'Assignment', exact: true }).selectOption(agent.id);
+    await assignment.getByLabel('Reason', { exact: true }).fill('Current ownership differs from original intake');
+    await assignment.getByRole('button', { name: 'Update assignment', exact: true }).click();
+    const assignmentHistory = manager.locator('section').filter({ has: manager.getByRole('heading', { name: 'Assignment history', exact: true }) });
+    await expect(assignmentHistory.getByText('Current ownership differs from original intake', { exact: true })).toBeVisible();
     await page.reload(); await page.getByRole('row').filter({ hasText: name }).getByRole('button', { name: 'Details', exact: true }).click();
     const panel = page.locator('[data-lead-intake-origin]'); await panel.getByRole('button', { name: 'Review intake origin', exact: true }).click();
     await expect(panel).toContainText('Manual entry by an authorized user'); await expect(panel).toContainText('Unassigned'); await expect(panel).toContainText('current owner may differ');
@@ -31,7 +37,7 @@ test('Lead intake origin shows authorized historical routing separately from cur
     await page.getByRole('combobox', { name: 'Language' }).selectOption('en');
     const secondContext = await browser.newContext({ extraHTTPHeaders: { 'x-e2e-rate-scope': randomUUID() } }), second = await secondContext.newPage();
     try { await login(second, 'second'); const secondUser = await (await second.request.get('/api/auth/me')).json();
-      version = (await (await manager.request.get('/api/leads/'+lead)).json()).lead.version;
+      const version = (await (await manager.request.get('/api/leads/'+lead)).json()).lead.version;
       expect((await manager.request.post('/api/leads/'+lead+'/assignment', { headers, data: { version, agentId: secondUser.id, reason: 'Current authorization must be rechecked' } })).status()).toBe(200);
       await panel.getByRole('button', { name: 'Review intake origin', exact: true }).click(); await expect(panel.getByRole('alert')).toBeVisible(); await expect(panel.locator('[data-lead-intake-record]')).toHaveCount(0);
       const moved = await second.request.get(root); expect(moved.status()).toBe(200); expect((await moved.json()).origin.id).toBe(origin.id);

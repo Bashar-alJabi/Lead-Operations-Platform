@@ -36,7 +36,7 @@ test('Lead assignment, notes, and human follow-up preserve history and permissio
       VALUES (${organizationId}, ${branchId}, ${role}, ${email}, ${email}, ${hash}) RETURNING id`;
     return rows[0]!.id as string;
   };
-  await createUser(branchA, 'MANAGER', 'manager-a@example.test');
+  const managerAId = await createUser(branchA, 'MANAGER', 'manager-a@example.test');
   await createUser(branchB, 'MANAGER', 'manager-b@example.test');
   const agent1Id = await createUser(branchA, 'AGENT', 'agent-1@example.test');
   const agent2Id = await createUser(branchA, 'AGENT', 'agent-2@example.test');
@@ -150,12 +150,44 @@ test('Lead assignment, notes, and human follow-up preserve history and permissio
   const conversation = await db`INSERT INTO conversation (lead_id, connection_id, sender_id, channel, participant_ref,
     controller_type, controller_user_id, state) VALUES (${leadId}, ${connection[0]!.id}, ${sender[0]!.id}, 'TEST',
       'customer-1', 'HUMAN', ${agent1Id}, 'HUMAN_ACTIVE') RETURNING id`;
+  const [aiConversation] = await db`INSERT INTO conversation (lead_id, connection_id, sender_id, channel, participant_ref,
+    controller_type, state) VALUES (${leadId}, ${connection[0]!.id}, ${sender[0]!.id}, 'WHATSAPP', 'customer-ai',
+      'AI', 'AI_ACTIVE') RETURNING id`;
   const leadVersion = (await send('GET', `/api/leads/${leadId}`, undefined, managerA)).json().lead.version as number;
   assert.equal((await send('POST', `/api/leads/${leadId}/assignment`, { version: leadVersion, agentId: foreignAgentId }, managerA)).statusCode, 400);
   assert.equal((await send('POST', `/api/leads/${leadId}/assignment`, { version: leadVersion, agentId: agent2Id }, agent1)).statusCode, 403);
   assert.equal((await send('POST', `/api/leads/${leadId}/assignment`, { version: leadVersion, agentId: agent2Id }, managerB)).statusCode, 404);
-  const assigned = await send('POST', `/api/leads/${leadId}/assignment`, { version: leadVersion, agentId: agent2Id, reason: 'Workload' }, managerA);
-  assert.equal(assigned.statusCode, 200, assigned.body);
+  const [expired] = await db`INSERT INTO user_session (user_id, token_hash, created_at, expires_at)
+    VALUES (${managerAId}, ${randomBytes(32)}, now()-interval '1 hour', now()-interval '1 second') RETURNING id`;
+  const [agentSession] = await db`SELECT id FROM user_session WHERE user_id=${agent1Id}`;
+  for (const sessionId of [expired!.id,agentSession!.id]) {
+    await assert.rejects(db`SELECT apply_human_lead_assignment(${leadId},${leadVersion},${agent2Id},${managerAId},
+      ${sessionId},'Invalid session')`, /LEAD_ASSIGNMENT_ACCESS_REVOKED/);
+  }
+
+  const assign = () => send('POST', `/api/leads/${leadId}/assignment`, { version: leadVersion, agentId: agent2Id, reason: 'Workload' }, managerA);
+  await db`CREATE FUNCTION test_assignment_audit_failure() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN IF NEW.action='LEAD_REASSIGNED' THEN RAISE EXCEPTION 'Synthetic reassignment failure'; END IF; RETURN NEW; END $$`;
+  await db`CREATE TRIGGER test_assignment_audit_failure BEFORE INSERT ON audit_log
+    FOR EACH ROW EXECUTE FUNCTION test_assignment_audit_failure()`;
+  try {
+    const failed = await assign();
+    assert.equal(failed.statusCode,500,failed.body);
+    assert.doesNotMatch(failed.body,/Synthetic reassignment failure/);
+    assert.equal((await db`SELECT assigned_agent_id FROM lead WHERE id=${leadId}`)[0]!.assigned_agent_id,agent1Id);
+    assert.equal((await db`SELECT controller_user_id FROM conversation WHERE id=${conversation[0]!.id}`)[0]!.controller_user_id,agent1Id);
+    assert.equal((await db`SELECT owner_user_id FROM follow_up WHERE id=${taskId}`)[0]!.owner_user_id,agent1Id);
+    assert.equal((await db`SELECT 1 FROM assignment_history WHERE lead_id=${leadId} AND method='MANUAL'`).length,0);
+    assert.equal((await db`SELECT 1 FROM automation_source WHERE lead_id=${leadId} AND trigger_type='LEAD_REASSIGNED'`).length,0);
+  } finally {
+    await db`DROP TRIGGER test_assignment_audit_failure ON audit_log`;
+    await db`DROP FUNCTION test_assignment_audit_failure()`;
+  }
+  const competing = await Promise.all([assign(),assign()]);
+  assert.deepEqual(competing.map(result=>result.statusCode).sort(),[200,409]);
+  assert.equal((await db`SELECT 1 FROM automation_source WHERE lead_id=${leadId} AND trigger_type='LEAD_REASSIGNED'`).length,1);
+  assert.deepEqual((await db`SELECT controller_type,controller_user_id,state FROM conversation WHERE id=${aiConversation!.id}`)[0],
+    {controller_type:'AI',controller_user_id:null,state:'AI_ACTIVE'});
   assert.equal((await send('POST', `/api/leads/${leadId}/assignment`, { version: leadVersion, agentId: agent1Id }, managerA)).statusCode, 409);
   assert.equal((await send('GET', `/api/leads/${leadId}`, undefined, agent1)).statusCode, 404);
   assert.deepEqual((await send('GET', fieldSearch, undefined, agent1)).json().items, []);

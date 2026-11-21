@@ -1,6 +1,6 @@
 import {createHumanFollowUp,type FollowUpLead} from '../human-follow-ups.js';
 import {currentPaymentSession} from '../payments/access.js';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type postgres from 'postgres';
 import type { Database } from '../db.js';
 import { HttpError, principalFromRequest, requireLead, requireRole, type Principal } from '../security.js';
@@ -22,48 +22,26 @@ async function lockedLead(tx: postgres.TransactionSql, actor: Principal, id: str
   return rows[0];
 }
 
-export function assignLead(db: Database, actor: Principal, id: string,
+function assignLead(db: Database, actor: Principal, request: FastifyRequest, id: string,
   input: { version: number; agentId: string | null; reason?: string }) {
   requireRole(actor, 'SUPER_ADMIN', 'MANAGER');
   return db.begin(async (tx) => {
     const lead = await lockedLead(tx, actor, id);
-    if (lead.version !== input.version) throw new HttpError(409, 'LEAD_VERSION_CONFLICT');
-    const target = input.agentId;
-    if (target === lead.assigned_agent_id) return { version: lead.version, assignedAgentId: target };
-    if (target) {
-      const eligible = await tx`SELECT 1 FROM user_account WHERE id = ${target} AND organization_id = ${actor.organizationId}
-        AND branch_id = ${lead.branch_id} AND role = 'AGENT' AND active`;
-      if (!eligible.length) throw new HttpError(400, 'AGENT_NOT_ELIGIBLE');
+    const session = await currentPaymentSession(tx, actor, request);
+    if (!session) throw new HttpError(403, 'LEAD_ASSIGNMENT_ACCESS_REVOKED');
+    try {
+      const [assignment] = await tx<{ version: number }[]>`
+        SELECT apply_human_lead_assignment(${lead.id}, ${input.version}, ${input.agentId},
+          ${actor.id}, ${session}, ${input.reason?.trim() ?? null}) AS version`;
+      return { version: assignment!.version, assignedAgentId: input.agentId };
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && error.code === 'P0001') {
+        if (error.message === 'AGENT_NOT_ELIGIBLE') throw new HttpError(400, error.message);
+        if (error.message === 'LEAD_ASSIGNMENT_ACCESS_REVOKED') throw new HttpError(403, error.message);
+        if (error.message === 'LEAD_VERSION_CONFLICT') throw new HttpError(409, error.message);
+      }
+      throw error;
     }
-    const changed = await tx`UPDATE lead SET assigned_agent_id = ${target}, version = version + 1,
-      needs_attention_reason = CASE WHEN ${target}::uuid IS NULL THEN 'UNASSIGNED_BY_MANAGER'
-        WHEN needs_attention_reason IN ('NO_ELIGIBLE_AGENT','UNASSIGNED_BY_MANAGER','PERFORMANCE_POLICY_REQUIRED',
-          'INSUFFICIENT_HUMAN_SAMPLE_FALLBACK') THEN NULL ELSE needs_attention_reason END,
-      updated_at = now() WHERE id = ${lead.id} RETURNING version`;
-    await tx`INSERT INTO assignment_history (lead_id, old_branch_id, old_agent_id, new_branch_id, new_agent_id,
-      actor_user_id, method, reason) VALUES (${lead.id}, ${lead.branch_id}, ${lead.assigned_agent_id},
-        ${lead.branch_id}, ${target}, ${actor.id}, 'MANUAL', ${input.reason?.trim() ?? null})`;
-    const moved = await tx`UPDATE follow_up SET owner_user_id = ${target}, version = version + 1, updated_at = now()
-      WHERE lead_id = ${lead.id} AND status = 'OPEN' AND owner_user_id = ${lead.assigned_agent_id} RETURNING id`;
-    for (const task of moved) await tx`INSERT INTO follow_up_history (follow_up_id, actor_user_id, event_type, detail)
-      VALUES (${task.id}, ${actor.id}, 'OWNER_CHANGED_BY_REASSIGNMENT',
-        ${tx.json({ from: lead.assigned_agent_id, to: target })})`;
-    const conversations = await tx`UPDATE conversation SET controller_user_id = ${target},
-      controller_type = ${target ? 'HUMAN' : 'NONE'}, state = ${target ? 'HUMAN_ACTIVE' : 'WAITING_FOR_HUMAN'},
-      version = version + 1, needs_attention_reason = ${target ? null : 'LEAD_UNASSIGNED'}
-      WHERE lead_id = ${lead.id} AND controller_type = 'HUMAN' AND controller_user_id = ${lead.assigned_agent_id}
-        AND state = 'HUMAN_ACTIVE' RETURNING id`;
-    for (const conversation of conversations) await tx`INSERT INTO conversation_handoff
-      (conversation_id, from_controller, from_user_id, to_controller, to_user_id, reason, requested_by)
-      VALUES (${conversation.id}, 'HUMAN', ${lead.assigned_agent_id}, ${target ? 'HUMAN' : 'NONE'}, ${target},
-        'LEAD_REASSIGNED', ${actor.id})`;
-    await tx`INSERT INTO lead_activity (lead_id, actor_user_id, event_type, detail)
-      VALUES (${lead.id}, ${actor.id}, 'LEAD_REASSIGNED',
-        ${tx.json({ from: lead.assigned_agent_id, to: target, reason: input.reason?.trim() ?? null })})`;
-    await tx`INSERT INTO audit_log (organization_id, branch_id, actor_user_id, action, target_type, target_id, detail)
-      VALUES (${actor.organizationId}, ${lead.branch_id}, ${actor.id}, 'LEAD_REASSIGNED', 'LEAD', ${lead.id},
-        ${tx.json({ from: lead.assigned_agent_id, to: target })})`;
-    return { version: changed[0]!.version, assignedAgentId: target };
   });
 }
 
@@ -124,7 +102,7 @@ export function registerLeadWorkflowRoutes(app: FastifyInstance, db: Database): 
     const results: { id: string; status: 'UPDATED'|'UNCHANGED'|'FAILED'; version?: number; error?: string }[] = [];
     for (const item of items) {
       try {
-        const result = await assignLead(db, actor, item.id, { version: item.version,
+        const result = await assignLead(db, actor, request, item.id, { version: item.version,
           agentId: request.body.agentId, reason: request.body.reason });
         results.push({ id: item.id, status: result.version === item.version ? 'UNCHANGED' : 'UPDATED', version: result.version });
       } catch (error) {
@@ -143,7 +121,7 @@ export function registerLeadWorkflowRoutes(app: FastifyInstance, db: Database): 
       } } },
   }, async (request) => {
     const actor = await principalFromRequest(request, db);
-    return assignLead(db, actor, request.params.id, request.body);
+    return assignLead(db, actor, request, request.params.id, request.body);
   });
 
   app.post<{ Params: { id: string }; Body: { text: string } }>('/api/leads/:id/notes', {
