@@ -71,13 +71,14 @@ export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{local
  }catch{failed();}finally{setBusy(false);}}
  const financial={ar:['تأكيد الدفع','تأكيد التسجيل'],en:['Payment confirmed','Enrollment confirmed'],fr:['Paiement confirmé','Inscription confirmée']}[locale];
  const due={ar:'استحقاق متابعة',en:'Follow-up due',fr:'Suivi arrivé à échéance'}[locale];
+ const received={ar:'استلام رسالة',en:'Message received',fr:'Message reçu'}[locale];
  const causal={
   ar:{AUTOMATION_CAUSAL_REPEAT:'نُفذت القاعدة سابقًا في هذه السلسلة',AUTOMATION_CAUSAL_LIMIT:'بلغت السلسلة حد إجراءات الأتمتة'},
   en:{AUTOMATION_CAUSAL_REPEAT:'Rule already ran in this chain',AUTOMATION_CAUSAL_LIMIT:'Automation chain limit reached'},
   fr:{AUTOMATION_CAUSAL_REPEAT:'Règle déjà exécutée dans cette chaîne',AUTOMATION_CAUSAL_LIMIT:'Limite de la chaîne d’automatisation atteinte'},
  }[locale];
  const triggers=[['LEAD_CREATED',t.created],['LEAD_ASSIGNED',t.assigned],['LEAD_REASSIGNED',t.reassigned],
-  ['PAYMENT_CONFIRMED',financial[0]],['ENROLLMENT_CONFIRMED',financial[1]],['FOLLOW_UP_DUE',due]];
+  ['PAYMENT_CONFIRMED',financial[0]],['ENROLLMENT_CONFIRMED',financial[1]],['FOLLOW_UP_DUE',due],['MESSAGE_RECEIVED',received]];
  const status=(s:string)=>(t.states as Record<string,string>)[s]??s;
  const result=(s:string|null)=>s?(causal as Record<string,string>)[s]??(t.results as Record<string,string>)[s]??t.error:'';
  return <section className="panel" data-automation-workspace><h2>{t.title}</h2><p>{t.warning}</p><div className="actions"><button disabled={busy} onClick={()=>edit(null)}>{t.new}</button><button disabled={busy} onClick={()=>void readRules()}>{t.reload}</button></div>

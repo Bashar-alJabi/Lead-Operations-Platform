@@ -105,12 +105,14 @@ test('signed source references resolve proven campaign context without guessing,
   const second=await receive(referral('901'));await processOneInboundEvent(db);const b=await eventRow(second.id);
   assert.equal(b.lead_id,leads[1]);assert.notEqual(b.conversation_id,a.conversation_id);
   const unknown=await receive(referral('999'));await processOneInboundEvent(db);assert.equal((await eventRow(unknown.id)).failure_code,'SOURCE_REFERENCE_UNRESOLVED');
+  assert.equal((await db`SELECT 1 FROM automation_source WHERE id=${unknown.id}`).length,0);
   const detail=(await api('GET',review(unknown.id))).json();assert.equal(detail.event.sourceReference.externalId,'999');assert.equal(detail.event.sourceReferenceInvalid,false);
   assert.equal(JSON.stringify(detail).includes('never-fetch'),false);assert.equal(JSON.stringify(detail).includes('not-a-contact'),false);
   assert.equal((await api('GET',review(unknown.id),undefined,'other')).statusCode,404);
   assert.equal((await api('GET',review(unknown.id),undefined,'foreign')).statusCode,404);
   assert.equal((await api('GET',review(unknown.id),undefined,'agent')).statusCode,403);
   const resolved=await api('POST',review(unknown.id)+'/resolve',{ leadId:leads[0] });assert.equal(resolved.statusCode,200,resolved.body);
+  assert.equal((await db`SELECT lead_id FROM automation_source WHERE id=${unknown.id} AND trigger_type='MESSAGE_RECEIVED'`)[0]!.lead_id,leads[0]);
   assert.equal((await api('POST',review(unknown.id)+'/resolve',{ leadId:leads[1] })).statusCode,409);
   const noRef=await receive();await processOneInboundEvent(db);assert.equal((await eventRow(noRef.id)).failure_code,'MULTIPLE_ACTIVE_CONVERSATIONS');
   const conflict=await receive(referral('901'),first.message.id);await processOneInboundEvent(db);

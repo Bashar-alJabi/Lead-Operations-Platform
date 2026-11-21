@@ -5,7 +5,7 @@ import {HttpError,principalFromRequest,requireRole,type Principal} from '../secu
 import {currentPaymentSession} from '../payments/access.js';
 import {decodeCursor,encodeCursor} from '../pagination.js';
 
-const triggers=['LEAD_CREATED','LEAD_ASSIGNED','LEAD_REASSIGNED','PAYMENT_CONFIRMED','ENROLLMENT_CONFIRMED','FOLLOW_UP_DUE'] as const;
+const triggers=['LEAD_CREATED','LEAD_ASSIGNED','LEAD_REASSIGNED','PAYMENT_CONFIRMED','ENROLLMENT_CONFIRMED','FOLLOW_UP_DUE','MESSAGE_RECEIVED'] as const;
 type Definition={name:string;enabled:boolean;triggerType:typeof triggers[number];
  lifecycle:'OPEN'|'CLOSED'|'ARCHIVED'|null;ownerCondition:'ANY'|'ASSIGNED'|'UNASSIGNED';
  actionType:'CREATE_FOLLOW_UP'|'SEND_IN_APP_NOTIFICATION';delayMinutes:number;priority:'LOW'|'NORMAL'|'HIGH';note:string;reason:string};

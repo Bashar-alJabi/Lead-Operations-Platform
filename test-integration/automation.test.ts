@@ -1,6 +1,6 @@
 import {test,type TestContext} from 'node:test';
 import assert from 'node:assert/strict';
-import {randomBytes,randomUUID} from 'node:crypto';
+import {createHmac,randomBytes,randomUUID} from 'node:crypto';
 import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {createDatabase} from '../src/db.js';
@@ -8,6 +8,8 @@ import {buildApp} from '../src/app.js';
 import {sha256} from '../src/security.js';
 import {processOneAutomationMatch,processOneAutomationExecution} from '../src/automation.js';
 import {processOneFollowUpNotification} from '../src/follow-up-notifications.js';
+import {processOneInboundEvent} from '../src/messaging/inbound-events.js';
+import {sealSecret} from '../src/credentials.js';
 const url=process.env.TEST_DATABASE_URL;
 if(!url||new URL(url).pathname!=='/lead_operations_test')throw new Error('Isolated TEST_DATABASE_URL required');
 async function fixture(t:TestContext){
@@ -34,6 +36,76 @@ async function fixture(t:TestContext){
  async function execute(){for(let i=0;i<200&&await processOneAutomationExecution(db);i++);}
  return {db,app,org,branch,other,campaign,users,api,def,rule,create,matches,execute};
 }
+
+test('Only a freshly attached authenticated customer message admits a scoped Message Received rule',async t=>{
+ const {db,app,org,branch,campaign,users,api,rule,create,matches,execute}=await fixture(t);
+ process.env.CREDENTIAL_ENCRYPTION_KEY=randomBytes(32).toString('hex');
+ const lead=await create();
+ const connection=(await db`INSERT INTO integration_connection(organization_id,branch_id,kind,provider,name,status,config)
+  VALUES(${org},${branch},'MESSAGING','META_WHATSAPP_CLOUD','Synthetic automation source','CONNECTED',
+   '{"graphVersion":"v25.0","wabaId":"123456789"}') RETURNING id`)[0]!.id;
+ const secret=sealSecret(connection,JSON.stringify({accessToken:'synthetic-token',appSecret:'synthetic-signature-key',verifyToken:'synthetic-verification'}));
+ await db`INSERT INTO connection_secret(connection_id,ciphertext,nonce,auth_tag)
+  VALUES(${connection},${secret.ciphertext},${secret.nonce},${secret.authTag})`;
+ const sender=(await db`INSERT INTO messaging_sender(organization_id,connection_id,external_sender_id,display_name,health,operator_enabled,capabilities)
+  VALUES(${org},${connection},'15550001111','Synthetic sender','HEALTHY',true,'{"text":true}') RETURNING id`)[0]!.id;
+ await db`UPDATE branch SET default_sender_id=${sender} WHERE id=${branch}`;
+ const conversation=(await db`INSERT INTO conversation(lead_id,connection_id,sender_id,channel,participant_ref,controller_type,controller_user_id,state)
+  VALUES(${lead},${connection},${sender},'WHATSAPP','+15554000001','HUMAN',${users.agent!.id},'HUMAN_ACTIVE') RETURNING id`)[0]!.id;
+ const approved=await rule({name:'Receive customer reply',triggerType:'MESSAGE_RECEIVED'});
+ const body='Synthetic message text must remain in the conversation';
+ const message={id:'wamid.autoreceived.'+randomUUID(),from:'15554000001',type:'text',text:{body},timestamp:String(Math.floor(Date.now()/1000))};
+ const post=(candidate:typeof message,key='synthetic-signature-key')=>{
+  const payload=JSON.stringify({object:'whatsapp_business_account',entry:[{id:'123456789',changes:[{field:'messages',value:{
+   messaging_product:'whatsapp',metadata:{phone_number_id:'15550001111'},messages:[candidate],
+  }}]}]});
+  return app.inject({method:'POST',url:'/api/webhooks/messaging/meta/'+connection,payload,headers:{
+   'content-type':'application/json','x-hub-signature-256':'sha256='+createHmac('sha256',key).update(payload).digest('hex'),
+  }});
+ };
+ const sources=()=>db`SELECT * FROM automation_source WHERE trigger_type='MESSAGE_RECEIVED'`;
+ assert.equal((await post(message,'wrong-key')).statusCode,403);
+ assert.equal((await post(message)).json().created,1);
+ assert.equal((await sources()).length,0,'a signature alone does not resolve the destination');
+ assert.deepEqual((await Promise.all([processOneInboundEvent(db),processOneInboundEvent(db)])).sort(),[false,true]);
+ assert.equal((await post(message)).json().created,0);
+ const results=await sources();
+ assert.equal(results.length,1);
+ const source=results[0]!;
+ const attached=(await db`SELECT id,source_event_id FROM conversation_message WHERE conversation_id=${conversation} AND provider_message_id=${message.id}`)[0]!;
+ assert.equal(source.id,attached.source_event_id);
+ assert.equal(source.inbound_message_id,attached.id);
+ assert.equal(source.notification_event_id,null);
+ assert.equal(source.lead_id,lead);
+ assert.deepEqual(source.causal_rule_ids,[]);
+ await assert.rejects(db`INSERT INTO automation_source(id,inbound_message_id) VALUES(${randomUUID()},${attached.id})`,/AUTOMATION_TRUSTED_SOURCE_REQUIRED/);
+ const unrelated={...message,id:'wamid.unmatched.'+randomUUID(),from:'15559998888'};
+ assert.equal((await post(unrelated)).json().created,1);
+ assert.equal(await processOneInboundEvent(db),true);
+ const unsigned={...message,id:'wamid.unsigned.'+randomUUID()};
+ const event=(await db`INSERT INTO integration_event(connection_id,provider_event_id,event_kind,sender_id,participant_ref,payload)
+  VALUES(${connection},${randomUUID()},'INBOUND_MESSAGE',${sender},'+15554000001',${db.json({senderExternalId:'15550001111',message:unsigned})}) RETURNING id`)[0]!.id;
+ assert.equal(await processOneInboundEvent(db),true);
+ assert.equal((await db`SELECT state FROM integration_event WHERE id=${event}`)[0]!.state,'PROCESSED');
+ assert.equal((await sources()).length,1);
+ await rule({name:'Future approval cannot match',triggerType:'MESSAGE_RECEIVED'});
+ await matches();
+ await execute();
+ const applied=await db`SELECT id,rule_id,state FROM automation_execution WHERE source_id=${source.id}`;
+ assert.equal(applied.length,1);
+ assert.equal(applied[0]!.rule_id,approved);
+ assert.equal(applied[0]!.state,'SUCCEEDED');
+ assert.equal((await db`SELECT id FROM follow_up WHERE automation_execution_id=${applied[0]!.id} AND lead_id=${lead}`).length,1);
+ const history='/api/automation/sources/'+source.id+'/history';
+ for(const actor of ['other','foreign']) assert.equal((await api('GET',history,undefined,actor)).statusCode,404);
+ assert.equal((await api('GET',history,undefined,'agent')).statusCode,403);
+ const processing=await api('GET','/api/automation/sources?limit=50');
+ assert.equal(processing.statusCode,200);
+ assert.ok(processing.json().items.some((item:{id:string})=>item.id===source.id));
+ assert.equal(processing.body.includes(body),false);
+ assert.equal(processing.body.includes(message.id),false);
+ assert.equal((await db`SELECT id FROM audit_log WHERE action='AUTOMATION_ACTION_APPLIED' AND detail->>'ruleId'=${approved}`).length,1);
+});
 
 test('Follow-up due automation preserves task causation and skips a repeated rule in the same chain',async t=>{
  const {db,api,rule,create,matches,execute}=await fixture(t);

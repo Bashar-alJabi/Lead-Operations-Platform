@@ -460,7 +460,7 @@ app.post<{Body:{fixture?:boolean;process?:boolean;unknownMessageId?:string;failC
   const leadId=(await tx`INSERT INTO lead(organization_id,branch_id,campaign_id,contact_id,source_kind,assigned_agent_id) VALUES(${org},${branch},${campaignId},${contactId},'MANUAL',${users.agent!}) RETURNING id`)[0]!.id;
   const conversationId=(await tx`INSERT INTO conversation(lead_id,connection_id,sender_id,channel,participant_ref,controller_type,controller_user_id,state) VALUES(${leadId},${conn},${senderId},'WHATSAPP','+15551112222','HUMAN',${users.agent!},'HUMAN_ACTIVE') RETURNING id`)[0]!.id;
   await tx`INSERT INTO conversation_message(conversation_id,connection_id,sender_id,direction,author_type,body,provider_message_id,delivery_state,received_at) VALUES(${conversationId},${conn},${senderId},'INBOUND','CUSTOMER','Synthetic attention question',${'wamid.attention-'+conversationId},'RECEIVED',now()-interval '1 second')`;
-  return {leadId,conversationId};
+  return {leadId,conversationId,campaignId,connectionId:conn};
  });
  if(request.body.unknownMessageId){
   const target=(await db`SELECT m.body,m.conversation_id FROM conversation_message m JOIN conversation cv ON cv.id=m.conversation_id JOIN lead l ON l.id=cv.lead_id
