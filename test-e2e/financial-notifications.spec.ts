@@ -11,12 +11,14 @@ test('Trusted payment and separate enrollment reach the current Lead owner inbox
   const c=await manager.request.post('/api/campaigns',{headers,data:{branchId:me.branchId,name:'Financial notice campaign',routingMethod:'MANUAL'}});expect(c.status()).toBe(201);const campaign=(await c.json()).id;expect((await manager.request.post('/api/campaigns/'+campaign+'/activate',{headers})).status()).toBe(200);
   await manager.getByRole('button',{name:'Automations',exact:true}).click();
   const automations=manager.locator('[data-automation-workspace]'),automationEditor=automations.locator('[data-automation-editor]');
-  async function financialRule(name:string,trigger:string,action:string){
+  async function financialRule(name:string,trigger:string,action:string,paymentCondition='ANY',enrollmentCondition='ANY'){
    await automations.getByRole('button',{name:'New automation',exact:true}).first().click();
    await automationEditor.getByLabel('Rule name',{exact:true}).fill(name);
    await automationEditor.getByLabel('Campaign scope',{exact:true}).selectOption(campaign);
    await automationEditor.getByLabel('Trigger',{exact:true}).selectOption(trigger);
    await automationEditor.getByLabel('Action',{exact:true}).selectOption(action);
+   await automationEditor.getByLabel('Payment condition',{exact:true}).selectOption(paymentCondition);
+   await automationEditor.getByLabel('Enrollment condition',{exact:true}).selectOption(enrollmentCondition);
    if(action==='CREATE_FOLLOW_UP')await automationEditor.getByLabel('Minutes after source event',{exact:true}).fill('0');
    await automationEditor.getByLabel('Task note or internal notification text',{exact:true}).fill(name);
    await automationEditor.getByLabel('Enable this rule',{exact:true}).check();
@@ -24,8 +26,9 @@ test('Trusted payment and separate enrollment reach the current Lead owner inbox
    await automationEditor.getByRole('button',{name:'Approve and save automation',exact:true}).click();
    await expect(automationEditor).toHaveCount(0);
   }
-  await financialRule('Browser confirmed payment rule','PAYMENT_CONFIRMED','SEND_IN_APP_NOTIFICATION');
-  await financialRule('Browser confirmed enrollment rule','ENROLLMENT_CONFIRMED','CREATE_FOLLOW_UP');
+  await financialRule('Browser confirmed payment rule','PAYMENT_CONFIRMED','SEND_IN_APP_NOTIFICATION','TEST_CONFIRMED','LIVE_UNCONFIRMED');
+  await financialRule('Browser confirmed enrollment rule','ENROLLMENT_CONFIRMED','CREATE_FOLLOW_UP','ANY','TEST_CONFIRMED');
+  await financialRule('Browser live payment condition','PAYMENT_CONFIRMED','SEND_IN_APP_NOTIFICATION','LIVE_CONFIRMED');
   await financialRule('Browser due follow-up rule','FOLLOW_UP_DUE','CREATE_FOLLOW_UP');
   const created=await manager.request.post('/api/leads',{headers,data:{branchId:me.branchId,campaignId:campaign,contact:{name:'Synthetic financial notice',phone:'+15553337920'}}});expect(created.status()).toBe(201);const lead=(await created.json()).id;
   expect((await manager.request.post('/api/leads/'+lead+'/assignment',{headers,data:{version:1,agentId:owner.id,reason:'Financial notification journey'}})).status()).toBe(200);
@@ -50,6 +53,7 @@ test('Trusted payment and separate enrollment reach the current Lead owner inbox
   expect(applied).toHaveLength(2);
   await automations.getByRole('button',{name:'Refresh processing',exact:true}).click();
   for(const item of applied)await expect(automations.locator(`[data-automation-processing-id="${item.id}"]`)).toContainText('Action applied');
+  await expect(automations.locator('[data-automation-processing-id]').filter({hasText:'Browser live payment condition'})).toContainText('Conditions do not match');
   const followups=await agent.request.get('/api/leads/'+lead+'/followups');
   expect((await followups.json()).items.filter((item:{kind:string})=>item.kind==='AUTOMATION')).toHaveLength(1);
   for(let cycle=0;cycle<2;cycle++){

@@ -39,14 +39,17 @@ test('Trusted bank confirmation supplies distinct payment and enrollment automat
   assert.equal((await api('POST',`/api/campaigns/${campaign}/activate`)).statusCode,200);
   const pay={branchId:branch,campaignId:campaign,name:'Notify after confirmed payment',enabled:true,triggerType:'PAYMENT_CONFIRMED',
    lifecycle:'OPEN',ownerCondition:'ASSIGNED',actionType:'SEND_IN_APP_NOTIFICATION',delayMinutes:0,priority:'NORMAL',
-   note:'Synthetic payment confirmed',reason:'Approve internal payment automation'};
+   paymentCondition:'TEST_CONFIRMED',note:'Synthetic payment confirmed',reason:'Approve internal payment automation'};
   const enroll={...pay,name:'Follow up after enrollment',triggerType:'ENROLLMENT_CONFIRMED',actionType:'CREATE_FOLLOW_UP',
-   delayMinutes:60,note:'Synthetic enrollment follow-up'};
+   enrollmentCondition:'TEST_CONFIRMED',delayMinutes:60,note:'Synthetic enrollment follow-up'};
   assert.equal((await api('POST','/api/automations',pay,'other')).statusCode,404);
   assert.equal((await api('POST','/api/automations',pay,'agent')).statusCode,403);
   const payRule=await api('POST','/api/automations',pay),enrollRule=await api('POST','/api/automations',enroll);
   assert.equal(payRule.statusCode,201,payRule.body);
   assert.equal(enrollRule.statusCode,201,enrollRule.body);
+  assert.equal((await api('POST','/api/automations',{...pay,paymentCondition:'CUSTOMER_CLAIM'})).statusCode,400);
+  const liveRule=await api('POST','/api/automations',{...pay,name:'Require confirmed live payment',paymentCondition:'LIVE_CONFIRMED'});
+  assert.equal(liveRule.statusCode,201,liveRule.body);
   const transfer=await f.request();
   const proof=f.approval(transfer),path=`/api/leads/${lead}/bank-transfers/${transfer.id}/confirm`;
   const sources=()=>db`SELECT trigger_type,s.id FROM automation_source s JOIN notification_event n ON n.id=s.id
@@ -55,7 +58,31 @@ test('Trusted bank confirmation supplies distinct payment and enrollment automat
   assert.equal((await api('POST',path,proof,'agent')).statusCode,403);
   assert.equal((await api('POST',path,{...proof,bankVerified:false})).statusCode,400);
   assert.equal((await sources()).length,0);
-  for(let replay=0;replay<2;replay++)assert.equal((await api('POST',path,proof)).statusCode,200);
+  const [pending]=await db`SELECT automation_payment_matches(${lead},${f.org},'TEST_CONFIRMED') paid,
+   automation_enrollment_matches(${lead},${f.org},'TEST_CONFIRMED') enrolled`;
+  assert.equal(pending!.paid,false);
+  assert.equal(pending!.enrolled,false);
+  // Observe the genuine Payment inside its transaction before the independent Enrollment is written.
+  await db`CREATE FUNCTION check_automation_between_financial_writes() RETURNS trigger LANGUAGE plpgsql AS $$
+   DECLARE org uuid; BEGIN
+    SELECT organization_id INTO org FROM lead WHERE id=NEW.lead_id;
+    IF NOT automation_payment_matches(NEW.lead_id,org,'TEST_CONFIRMED')
+     OR NOT automation_enrollment_matches(NEW.lead_id,org,'TEST_UNCONFIRMED')
+     OR automation_payment_matches(NEW.lead_id,org,'LIVE_CONFIRMED')
+    THEN RAISE EXCEPTION 'Unexpected conditional result between financial writes'; END IF;
+    RETURN NEW;
+   END $$`;
+  await db`CREATE TRIGGER check_automation_between_financial_writes BEFORE INSERT ON enrollment
+   FOR EACH ROW EXECUTE FUNCTION check_automation_between_financial_writes()`;
+  try {
+   for(let replay=0;replay<2;replay++){
+    const confirmed=await api('POST',path,proof);
+    assert.equal(confirmed.statusCode,200,confirmed.body);
+   }
+  } finally {
+   await db`DROP TRIGGER check_automation_between_financial_writes ON enrollment`;
+   await db`DROP FUNCTION check_automation_between_financial_writes()`;
+  }
   const captured=await sources();
   assert.deepEqual(captured.map(row=>row.trigger_type),['ENROLLMENT_CONFIRMED','PAYMENT_CONFIRMED']);
   await assert.rejects(db`INSERT INTO automation_source(id) VALUES(${captured[0]!.id})`,/AUTOMATION_TRUSTED_SOURCE_REQUIRED/);
@@ -63,11 +90,15 @@ test('Trusted bank confirmation supplies distinct payment and enrollment automat
   assert.equal(late.statusCode,201,late.body);
   for(let i=0;i<20;i++)if(!await processOneAutomationMatch(db))break;
   for(let i=0;i<20;i++)if(!await processOneAutomationExecution(db))break;
-  const effects=await db`SELECT s.trigger_type,e.rule_id,e.state FROM automation_execution e
-   JOIN automation_source s ON s.id=e.source_id WHERE s.lead_id=${lead} ORDER BY s.trigger_type`;
-  assert.deepEqual(effects.map(row=>[row.trigger_type,row.rule_id,row.state]),[
+  const effects=await db`SELECT s.trigger_type,e.rule_id,e.state,e.result_code FROM automation_execution e
+   JOIN automation_source s ON s.id=e.source_id WHERE s.lead_id=${lead} ORDER BY s.trigger_type,e.state DESC`;
+  assert.deepEqual(effects.filter(row=>row.state==='SUCCEEDED').map(row=>[row.trigger_type,row.rule_id,row.state]),[
    ['ENROLLMENT_CONFIRMED',enrollRule.json().id,'SUCCEEDED'],['PAYMENT_CONFIRMED',payRule.json().id,'SUCCEEDED'],
   ]);
+  assert.equal(effects.length,3);
+  const skipped=effects.find(row=>row.rule_id===liveRule.json().id);
+  assert.equal(skipped?.state,'SKIPPED');
+  assert.equal(skipped?.result_code,'CONDITIONS_NOT_MET');
   assert.equal((await api('GET','/api/automation/executions',undefined,'other')).json().items.length,0);
   assert.equal((await db`SELECT count(*)::int n FROM follow_up WHERE lead_id=${lead} AND kind='AUTOMATION'`)[0]!.n,1);
   assert.equal((await db`SELECT count(*)::int n FROM notification_event WHERE lead_id=${lead} AND event_type='AUTOMATION_NOTICE'`)[0]!.n,1);

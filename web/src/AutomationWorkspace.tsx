@@ -2,8 +2,9 @@ import {useEffect,useRef,useState} from 'react';
 type Locale='ar'|'en'|'fr';
 type Api=<T>(path:string,options?:RequestInit)=>Promise<T>;
 type Rule={id:string;name:string;branch_id:string|null;campaign_id:string|null;campaign_name:string|null;version:number;enabled:boolean;trigger_type:string;trigger_field_id:string|null;lifecycle:string|null;
- owner_condition:string;action_type:string;delay_minutes:number;priority:string;note:string;reason:string};
-type Definition={name:string;enabled:boolean;triggerType:string;triggerFieldId:string|null;lifecycle:string|null;ownerCondition:string;actionType:string;delayMinutes:number;priority:string;note:string;reason:string};
+ owner_condition:string;payment_condition:string;enrollment_condition:string;action_type:string;delay_minutes:number;priority:string;note:string;reason:string};
+type Definition={name:string;enabled:boolean;triggerType:string;triggerFieldId:string|null;lifecycle:string|null;ownerCondition:string;
+ paymentCondition:string;enrollmentCondition:string;actionType:string;delayMinutes:number;priority:string;note:string;reason:string};
 type TriggerFieldPage={items:{id:string;label:string}[];nextAfter:string|null};
 type Processing={id:string;lead_id:string;trigger_type:string;version:number;state:string;failure_count:number;next_run_at:string|null;rule_name:string|null;rule_version:number|null;result_code:string|null;follow_up_id:string|null;created_at:string};
 type History={version:number;created_at:string;state?:string;operation?:string;failure_count?:number;result_code?:string;definition?:Record<string,unknown>};
@@ -36,7 +37,8 @@ const labels={
   states:{QUEUED:'En attente',DONE:'Correspondance terminée',SUCCEEDED:'Appliquée',SKIPPED:'Ignorée',DEAD_LETTER:'Récupération requise'},
   results:{APPLIED:'Action appliquée',RULE_CHANGED:'Règle modifiée ou désactivée',SCOPE_CHANGED:'Périmètre du prospect modifié',APPROVAL_REVOKED:'Approbateur non autorisé',SCOPE_INACTIVE:'Agence ou campagne inactive',CONDITIONS_NOT_MET:'Conditions non satisfaites',LEAD_NOT_OPEN:'Prospect non ouvert',NO_ELIGIBLE_OWNER:'Aucun responsable actuel éligible',DATABASE_OPERATION_FAILED:'Échec de l’opération de base de données'}},
 } as const;
-const initial=():Definition=>({name:'',enabled:false,triggerType:'LEAD_CREATED',triggerFieldId:null,lifecycle:'OPEN',ownerCondition:'ASSIGNED',actionType:'CREATE_FOLLOW_UP',delayMinutes:60,priority:'NORMAL',note:'',reason:''});
+const initial=():Definition=>({name:'',enabled:false,triggerType:'LEAD_CREATED',triggerFieldId:null,lifecycle:'OPEN',ownerCondition:'ASSIGNED',
+ paymentCondition:'ANY',enrollmentCondition:'ANY',actionType:'CREATE_FOLLOW_UP',delayMinutes:60,priority:'NORMAL',note:'',reason:''});
 export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{locale:Locale;api:Api;user:{id:string;role:'SUPER_ADMIN'|'MANAGER';branchId:string|null};branches:{id:string;name:string}[];onOpenLead:(id:string)=>void}){
  const t=labels[locale],epoch=useRef(0),campaignEpoch=useRef(0),fieldEpoch=useRef(0);
  const [rules,setRules]=useState<{items:Rule[];nextCursor:string|null}>({items:[],nextCursor:null}),[selected,setSelected]=useState<Rule|null>(null),[editing,setEditing]=useState(false);
@@ -80,6 +82,7 @@ export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{local
   return()=>{fieldEpoch.current++;};
  },[branch,campaign,editing,form.triggerType,user.id]);
  function edit(r:Rule|null){epoch.current++;setSelected(r);setBranch(r?.branch_id??user.branchId??'');setCampaign(r?.campaign_id??'');setForm(r?{name:r.name,enabled:r.enabled,triggerType:r.trigger_type,triggerFieldId:r.trigger_field_id,lifecycle:r.lifecycle,ownerCondition:r.owner_condition,
+  paymentCondition:r.payment_condition,enrollmentCondition:r.enrollment_condition,
   actionType:r.action_type,delayMinutes:r.delay_minutes,priority:r.priority,note:r.note,reason:''}:initial());setEditing(true);setHistory(null);setError('');setBusy(false);}
  async function save(){setBusy(true);setError('');setHistory(null);try{
   const payload=selected?{...form,version:selected.version}:{...form,branchId:branch||null,campaignId:campaign||null};
@@ -90,6 +93,13 @@ export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{local
   await api('/api/automation/'+kind+'/'+item.id+'/retry',{method:'POST',body:JSON.stringify({version:item.version})});await readProcessing();
  }catch{failed();}finally{setBusy(false);}}
  const financial={ar:['تأكيد الدفع','تأكيد التسجيل'],en:['Payment confirmed','Enrollment confirmed'],fr:['Paiement confirmé','Inscription confirmée']}[locale];
+ const financialFields={
+  ar:{payment:'شرط الدفع',enrollment:'شرط التسجيل',confirmedTest:'تأكيد في وضع الاختبار',unconfirmedTest:'لا تأكيد في وضع الاختبار',confirmedLive:'تأكيد في الوضع الحي',unconfirmedLive:'لا تأكيد في الوضع الحي'},
+  en:{payment:'Payment condition',enrollment:'Enrollment condition',confirmedTest:'Confirmed in test mode',unconfirmedTest:'No confirmation in test mode',confirmedLive:'Confirmed in live mode',unconfirmedLive:'No confirmation in live mode'},
+  fr:{payment:'Condition de paiement',enrollment:'Condition d’inscription',confirmedTest:'Confirmé en mode test',unconfirmedTest:'Aucune confirmation en mode test',confirmedLive:'Confirmé en mode réel',unconfirmedLive:'Aucune confirmation en mode réel'},
+ }[locale];
+ const financialOptions=[['ANY',t.any],['TEST_CONFIRMED',financialFields.confirmedTest],['TEST_UNCONFIRMED',financialFields.unconfirmedTest],
+  ['LIVE_CONFIRMED',financialFields.confirmedLive],['LIVE_UNCONFIRMED',financialFields.unconfirmedLive]];
  const due={ar:'استحقاق متابعة',en:'Follow-up due',fr:'Suivi arrivé à échéance'}[locale];
  const received={ar:'استلام رسالة',en:'Message received',fr:'Message reçu'}[locale];
  const conversationChanged={ar:'تغيّر حالة المحادثة',en:'Conversation state changed',fr:'État de la conversation modifié'}[locale];
@@ -124,7 +134,12 @@ export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{local
     {fields.nextAfter&&<button type="button" disabled={busy} onClick={()=>void readTriggerFields(fields.nextAfter!)}>{field.more}</button>}
    </>}
    <fieldset><legend>{t.conditions}</legend><label>{t.lifecycle}<select aria-label={t.lifecycle} value={form.lifecycle??''} onChange={e=>change('lifecycle',e.target.value||null)}><option value="">{t.any}</option>{['OPEN','CLOSED','ARCHIVED'].map(s=><option key={s}>{s}</option>)}</select></label>
-    <label>{t.owner}<select aria-label={t.owner} value={form.ownerCondition} onChange={e=>change('ownerCondition',e.target.value)}><option value="ANY">{t.any}</option><option value="ASSIGNED">{t.assignedCondition}</option><option value="UNASSIGNED">{t.unassigned}</option></select></label></fieldset>
+    <label>{t.owner}<select aria-label={t.owner} value={form.ownerCondition} onChange={e=>change('ownerCondition',e.target.value)}><option value="ANY">{t.any}</option><option value="ASSIGNED">{t.assignedCondition}</option><option value="UNASSIGNED">{t.unassigned}</option></select></label>
+    {([['paymentCondition',financialFields.payment],['enrollmentCondition',financialFields.enrollment]] as const).map(([key,label])=>
+     <label key={key}>{label}<select aria-label={label} value={form[key]} onChange={e=>change(key,e.target.value)}>
+      {financialOptions.map(([value,text])=><option key={value} value={value}>{text}</option>)}
+     </select></label>)}
+   </fieldset>
    <label>{t.action}<select aria-label={t.action} value={form.actionType} onChange={e=>setForm(f=>({...f,actionType:e.target.value,delayMinutes:e.target.value==='SEND_IN_APP_NOTIFICATION'?0:60,priority:'NORMAL'}))}><option value="CREATE_FOLLOW_UP">{t.follow}</option><option value="SEND_IN_APP_NOTIFICATION">{t.notify}</option></select></label>
    {form.actionType==='CREATE_FOLLOW_UP'&&<><label>{t.delay}<input type="number" min={0} max={525600} required value={form.delayMinutes} onChange={e=>change('delayMinutes',Number(e.target.value))}/></label>
     <label>{t.priority}<select aria-label={t.priority} value={form.priority} onChange={e=>change('priority',e.target.value)}>{['LOW','NORMAL','HIGH'].map(s=><option key={s}>{s}</option>)}</select></label></>}
