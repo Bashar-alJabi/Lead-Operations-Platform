@@ -6,10 +6,16 @@ import { HttpError, principalFromRequest, requireBranch, requireRole, type Princ
 import { sourceCampaignIssues } from '../sources/readiness.js';
 import { recheckSourceActor } from '../sources/catalog-sync.js';
 import {initialCampaignIssues} from '../ai/initial-readiness.js';
+import {currentPaymentSession} from '../payments/access.js';
 
 const idParam = { type: 'object', additionalProperties: false, required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } as const;
 const routingMethods = ['MANUAL', 'ROUND_ROBIN', 'WEIGHTED', 'PERFORMANCE'] as const;
 type RoutingMethod = typeof routingMethods[number];
+const performanceFallbacks=['MANUAL','ROUND_ROBIN','WEIGHTED'] as const;
+type PerformancePolicyInput={
+ version:number;lookbackDays:number;minimumSamples:number;responseWeight:number;followUpWeight:number;
+ fallbackMethod:typeof performanceFallbacks[number];reason:string;
+};
 type CampaignUpdate = {
   version: number;
   name: string;
@@ -137,6 +143,63 @@ export function registerCampaignRoutes(app: FastifyInstance, db: Database): void
     const campaign = await managedCampaign(db, actor, request.params.id);
     const issues = await readiness(db, campaign);
     return { ready: issues.length === 0, issues, version: campaign.version, status: campaign.status };
+  });
+
+  const performancePath='/api/campaigns/:id/performance-routing';
+  app.get<{Params:{id:string}}>(performancePath,{schema:{params:idParam}},async request=>{
+    const actor=await principalFromRequest(request,db);
+    return db.begin(async tx=>{
+      const campaign=await managedCampaign(tx,actor,request.params.id);
+      if(!await currentPaymentSession(tx,actor,request))throw new HttpError(403,'PERFORMANCE_POLICY_ACCESS_DENIED');
+      const [policy]=await tx`SELECT version,lookback_days AS "lookbackDays",minimum_samples AS "minimumSamples",
+        response_weight AS "responseWeight",follow_up_weight AS "followUpWeight",fallback_method AS "fallbackMethod",
+        reason,changed_at AS "changedAt" FROM campaign_performance_routing_policy WHERE campaign_id=${campaign.id}`;
+      return {policy:policy??null};
+    });
+  });
+  app.put<{Params:{id:string};Body:PerformancePolicyInput}>(performancePath,{
+    schema:{params:idParam,body:{type:'object',additionalProperties:false,
+      required:['version','lookbackDays','minimumSamples','responseWeight','followUpWeight','fallbackMethod','reason'],
+      properties:{version:{type:'integer',minimum:0,maximum:2147483646},lookbackDays:{type:'integer',minimum:1,maximum:90},
+        minimumSamples:{type:'integer',minimum:1,maximum:100},responseWeight:{type:'integer',minimum:0,maximum:100},
+        followUpWeight:{type:'integer',minimum:0,maximum:100},fallbackMethod:{enum:performanceFallbacks},
+        reason:{type:'string',minLength:3,maxLength:500}}}},
+  },async request=>{
+    const actor=await principalFromRequest(request,db),input=request.body;
+    const reason=input.reason.trim();
+    if(input.responseWeight+input.followUpWeight!==100||reason.length<3||/[\x00-\x1f\x7f]/.test(input.reason))
+      throw new HttpError(400,'PERFORMANCE_POLICY_INVALID');
+    return db.begin(async tx=>{
+      const campaign=await managedCampaign(tx,actor,request.params.id,true);
+      const session=await currentPaymentSession(tx,actor,request);
+      if(!session)throw new HttpError(403,'PERFORMANCE_POLICY_ACCESS_DENIED');
+      if(campaign.status==='ACTIVE')throw new HttpError(409,'PERFORMANCE_POLICY_CAMPAIGN_ACTIVE');
+      const [current]=await tx`SELECT version FROM campaign_performance_routing_policy WHERE campaign_id=${campaign.id}`;
+      if((current?.version??0)!==input.version)throw new HttpError(409,'PERFORMANCE_POLICY_VERSION_CONFLICT');
+      const version=input.version+1;
+      const policy={version,lookback_days:input.lookbackDays,minimum_samples:input.minimumSamples,
+        response_weight:input.responseWeight,follow_up_weight:input.followUpWeight,fallback_method:input.fallbackMethod,
+        actor_id:actor.id,session_id:session,reason};
+      if(current)await tx`UPDATE campaign_performance_routing_policy SET ${tx(policy)} WHERE campaign_id=${campaign.id}`;
+      else await tx`INSERT INTO campaign_performance_routing_policy ${tx({campaign_id:campaign.id,...policy})}`;
+      return {version};
+    });
+  });
+  app.get<{Params:{id:string};Querystring:{before?:number}}>(performancePath+'/history',{
+    schema:{params:idParam,querystring:{type:'object',additionalProperties:false,properties:{before:{type:'integer',minimum:1}}}},
+  },async request=>{
+    const actor=await principalFromRequest(request,db);
+    return db.begin(async tx=>{
+      const campaign=await managedCampaign(tx,actor,request.params.id);
+      if(!await currentPaymentSession(tx,actor,request))throw new HttpError(403,'PERFORMANCE_POLICY_ACCESS_DENIED');
+      const rows=await tx`SELECT version,changed_at AS "changedAt",snapshot->>'reason' AS reason,
+        (snapshot->>'lookback_days')::integer AS "lookbackDays",(snapshot->>'minimum_samples')::integer AS "minimumSamples",
+        (snapshot->>'response_weight')::integer AS "responseWeight",(snapshot->>'follow_up_weight')::integer AS "followUpWeight",
+        snapshot->>'fallback_method' AS "fallbackMethod" FROM campaign_performance_routing_policy_history
+        WHERE campaign_id=${campaign.id} AND (${request.query.before??null}::integer IS NULL OR version<${request.query.before??null})
+        ORDER BY version DESC LIMIT 11`;
+      return {items:rows.slice(0,10),nextVersion:rows.length>10?rows[9]!.version:null};
+    });
   });
 
   app.get<{ Params: { id: string }; Querystring: { q?: string; after?: string; limit?: number } }>('/api/campaigns/:id/eligible-agents', {

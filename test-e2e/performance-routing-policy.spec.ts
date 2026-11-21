@@ -1,0 +1,47 @@
+import {expect,test} from '@playwright/test';
+import {randomUUID} from 'node:crypto';
+import {readFile} from 'node:fs/promises';
+
+test('Campaign managers approve a versioned human performance policy with a named fallback',async({page})=>{
+ const fixture=JSON.parse(await readFile('.local/e2e/fixture.json','utf8')) as {password:string};
+ const renderingErrors:string[]=[];
+ page.on('pageerror',error=>renderingErrors.push(error.message));
+ page.on('console',message=>{
+  if(message.type()==='error'&&/same key|unique.*key/i.test(message.text()))renderingErrors.push(message.text());
+ });
+ await page.setExtraHTTPHeaders({'x-e2e-rate-scope':randomUUID()});
+ await page.goto('/');
+ await page.getByRole('combobox',{name:'Language',exact:true}).selectOption('en');
+ await page.getByLabel('Email',{exact:true}).fill('manager@browser.test');
+ await page.getByLabel('Password',{exact:true}).fill(fixture.password);
+ await page.getByRole('button',{name:'Sign in',exact:true}).click();
+ await expect(page.getByRole('button',{name:'Sign out',exact:true})).toBeVisible();
+ const {branchId}=await(await page.request.get('/api/auth/me')).json();
+ const name='Synthetic performance routing campaign';
+ await page.getByRole('button',{name:'Campaigns',exact:true}).click();
+ await page.getByRole('button',{name:'New campaign',exact:true}).click();
+ await page.getByLabel('Name',{exact:true}).fill(name);
+ await page.getByRole('combobox',{name:'Branch',exact:true}).selectOption(branchId);
+ await page.getByRole('combobox',{name:'Routing',exact:true}).selectOption('PERFORMANCE');
+ await page.getByRole('button',{name:'Save',exact:true}).click();
+ await page.getByRole('row').filter({hasText:name}).getByRole('button',{name:'Details',exact:true}).click();
+ const panel=page.locator('[data-performance-routing-policy]');
+ await expect(panel).toHaveCount(1);
+ await panel.getByLabel('Lookback days',{exact:true}).fill('21');
+ await panel.getByLabel('Minimum samples per metric',{exact:true}).fill('5');
+ await panel.getByLabel('Human response speed weight',{exact:true}).fill('80');
+ await expect(panel.getByRole('button',{name:'Save routing policy',exact:true})).toBeDisabled();
+ await panel.getByLabel('On-time follow-up weight',{exact:true}).fill('20');
+ await panel.getByRole('combobox',{name:'Fallback when samples are insufficient',exact:true}).selectOption('WEIGHTED');
+ await panel.getByLabel('Routing policy change reason',{exact:true}).fill('Set synthetic campaign routing weights');
+ await panel.getByRole('button',{name:'Save routing policy',exact:true}).click();
+ await expect(panel).toContainText('Version 1');
+ await panel.getByRole('button',{name:'Policy history',exact:true}).click();
+ await expect(panel).toContainText('Set synthetic campaign routing weights');
+ await expect(panel).toContainText('Minimum samples per metric 5');
+ await expect(page.getByRole('button',{name:'Activate',exact:true})).toBeDisabled();
+ await page.getByRole('combobox',{name:'Language',exact:true}).selectOption('fr');
+ await expect(panel.getByRole('heading',{name:'Politique de routage par performance',exact:true})).toBeVisible();
+ await expect(panel.getByLabel('Fenêtre en jours',{exact:true})).toHaveValue('21');
+ expect(renderingErrors).toEqual([]);
+});

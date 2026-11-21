@@ -9,6 +9,7 @@ import {CampaignAIInitialMessage} from './CampaignAIInitialMessage';
 import { CampaignAIConfiguration } from './CampaignAIConfiguration';
 import { CampaignAITools } from './CampaignAITools';
 import { CampaignAISimulation } from './CampaignAISimulation';
+import { CampaignPerformanceRouting } from './CampaignPerformanceRouting';
 
 type Api = <T>(path: string, options?: RequestInit) => Promise<T>;
 type Locale = 'ar'|'fr'|'en';
@@ -127,6 +128,8 @@ export function CampaignWorkspace({ id, locale, api, onBack, onChanged }: {
         <button disabled={!editable || busy}>{t.save}</button>
       </form><p>{editable ? t.dependency : t.disabled}</p>
     </section>
+    {(campaign.routing_method==='PERFORMANCE'||form.routingMethod==='PERFORMANCE')&&
+      <CampaignPerformanceRouting key={'performance-routing-'+id} campaignId={id} locale={locale} api={api} editable={editable}/>}
     <section className="panel"><h3>{t.senderOverride}</h3>
       <label>{t.senderOverride}<select disabled={!editable || busy} value={senderOverrideId}
         onChange={(event) => setSenderOverrideId(event.target.value)}><option value="">{t.inheritedSender}</option>

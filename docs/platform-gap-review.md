@@ -15,7 +15,7 @@
 | Campaigns —00–03/05،06 §8 | create/edit/readiness/activate/deactivate و Agents/routing/source/messaging/payment/AI configs؛initial AI activation فعلية؛Native169 تقرأ explicit Payment/Enrollment Conversion الحالية | استكمال readiness عند إضافة Modules؛Field/Status Conversion milestones وإعدادها؛Setup متكامل ومسارات Browser لكل role |
 | Dynamic/Calculated Fields —00–03،06 §8 | typed definitions/bindings/visibility/editability/required/history و trusted calculated contact metrics،source mappings وHuman/AI Qualification وNative170–171 Bulk typed Manual Fields/Status/Tags ومحفز تغيّر القيم في 212 وشرط المساواة في 215 للحقول المتاحة للأتمتة | إجراءات Automation وAnalytics والأعمدة الديناميكية فيLead table/Saved Views وcalculated filters وremaining required-stage gates والقبول الأوسع |
 | Meta/Sources —00–03،06 §10 | managed encrypted setup/catalog/grants/bindings/mapping/signed webhook/retrieval/retry/intake/history/sync/Needs Attention؛Initial Source AI محلية | generic API/Webhook Source adapter/setup بخلاف Meta،Source Messaging-enabled/AI-disabled readiness gap،remaining notifications/acceptance و Live Meta |
-| Routing —00/02،06 §9 | Manual/Round Robin/Weighted/capacity/hours/fallback/history/concurrency | Performance scoring الفعلي وسياسة sample/fallback و metrics البشرية؛activation PERFORMANCE محجوبةصراحة؛ربط analytics ثماختباراتالتوزيعوالتعطيل |
+| Routing —00/02،06 §9 | Manual/Round Robin/Weighted/capacity/hours/fallback/history/concurrency. أثبتت 216 اعتماد سياسة الأداء وإصداراتها وAudit وعرضها من الواجهة. | ربط المقاييس البشرية والتوزيع الفعلي والبديل عند نقص العينة. تفعيل PERFORMANCE متوقف إلى حين التحقق من هذا الربط. |
 | Messaging —03/05،06 §11 | multiple connections/senders/default/override/pinning/CMP/consent/templates/media/inbound/outbound/delivery/retries/UNKNOWN/review و Human/AI boundaries | acceptance الشاملةوبعض setup/recovery Browser و operability؛Live provider pending. الصيغ provider-specific الإضافية تبقى backlog منخفضةالأولوية |
 | Initial AI Contact —04 §11/05 §18،06 §12 | managed approved first template→fresh intake→durable initial action/outbox→mocked send→signed reply→existing AI reply؛contract مستقل | Live disabled؛initial local dead-letter recovery UI مازالتناقصة؛لا optional initial-media أو provider polish الآن |
 | بقية AI —04/05،06 §12 | Provider/Profile/shared grants/Published Knowledge/assets/config/Qualification/Copilot summary/context/typed tools/inbound replies/unknown/Handoff/SLA/guardrails ومحاكاةمحدودة | actual scheduled Follow-up/returning/closed-contact/transition و AI Operations و full Copilot/action simulation/Form/runtime/evaluations/observability؛تبقى Requirements معإعطاءالأولويةحاليًاللوحداتالعامةالناقصة |
@@ -38,13 +38,13 @@
 
 ## الاعتماديات والأولوية التنفيذية التالية
 
-**checkpoint migration 199 — 2026-11-20** أُثبت تسليم إشعارات البريد من الطابور عبر SMTP mock. البوابة **208/208 Unit، 182/182 PostgreSQL Integration (792.1s)، 79/79 Edge Browser E2E (12.1m)** مع بناء Backend/Web وفحص الأنواع وmigrations 001–199.
+**أحدث انحدار شامل — migration 213 — 2026-11-21** اجتاز البناء `28f8bf7` **208/208 Unit، و191/191 PostgreSQL Integration، و83/83 Edge Browser E2E** مع بناء Backend/Web وفحص الأنواع وmigrations 001–213.
 
 1. **Import CSV/Excel checkpoint محفوظة:** `95dbce3` مرفوعة،Native183–184 و193Unit/142PG/68Browser و001–184/build/typecheck مثبتة. لاتعدتنفيذها؛هيbaseline للملفات معSheets/API/load/acceptance gaps باقية. [العقد](lead-import-execution.md). التاليGoogleSheets،دونoptionalparser/provider/AI refinements.
 2. **Google Sheets:** baseline Import190–192 محفوظةفي5d063a8،Export preparation194 في3a6271b،delivery/verification195 في3ca5157. لا إعادةتنفيذ أوoptionalrefinements؛انتقلالآنلمتطلباتEmail/Notifications الأساسية.
 3. **Notifications.** ثبت تسليم Messaging الداخلي وإقرار المزوّد محليًا بـmock في 206، واستعادة تجهيز الجمهور من داخل المنصة في 210. تبقى إثباتات الوصول والقبول الحي والسياسات الإلزامية ضمن المراجعة.
-4. **بقية Automation.** اجتازت شرائح المحفزات والشروط المالية والمحادثة ومساواة قيم الحقول البوابات المحلية المركزة حتى 215. اجتازت 213 بوابة Edge الشاملة وتبقى نتيجة PostgreSQL الشاملة قيد التحقق. تابع إجراءات الحقول والإسناد مع دليل سببي قبل إدخالها في دورة التنفيذ، وبقية الشروط والإجراءات الموثقة.
-5. **متطلبات الوحدات الأساسية الأخرى.** المسار التالي بعد شروط Automation هو Performance Routing المبني على قياس نشاط الموظف وسياسة العينة وfallback. تبقى دورة Branch/User/Lead transfer وAI follow-up/returning/Operations/Form/Copilot/evaluations ورحلات القبول الشاملة ضمن الخطة.
+4. **بقية Automation.** اجتازت شرائح المحفزات والشروط المالية والمحادثة ومساواة قيم الحقول البوابات المحلية المركزة حتى 215، واجتاز بناء 213 بوابتي Edge وPostgreSQL الشاملتين. تابع إجراءات الحقول والإسناد مع دليل سببي قبل إدخالها في دورة التنفيذ، وبقية الشروط والإجراءات الموثقة.
+5. **متطلبات الوحدات الأساسية الأخرى.** بعد اعتماد سياسة Performance Routing في 216، اربط القياس البشري والبديل بمسار إنشاء Lead وأثبت نتائج التوزيع. تبقى دورة Branch/User/Lead transfer وAI follow-up/returning/Operations/Form/Copilot/evaluations ورحلات القبول الشاملة ضمن الخطة.
 
 ## حدودالمراجعةالتلقائية والاعتمادياتالخارجية
 

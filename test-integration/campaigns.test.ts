@@ -90,12 +90,45 @@ test('Campaign configuration, readiness, scope, concurrency, and history on Post
     sourceKind: 'MANUAL', routingMethod: 'PERFORMANCE', messagingEnabled: false, aiEnabled: false }, managerA);
   assert.equal(performance.statusCode, 200, performance.body);
   assert.deepEqual((await send('GET', `/api/campaigns/${id}/readiness`, undefined, managerA)).json().issues, ['PERFORMANCE_ROUTING_NOT_READY']);
+  const policyPath=`/api/campaigns/${id}/performance-routing`;
+  const policy={version:0,lookbackDays:30,minimumSamples:12,responseWeight:70,followUpWeight:30,
+    fallbackMethod:'WEIGHTED',reason:'Approve synthetic measured routing policy'};
+  assert.equal((await send('GET',policyPath,undefined,managerA)).json().policy,null);
+  assert.equal((await send('GET',policyPath,undefined,managerB)).statusCode,403);
+  assert.equal((await send('GET',policyPath+'/history',undefined,agent)).statusCode,403);
+  assert.equal((await send('PUT',policyPath,policy,managerB)).statusCode,403);
+  assert.equal((await send('PUT',policyPath,{...policy,responseWeight:90},managerA)).statusCode,400);
+  const approvals=await Promise.all([send('PUT',policyPath,policy,managerA),send('PUT',policyPath,policy,managerA)]);
+  assert.deepEqual(approvals.map(result=>result.statusCode).sort(),[200,409]);
+  const configuredPolicy=await send('GET',policyPath,undefined,managerA);
+  assert.equal(configuredPolicy.json().policy.responseWeight,70);
+  assert.equal(configuredPolicy.json().policy.fallbackMethod,'WEIGHTED');
+  assert.equal(Object.hasOwn(configuredPolicy.json().policy,'session_id'),false);
+  const revision={...policy,version:1,minimumSamples:15,reason:'Increase approved sample size'};
+  await db`CREATE FUNCTION test_performance_policy_audit_failure() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN IF NEW.action='CAMPAIGN_PERFORMANCE_POLICY_SAVED' THEN RAISE EXCEPTION 'Synthetic policy Audit failure'; END IF;RETURN NEW;END $$`;
+  await db`CREATE TRIGGER test_performance_policy_audit_failure BEFORE INSERT ON audit_log
+    FOR EACH ROW EXECUTE FUNCTION test_performance_policy_audit_failure()`;
+  try{
+    const failed=await send('PUT',policyPath,revision,managerA);
+    assert.equal(failed.statusCode,500);
+    assert.doesNotMatch(failed.body,/Synthetic policy Audit failure/);
+    assert.equal((await send('GET',policyPath,undefined,managerA)).json().policy.version,1);
+  }finally{
+    await db`DROP TRIGGER test_performance_policy_audit_failure ON audit_log`;
+    await db`DROP FUNCTION test_performance_policy_audit_failure()`;
+  }
+  assert.equal((await send('PUT',policyPath,revision,managerA)).json().version,2);
+  const policyHistory=(await send('GET',policyPath+'/history',undefined,managerA)).json().items;
+  assert.deepEqual(policyHistory.map((item:{version:number;minimumSamples:number})=>[item.version,item.minimumSamples]),[[2,15],[1,12]]);
+  await assert.rejects(db`DELETE FROM campaign_performance_routing_policy_history WHERE campaign_id=${id}`,/PERFORMANCE_POLICY_HISTORY_IMMUTABLE/);
   assert.equal((await send('POST', `/api/campaigns/${id}/activate`, undefined, managerA)).statusCode, 409);
   const readyConfig = await send('PATCH', `/api/campaigns/${id}`, { ...config, version: performance.json().version,
     sourceKind: 'MANUAL', routingMethod: 'WEIGHTED', messagingEnabled: false, aiEnabled: false }, managerA);
   assert.equal(readyConfig.statusCode, 200, readyConfig.body);
   assert.equal((await send('GET', `/api/campaigns/${id}/readiness`, undefined, managerA)).json().ready, true);
   assert.equal((await send('POST', `/api/campaigns/${id}/activate`, undefined, managerA)).statusCode, 200);
+  assert.equal((await send('PUT',policyPath,{...revision,version:2},managerA)).statusCode,409);
   assert.equal((await send('PATCH', `/api/campaigns/${id}`, { ...config, version: readyConfig.json().version }, managerA)).statusCode, 409);
   assert.equal((await send('DELETE', `/api/campaigns/${id}/agents/${agentA}`, undefined, managerA)).statusCode, 409);
   assert.equal((await db`SELECT active FROM campaign_agent WHERE campaign_id = ${id} AND agent_id = ${agentA}`)[0]!.active, true);
@@ -122,7 +155,8 @@ test('Campaign configuration, readiness, scope, concurrency, and history on Post
   assert.notEqual(nextPage.json().items[0].id, page.json().items[0].id);
   const audit = await db`SELECT action FROM audit_log WHERE target_id = ${id} ORDER BY id`;
   assert.deepEqual(audit.map((row) => row.action), [
-    'CAMPAIGN_CREATED', 'CAMPAIGN_UPDATED', 'CAMPAIGN_AGENT_SET', 'CAMPAIGN_UPDATED', 'CAMPAIGN_UPDATED',
+    'CAMPAIGN_CREATED', 'CAMPAIGN_UPDATED', 'CAMPAIGN_AGENT_SET', 'CAMPAIGN_UPDATED',
+    'CAMPAIGN_PERFORMANCE_POLICY_SAVED','CAMPAIGN_PERFORMANCE_POLICY_SAVED','CAMPAIGN_UPDATED',
     'CAMPAIGN_ACTIVATED', 'CAMPAIGN_DEACTIVATED', 'CAMPAIGN_AGENT_REMOVED',
   ]);
 });
