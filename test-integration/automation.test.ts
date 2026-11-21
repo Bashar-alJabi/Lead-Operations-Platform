@@ -37,6 +37,47 @@ async function fixture(t:TestContext){
  return {db,app,org,branch,other,campaign,users,api,def,rule,create,matches,execute};
 }
 
+test('A permitted conversation state transition admits one scoped rule and preserves its original states',async t=>{
+ const {db,org,branch,api,rule,create,matches,execute}=await fixture(t);
+ const lead=await create();
+ const connection=(await db`INSERT INTO integration_connection(organization_id,branch_id,kind,provider,name)
+  VALUES(${org},${branch},'MESSAGING','META_WHATSAPP_CLOUD','Synthetic conversation source') RETURNING id`)[0]!.id;
+ const sender=(await db`INSERT INTO messaging_sender(organization_id,connection_id,external_sender_id,display_name,capabilities)
+  VALUES(${org},${connection},'15550001234','Synthetic conversation sender','{"text":true}') RETURNING id`)[0]!.id;
+ const conversation=(await db`INSERT INTO conversation(lead_id,connection_id,sender_id,channel,participant_ref,
+  controller_type,state,needs_attention_reason)
+  VALUES(${lead},${connection},${sender},'WHATSAPP','+15554000001','NONE','WAITING_FOR_HUMAN','NO_HUMAN_CONTROLLER') RETURNING id`)[0]!.id;
+ const ruleId=await rule({name:'Respond to conversation state change',triggerType:'CONVERSATION_STATE_CHANGED'});
+ const path='/api/conversations/'+conversation+'/takeover';
+ const takeover=(version:number,actor='agent')=>api('POST',path,{version,reason:'Take over synthetic conversation'},actor);
+ assert.equal((await takeover(1,'other')).statusCode,404);
+ assert.equal((await db`SELECT id FROM automation_conversation_change`).length,0);
+ const attempts=await Promise.all([takeover(1),takeover(1)]);
+ assert.deepEqual(attempts.map(r=>r.statusCode).sort(),[200,409]);
+ assert.equal((await takeover(2)).json().existing,true);
+ await db`UPDATE conversation SET state=state WHERE id=${conversation}`;
+ const sources=await db`SELECT s.id,c.from_state,c.to_state,s.lead_id,s.branch_id,s.notification_event_id
+  FROM automation_source s JOIN automation_conversation_change c ON c.id=s.conversation_change_id
+  WHERE c.conversation_id=${conversation}`;
+ assert.equal(sources.length,1);
+ const source=sources[0]!;
+ assert.equal(source.from_state,'WAITING_FOR_HUMAN');
+ assert.equal(source.to_state,'HUMAN_ACTIVE');
+ assert.equal(source.lead_id,lead);
+ assert.equal(source.branch_id,branch);
+ assert.equal(source.notification_event_id,null);
+ await assert.rejects(db`INSERT INTO automation_conversation_change(conversation_id,from_state,to_state)
+  VALUES(${conversation},'WAITING_FOR_HUMAN','HUMAN_ACTIVE')`,/AUTOMATION_CONVERSATION_TRANSITION_REQUIRED/);
+ await assert.rejects(db`UPDATE automation_conversation_change SET from_state='CLOSED' WHERE id=${source.id}`,
+  /AUTOMATION_CONVERSATION_CHANGE_IMMUTABLE/);
+ await matches();
+ await execute();
+ const [outcome]=await db`SELECT id,state FROM automation_execution WHERE source_id=${source.id} AND rule_id=${ruleId}`;
+ assert.equal(outcome?.state,'SUCCEEDED');
+ assert.equal((await db`SELECT id FROM follow_up WHERE automation_execution_id=${outcome!.id}`).length,1);
+ assert.equal((await api('GET','/api/automation/sources/'+source.id+'/history',undefined,'other')).statusCode,404);
+});
+
 test('Only a freshly attached authenticated customer message admits a scoped Message Received rule',async t=>{
  const {db,app,org,branch,campaign,users,api,rule,create,matches,execute}=await fixture(t);
  process.env.CREDENTIAL_ENCRYPTION_KEY=randomBytes(32).toString('hex');

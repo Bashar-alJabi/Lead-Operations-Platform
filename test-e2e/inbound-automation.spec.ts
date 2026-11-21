@@ -2,7 +2,7 @@ import {expect,test} from '@playwright/test';
 import {createHmac,randomUUID} from 'node:crypto';
 import {readFile} from 'node:fs/promises';
 
-test('Manager approves Message Received and only a resolved signed customer message creates the task',async({browser,request})=>{
+test('Manager approves message and conversation rules and observes each internal effect once',async({browser,request})=>{
  const fixture=JSON.parse(await readFile('.local/e2e/fixture.json','utf8')) as {password:string;testToken:string};
  const headers={authorization:'Bearer '+fixture.testToken};
  const seeded=await request.post('/__test__/conversation-notifications',{headers,data:{fixture:true}});
@@ -20,15 +20,21 @@ test('Manager approves Message Received and only a resolved signed customer mess
   await page.getByRole('button',{name:'Sign in',exact:true}).click();
   await page.getByRole('button',{name:'Automations',exact:true}).click();
   const panel=page.locator('[data-automation-workspace]'),editor=panel.locator('[data-automation-editor]');
-  await panel.getByRole('button',{name:'New automation',exact:true}).first().click();
-  await editor.getByLabel('Rule name',{exact:true}).fill('Synthetic inbound task');
-  await editor.getByLabel('Campaign scope',{exact:true}).selectOption(campaignId);
-  await editor.getByLabel('Trigger',{exact:true}).selectOption({label:'Message received'});
-  await editor.getByLabel('Task note or internal notification text',{exact:true}).fill('Review the customer reply');
-  await editor.getByLabel('Enable this rule',{exact:true}).check();
-  await editor.getByLabel('Approval reason',{exact:true}).fill('Approve synthetic inbound task');
-  await editor.getByRole('button',{name:'Approve and save automation',exact:true}).click();
-  await expect(editor).toHaveCount(0);
+  async function approve(name:string,trigger:string,action:string) {
+   await panel.getByRole('button',{name:'New automation',exact:true}).first().click();
+   await editor.getByLabel('Rule name',{exact:true}).fill(name);
+   await editor.getByLabel('Campaign scope',{exact:true}).selectOption(campaignId);
+   await editor.getByLabel('Trigger',{exact:true}).selectOption({label:trigger});
+   await editor.getByLabel('Action',{exact:true}).selectOption(action);
+   await editor.getByLabel('Owner condition',{exact:true}).selectOption('ANY');
+   await editor.getByLabel('Task note or internal notification text',{exact:true}).fill(name);
+   await editor.getByLabel('Enable this rule',{exact:true}).check();
+   await editor.getByLabel('Approval reason',{exact:true}).fill('Approve synthetic internal action');
+   await editor.getByRole('button',{name:'Approve and save automation',exact:true}).click();
+   await expect(editor).toHaveCount(0);
+  }
+  await approve('Synthetic inbound task','Message received','CREATE_FOLLOW_UP');
+  await approve('Synthetic conversation changed','Conversation state changed','SEND_IN_APP_NOTIFICATION');
 
   const eventId='wamid.browser-automation.'+randomUUID();
   const payload=JSON.stringify({object:'whatsapp_business_account',entry:[{id:'123456789',changes:[{field:'messages',value:{
@@ -45,10 +51,13 @@ test('Manager approves Message Received and only a resolved signed customer mess
   expect(await tasks()).toHaveLength(0);
   expect((await request.post('/__test__/operational-alerts',{headers})).ok()).toBeTruthy();
   expect((await(await deliver('SyntheticAttentionSecret')).json()).created).toBe(0);
-  for(const phase of ['MATCH','EXECUTE']){
-   const run=await request.post('/__test__/automation',{headers,data:{phase}});
-   expect(run.ok(),await run.text()).toBeTruthy();
+  async function processRules() {
+   for(const phase of ['MATCH','EXECUTE']){
+    const run=await request.post('/__test__/automation',{headers,data:{phase}});
+    expect(run.ok(),await run.text()).toBeTruthy();
+   }
   }
+  await processRules();
   expect(await tasks()).toHaveLength(1);
   expect((await tasks())[0].kind).toBe('AUTOMATION');
   await panel.getByRole('button',{name:'Refresh processing',exact:true}).click();
@@ -57,8 +66,25 @@ test('Manager approves Message Received and only a resolved signed customer mess
   await expect(entry).toContainText('Action applied');
   await expect(panel).not.toContainText(privateText);
   await expect(panel).not.toContainText(eventId);
+  const assignment='/api/leads/'+leadId+'/assignment';
+  for(const version of [1,2]){
+   const moved=await page.request.post(assignment,{headers:{origin:'http://127.0.0.1:4100'},data:{
+    version,agentId:null,reason:'Unassign synthetic lead to trigger the conversation transition',
+   }});
+   expect(moved.ok(),await moved.text()).toBeTruthy();
+  }
+  await processRules();
+  await panel.getByRole('button',{name:'Refresh processing',exact:true}).click();
+  const transition=panel.locator('[data-automation-processing-id]').filter({hasText:'Synthetic conversation changed'});
+  await expect(transition).toHaveCount(1);
+  await expect(transition).toContainText('Action applied');
+  const notices=await page.request.get('/api/notifications?language=en&limit=50');
+  expect(notices.ok()).toBeTruthy();
+  const events=(await notices.json()).items as {eventType:string;leadId:string}[];
+  expect(events.filter(event=>event.eventType==='AUTOMATION_NOTICE'&&event.leadId===leadId)).toHaveLength(1);
   await page.getByRole('combobox',{name:'Language',exact:true}).selectOption('fr');
   await expect(panel).toContainText('Message reçu');
+  await expect(panel).toContainText('État de la conversation modifié');
   expect(errors).toEqual([]);
  } finally {
   await context.close();
