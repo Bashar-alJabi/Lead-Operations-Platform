@@ -37,6 +37,95 @@ async function fixture(t:TestContext){
  return {db,app,org,branch,other,campaign,users,api,def,rule,create,matches,execute};
 }
 
+test('Scoped automation writes typed fields atomically and propagates the source chain to stop repeated rules',async t=>{
+ const {db,branch,campaign,api,def,rule,create,matches,execute}=await fixture(t);
+ const settings={active:true,position:0,requiredStage:'NONE',visibleToAgent:true,editableByAgent:true,visibleToManager:true,
+  editableByManager:true,showInTable:false,showInDetails:true,filterable:false,usableByAutomation:true,usableByAi:false};
+ async function createField(key:string,type:string,editable=true){
+  const response=await api('POST','/api/fields',{scope:'CAMPAIGN',branchId:branch,campaignId:campaign,key,label:key,
+   fieldType:type,valueMode:'MANUAL',options:[],validation:{}});
+  assert.equal(response.statusCode,201,response.body);
+  const id=response.json().id as string,path='/api/campaigns/'+campaign+'/fields/'+id;
+  assert.equal((await api('PUT',path,{...settings,editableByManager:editable})).statusCode,200);
+  return {id,path};
+ }
+ const a=await createField('field_action_score','NUMBER'),b=await createField('field_action_review','BOOLEAN');
+ const readOnly=await createField('field_action_read_only','NUMBER',false);
+ const targetPath='/api/automations/trigger-fields?usage=ACTION&branchId='+branch+'&campaignId='+campaign;
+ assert.deepEqual(new Set((await api('GET',targetPath)).json().items.map((item:{id:string})=>item.id)),new Set([a.id,b.id]));
+ assert.equal((await api('GET',targetPath,undefined,'other')).statusCode,404);
+ assert.equal((await api('GET',targetPath,undefined,'agent')).statusCode,403);
+ const action={actionType:'SET_FIELD_VALUE',delayMinutes:0,priority:'NORMAL',note:''};
+ const base={...def,branchId:branch,campaignId:campaign,...action};
+ const denied=await api('POST','/api/automations',{...base,fieldAction:{fieldId:readOnly.id,value:42}});
+ assert.equal(denied.statusCode,409);assert.match(denied.body,/AUTOMATION_ACTION_FIELD_UNAVAILABLE/);
+ assert.equal((await api('POST','/api/automations',{...base,fieldAction:{fieldId:a.id,value:'42'}})).statusCode,400);
+ const origin=await rule({...action,name:'Set score when created',fieldAction:{fieldId:a.id,value:11}});
+ const agentReview=await rule({...action,name:'Set review when score changes',triggerType:'FIELD_CHANGED',
+  triggerFieldId:a.id,fieldAction:{fieldId:b.id,value:false}});
+ const secondScore=await rule({...action,name:'Change score when review changes',triggerType:'FIELD_CHANGED',
+  triggerFieldId:b.id,fieldAction:{fieldId:a.id,value:12}});
+ const leadId=await create();
+ for(let i=0;i<4;i++){await matches();await execute();}
+ const changed=await db`SELECT field_id,value,source,updated_by,version FROM lead_field_value WHERE lead_id=${leadId}`;
+ assert.deepEqual(changed.find(row=>row.field_id===a.id),{field_id:a.id,value:12,source:'AUTOMATION',updated_by:null,version:2});
+ assert.deepEqual(changed.find(row=>row.field_id===b.id),{field_id:b.id,value:false,source:'AUTOMATION',updated_by:null,version:1});
+ const [repeat]=await db`SELECT x.result_code,s.causal_rule_ids,s.parent_execution_id FROM automation_execution x
+  JOIN automation_source s ON s.id=x.source_id WHERE s.lead_id=${leadId} AND x.rule_id=${agentReview} AND x.state='SKIPPED'`;
+ assert.equal(repeat!.result_code,'AUTOMATION_CAUSAL_REPEAT');
+ assert.deepEqual(repeat!.causal_rule_ids,[origin,agentReview,secondScore]);
+ const effects=await db`SELECT e.*,h.id AS history_id FROM automation_field_effect e
+  JOIN field_value_history h ON h.automation_execution_id=e.execution_id WHERE e.lead_id=${leadId} ORDER BY h.id`;
+ assert.deepEqual(effects.map(effect=>effect.value),[11,false,12]);
+ assert.equal(repeat!.parent_execution_id,effects[2]!.execution_id);
+ await assert.rejects(db`UPDATE automation_field_effect SET value='99' WHERE execution_id=${effects[0]!.execution_id}`,/IMMUTABLE/);
+ await assert.rejects(db`UPDATE field_value_history SET new_value='99' WHERE id=${effects[0]!.history_id}`,/IMMUTABLE/);
+ await assert.rejects(db`UPDATE lead_field_value SET value='99' WHERE lead_id=${leadId} AND field_id=${a.id}`,/CURRENT_EFFECT_REQUIRED/);
+ assert.equal((await db`SELECT count(*)::int AS n FROM audit_log WHERE action='AUTOMATION_ACTION_APPLIED' AND detail->>'fieldId' IN (${a.id},${b.id})`)[0]!.n,3);
+
+ const rollbackLead=await create();await matches();
+ await db`CREATE FUNCTION test_field_action_audit_failure() RETURNS trigger LANGUAGE plpgsql AS $$
+  BEGIN IF NEW.action='AUTOMATION_ACTION_APPLIED' THEN RAISE EXCEPTION 'Synthetic field action Audit failure'; END IF; RETURN NEW; END $$`;
+ await db`CREATE TRIGGER test_field_action_audit_failure BEFORE INSERT ON audit_log
+  FOR EACH ROW EXECUTE FUNCTION test_field_action_audit_failure()`;
+ try{
+  await execute();
+  assert.equal((await db`SELECT 1 FROM lead_field_value WHERE lead_id=${rollbackLead}`).length,0);
+  assert.equal((await db`SELECT 1 FROM field_value_history WHERE lead_id=${rollbackLead}`).length,0);
+  assert.equal((await db`SELECT 1 FROM automation_field_effect WHERE lead_id=${rollbackLead}`).length,0);
+  assert.equal((await db`SELECT 1 FROM automation_source WHERE lead_id=${rollbackLead} AND trigger_type='FIELD_CHANGED'`).length,0);
+ }finally{
+  await db`DROP TRIGGER test_field_action_audit_failure ON audit_log`;
+  await db`DROP FUNCTION test_field_action_audit_failure()`;
+ }
+ const [failed]=await db`SELECT x.next_run_at,x.failure_count FROM automation_execution x
+  JOIN automation_source s ON s.id=x.source_id WHERE s.lead_id=${rollbackLead} AND x.rule_id=${origin}`;
+ assert.equal(failed!.failure_count,1);
+ await new Promise(resolve=>setTimeout(resolve,Math.max(0,+failed!.next_run_at-Date.now())+40));
+ await execute();
+ assert.equal((await db`SELECT 1 FROM automation_field_effect WHERE lead_id=${rollbackLead}`).length,1);
+ for(let i=0;i<3;i++){await matches();await execute();}
+
+ const newLead=await create();await matches();
+ assert.equal((await api('PUT',a.path,{...settings,version:1,editableByManager:false})).statusCode,200);
+ await execute();
+ const [revoked]=await db`SELECT x.result_code FROM automation_execution x
+  JOIN automation_source s ON s.id=x.source_id WHERE x.rule_id=${origin} AND s.lead_id=${newLead}`;
+ assert.equal(revoked!.result_code,'AUTOMATION_ACTION_FIELD_UNAVAILABLE');
+ assert.equal((await db`SELECT * FROM automation_field_effect WHERE lead_id=${newLead}`).length,0);
+ const rules=(await api('GET','/api/automations')).json().items;
+ assert.equal(rules.find((item:{id:string})=>item.id===origin).action_field_value,null);
+ const revisions=(await api('GET','/api/automations/'+origin+'/history')).json().items;
+ assert.equal(Object.hasOwn(revisions[0].definition,'action_field_value'),false);
+ assert.equal((await api('PUT','/api/automations/'+origin,{...def,...action,enabled:false,version:1})).statusCode,200);
+
+ const humanUpdate=await api('PUT','/api/leads/'+leadId+'/fields/'+b.id,{value:true,version:1});
+ assert.equal(humanUpdate.statusCode,200,humanUpdate.body);
+ const [manual]=await db`SELECT source,automation_execution_id FROM lead_field_value WHERE lead_id=${leadId} AND field_id=${b.id}`;
+ assert.equal(manual!.source,'MANUAL');assert.equal(manual!.automation_execution_id,null);
+ assert.equal((await db`SELECT source FROM field_value_history WHERE id=${effects[1]!.history_id}`)[0]!.source,'AUTOMATION');
+});
+
 test('Automation checks a scoped current assignee and the selected UTC date basis after matching',async t=>{
  const {db,org,branch,other,campaign,users,api,def,rule,create,matches,execute}=await fixture(t);
  const outside=(await db`INSERT INTO user_account(organization_id,branch_id,role,name,email,password_hash)

@@ -5,6 +5,7 @@ type Api=<T>(path:string,options?:RequestInit)=>Promise<T>;
 type Rule={id:string;name:string;branch_id:string|null;campaign_id:string|null;campaign_name:string|null;version:number;enabled:boolean;trigger_type:string;trigger_field_id:string|null;lifecycle:string|null;
  owner_condition:string;payment_condition:string;enrollment_condition:string;conversation_state_condition:string|null;controller_condition:string|null;
  condition_field_id:string|null;condition_field_value:unknown;
+ action_field_id:string|null;action_field_value:unknown;
  condition_agent_id:string|null;condition_agent_name:string|null;
  condition_date_basis:DateDraft['basis']|null;condition_date_from:string|null;condition_date_through:string|null;
  action_type:string;delay_minutes:number;priority:string;note:string;reason:string};
@@ -60,6 +61,9 @@ export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{local
  const [dateCondition,setDateCondition]=useState<DateDraft>(emptyDate);
  const [conditionField,setConditionField]=useState(''),[conditionValue,setConditionValue]=useState<unknown>(null);
  const [conditionDetails,setConditionDetails]=useState<FieldRow|null>(null),[conditionDenied,setConditionDenied]=useState(false);
+ const [targets,setTargets]=useState<TriggerFieldPage>({items:[],nextAfter:null}),targetEpoch=useRef(0);
+ const [targetField,setTargetField]=useState(''),[targetValue,setTargetValue]=useState<unknown>(null);
+ const [targetDetails,setTargetDetails]=useState<FieldRow|null>(null),[targetDenied,setTargetDenied]=useState(false);
  const [history,setHistory]=useState<{root:string;items:History[];nextVersion:number|null;rule:boolean}|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
  const change=(key:keyof Definition,value:string|number|boolean|null)=>setForm(f=>({...f,[key]:value}));
  function failed(){setRules({items:[],nextCursor:null});setProcessing({items:[],nextCursor:null});setHistory(null);setSelected(null);setEditing(false);setError(t.error);}
@@ -94,12 +98,38 @@ export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{local
   const timer=window.setTimeout(()=>{if(editing&&form.ownerCondition!=='UNASSIGNED')void readAgents();},200);
   return()=>{agentEpoch.current++;window.clearTimeout(timer);};
  },[editing,form.ownerCondition,branch,user.id,agentSearch]);
- function fieldScopeQuery(){
+ function fieldScopeQuery(action=false){
   const query=new URLSearchParams();
   if(branch)query.set('branchId',branch);
   if(campaign)query.set('campaignId',campaign);
+  if(action)query.set('usage','ACTION');
   return query;
  }
+ async function readTargetFields(after?:string){
+  const request=++targetEpoch.current,query=fieldScopeQuery(true);
+  if(after)query.set('after',after);
+  try{
+   const page=await api<TriggerFieldPage>('/api/automations/trigger-fields?'+query.toString());
+   if(request===targetEpoch.current)setTargets(previous=>({items:after?[...previous.items,...page.items]:page.items,nextAfter:page.nextAfter}));
+  }catch{
+   if(request===targetEpoch.current){setTargets({items:[],nextAfter:null});setError(t.error);}
+  }
+ }
+ useEffect(()=>{
+  setTargets({items:[],nextAfter:null});
+  if(editing&&form.actionType==='SET_FIELD_VALUE')void readTargetFields();
+  return()=>{targetEpoch.current++;};
+ },[editing,branch,campaign,user.id,form.actionType]);
+ useEffect(()=>{
+  let current=true;
+  setTargetDetails(null);setTargetDenied(false);
+  if(editing&&form.actionType==='SET_FIELD_VALUE'&&targetField)
+   void api<FieldRow>('/api/automations/trigger-fields/'+targetField+'?'+fieldScopeQuery(true).toString())
+    .then(details=>{if(current)setTargetDetails(details);})
+    .catch(()=>{if(current){setTargetValue(null);setTargetDenied(true);}});
+  return()=>{current=false;};
+ },[editing,branch,campaign,user.id,form.actionType,targetField,selected?.id]);
+ function selectTargetField(id:string){setTargetField(id);setTargetValue(null);setTargetDetails(null);setTargetDenied(false);}
  async function readTriggerFields(after?:string){
   const request=++fieldEpoch.current;
   const query=fieldScopeQuery();
@@ -127,6 +157,7 @@ export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{local
  function selectConditionField(id:string){setConditionField(id);setConditionValue(null);setConditionDetails(null);setConditionDenied(false);}
  function edit(r:Rule|null){epoch.current++;setSelected(r);setBranch(r?.branch_id??user.branchId??'');setCampaign(r?.campaign_id??'');
   setConditionField(r?.condition_field_id??'');setConditionValue(r?.condition_field_value??null);
+  setTargetField(r?.action_field_id??'');setTargetValue(r?.action_field_value??null);
   setConditionAgent(r?.condition_agent_id?{id:r.condition_agent_id,name:r.condition_agent_name}:null);setAgentSearch('');
   setDateCondition(r?.condition_date_basis?{basis:r.condition_date_basis,from:r.condition_date_from??'',through:r.condition_date_through??''}:emptyDate);
   setForm(r?{name:r.name,enabled:r.enabled,triggerType:r.trigger_type,triggerFieldId:r.trigger_field_id,lifecycle:r.lifecycle,ownerCondition:r.owner_condition,
@@ -136,12 +167,17 @@ export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{local
  const currentConditionField=conditionDetails?.id===conditionField?conditionDetails:null;
  const keepHiddenCondition=conditionDenied&&selected?.condition_field_id===conditionField;
  const missingConditionValue=Boolean(conditionField&&!keepHiddenCondition&&(!currentConditionField||conditionValue===null));
+ const currentTarget=targetDetails?.id===targetField?targetDetails:null;
+ const keepHiddenTarget=Boolean(targetDenied&&selected?.action_field_id===targetField&&!form.enabled);
+ const missingTarget=form.actionType==='SET_FIELD_VALUE'&&!keepHiddenTarget&&(!currentTarget||targetValue===null);
  const invalidDate=Boolean(dateCondition.basis&&(!dateCondition.from&&!dateCondition.through||
   dateCondition.from&&dateCondition.through&&dateCondition.from>dateCondition.through));
- async function save(){if(missingConditionValue||invalidDate)return;setBusy(true);setError('');setHistory(null);try{
+ async function save(){if(missingConditionValue||invalidDate||missingTarget)return;setBusy(true);setError('');setHistory(null);try{
   const value=currentConditionField?.field_type==='DATETIME'&&typeof conditionValue==='string'?new Date(conditionValue).toISOString():conditionValue;
   const fieldCondition=keepHiddenCondition?undefined:conditionField?{fieldId:conditionField,value}:null;
-  const definition={...form,fieldCondition,conditionAgentId:conditionAgent?.id??null,
+  const target=currentTarget?.field_type==='DATETIME'&&typeof targetValue==='string'?new Date(targetValue).toISOString():targetValue;
+  const fieldAction=keepHiddenTarget?undefined:form.actionType==='SET_FIELD_VALUE'?{fieldId:targetField,value:target}:null;
+  const definition={...form,fieldCondition,fieldAction,conditionAgentId:conditionAgent?.id??null,
    dateCondition:dateCondition.basis?{basis:dateCondition.basis,from:dateCondition.from||undefined,
     through:dateCondition.through||undefined}:null};
   const payload=selected?{...definition,version:selected.version}:{...definition,branchId:branch||null,campaignId:campaign||null};
@@ -187,6 +223,12 @@ export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{local
    basis:'Condition de date',from:'À partir du (UTC)',through:'Jusqu’au inclus (UTC)',lead:'Date de création du prospect',event:'Date de capture de l’événement',
    invalid:'Saisissez au moins une date et choisissez un début antérieur ou égal à la fin.'},
  }[locale];
+ const fieldAction={
+  en:{action:'Set field value',field:'Field to update',value:'Value to set',already:'Field already has the approved value'},
+  ar:{action:'تعيين قيمة حقل',field:'الحقل المراد تحديثه',value:'القيمة المراد حفظها',already:'القيمة المعتمدة محفوظة بالفعل'},
+  fr:{action:'Définir la valeur du champ',field:'Champ à mettre à jour',value:'Valeur à définir',already:'Le champ contient déjà la valeur approuvée'},
+ }[locale];
+ const actionLabels={CREATE_FOLLOW_UP:t.follow,SEND_IN_APP_NOTIFICATION:t.notify,SET_FIELD_VALUE:fieldAction.action};
  const causal={
   ar:{AUTOMATION_CAUSAL_REPEAT:'نُفذت القاعدة سابقًا في هذه السلسلة',AUTOMATION_CAUSAL_LIMIT:'بلغت السلسلة حد إجراءات الأتمتة'},
   en:{AUTOMATION_CAUSAL_REPEAT:'Rule already ran in this chain',AUTOMATION_CAUSAL_LIMIT:'Automation chain limit reached'},
@@ -196,14 +238,15 @@ export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{local
   ['PAYMENT_CONFIRMED',financial[0]],['ENROLLMENT_CONFIRMED',financial[1]],['FOLLOW_UP_DUE',due],['MESSAGE_RECEIVED',received],
   ['CONVERSATION_STATE_CHANGED',conversationChanged],['FIELD_CHANGED',field.changed]];
  const status=(s:string)=>(t.states as Record<string,string>)[s]??s;
- const result=(s:string|null)=>s==='AUTOMATION_TRIGGER_FIELD_UNAVAILABLE'||s==='AUTOMATION_CONDITION_FIELD_UNAVAILABLE'
-  ?field.unavailable:s?(causal as Record<string,string>)[s]??(t.results as Record<string,string>)[s]??t.error:'';
+ const result=(s:string|null)=>s==='FIELD_ALREADY_MATCHES'?fieldAction.already:
+  s==='AUTOMATION_TRIGGER_FIELD_UNAVAILABLE'||s==='AUTOMATION_CONDITION_FIELD_UNAVAILABLE'||s==='AUTOMATION_ACTION_FIELD_UNAVAILABLE'
+   ?field.unavailable:s?(causal as Record<string,string>)[s]??(t.results as Record<string,string>)[s]??t.error:'';
  return <section className="panel" data-automation-workspace><h2>{t.title}</h2><p>{t.warning}</p><div className="actions"><button disabled={busy} onClick={()=>edit(null)}>{t.new}</button><button disabled={busy} onClick={()=>void readRules()}>{t.reload}</button></div>
   {busy&&<p role="status">{t.loading}</p>}{error&&<p role="alert">{error}</p>}
   {editing&&<form data-automation-editor onSubmit={e=>{e.preventDefault();void save();}}><h3>{selected?t.edit:t.new}</h3>
    <label>{t.name}<input required maxLength={100} value={form.name} onChange={e=>change('name',e.target.value)}/></label>
-   <label>{t.scope}<select aria-label={t.scope} disabled={Boolean(selected)||user.role==='MANAGER'||busy} value={branch} onChange={e=>{setBranch(e.target.value);setCampaign('');change('triggerFieldId',null);selectConditionField('');setConditionAgent(null);setAgentSearch('');}}>{user.role==='SUPER_ADMIN'&&<option value="">{t.system}</option>}{branches.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select></label>
-   <label>{t.campaign}<select aria-label={t.campaign} disabled={Boolean(selected)||!branch||busy} value={campaign} onChange={e=>{setCampaign(e.target.value);change('triggerFieldId',null);selectConditionField('');}}><option value="">{t.all}</option>
+   <label>{t.scope}<select aria-label={t.scope} disabled={Boolean(selected)||user.role==='MANAGER'||busy} value={branch} onChange={e=>{setBranch(e.target.value);setCampaign('');change('triggerFieldId',null);selectConditionField('');selectTargetField('');setConditionAgent(null);setAgentSearch('');}}>{user.role==='SUPER_ADMIN'&&<option value="">{t.system}</option>}{branches.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select></label>
+   <label>{t.campaign}<select aria-label={t.campaign} disabled={Boolean(selected)||!branch||busy} value={campaign} onChange={e=>{setCampaign(e.target.value);change('triggerFieldId',null);selectConditionField('');selectTargetField('');}}><option value="">{t.all}</option>
     {campaign&&!campaigns.some(c=>c.id===campaign)&&<option value={campaign}>{selected?.campaign_name??campaign}</option>}{campaigns.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
    {!selected&&nextCampaign&&<button type="button" disabled={busy} onClick={()=>void readCampaigns(nextCampaign)}>{t.moreCampaigns}</button>}
    <label>{t.trigger}<select aria-label={t.trigger} value={form.triggerType} onChange={e=>setForm(f=>({...f,triggerType:e.target.value,triggerFieldId:null}))}>{triggers.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></label>
@@ -261,15 +304,28 @@ export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{local
      ariaLabel={field.value} booleanLabels={{yes:field.yes,no:field.no}}/></label>}
     {fields.nextAfter&&<button type="button" disabled={busy} onClick={()=>void readTriggerFields(fields.nextAfter!)}>{field.more}</button>}
    </fieldset>
-   <label>{t.action}<select aria-label={t.action} value={form.actionType} onChange={e=>setForm(f=>({...f,actionType:e.target.value,delayMinutes:e.target.value==='SEND_IN_APP_NOTIFICATION'?0:60,priority:'NORMAL'}))}><option value="CREATE_FOLLOW_UP">{t.follow}</option><option value="SEND_IN_APP_NOTIFICATION">{t.notify}</option></select></label>
+   <label>{t.action}<select aria-label={t.action} value={form.actionType} onChange={e=>setForm(f=>({...f,actionType:e.target.value,delayMinutes:e.target.value==='CREATE_FOLLOW_UP'?60:0,priority:'NORMAL'}))}>
+    {Object.entries(actionLabels).map(([value,label])=><option key={value} value={value}>{label}</option>)}
+   </select></label>
+   {form.actionType==='SET_FIELD_VALUE'&&<>
+    <label>{fieldAction.field}<select aria-label={fieldAction.field} required value={targetField} onChange={e=>selectTargetField(e.target.value)}>
+     <option value="">{field.choose}</option>
+     {targetField&&!targets.items.some(item=>item.id===targetField)&&<option value={targetField}>{currentTarget?.label??field.unavailable}</option>}
+     {targets.items.map(item=><option key={item.id} value={item.id}>{item.label}</option>)}
+    </select></label>
+    {targetDenied&&<p role="status">{field.unavailable}</p>}
+    {currentTarget&&<label>{fieldAction.value}<FieldInput field={currentTarget} value={targetValue} onChange={setTargetValue}
+     ariaLabel={fieldAction.value} booleanLabels={{yes:field.yes,no:field.no}}/></label>}
+    {targets.nextAfter&&<button type="button" disabled={busy} onClick={()=>void readTargetFields(targets.nextAfter!)}>{field.more}</button>}
+   </>}
    {form.actionType==='CREATE_FOLLOW_UP'&&<><label>{t.delay}<input type="number" min={0} max={525600} required value={form.delayMinutes} onChange={e=>change('delayMinutes',Number(e.target.value))}/></label>
     <label>{t.priority}<select aria-label={t.priority} value={form.priority} onChange={e=>change('priority',e.target.value)}>{['LOW','NORMAL','HIGH'].map(s=><option key={s}>{s}</option>)}</select></label></>}
-   <p>{t.timing}</p><label>{t.note}<textarea maxLength={4000} value={form.note} onChange={e=>change('note',e.target.value)}/></label>
+   {form.actionType!=='SET_FIELD_VALUE'&&<><p>{t.timing}</p><label>{t.note}<textarea maxLength={4000} value={form.note} onChange={e=>change('note',e.target.value)}/></label></>}
    <label><input type="checkbox" checked={form.enabled} onChange={e=>change('enabled',e.target.checked)}/>{t.enabled}</label>
    <label>{t.reason}<input minLength={3} maxLength={500} required value={form.reason} onChange={e=>change('reason',e.target.value)}/></label>
-   {selected&&<p>{t.version} {selected.version}</p>}<div className="actions"><button disabled={busy||missingConditionValue||invalidDate}>{t.save}</button><button type="button" disabled={busy} onClick={()=>setEditing(false)}>{t.cancel}</button></div>
+   {selected&&<p>{t.version} {selected.version}</p>}<div className="actions"><button disabled={busy||missingConditionValue||invalidDate||missingTarget}>{t.save}</button><button type="button" disabled={busy} onClick={()=>setEditing(false)}>{t.cancel}</button></div>
   </form>}
-  {rules.items.map(r=><article key={r.id} data-automation-rule={r.id}><h3>{r.name}</h3><p>{triggers.find(([v])=>v===r.trigger_type)?.[1]} → {r.action_type==='CREATE_FOLLOW_UP'?t.follow:t.notify} · {r.enabled?'✓':'—'} · {t.version} {r.version}</p>
+  {rules.items.map(r=><article key={r.id} data-automation-rule={r.id}><h3>{r.name}</h3><p>{triggers.find(([v])=>v===r.trigger_type)?.[1]} → {actionLabels[r.action_type as keyof typeof actionLabels]} · {r.enabled?'✓':'—'} · {t.version} {r.version}</p>
    <button disabled={busy} onClick={()=>edit(r)}>{t.edit}</button><button disabled={busy} onClick={()=>void readHistory('/api/automations/'+r.id,true)}>{t.history}</button></article>)}
   {!busy&&!rules.items.length&&<p>{t.empty}</p>}{rules.nextCursor&&<button disabled={busy} onClick={()=>void readRules(rules.nextCursor!)}>{t.more}</button>}
   <section data-automation-processing><h3>{t.processing}</h3><label>{t.kind}<select aria-label={t.kind} value={kind} disabled={busy} onChange={e=>{epoch.current++;setKind(e.target.value as typeof kind);setProcessing({items:[],nextCursor:null});setHistory(null);}}><option value="executions">{t.executions}</option><option value="sources">{t.sources}</option></select></label><button disabled={busy} onClick={()=>void readProcessing()}>{t.refresh}</button>
