@@ -7,6 +7,7 @@ import {createDatabase} from '../src/db.js';
 import {buildApp} from '../src/app.js';
 import {sha256} from '../src/security.js';
 import {processOneAutomationMatch,processOneAutomationExecution} from '../src/automation.js';
+import {processOneFollowUpNotification} from '../src/follow-up-notifications.js';
 const url=process.env.TEST_DATABASE_URL;
 if(!url||new URL(url).pathname!=='/lead_operations_test')throw new Error('Isolated TEST_DATABASE_URL required');
 async function fixture(t:TestContext){
@@ -33,6 +34,44 @@ async function fixture(t:TestContext){
  async function execute(){for(let i=0;i<200&&await processOneAutomationExecution(db);i++);}
  return {db,app,org,branch,other,campaign,users,api,def,rule,create,matches,execute};
 }
+
+test('Follow-up due automation preserves task causation and skips a repeated rule in the same chain',async t=>{
+ const {db,api,rule,create,matches,execute}=await fixture(t);
+ const origin=await rule({name:'Open the first follow-up',delayMinutes:0});
+ const due=await rule({name:'Create one follow-up after the task is due',triggerType:'FOLLOW_UP_DUE',delayMinutes:0});
+ const lead=await create();
+ await matches();await execute();
+ const rows=()=>db`SELECT e.id,e.rule_id,e.state,e.result_code,s.parent_execution_id,s.causal_rule_ids
+  FROM automation_execution e JOIN automation_source s ON s.id=e.source_id WHERE s.lead_id=${lead} ORDER BY cardinality(s.causal_rule_ids)`;
+ const initial=(await rows())[0]!;
+ assert.equal(initial.rule_id,origin);
+ assert.equal(await processOneFollowUpNotification(db),true);
+ await matches();await execute();
+ const firstDue=(await rows())[1]!;
+ assert.equal(firstDue.rule_id,due);
+ assert.equal(firstDue.state,'SUCCEEDED');
+ assert.equal(firstDue.parent_execution_id,initial.id);
+ assert.deepEqual(firstDue.causal_rule_ids,[origin]);
+
+ assert.equal(await processOneFollowUpNotification(db),true);
+ await matches();await execute();
+ const final=await rows();
+ assert.equal(final.length,3);
+ const skipped=final[2]!;
+ assert.equal(skipped.rule_id,due);
+ assert.equal(skipped.state,'SKIPPED');
+ assert.equal(skipped.result_code,'AUTOMATION_CAUSAL_REPEAT');
+ assert.equal(skipped.parent_execution_id,firstDue.id);
+ assert.deepEqual(skipped.causal_rule_ids,[origin,due]);
+ assert.equal((await db`SELECT count(*)::int n FROM follow_up WHERE lead_id=${lead}`)[0]!.n,2);
+ assert.equal(await processOneFollowUpNotification(db),false);
+ assert.equal(await processOneAutomationMatch(db),false);
+ assert.equal(await processOneAutomationExecution(db),false);
+ const checked=await api('GET',`/api/automation/executions/${skipped.id}/history`);
+ assert.equal(checked.statusCode,200,checked.body);
+ assert.equal(checked.json().items[0].result_code,'AUTOMATION_CAUSAL_REPEAT');
+ assert.equal((await api('GET',`/api/automation/executions/${skipped.id}/history`,undefined,'other')).statusCode,404);
+});
 
 test('Automation uses committed versioned approvals and trusted durable sources, scoped CAS and exactly-once typed internal effects',async t=>{
  const {db,org,branch,other,campaign,users,api,def,rule,create,matches,execute}=await fixture(t);

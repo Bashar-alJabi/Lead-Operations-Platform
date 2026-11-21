@@ -11,7 +11,7 @@ const labels={
   trigger:'Trigger',conditions:'Conditions',lifecycle:'Lead lifecycle condition',any:'Any',owner:'Owner condition',action:'Action',delay:'Minutes after source event',priority:'Priority',note:'Task note or internal notification text',
   reason:'Approval reason',enabled:'Enable this rule',save:'Approve and save automation',edit:'Edit automation',history:'Rule history',version:'Version',more:'More',empty:'No records.',error:'Unable to complete the request.',
   cancel:'Cancel editing',processing:'Automation processing',kind:'Processing stage',sources:'Source matching',executions:'Action executions',refresh:'Refresh processing',retry:'Retry failed processing',processingHistory:'Processing history',
-  warning:'Rules run with current scope and authority. Internal actions cannot send customer messages or change payments. Generated tasks and notices do not trigger these lead-event rules, preventing a loop.',
+  warning:'Rules run with current scope and authority. A rule can run once in the same chain of events.',
   timing:'Follow-ups use the event time plus this delay and the current eligible lead owner. Editing or disabling a rule prevents pending work from using the old version. Text is visible to authorized lead users; do not include secrets.',
   created:'Lead created',assigned:'Lead assigned',reassigned:'Lead ownership changed',assignedCondition:'Assigned',unassigned:'Unassigned',follow:'Create follow-up',notify:'Send In-App notification',openLead:'Open lead',
   states:{QUEUED:'Queued',DONE:'Matching complete',SUCCEEDED:'Applied',SKIPPED:'Skipped',DEAD_LETTER:'Needs recovery'},
@@ -20,7 +20,7 @@ const labels={
   trigger:'الحدث المحفز',conditions:'الشروط',lifecycle:'شرط حالة الفرصة',any:'أي حالة',owner:'شرط المالك',action:'الإجراء',delay:'الدقائق بعد وقت الحدث',priority:'الأولوية',note:'ملاحظة المهمة أو نص الإشعار الداخلي',
   reason:'سبب الاعتماد',enabled:'تفعيل هذه القاعدة',save:'اعتماد وحفظ الأتمتة',edit:'تعديل الأتمتة',history:'تاريخ القاعدة',version:'النسخة',more:'المزيد',empty:'لا توجد سجلات.',error:'تعذّر إكمال الطلب.',
   cancel:'إلغاء التعديل',processing:'تنفيذ الأتمتة',kind:'مرحلة المعالجة',sources:'مطابقة المصادر',executions:'تنفيذ الإجراءات',refresh:'تحديث المعالجة',retry:'إعادة محاولة المعالجة المتعثرة',processingHistory:'تاريخ المعالجة',
-  warning:'تُفحص الصلاحية والنطاق الحاليان عند التنفيذ. الإجراءات الداخلية لا ترسل رسائل للعملاء ولا تعدّل المدفوعات. المهام والإشعارات الناتجة لا تحفز قواعد أحداث الفرص هذه، لمنع الحلقات.',
+  warning:'تُفحص الصلاحية والنطاق الحاليان عند التنفيذ. تعمل كل قاعدة مرة واحدة في سلسلة الأحداث نفسها.',
   timing:'موعد المتابعة هو وقت الحدث مضافًا إليه التأخير، والمالك هو المسؤول الحالي المؤهل. تعديل القاعدة أو تعطيلها يمنع التنفيذ المعلق من استخدام نسختها القديمة. النص ظاهر للمخولين بالفرصة؛ لا تضع أسرارًا.',
   created:'إنشاء فرصة',assigned:'إسناد فرصة',reassigned:'تغيير إسناد الفرصة',assignedCondition:'مسندة',unassigned:'غير مسندة',follow:'إنشاء متابعة',notify:'إرسال إشعار داخل المنصة',openLead:'فتح الفرصة',
   states:{QUEUED:'في الانتظار',DONE:'اكتملت المطابقة',SUCCEEDED:'نُفذ الإجراء',SKIPPED:'تم التخطي',DEAD_LETTER:'تحتاج استعادة'},
@@ -29,7 +29,7 @@ const labels={
   trigger:'Déclencheur',conditions:'Conditions',lifecycle:'Condition de cycle du prospect',any:'Tous',owner:'Condition du responsable',action:'Action',delay:'Minutes après l’événement source',priority:'Priorité',note:'Note de suivi ou texte de notification interne',
   reason:'Motif d’approbation',enabled:'Activer cette règle',save:'Approuver et enregistrer',edit:'Modifier l’automatisation',history:'Historique de la règle',version:'Version',more:'Plus',empty:'Aucun élément.',error:'La demande a échoué.',
   cancel:'Annuler la modification',processing:'Traitement des automatisations',kind:'Étape de traitement',sources:'Correspondance des sources',executions:'Exécution des actions',refresh:'Actualiser le traitement',retry:'Relancer le traitement en échec',processingHistory:'Historique du traitement',
-  warning:'Les autorisations et le périmètre actuels sont vérifiés à l’exécution. Les actions internes n’envoient aucun message client et ne modifient aucun paiement. Les tâches et notifications produites ne déclenchent pas ces règles, évitant une boucle.',
+  warning:'Les autorisations et le périmètre sont vérifiés à l’exécution. Chaque règle s’exécute une fois par chaîne d’événements.',
   timing:'Le suivi utilise la date de l’événement et ce délai, avec le responsable actuel éligible. Modifier ou désactiver une règle bloque ses anciennes exécutions. Le texte est visible aux utilisateurs autorisés du prospect ; aucun secret.',
   created:'Prospect créé',assigned:'Prospect attribué',reassigned:'Attribution modifiée',assignedCondition:'Attribué',unassigned:'Non attribué',follow:'Créer un suivi',notify:'Envoyer une notification interne',openLead:'Ouvrir le prospect',
   states:{QUEUED:'En attente',DONE:'Correspondance terminée',SUCCEEDED:'Appliquée',SKIPPED:'Ignorée',DEAD_LETTER:'Récupération requise'},
@@ -70,9 +70,16 @@ export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{local
   await api('/api/automation/'+kind+'/'+item.id+'/retry',{method:'POST',body:JSON.stringify({version:item.version})});await readProcessing();
  }catch{failed();}finally{setBusy(false);}}
  const financial={ar:['تأكيد الدفع','تأكيد التسجيل'],en:['Payment confirmed','Enrollment confirmed'],fr:['Paiement confirmé','Inscription confirmée']}[locale];
+ const due={ar:'استحقاق متابعة',en:'Follow-up due',fr:'Suivi arrivé à échéance'}[locale];
+ const causal={
+  ar:{AUTOMATION_CAUSAL_REPEAT:'نُفذت القاعدة سابقًا في هذه السلسلة',AUTOMATION_CAUSAL_LIMIT:'بلغت السلسلة حد إجراءات الأتمتة'},
+  en:{AUTOMATION_CAUSAL_REPEAT:'Rule already ran in this chain',AUTOMATION_CAUSAL_LIMIT:'Automation chain limit reached'},
+  fr:{AUTOMATION_CAUSAL_REPEAT:'Règle déjà exécutée dans cette chaîne',AUTOMATION_CAUSAL_LIMIT:'Limite de la chaîne d’automatisation atteinte'},
+ }[locale];
  const triggers=[['LEAD_CREATED',t.created],['LEAD_ASSIGNED',t.assigned],['LEAD_REASSIGNED',t.reassigned],
-  ['PAYMENT_CONFIRMED',financial[0]],['ENROLLMENT_CONFIRMED',financial[1]]];
- const status=(s:string)=>(t.states as Record<string,string>)[s]??s,result=(s:string|null)=>s?(t.results as Record<string,string>)[s]??t.error:'';
+  ['PAYMENT_CONFIRMED',financial[0]],['ENROLLMENT_CONFIRMED',financial[1]],['FOLLOW_UP_DUE',due]];
+ const status=(s:string)=>(t.states as Record<string,string>)[s]??s;
+ const result=(s:string|null)=>s?(causal as Record<string,string>)[s]??(t.results as Record<string,string>)[s]??t.error:'';
  return <section className="panel" data-automation-workspace><h2>{t.title}</h2><p>{t.warning}</p><div className="actions"><button disabled={busy} onClick={()=>edit(null)}>{t.new}</button><button disabled={busy} onClick={()=>void readRules()}>{t.reload}</button></div>
   {busy&&<p role="status">{t.loading}</p>}{error&&<p role="alert">{error}</p>}
   {editing&&<form data-automation-editor onSubmit={e=>{e.preventDefault();void save();}}><h3>{selected?t.edit:t.new}</h3>

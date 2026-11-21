@@ -17,6 +17,7 @@ test('Trusted payment and separate enrollment reach the current Lead owner inbox
    await automationEditor.getByLabel('Campaign scope',{exact:true}).selectOption(campaign);
    await automationEditor.getByLabel('Trigger',{exact:true}).selectOption(trigger);
    await automationEditor.getByLabel('Action',{exact:true}).selectOption(action);
+   if(action==='CREATE_FOLLOW_UP')await automationEditor.getByLabel('Minutes after source event',{exact:true}).fill('0');
    await automationEditor.getByLabel('Task note or internal notification text',{exact:true}).fill(name);
    await automationEditor.getByLabel('Enable this rule',{exact:true}).check();
    await automationEditor.getByLabel('Approval reason',{exact:true}).fill('Approve synthetic financial automation');
@@ -25,6 +26,7 @@ test('Trusted payment and separate enrollment reach the current Lead owner inbox
   }
   await financialRule('Browser confirmed payment rule','PAYMENT_CONFIRMED','SEND_IN_APP_NOTIFICATION');
   await financialRule('Browser confirmed enrollment rule','ENROLLMENT_CONFIRMED','CREATE_FOLLOW_UP');
+  await financialRule('Browser due follow-up rule','FOLLOW_UP_DUE','CREATE_FOLLOW_UP');
   const created=await manager.request.post('/api/leads',{headers,data:{branchId:me.branchId,campaignId:campaign,contact:{name:'Synthetic financial notice',phone:'+15553337920'}}});expect(created.status()).toBe(201);const lead=(await created.json()).id;
   expect((await manager.request.post('/api/leads/'+lead+'/assignment',{headers,data:{version:1,agentId:owner.id,reason:'Financial notification journey'}})).status()).toBe(200);
   const account=await manager.request.post('/api/payments/bank-accounts',{headers,data:{name:'Synthetic notice bank',branchId:me.branchId,mode:'TEST',beneficiary:'Synthetic company',accountIdentifier:'BROWSER-NOTICE-ONLY',bankName:'Synthetic bank',instructions:'Use exact reference',currencies:['EUR'],active:true,reason:'Synthetic isolated notification test'}});expect(account.status()).toBe(201);const accountId=(await account.json()).id;
@@ -35,10 +37,14 @@ test('Trusted payment and separate enrollment reach the current Lead owner inbox
   expect((await agent.request.post('/api/leads/'+lead+'/bank-transfers/'+transfer.id+'/confirm',{headers,data:proof})).status()).toBe(403);expect(await events()).toEqual([]);
   const approved=await manager.request.post('/api/leads/'+lead+'/bank-transfers/'+transfer.id+'/confirm',{headers,data:proof});expect(approved.status()).toBe(200);const paid=await approved.json();expect((await manager.request.post('/api/leads/'+lead+'/bank-transfers/'+transfer.id+'/confirm',{headers,data:proof})).status()).toBe(200);
   const recorded=await events();expect(recorded.length).toBe(2);const payment=recorded.find((n:any)=>n.eventType==='PAYMENT_CONFIRMED'),enrollment=recorded.find((n:any)=>n.eventType==='ENROLLMENT_CONFIRMED');expect(payment.paymentId).toBe(paid.payment_id);expect(payment.enrollmentId).toBeNull();expect(enrollment.enrollmentId).toBe(paid.enrollment_id);
-  for(const phase of ['MATCH','EXECUTE']){
-   const run=await manager.request.post('/__test__/automation',{headers:{...headers,authorization:'Bearer '+fixture.testToken},data:{phase}});
-   expect(run.status(),await run.text()).toBe(200);
+  const control={...headers,authorization:'Bearer '+fixture.testToken};
+  async function runAutomation(){
+   for(const phase of ['MATCH','EXECUTE']){
+    const run=await manager.request.post('/__test__/automation',{headers:control,data:{phase}});
+    expect(run.status(),await run.text()).toBe(200);
+   }
   }
+  await runAutomation();
   const executions=(await(await manager.request.get('/api/automation/executions?limit=50')).json()).items as {id:string;lead_id:string;state:string}[];
   const applied=executions.filter(item=>item.lead_id===lead&&item.state==='SUCCEEDED');
   expect(applied).toHaveLength(2);
@@ -46,6 +52,14 @@ test('Trusted payment and separate enrollment reach the current Lead owner inbox
   for(const item of applied)await expect(automations.locator(`[data-automation-processing-id="${item.id}"]`)).toContainText('Action applied');
   const followups=await agent.request.get('/api/leads/'+lead+'/followups');
   expect((await followups.json()).items.filter((item:{kind:string})=>item.kind==='AUTOMATION')).toHaveLength(1);
+  for(let cycle=0;cycle<2;cycle++){
+   expect((await manager.request.post('/__test__/follow-up-notifications',{headers:control,data:{process:true}})).status()).toBe(200);
+   await runAutomation();
+  }
+  await automations.getByRole('button',{name:'Refresh processing',exact:true}).click();
+  await expect(automations.locator('[data-automation-processing]')).toContainText('Rule already ran in this chain');
+  const finishedFollowups=await agent.request.get('/api/leads/'+lead+'/followups');
+  expect((await finishedFollowups.json()).items.filter((item:{kind:string})=>item.kind==='AUTOMATION')).toHaveLength(2);
   await agent.getByRole('button',{name:'Notifications',exact:true}).click();const center=agent.locator('[data-notification-center]'),pc=center.locator('[data-notification="'+payment.id+'"]'),ec=center.locator('[data-notification="'+enrollment.id+'"]');await center.getByRole('button',{name:'Refresh notifications',exact:true}).click();
   await expect(pc).toContainText('Payment confirmed');await expect(ec).toContainText('Enrollment confirmed');await expect(pc).toContainText('Recorded operational event');
   await pc.getByRole('button',{name:'Mark read',exact:true}).click();await pc.getByRole('button',{name:'Read status history',exact:true}).click();await expect(center.locator('[data-notification-history]')).toContainText('Version 1');

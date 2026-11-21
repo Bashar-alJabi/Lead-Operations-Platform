@@ -2,7 +2,7 @@
 
 ## نطاق الشريحة الحالية
 
-يدعم مسار `Trigger → Conditions → Action` إنشاء Follow-up للمالك الحالي المؤهل أو إرسال إشعار للمخولين بالفرصة. تأتي أحداث `LEAD_CREATED` و`LEAD_ASSIGNED` و`LEAD_REASSIGNED` من سجل التشغيل. تعتمد migration 207 كذلك حدثي `PAYMENT_CONFIRMED` و`ENROLLMENT_CONFIRMED` مستقلين، ولكل منهما سجل Notification Event مُشتق من مصدره الموثوق.
+يدعم مسار `Trigger → Conditions → Action` إنشاء Follow-up للمالك الحالي المؤهل أو إرسال إشعار للمخولين بالفرصة. تأتي أحداث `LEAD_CREATED` و`LEAD_ASSIGNED` و`LEAD_REASSIGNED` من سجل التشغيل. تعتمد migration 207 حدثي `PAYMENT_CONFIRMED` و`ENROLLMENT_CONFIRMED` مستقلين. تضيف migration 208 حدث `FOLLOW_UP_DUE` من مراقبة الاستحقاق بساعة PostgreSQL. تُشتق المصادر الثلاثة من Notification Event الموثوقة لكل حالة.
 
 كل قاعدة ضمن Organization، مع Branch اختياري و Campaign اختياري داخل ذلك الفرع. Super Admin يدير المستويات الثلاثة، و Manager يدير فرعه وحملاته فقط. Agent لا يدير القواعد أو سجل معالجتها؛يرى المهمة/الإشعار الناتج فقط إذا بقي مخولًا بالفرصة. لا Roles جديدة.
 
@@ -34,7 +34,7 @@
 
 ## التكرار والحلقات والاستعادة
 
-السبب محفوظ عبر Source → Rule version → Execution → Task/Notification. تقتصر مصادر هذه المرحلة على أحداث Lead المؤهلة وتأكيد Payment وتأكيد Enrollment. تقع آثارها في جداول المتابعة والإشعار فقط، لذلك لا تعيد تشغيل القاعدة. تستلزم إضافة مصادر Follow-up أو إجراءات تعديل Lead توسيع تتبع الأسباب وقواعد منع الحلقات.
+السبب محفوظ عبر Source → Rule version → Execution → Task/Notification. عند استحقاق متابعة أنشأتها الأتمتة، يشتق المصدر الجديد التنفيذ الأب ومعرّفات القواعد السابقة من `follow_up.automation_execution_id`. تبدأ المتابعة البشرية سلسلة مستقلة. يتحقق العامل من تكرار معرّف القاعدة في السلسلة، حتى لو أصبح لها إصدار جديد. يحفظ `SKIPPED` مع `AUTOMATION_CAUSAL_REPEAT` إذا سبق تشغيلها، أو `AUTOMATION_CAUSAL_LIMIT` بعد ثمانية آثار سابقة في السلسلة. يظهر السبب في سجل التنفيذ، وتبقى معرّفات القواعد السابقة داخلية. يجب أن تحمل الآثار الجديدة سببها الموثوق إذا أمكن أن تولّد مصدرًا آخر.
 
 طابورتا matching/execution لهما تاريخ immutable لكل version. المحاولات الفاشلة تنتظر 1/2/4/8 ثوانٍ ثم `DEAD_LETTER` بعد خمس failures. لا raw DB/provider exception في DTO/history. Manager/Super Admin حالي ضمن النطاق يستطيع retry بعد إصلاح السبب، ب Session حقيقية و CAS و Audit؛المكتمل/المتخطى لا يقبل retry. الاستعادة لا ترسل للعميل ولا تعيد أثرًا محفوظًا. الشروط التي لم تتحقق تُسجل SKIPPED مع سبب، لا حلقة retries بلا حدود.
 
