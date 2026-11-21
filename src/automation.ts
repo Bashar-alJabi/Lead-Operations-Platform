@@ -18,8 +18,9 @@ export async function processOneAutomationMatch(db:Database):Promise<boolean> {
 }
 
 export async function processOneAutomationExecution(db:Database):Promise<boolean> {
- const candidates=await db`SELECT e.id,s.branch_id,s.lead_id,s.campaign_id,e.rule_id FROM automation_execution e
-  JOIN automation_source s ON s.id=e.source_id WHERE e.state='QUEUED' AND e.next_run_at<=statement_timestamp()
+ const candidates=await db`SELECT e.id,s.branch_id,s.lead_id,s.campaign_id,e.rule_id,f.field_id FROM automation_execution e
+  JOIN automation_source s ON s.id=e.source_id LEFT JOIN automation_field_change f ON f.id=s.field_change_id
+  WHERE e.state='QUEUED' AND e.next_run_at<=statement_timestamp()
   ORDER BY e.next_run_at,e.id LIMIT 25`;
  for(const item of candidates){
   try{
@@ -28,6 +29,7 @@ export async function processOneAutomationExecution(db:Database):Promise<boolean
     await tx`SELECT id FROM branch WHERE id=${item.branch_id} FOR SHARE`;
     await tx`SELECT id FROM lead WHERE id=${item.lead_id} FOR UPDATE`;
     await tx`SELECT id FROM campaign WHERE id=${item.campaign_id} FOR SHARE`;
+    if(item.field_id)await tx`SELECT id FROM field_definition WHERE id=${item.field_id} FOR SHARE`;
     await tx`SELECT id FROM user_account WHERE id IN (SELECT actor_id FROM automation_rule WHERE id=${item.rule_id}
      UNION SELECT assigned_agent_id FROM lead WHERE id=${item.lead_id}) ORDER BY id FOR SHARE`;
     await tx`SELECT id FROM automation_rule WHERE id=${item.rule_id} FOR SHARE`;

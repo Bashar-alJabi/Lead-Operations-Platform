@@ -5,8 +5,9 @@ import {HttpError,principalFromRequest,requireRole,type Principal} from '../secu
 import {currentPaymentSession} from '../payments/access.js';
 import {decodeCursor,encodeCursor} from '../pagination.js';
 
-const triggers=['LEAD_CREATED','LEAD_ASSIGNED','LEAD_REASSIGNED','PAYMENT_CONFIRMED','ENROLLMENT_CONFIRMED','FOLLOW_UP_DUE','MESSAGE_RECEIVED','CONVERSATION_STATE_CHANGED'] as const;
+const triggers=['LEAD_CREATED','LEAD_ASSIGNED','LEAD_REASSIGNED','PAYMENT_CONFIRMED','ENROLLMENT_CONFIRMED','FOLLOW_UP_DUE','MESSAGE_RECEIVED','CONVERSATION_STATE_CHANGED','FIELD_CHANGED'] as const;
 type Definition={name:string;enabled:boolean;triggerType:typeof triggers[number];
+ triggerFieldId?:string|null;
  lifecycle:'OPEN'|'CLOSED'|'ARCHIVED'|null;ownerCondition:'ANY'|'ASSIGNED'|'UNASSIGNED';
  actionType:'CREATE_FOLLOW_UP'|'SEND_IN_APP_NOTIFICATION';delayMinutes:number;priority:'LOW'|'NORMAL'|'HIGH';note:string;reason:string};
 const properties={name:{type:'string',minLength:1,maxLength:100},enabled:{type:'boolean'},triggerType:{enum:triggers},
@@ -17,6 +18,7 @@ const params={type:'object',additionalProperties:false,required:['id'],propertie
 const page={type:'object',additionalProperties:false,properties:{limit:{type:'integer',minimum:1,maximum:50},cursor:{type:'string',maxLength:256}}} as const;
 type Page={limit?:number;cursor?:string};
 function validate(input:Definition){if(!input.name.trim()||input.reason.trim().length<3||/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(input.name+input.note+input.reason)
+ ||(input.triggerType==='FIELD_CHANGED')!==Boolean(input.triggerFieldId)
  ||input.actionType==='SEND_IN_APP_NOTIFICATION'&&(input.delayMinutes!==0||input.priority!=='NORMAL'))throw new HttpError(400,'INVALID_AUTOMATION_DEFINITION');}
 async function scope(tx:postgres.TransactionSql,actor:Principal,branchId:string|null,campaignId:string|null,request:FastifyRequest){
  if(actor.role==='MANAGER'&&branchId!==actor.branchId)throw new HttpError(404,'AUTOMATION_SCOPE_NOT_FOUND');
@@ -44,11 +46,32 @@ async function processingAccess(tx:postgres.TransactionSql,actor:Principal,kind:
  return {s,session};
 }
 function paged(rows:postgres.RowList<postgres.Row[]>,limit:number){const items=rows.slice(0,limit),last=items.at(-1);return {items,nextCursor:rows.length>limit&&last?encodeCursor({timestamp:last.cursor_at,id:last.id}):null};}
+async function writeDefinition<T>(write:()=>Promise<T>){
+ try{return await write();}
+ catch(error){
+  if(error instanceof Error&&error.message==='AUTOMATION_TRIGGER_FIELD_UNAVAILABLE')throw new HttpError(409,error.message);
+  throw error;
+ }
+}
 export function registerAutomationRoutes(app:FastifyInstance,db:Database){
+ app.get<{Querystring:{branchId?:string;campaignId?:string;after?:string}}>('/api/automations/trigger-fields',{
+  schema:{querystring:{type:'object',additionalProperties:false,properties:{branchId:uuid,campaignId:uuid,after:uuid}}},
+ },async request=>{
+  const actor=await principalFromRequest(request,db);requireRole(actor,'SUPER_ADMIN','MANAGER');
+  const branchId=request.query.branchId??actor.branchId,campaignId=request.query.campaignId??null;
+  return db.begin(async tx=>{
+   await scope(tx,actor,branchId,campaignId,request);
+   const rows=await tx`SELECT f.id,f.label FROM field_definition f WHERE f.organization_id=${actor.organizationId}
+    AND (${request.query.after??null}::uuid IS NULL OR f.id>${request.query.after??null})
+    AND automation_field_trigger_available(f.id,${actor.organizationId},${branchId},${campaignId},${actor.role==='MANAGER'})
+    ORDER BY f.id LIMIT 51`;
+   return {items:rows.slice(0,50),nextAfter:rows.length>50?rows[49]!.id:null};
+  });
+ });
  app.get<{Querystring:Page}>('/api/automations',{schema:{querystring:page}},async request=>{
   const actor=await principalFromRequest(request,db);requireRole(actor,'SUPER_ADMIN','MANAGER');const cursor=decodeCursor(request.query.cursor),limit=request.query.limit??20;
   return db.begin(async tx=>{if(!await currentPaymentSession(tx,actor,request))throw new HttpError(403,'AUTOMATION_ACCESS_REVOKED');
-   const rows=await tx`SELECT r.id,r.name,r.branch_id,r.campaign_id,b.name AS branch_name,c.name AS campaign_name,r.version,r.enabled,r.trigger_type,r.lifecycle,r.owner_condition,
+   const rows=await tx`SELECT r.id,r.name,r.branch_id,r.campaign_id,b.name AS branch_name,c.name AS campaign_name,r.version,r.enabled,r.trigger_type,r.trigger_field_id,r.lifecycle,r.owner_condition,
     r.action_type,r.delay_minutes,r.priority,r.note,r.reason,r.created_at,r.created_at::text AS cursor_at,r.updated_at FROM automation_rule r
     LEFT JOIN branch b ON b.id=r.branch_id LEFT JOIN campaign c ON c.id=r.campaign_id WHERE r.organization_id=${actor.organizationId}
      AND (${actor.role==='SUPER_ADMIN'} OR r.branch_id=${actor.branchId}) AND (${cursor?.timestamp??null}::text::timestamptz IS NULL
@@ -57,23 +80,23 @@ export function registerAutomationRoutes(app:FastifyInstance,db:Database){
   });
  });
  app.post<{Body:Definition&{branchId:string|null;campaignId:string|null}}>('/api/automations',{schema:{body:{type:'object',additionalProperties:false,
-  required:[...Object.keys(properties),'branchId','campaignId'],properties:{...properties,branchId:nullableUuid,campaignId:nullableUuid}}}},async(request,reply)=>{
+  required:[...Object.keys(properties),'branchId','campaignId'],properties:{...properties,triggerFieldId:nullableUuid,branchId:nullableUuid,campaignId:nullableUuid}}}},async(request,reply)=>{
   const actor=await principalFromRequest(request,db);requireRole(actor,'SUPER_ADMIN','MANAGER');const input=request.body;validate(input);
-  const id=await db.begin(async tx=>{const session=await scope(tx,actor,input.branchId,input.campaignId,request);
-   return (await tx`INSERT INTO automation_rule(organization_id,branch_id,campaign_id,name,version,enabled,trigger_type,lifecycle,owner_condition,action_type,delay_minutes,priority,note,actor_id,session_id,reason)
-    VALUES(${actor.organizationId},${input.branchId},${input.campaignId},${input.name},1,${input.enabled},${input.triggerType},${input.lifecycle},${input.ownerCondition},${input.actionType},
+  const id=await writeDefinition(()=>db.begin(async tx=>{const session=await scope(tx,actor,input.branchId,input.campaignId,request);
+   return (await tx`INSERT INTO automation_rule(organization_id,branch_id,campaign_id,name,version,enabled,trigger_type,trigger_field_id,lifecycle,owner_condition,action_type,delay_minutes,priority,note,actor_id,session_id,reason)
+    VALUES(${actor.organizationId},${input.branchId},${input.campaignId},${input.name},1,${input.enabled},${input.triggerType},${input.triggerFieldId??null},${input.lifecycle},${input.ownerCondition},${input.actionType},
      ${input.delayMinutes},${input.priority},${input.note},${actor.id},${session},${input.reason}) RETURNING id`)[0]!.id;
-  });reply.code(201);return {id,version:1};
+  }));reply.code(201);return {id,version:1};
  });
  app.put<{Params:{id:string};Body:Definition&{version:number}}>('/api/automations/:id',{schema:{params,body:{type:'object',additionalProperties:false,
-  required:[...Object.keys(properties),'version'],properties:{...properties,version:{type:'integer',minimum:1}}}}},async request=>{
+  required:[...Object.keys(properties),'version'],properties:{...properties,triggerFieldId:nullableUuid,version:{type:'integer',minimum:1}}}}},async request=>{
   const actor=await principalFromRequest(request,db);requireRole(actor,'SUPER_ADMIN','MANAGER');const input=request.body;validate(input);
-  return db.begin(async tx=>{await ruleAccess(tx,actor,request.params.id,request);const session=await currentPaymentSession(tx,actor,request);
+  return writeDefinition(()=>db.begin(async tx=>{await ruleAccess(tx,actor,request.params.id,request);const session=await currentPaymentSession(tx,actor,request);
    const r=(await tx`SELECT version FROM automation_rule WHERE id=${request.params.id} FOR UPDATE`)[0]!;if(r.version!==input.version)throw new HttpError(409,'AUTOMATION_VERSION_CONFLICT');
-   await tx`UPDATE automation_rule SET name=${input.name},enabled=${input.enabled},trigger_type=${input.triggerType},lifecycle=${input.lifecycle},owner_condition=${input.ownerCondition},action_type=${input.actionType},
+   await tx`UPDATE automation_rule SET name=${input.name},enabled=${input.enabled},trigger_type=${input.triggerType},trigger_field_id=${input.triggerFieldId??null},lifecycle=${input.lifecycle},owner_condition=${input.ownerCondition},action_type=${input.actionType},
     delay_minutes=${input.delayMinutes},priority=${input.priority},note=${input.note},actor_id=${actor.id},session_id=${session},reason=${input.reason},version=version+1 WHERE id=${request.params.id}`;
    return {version:input.version+1};
-  });
+  }));
  });
  app.get<{Params:{id:string};Querystring:{before?:number}}>('/api/automations/:id/history',{schema:{params,querystring:{type:'object',additionalProperties:false,properties:{before:{type:'integer',minimum:1}}}}},async request=>{
   const actor=await principalFromRequest(request,db);requireRole(actor,'SUPER_ADMIN','MANAGER');return db.begin(async tx=>{

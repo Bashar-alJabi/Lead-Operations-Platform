@@ -37,6 +37,66 @@ async function fixture(t:TestContext){
  return {db,app,org,branch,other,campaign,users,api,def,rule,create,matches,execute};
 }
 
+test('Only a changed, approved field matches its rule and revoking its binding stops pending execution',async t=>{
+ const {db,branch,campaign,api,def,rule,create,matches,execute}=await fixture(t);
+ const lead=await create();
+ const settings={active:true,position:0,requiredStage:'NONE',visibleToAgent:true,editableByAgent:true,visibleToManager:true,
+  editableByManager:true,showInTable:false,showInDetails:true,filterable:false,usableByAutomation:true,usableByAi:false};
+ const binding=(id:string)=>'/api/campaigns/'+campaign+'/fields/'+id;
+ async function makeField(name:string,usableByAutomation:boolean){
+  const made=await api('POST','/api/fields',{scope:'CAMPAIGN',branchId:branch,campaignId:campaign,key:name,label:name,
+   fieldType:'TEXT',valueMode:'MANUAL',options:[],validation:{}});
+  assert.equal(made.statusCode,201,made.body);
+  const id=made.json().id as string;
+  assert.equal((await api('PUT',binding(id),{...settings,usableByAutomation})).statusCode,200);
+  return id;
+ }
+ const tracked=await makeField('watched_entry',true);
+ const other=await makeField('different_entry',true);
+ const excluded=await makeField('excluded_entry',false);
+ const options='/api/automations/trigger-fields?branchId='+branch+'&campaignId='+campaign;
+ const listed=await api('GET',options);
+ assert.equal(listed.statusCode,200,listed.body);
+ assert.deepEqual(listed.json().items.map((item:{id:string})=>item.id).sort(),[other,tracked].sort());
+ assert.equal((await api('GET',options,undefined,'other')).statusCode,404);
+ assert.equal((await api('GET',options,undefined,'agent')).statusCode,403);
+ const ruleDefinition={...def,branchId:branch,campaignId:campaign,triggerType:'FIELD_CHANGED'};
+ assert.equal((await api('POST','/api/automations',ruleDefinition)).statusCode,400);
+ assert.equal((await api('POST','/api/automations',{...ruleDefinition,triggerFieldId:excluded})).statusCode,409);
+ const ruleId=await rule({triggerType:'FIELD_CHANGED',triggerFieldId:tracked});
+ const change=(id:string,value:string,version?:number)=>api('PUT','/api/leads/'+lead+'/fields/'+id,{value,version},'agent');
+ const value='Synthetic field value for Lead only';
+ for(const id of [tracked,other,excluded]){
+  const result=await change(id,value);
+  assert.equal(result.statusCode,200,result.body);
+ }
+ const unchanged=await change(tracked,value,1);
+ assert.equal(unchanged.statusCode,200,unchanged.body);
+ assert.equal((await db`SELECT id FROM automation_field_change WHERE lead_id=${lead}`).length,2);
+ await matches();
+ await execute();
+ const executions=()=>db`SELECT e.state,e.result_code FROM automation_execution e
+  JOIN automation_source s ON s.id=e.source_id JOIN automation_field_change f ON f.id=s.field_change_id
+  WHERE e.rule_id=${ruleId} ORDER BY f.value_version`;
+ const initial=await executions();
+ assert.equal(initial.length,1);
+ assert.equal(initial[0]!.state,'SUCCEEDED');
+ assert.equal((await change(tracked,'Revoked before execution',2)).statusCode,200);
+ await matches();
+ const revoked=await api('PUT',binding(tracked),{...settings,version:1,usableByAutomation:false});
+ assert.equal(revoked.statusCode,200,revoked.body);
+ await execute();
+ const outcomes=await executions();
+ assert.equal(outcomes.length,2);
+ assert.equal(outcomes[1]!.state,'SKIPPED');
+ assert.equal(outcomes[1]!.result_code,'AUTOMATION_TRIGGER_FIELD_UNAVAILABLE');
+ assert.equal((await db`SELECT id FROM follow_up WHERE lead_id=${lead} AND kind='AUTOMATION'`).length,1);
+ assert.equal((await api('PUT','/api/automations/'+ruleId,{...def,triggerType:'FIELD_CHANGED',triggerFieldId:tracked,enabled:false,version:1})).statusCode,200);
+ await assert.rejects(db`INSERT INTO automation_field_change(lead_id,field_id,value_version)
+  VALUES(${lead},${tracked},3)`,/AUTOMATION_FIELD_CHANGE_WRITE_REQUIRED/);
+ assert.equal((await api('GET','/api/automation/executions?limit=50')).body.includes(value),false);
+});
+
 test('A permitted conversation state transition admits one scoped rule and preserves its original states',async t=>{
  const {db,org,branch,api,rule,create,matches,execute}=await fixture(t);
  const lead=await create();

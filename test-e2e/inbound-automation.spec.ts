@@ -20,11 +20,24 @@ test('Manager approves message and conversation rules and observes each internal
   await page.getByRole('button',{name:'Sign in',exact:true}).click();
   await page.getByRole('button',{name:'Automations',exact:true}).click();
   const panel=page.locator('[data-automation-workspace]'),editor=panel.locator('[data-automation-editor]');
-  async function approve(name:string,trigger:string,action:string) {
+  const origin={origin:'http://127.0.0.1:4100'};
+  const {branchId}=await(await page.request.get('/api/auth/me')).json();
+  const defined=await page.request.post('/api/fields',{headers:origin,data:{
+   scope:'CAMPAIGN',branchId,campaignId,key:'browser_automation_field',label:'Synthetic automation field',
+   fieldType:'TEXT',valueMode:'MANUAL',options:[],validation:{},
+  }});
+  expect(defined.status(),await defined.text()).toBe(201);
+  const fieldId=(await defined.json()).id as string;
+  const fieldBinding='/api/campaigns/'+campaignId+'/fields/'+fieldId;
+  const settings={active:true,position:0,requiredStage:'NONE',visibleToAgent:true,editableByAgent:true,visibleToManager:true,
+   editableByManager:true,showInTable:false,showInDetails:true,filterable:false,usableByAutomation:true,usableByAi:false};
+  expect((await page.request.put(fieldBinding,{headers:origin,data:settings})).status()).toBe(200);
+  async function approve(name:string,trigger:string,action:string,watchedField?:string) {
    await panel.getByRole('button',{name:'New automation',exact:true}).first().click();
    await editor.getByLabel('Rule name',{exact:true}).fill(name);
    await editor.getByLabel('Campaign scope',{exact:true}).selectOption(campaignId);
    await editor.getByLabel('Trigger',{exact:true}).selectOption({label:trigger});
+   if(watchedField)await editor.getByLabel('Watched field',{exact:true}).selectOption(watchedField);
    await editor.getByLabel('Action',{exact:true}).selectOption(action);
    await editor.getByLabel('Owner condition',{exact:true}).selectOption('ANY');
    await editor.getByLabel('Task note or internal notification text',{exact:true}).fill(name);
@@ -35,6 +48,7 @@ test('Manager approves message and conversation rules and observes each internal
   }
   await approve('Synthetic inbound task','Message received','CREATE_FOLLOW_UP');
   await approve('Synthetic conversation changed','Conversation state changed','SEND_IN_APP_NOTIFICATION');
+  await approve('Synthetic field changed','Field changed','SEND_IN_APP_NOTIFICATION',fieldId);
 
   const eventId='wamid.browser-automation.'+randomUUID();
   const payload=JSON.stringify({object:'whatsapp_business_account',entry:[{id:'123456789',changes:[{field:'messages',value:{
@@ -68,7 +82,7 @@ test('Manager approves message and conversation rules and observes each internal
   await expect(panel).not.toContainText(eventId);
   const assignment='/api/leads/'+leadId+'/assignment';
   for(const version of [1,2]){
-   const moved=await page.request.post(assignment,{headers:{origin:'http://127.0.0.1:4100'},data:{
+   const moved=await page.request.post(assignment,{headers:origin,data:{
     version,agentId:null,reason:'Unassign synthetic lead to trigger the conversation transition',
    }});
    expect(moved.ok(),await moved.text()).toBeTruthy();
@@ -82,9 +96,22 @@ test('Manager approves message and conversation rules and observes each internal
   expect(notices.ok()).toBeTruthy();
   const events=(await notices.json()).items as {eventType:string;leadId:string}[];
   expect(events.filter(event=>event.eventType==='AUTOMATION_NOTICE'&&event.leadId===leadId)).toHaveLength(1);
+  const fieldValue='/api/leads/'+leadId+'/fields/'+fieldId;
+  expect((await page.request.put(fieldValue,{headers:origin,data:{value:'Private synthetic field observation'}})).status()).toBe(200);
+  await processRules();
+  expect((await page.request.put(fieldValue,{headers:origin,data:{value:'Synthetic update before revocation',version:1}})).status()).toBe(200);
+  expect((await page.request.put(fieldBinding,{headers:origin,data:{...settings,usableByAutomation:false,version:1}})).status()).toBe(200);
+  await processRules();
+  await panel.getByRole('button',{name:'Refresh processing',exact:true}).click();
+  const fields=panel.locator('[data-automation-processing-id]').filter({hasText:'Synthetic field changed'});
+  await expect(fields).toHaveCount(2);
+  await expect(fields.filter({hasText:'Action applied'})).toHaveCount(1);
+  await expect(fields.filter({hasText:'Field unavailable for automation'})).toHaveCount(1);
+  await expect(panel).not.toContainText('Private synthetic field observation');
   await page.getByRole('combobox',{name:'Language',exact:true}).selectOption('fr');
   await expect(panel).toContainText('Message reçu');
   await expect(panel).toContainText('État de la conversation modifié');
+  await expect(panel).toContainText('Champ modifié');
   expect(errors).toEqual([]);
  } finally {
   await context.close();
