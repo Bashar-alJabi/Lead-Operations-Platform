@@ -27,11 +27,13 @@ export function registerStaffMessagingOutboxRoutes(app:FastifyInstance,db:Databa
   return db.begin(async tx=>{
    if(!await currentPaymentSession(tx,actor,request))throw new HttpError(403,'STAFF_MESSAGING_ACCESS_DENIED');
    const rows=await tx`SELECT o.event_id AS id,e.event_type AS "eventType",o.language,o.created_at AS "preparedAt",
-     o.created_at::text AS cursor_at,CASE WHEN EXISTS(SELECT 1 FROM staff_messaging_current_binding(o.event_id,o.language,o.binding_version) b
+     o.created_at::text AS cursor_at,CASE WHEN d.state<>'WAITING' THEN d.state
+      WHEN EXISTS(SELECT 1 FROM staff_messaging_current_binding(o.event_id,o.language,o.binding_version) b
        CROSS JOIN staff_messaging_recipient(o.event_id,o.user_id,o.language) a
        WHERE b.connection_version=o.connection_version AND a.destination_version=o.destination_version AND a.preference_version=o.preference_version)
-      THEN 'PREPARED' ELSE 'SUPPRESSED' END AS state
+      THEN CASE WHEN d.attempts>0 THEN 'RETRYING' ELSE 'PREPARED' END ELSE 'SUPPRESSED' END AS state
     FROM staff_messaging_outbox o JOIN notification_event e ON e.id=o.event_id
+    LEFT JOIN staff_messaging_dispatch d ON d.event_id=o.event_id AND d.user_id=o.user_id
     WHERE o.user_id=${actor.id} AND e.organization_id=${actor.organizationId} AND e.branch_id=${actor.branchId}
       AND notification_access(e.id,${actor.id})
       AND (${cursor?.timestamp??null}::text::timestamptz IS NULL OR (o.created_at,o.event_id)<(${cursor?.timestamp??null}::text::timestamptz,${cursor?.id??null}::uuid))
@@ -39,6 +41,22 @@ export function registerStaffMessagingOutboxRoutes(app:FastifyInstance,db:Databa
    const items=rows.slice(0,20),last=items.at(-1);
    return {items:items.map(({cursor_at:_cursor,...row})=>row),
     nextCursor:rows.length>20&&last?encodeCursor({timestamp:last.cursor_at,id:last.id}):null};
+  });
+ });
+ app.get<{Params:{id:string}}>('/api/notification-messaging/outbox/:id/history',{
+  schema:{params:{type:'object',required:['id'],additionalProperties:false,properties:{id:{type:'string',format:'uuid'}}}},
+ },async request=>{
+  const actor=await principalFromRequest(request,db);
+  requireRole(actor,'MANAGER','AGENT');
+  return db.begin(async tx=>{
+   if(!await currentPaymentSession(tx,actor,request))throw new HttpError(403,'STAFF_MESSAGING_ACCESS_DENIED');
+   const [row]=await tx`SELECT e.id FROM staff_messaging_outbox o JOIN notification_event e ON e.id=o.event_id
+    WHERE o.event_id=${request.params.id} AND o.user_id=${actor.id}
+     AND e.organization_id=${actor.organizationId} AND e.branch_id=${actor.branchId} AND notification_access(e.id,${actor.id})`;
+   if(!row)throw new HttpError(404,'STAFF_MESSAGING_OUTBOX_NOT_FOUND');
+   const items=await tx`SELECT version,state,attempts,changed_at AS "changedAt"
+    FROM staff_messaging_dispatch_history WHERE event_id=${row.id} AND user_id=${actor.id} ORDER BY version DESC LIMIT 30`;
+   return {items};
   });
  });
 }

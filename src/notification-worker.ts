@@ -4,10 +4,15 @@ import {processOneConversationAttentionNotification} from './conversation-attent
 import {processOneLeadAttentionNotification} from './lead-attention-notifications.js';
 import {processOneOperationalNotification} from './operational-notifications.js';
 import {processOneStaffMessagingPublication} from './staff-messaging-outbox.js';
+import {processOneStaffMessagingDispatch,type StaffMessagingTransports} from './staff-messaging-dispatch.js';
+import {metaWhatsAppSendAdapter} from './messaging/providers.js';
 const db=createDatabase();let running=false,stopping=false;
 const batch=Number(process.env.NOTIFICATION_WORKER_BATCH??25),poll=Number(process.env.NOTIFICATION_WORKER_POLL_MS??2000);
 if(!Number.isInteger(batch)||batch<1||batch>100||!Number.isInteger(poll)||poll<250||poll>60000)throw new Error('Invalid notification worker capacity settings');
-const processors=[processOneConversationAttentionNotification,processOneFollowUpNotification,processOneLeadAttentionNotification,processOneOperationalNotification,processOneStaffMessagingPublication];
+const staffTransports:StaffMessagingTransports|null=process.env.STAFF_MESSAGING_TRANSPORT_ENABLED==='1'
+ ? {META_WHATSAPP_CLOUD:input=>metaWhatsAppSendAdapter.sendTemplate!(input)}:null;
+const processors=[processOneConversationAttentionNotification,processOneFollowUpNotification,processOneLeadAttentionNotification,processOneOperationalNotification,
+ processOneStaffMessagingPublication,(database:typeof db)=>processOneStaffMessagingDispatch(database,staffTransports)];
 let next=0;
 async function tick(){if(running||stopping)return;running=true;
  try{for(let n=0;n<batch&&!stopping;n++){

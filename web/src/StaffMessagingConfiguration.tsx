@@ -129,23 +129,40 @@ function PersonalPreference({api,locale}:Props) {
 
 function StaffMessagingActivity({api,locale}:Props) {
  const t={
-  ar:{title:'نشاط Messaging الداخلي',empty:'لا إشعارات مجهّزة.',prepared:'مجهّز',suppressed:'أوقف لتغيّر الإعداد'},
-  en:{title:'Internal messaging activity',empty:'No prepared notifications.',prepared:'Prepared',suppressed:'Suppressed after a change'},
-  fr:{title:'Activité de messagerie interne',empty:'Aucune notification préparée.',prepared:'Préparée',suppressed:'Bloquée après modification'},
+  ar:{title:'نشاط Messaging الداخلي',empty:'لا إشعارات مجهّزة.',PREPARED:'مجهّز',SUPPRESSED:'أوقف لتغيّر الإعداد',
+   WAITING:'بانتظار التسليم',SENDING:'قيد الإرسال',ACCEPTED:'قبله المزود للمعالجة',UNKNOWN:'نتيجة غير مؤكدة',
+   REJECTED:'رفضه المزود',RETRYING:'بانتظار إعادة المحاولة',history:'سجل التسليم'},
+  en:{title:'Internal messaging activity',empty:'No prepared notifications.',PREPARED:'Prepared',SUPPRESSED:'Suppressed after a change',
+   WAITING:'Waiting for dispatch',SENDING:'Sending',ACCEPTED:'Accepted by provider',UNKNOWN:'Outcome unknown',
+   REJECTED:'Rejected by provider',RETRYING:'Waiting to retry',history:'Dispatch history'},
+  fr:{title:'Activité de messagerie interne',empty:'Aucune notification préparée.',PREPARED:'Préparée',SUPPRESSED:'Bloquée après modification',
+   WAITING:'En attente d’envoi',SENDING:'En cours d’envoi',ACCEPTED:'Acceptée par le fournisseur',UNKNOWN:'Résultat inconnu',
+   REJECTED:'Rejetée par le fournisseur',RETRYING:'En attente de réessai',history:'Historique d’envoi'},
  }[locale];
- type Page={items:{id:string;eventType:string;language:NotificationLocale;preparedAt:string;state:'PREPARED'|'SUPPRESSED'}[];nextCursor:string|null};
+ type State='PREPARED'|'SUPPRESSED'|'WAITING'|'SENDING'|'ACCEPTED'|'UNKNOWN'|'REJECTED'|'RETRYING';
+ type Page={items:{id:string;eventType:string;language:NotificationLocale;preparedAt:string;state:State}[];nextCursor:string|null};
+ type DispatchHistory={items:{version:number;state:State;attempts:number;changedAt:string}[]};
  const [feed,setFeed]=useState<Page|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
- async function load(cursor?:string){
-  setBusy(true);setError('');
-  try{setFeed(await api<Page>(root+'/outbox'+(cursor?'?cursor='+encodeURIComponent(cursor):'')));}
+ const [history,setHistory]=useState<{id:string;items:DispatchHistory['items']}|null>(null);
+ async function read(readCurrent:()=>Promise<void>){
+  setBusy(true);setError('');setHistory(null);
+  try{await readCurrent();}
   catch(failure){setFeed(null);setError(String(failure));}
   finally{setBusy(false);}
  }
+ const load=(cursor?:string)=>read(async()=>setFeed(await api<Page>(root+'/outbox'+(cursor?'?cursor='+encodeURIComponent(cursor):''))));
+ const openHistory=(id:string)=>read(async()=>{
+  const result=await api<DispatchHistory>(root+'/outbox/'+id+'/history');setHistory({id,items:result.items});
+ });
  return <section className="panel" data-staff-messaging-activity><h4>{t.title}</h4>
   <button disabled={busy} onClick={()=>void load()}>{labels[locale].refresh}</button>
   {error&&<p role="alert">{error}</p>}
   {feed&&(feed.items.length?<ul>{feed.items.map(item=><li key={item.id}>
-   {eventLabel(item.eventType,locale)} · {item.language} · {item.state==='PREPARED'?t.prepared:t.suppressed} · {new Date(item.preparedAt).toLocaleString(locale)}
+   {eventLabel(item.eventType,locale)} · {item.language} · {t[item.state]} · {new Date(item.preparedAt).toLocaleString(locale)}
+   <button type="button" className="link" disabled={busy} onClick={()=>void openHistory(item.id)}>{t.history}</button>
+   {history?.id===item.id&&<ul>{history.items.map(entry=><li key={entry.version}>
+    {t[entry.state]} · {new Date(entry.changedAt).toLocaleString(locale)}
+   </li>)}</ul>}
   </li>)}</ul>:<p>{t.empty}</p>)}
   {feed?.nextCursor&&<button disabled={busy} onClick={()=>void load(feed.nextCursor!)}>{labels[locale].older}</button>}
  </section>;

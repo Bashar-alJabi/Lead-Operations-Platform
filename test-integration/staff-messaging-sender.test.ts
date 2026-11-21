@@ -7,6 +7,8 @@ import { createDatabase } from '../src/db.js';
 import { sealSecret } from '../src/credentials.js';
 import { sha256 } from '../src/security.js';
 import { processOneStaffMessagingPublication } from '../src/staff-messaging-outbox.js';
+import { processOneStaffMessagingDispatch, type StaffMessagingTransports } from '../src/staff-messaging-dispatch.js';
+import { ProviderSendError } from '../src/messaging/providers.js';
 
 const url=process.env.TEST_DATABASE_URL;
 if(!url||new URL(url).pathname!=='/lead_operations_test'||!['localhost','127.0.0.1','[::1]'].includes(new URL(url).hostname))
@@ -174,6 +176,10 @@ test('Staff sender reservations isolate callbacks and authorize only scoped stat
  assert.deepEqual((await api('GET',outbox,'manager')).json().items,[]);
  assert.equal((await api('PUT','/api/notification-messaging/destination','agent',{version:2,enabled:false,phone:null})).statusCode,200);
  assert.equal((await api('GET',outbox,'agent')).json().items[0].state,'SUPPRESSED');
+ let sends=0;
+ const adapters:StaffMessagingTransports={META_WHATSAPP_CLOUD:async()=>{sends++;return {providerMessageId:'wamid.synthetic-staff'};}};
+ assert.equal(await processOneStaffMessagingDispatch(db,adapters),true);
+ assert.equal(sends,0);
  assert.equal((await assign(target,2,null)).statusCode,200);
  assert.deepEqual((await api('GET',outbox,'agent')).json().items,[]);
 
@@ -188,4 +194,52 @@ test('Staff sender reservations isolate callbacks and authorize only scoped stat
  assert.equal((await api('PUT',binding,'manager',{...update,version:3,enabled:false})).statusCode,200);
  assert.equal(await processOneStaffMessagingPublication(db),true);
  assert.equal((await db`SELECT count(*)::int n FROM staff_messaging_publication WHERE state='SUPPRESSED'`)[0]!.n,1);
+
+ assert.equal((await api('PUT',binding,'manager',{...update,version:4})).statusCode,200);
+ async function queue(name:string,phone:string){
+  const lead=await createLead(name,phone);
+  assert.equal((await assign(lead,1,accounts.agent!)).statusCode,200);
+  assert.equal(await processOneStaffMessagingPublication(db),true);
+  return (await api('GET',outbox,'agent')).json().items[0].id as string;
+ }
+ const accepted=await queue('Customer data must stay private','+15550678004');
+ assert.equal(await processOneStaffMessagingDispatch(db,null),false);
+ const provider:StaffMessagingTransports={META_WHATSAPP_CLOUD:async input=>{
+  sends++;
+  assert.equal(input.recipient,syntheticPhone);
+  assert.equal(input.externalSenderId,'15550555002');
+  assert.equal(input.templateName,'staff_notice');
+  assert.equal(input.templateLanguage,'en_US');
+  assert.equal(input.bodyParameters,undefined);
+  assert.doesNotMatch(JSON.stringify(input),/Customer data|15550678004/);
+  assert.equal((await db`SELECT state FROM staff_messaging_dispatch WHERE event_id=${accepted}`)[0]!.state,'SENDING');
+  return {providerMessageId:'wamid.synthetic-staff-accepted'};
+ }};
+ const claimed=await Promise.all(Array.from({length:5},()=>processOneStaffMessagingDispatch(db,provider)));
+ assert.equal(claimed.filter(Boolean).length,1);
+ assert.equal(sends,1);
+ const acceptedHistory=await api('GET',`${outbox}/${accepted}/history`,'agent');
+ assert.deepEqual(acceptedHistory.json().items.map((r:{state:string})=>r.state),['ACCEPTED','SENDING','WAITING']);
+ assert.doesNotMatch(acceptedHistory.body,/wamid|15550090105/);
+ assert.equal((await api('GET',`${outbox}/${accepted}/history`,'manager')).statusCode,404);
+
+ const lost=await queue('Ambiguous acknowledgement','+15550678005');
+ assert.equal(await processOneStaffMessagingDispatch(db,{META_WHATSAPP_CLOUD:async()=>{sends++;throw Error('synthetic acknowledgement loss');}}),true);
+ assert.equal((await api('GET',outbox,'agent')).json().items.find((r:{id:string})=>r.id===lost).state,'UNKNOWN');
+ assert.equal(await processOneStaffMessagingDispatch(db,adapters),false);
+ await assert.rejects(db`UPDATE staff_messaging_dispatch SET version=version+1,state='WAITING' WHERE event_id=${lost}`,
+  /STAFF_MESSAGING_DISPATCH_TRANSITION_INVALID/);
+ assert.equal(sends,2);
+
+ const limited=await queue('Provider rate limit','+15550678006');
+ assert.equal(await processOneStaffMessagingDispatch(db,{META_WHATSAPP_CLOUD:async()=>{
+  sends++;throw new ProviderSendError('RETRYABLE','PROVIDER_RATE_LIMITED',1);
+ }}),true);
+ assert.equal(await processOneStaffMessagingDispatch(db,adapters),false);
+ assert.equal((await api('GET',outbox,'agent')).json().items.find((r:{id:string})=>r.id===limited).state,'RETRYING');
+ await delay(1150);
+ assert.equal(await processOneStaffMessagingDispatch(db,adapters),true);
+ assert.equal((await api('GET',outbox,'agent')).json().items.find((r:{id:string})=>r.id===limited).state,'ACCEPTED');
+ assert.equal((await db`SELECT attempts FROM staff_messaging_dispatch WHERE event_id=${limited}`)[0]!.attempts,2);
+ assert.equal(sends,4);
 });

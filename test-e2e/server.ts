@@ -9,6 +9,7 @@ import {processOneNotificationEmail} from '../src/notification-email-dispatch.js
 import {processOneLeadAttentionNotification} from '../src/lead-attention-notifications.js';
 import {processOneOperationalNotification} from '../src/operational-notifications.js';
 import {processOneStaffMessagingPublication} from '../src/staff-messaging-outbox.js';
+import {processOneStaffMessagingDispatch} from '../src/staff-messaging-dispatch.js';
 import {processOneAutomationMatch,processOneAutomationExecution} from '../src/automation.js';
 // Test-only HTTP entrypoint. Never imported by the production server or workers.
 import { randomBytes,createHmac } from 'node:crypto';
@@ -213,6 +214,9 @@ await db`UPDATE branch SET default_sender_id=${sender} WHERE id=${branch}`;
 const staffSenderConnection=(await db`INSERT INTO integration_connection(organization_id,branch_id,kind,provider,name,status,config)
   VALUES(${org},${branch},'MESSAGING','META_WHATSAPP_CLOUD','Browser Staff Connection','CONNECTED',
     '{"graphVersion":"v25.0","wabaId":"5714285714"}') RETURNING id`)[0]!.id;
+const staffSenderSecret=sealSecret(staffSenderConnection,JSON.stringify({accessToken:'staff-browser-synthetic-only'}));
+await db`INSERT INTO connection_secret(connection_id,ciphertext,nonce,auth_tag)
+ VALUES(${staffSenderConnection},${staffSenderSecret.ciphertext},${staffSenderSecret.nonce},${staffSenderSecret.authTag})`;
 await db`INSERT INTO messaging_sender(organization_id,connection_id,external_sender_id,display_name,health,capabilities)
   VALUES(${org},${staffSenderConnection},'15550001741','Browser Staff Sender','HEALTHY','{"text":true,"template":true}')`;
 await db`INSERT INTO provider_message_template(connection_id,external_template_id,name,language,status,components)
@@ -406,6 +410,20 @@ app.post('/__test__/staff-messaging-publication',async request=>{
  if(typeof request.headers.authorization!=='string'||!safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
  for(let i=0;i<100;i++)if(!await processOneStaffMessagingPublication(db))break;
  return {ok:true};
+});
+app.post<{Body:{result:'ACK'|'UNKNOWN'}}>('/__test__/staff-messaging-dispatch',{
+ schema:{body:{type:'object',additionalProperties:false,required:['result'],properties:{result:{enum:['ACK','UNKNOWN']}}}},
+},async request=>{
+ if(typeof request.headers.authorization!=='string'||!safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
+ let calls=0;
+ const worked=await processOneStaffMessagingDispatch(db,{META_WHATSAPP_CLOUD:async input=>{
+  calls++;
+  if(input.credentials.accessToken!=='staff-browser-synthetic-only'||input.recipient!=='+15550074302' || input.externalSenderId!=='15550001741')
+   throw Error('Unexpected synthetic staff dispatch');
+  if(request.body.result==='UNKNOWN')throw Error('Synthetic provider response was lost');
+  return {providerMessageId:'wamid.browser-staff-dispatch'};
+ }});
+ return {worked,calls};
 });
 app.post<{Body:{steps?:number}}>('/__test__/google-capture',{schema:{body:{type:'object',additionalProperties:false,properties:{steps:{type:'integer',minimum:0,maximum:20}}}}},async request=>{
  if(typeof request.headers.authorization!=='string'||!safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');

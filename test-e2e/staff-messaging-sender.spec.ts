@@ -2,7 +2,7 @@ import {expect,test} from '@playwright/test';
 import {readFile} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
 
-test('Manager reserves and binds a sender while an opted-in Agent sees prepared internal alerts',async({page,browser})=>{
+test('Manager reserves and binds a sender while the Agent sees prepared, accepted and ambiguous internal alerts',async({page,browser})=>{
  await page.setExtraHTTPHeaders({'x-e2e-rate-scope':randomUUID()});
  const {password,testToken}=JSON.parse(await readFile('.local/e2e/fixture.json','utf8')) as {password:string;testToken:string};
  await page.goto('/');
@@ -69,7 +69,34 @@ test('Manager reserves and binds a sender while an opted-in Agent sees prepared 
   await activity.getByRole('button',{name:'Reload settings',exact:true}).click();
   await expect(activity).toContainText('Prepared');
   await expect(activity).not.toContainText(phone);
+  const control={...headers,authorization:'Bearer '+testToken};
+  const dispatch=async(result:'ACK'|'UNKNOWN')=>{
+   const response=await page.request.post('/__test__/staff-messaging-dispatch',{headers:control,data:{result}});
+   expect(response.status(),await response.text()).toBe(200);
+   return response.json();
+  };
+  expect(await dispatch('ACK')).toEqual({worked:true,calls:1});
+  await activity.getByRole('button',{name:'Reload settings',exact:true}).click();
+  await expect(activity).toContainText('Accepted by provider');
+  await activity.getByRole('button',{name:'Dispatch history',exact:true}).click();
+  await expect(activity).toContainText('Sending');
+  await expect(activity).not.toContainText('wamid.browser-staff-dispatch');
+  async function prepareAnother(customerPhone:string){
+   const lead=await page.request.post('/api/leads',{headers,data:{branchId:actor.branchId,campaignId,
+    contact:{name:'Synthetic internal notification lead',phone:customerPhone}}});
+   expect(lead.status()).toBe(201);
+   const {id}=await lead.json();
+   expect((await page.request.post(`/api/leads/${id}/assignment`,{headers,data:{version:1,agentId:actor.id,reason:'New staff notification'}})).status()).toBe(200);
+   expect((await page.request.post('/__test__/staff-messaging-publication',{headers:control})).status()).toBe(200);
+  }
+  await prepareAnother('+15550074304');
+  expect(await dispatch('UNKNOWN')).toEqual({worked:true,calls:1});
+  expect(await dispatch('ACK')).toEqual({worked:false,calls:0});
+  await activity.getByRole('button',{name:'Reload settings',exact:true}).click();
+  await expect(activity).toContainText('Outcome unknown');
+  await prepareAnother('+15550074305');
   expect((await staff.request.put(base+'/destination',{headers,data:{version:2,phone:null,enabled:false}})).status()).toBe(200);
+  expect(await dispatch('ACK')).toEqual({worked:true,calls:0});
   await activity.getByRole('button',{name:'Reload settings',exact:true}).click();
   await expect(activity).toContainText('Suppressed after a change');
  } finally {await context.close();}
