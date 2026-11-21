@@ -2,9 +2,11 @@ import {useEffect,useRef,useState} from 'react';
 type Locale='ar'|'en'|'fr';
 type Api=<T>(path:string,options?:RequestInit)=>Promise<T>;
 type Rule={id:string;name:string;branch_id:string|null;campaign_id:string|null;campaign_name:string|null;version:number;enabled:boolean;trigger_type:string;trigger_field_id:string|null;lifecycle:string|null;
- owner_condition:string;payment_condition:string;enrollment_condition:string;action_type:string;delay_minutes:number;priority:string;note:string;reason:string};
+ owner_condition:string;payment_condition:string;enrollment_condition:string;conversation_state_condition:string|null;controller_condition:string|null;
+ action_type:string;delay_minutes:number;priority:string;note:string;reason:string};
 type Definition={name:string;enabled:boolean;triggerType:string;triggerFieldId:string|null;lifecycle:string|null;ownerCondition:string;
- paymentCondition:string;enrollmentCondition:string;actionType:string;delayMinutes:number;priority:string;note:string;reason:string};
+ paymentCondition:string;enrollmentCondition:string;conversationStateCondition:string|null;controllerCondition:string|null;
+ actionType:string;delayMinutes:number;priority:string;note:string;reason:string};
 type TriggerFieldPage={items:{id:string;label:string}[];nextAfter:string|null};
 type Processing={id:string;lead_id:string;trigger_type:string;version:number;state:string;failure_count:number;next_run_at:string|null;rule_name:string|null;rule_version:number|null;result_code:string|null;follow_up_id:string|null;created_at:string};
 type History={version:number;created_at:string;state?:string;operation?:string;failure_count?:number;result_code?:string;definition?:Record<string,unknown>};
@@ -38,7 +40,8 @@ const labels={
   results:{APPLIED:'Action appliquée',RULE_CHANGED:'Règle modifiée ou désactivée',SCOPE_CHANGED:'Périmètre du prospect modifié',APPROVAL_REVOKED:'Approbateur non autorisé',SCOPE_INACTIVE:'Agence ou campagne inactive',CONDITIONS_NOT_MET:'Conditions non satisfaites',LEAD_NOT_OPEN:'Prospect non ouvert',NO_ELIGIBLE_OWNER:'Aucun responsable actuel éligible',DATABASE_OPERATION_FAILED:'Échec de l’opération de base de données'}},
 } as const;
 const initial=():Definition=>({name:'',enabled:false,triggerType:'LEAD_CREATED',triggerFieldId:null,lifecycle:'OPEN',ownerCondition:'ASSIGNED',
- paymentCondition:'ANY',enrollmentCondition:'ANY',actionType:'CREATE_FOLLOW_UP',delayMinutes:60,priority:'NORMAL',note:'',reason:''});
+ paymentCondition:'ANY',enrollmentCondition:'ANY',conversationStateCondition:null,controllerCondition:null,
+ actionType:'CREATE_FOLLOW_UP',delayMinutes:60,priority:'NORMAL',note:'',reason:''});
 export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{locale:Locale;api:Api;user:{id:string;role:'SUPER_ADMIN'|'MANAGER';branchId:string|null};branches:{id:string;name:string}[];onOpenLead:(id:string)=>void}){
  const t=labels[locale],epoch=useRef(0),campaignEpoch=useRef(0),fieldEpoch=useRef(0);
  const [rules,setRules]=useState<{items:Rule[];nextCursor:string|null}>({items:[],nextCursor:null}),[selected,setSelected]=useState<Rule|null>(null),[editing,setEditing]=useState(false);
@@ -83,6 +86,7 @@ export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{local
  },[branch,campaign,editing,form.triggerType,user.id]);
  function edit(r:Rule|null){epoch.current++;setSelected(r);setBranch(r?.branch_id??user.branchId??'');setCampaign(r?.campaign_id??'');setForm(r?{name:r.name,enabled:r.enabled,triggerType:r.trigger_type,triggerFieldId:r.trigger_field_id,lifecycle:r.lifecycle,ownerCondition:r.owner_condition,
   paymentCondition:r.payment_condition,enrollmentCondition:r.enrollment_condition,
+  conversationStateCondition:r.conversation_state_condition,controllerCondition:r.controller_condition,
   actionType:r.action_type,delayMinutes:r.delay_minutes,priority:r.priority,note:r.note,reason:''}:initial());setEditing(true);setHistory(null);setError('');setBusy(false);}
  async function save(){setBusy(true);setError('');setHistory(null);try{
   const payload=selected?{...form,version:selected.version}:{...form,branchId:branch||null,campaignId:campaign||null};
@@ -100,6 +104,14 @@ export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{local
  }[locale];
  const financialOptions=[['ANY',t.any],['TEST_CONFIRMED',financialFields.confirmedTest],['TEST_UNCONFIRMED',financialFields.unconfirmedTest],
   ['LIVE_CONFIRMED',financialFields.confirmedLive],['LIVE_UNCONFIRMED',financialFields.unconfirmedLive]];
+ const conversationFields={
+  ar:{state:'شرط حالة المحادثة',controller:'شرط متحكم المحادثة',states:['الذكاء الاصطناعي نشط','الذكاء الاصطناعي ينتظر العميل','تسليم بشري مطلوب','بانتظار موظف','محادثة بشرية نشطة','مغلقة'],
+   controllers:['الذكاء الاصطناعي','موظف','بلا متحكم']},
+  en:{state:'Conversation state condition',controller:'Conversation controller condition',states:['AI active','AI waiting for lead','AI handoff required','Waiting for a person','Human active','Closed'],
+   controllers:['AI','Human','No controller']},
+  fr:{state:'Condition d’état de la conversation',controller:'Condition de contrôle de la conversation',states:['IA active','IA en attente du prospect','Transfert humain requis','En attente d’une personne','Suivi humain actif','Fermée'],
+   controllers:['IA','Personne','Sans contrôleur']},
+ }[locale];
  const due={ar:'استحقاق متابعة',en:'Follow-up due',fr:'Suivi arrivé à échéance'}[locale];
  const received={ar:'استلام رسالة',en:'Message received',fr:'Message reçu'}[locale];
  const conversationChanged={ar:'تغيّر حالة المحادثة',en:'Conversation state changed',fr:'État de la conversation modifié'}[locale];
@@ -139,6 +151,15 @@ export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{local
      <label key={key}>{label}<select aria-label={label} value={form[key]} onChange={e=>change(key,e.target.value)}>
       {financialOptions.map(([value,text])=><option key={value} value={value}>{text}</option>)}
      </select></label>)}
+    <label>{conversationFields.state}<select aria-label={conversationFields.state} value={form.conversationStateCondition??''} onChange={e=>change('conversationStateCondition',e.target.value||null)}>
+     <option value="">{t.any}</option>
+     {['AI_ACTIVE','AI_WAITING_FOR_LEAD','AI_HANDOFF_REQUIRED','WAITING_FOR_HUMAN','HUMAN_ACTIVE','CLOSED'].map((value,i)=>
+      <option key={value} value={value}>{conversationFields.states[i]}</option>)}
+    </select></label>
+    <label>{conversationFields.controller}<select aria-label={conversationFields.controller} value={form.controllerCondition??''} onChange={e=>change('controllerCondition',e.target.value||null)}>
+     <option value="">{t.any}</option>
+     {['AI','HUMAN','NONE'].map((value,i)=><option key={value} value={value}>{conversationFields.controllers[i]}</option>)}
+    </select></label>
    </fieldset>
    <label>{t.action}<select aria-label={t.action} value={form.actionType} onChange={e=>setForm(f=>({...f,actionType:e.target.value,delayMinutes:e.target.value==='SEND_IN_APP_NOTIFICATION'?0:60,priority:'NORMAL'}))}><option value="CREATE_FOLLOW_UP">{t.follow}</option><option value="SEND_IN_APP_NOTIFICATION">{t.notify}</option></select></label>
    {form.actionType==='CREATE_FOLLOW_UP'&&<><label>{t.delay}<input type="number" min={0} max={525600} required value={form.delayMinutes} onChange={e=>change('delayMinutes',Number(e.target.value))}/></label>

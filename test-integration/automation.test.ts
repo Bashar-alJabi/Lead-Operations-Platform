@@ -97,6 +97,52 @@ test('Only a changed, approved field matches its rule and revoking its binding s
  assert.equal((await api('GET','/api/automation/executions?limit=50')).body.includes(value),false);
 });
 
+test('Conversation conditions evaluate the current controller and fail closed without a unique subject',async t=>{
+ const {db,org,branch,campaign,users,api,def,rule,create,matches,execute}=await fixture(t);
+ const policy={conversationStateCondition:'HUMAN_ACTIVE',controllerCondition:'HUMAN'};
+ assert.equal((await api('POST','/api/automations',{...def,branchId:branch,campaignId:campaign,controllerCondition:'EXTERNAL'})).statusCode,400);
+ const ruleId=await rule({...policy,name:'Follow up under current human control'});
+ const connection=(await db`INSERT INTO integration_connection(organization_id,branch_id,kind,provider,name)
+  VALUES(${org},${branch},'MESSAGING','META_WHATSAPP_CLOUD','Synthetic condition connection') RETURNING id`)[0]!.id;
+ const sender=(await db`INSERT INTO messaging_sender(organization_id,connection_id,external_sender_id,display_name,capabilities)
+  VALUES(${org},${connection},'15550001234','Synthetic condition sender','{}') RETURNING id`)[0]!.id;
+ async function conversation(leadId:string,channel='WHATSAPP'){
+  return (await db`INSERT INTO conversation(lead_id,connection_id,sender_id,channel,participant_ref,controller_type,controller_user_id,state)
+   VALUES(${leadId},${connection},${sender},${channel},'+15554000001','HUMAN',${users.agent!.id},'HUMAN_ACTIVE') RETURNING id`)[0]!.id;
+ }
+ const eligible=await create(),released=await create(),ambiguous=await create(),absent=await create();
+ await conversation(eligible);
+ const changed=await conversation(released);
+ await conversation(ambiguous);
+ await conversation(ambiguous,'SYNTHETIC_SECOND_CHANNEL');
+ await matches();
+ await db`UPDATE conversation SET controller_type='NONE',controller_user_id=NULL,state='WAITING_FOR_HUMAN' WHERE id=${changed}`;
+ await execute();
+ const results=await db`SELECT s.lead_id,e.state,e.result_code FROM automation_execution e
+  JOIN automation_source s ON s.id=e.source_id WHERE e.rule_id=${ruleId}`;
+ assert.equal(results.length,4);
+ assert.equal(results.find(r=>r.lead_id===eligible)?.state,'SUCCEEDED');
+ for(const lead of [released,ambiguous,absent]){
+  const result=results.find(r=>r.lead_id===lead);
+  assert.equal(result?.state,'SKIPPED');
+  assert.equal(result?.result_code,'CONDITIONS_NOT_MET');
+ }
+ assert.equal((await db`SELECT id FROM follow_up WHERE kind='AUTOMATION'`).length,1);
+ const path='/api/automations/'+ruleId;
+ const kept=await api('PUT',path,{...def,version:1});
+ assert.equal(kept.statusCode,200,kept.body);
+ const [versionTwo]=await db`SELECT conversation_state_condition,controller_condition FROM automation_rule WHERE id=${ruleId}`;
+ assert.equal(versionTwo!.conversation_state_condition,'HUMAN_ACTIVE');
+ assert.equal(versionTwo!.controller_condition,'HUMAN');
+ const cleared=await api('PUT',path,{...def,version:2,conversationStateCondition:null,controllerCondition:null});
+ assert.equal(cleared.statusCode,200,cleared.body);
+ const [versionThree]=await db`SELECT conversation_state_condition,controller_condition FROM automation_rule WHERE id=${ruleId}`;
+ assert.equal(versionThree!.conversation_state_condition,null);
+ assert.equal(versionThree!.controller_condition,null);
+ const history=(await api('GET',path+'/history')).json();
+ assert.equal(history.items[1].definition.conversation_state_condition,'HUMAN_ACTIVE');
+});
+
 test('A permitted conversation state transition admits one scoped rule and preserves its original states',async t=>{
  const {db,org,branch,api,rule,create,matches,execute}=await fixture(t);
  const lead=await create();
@@ -107,7 +153,10 @@ test('A permitted conversation state transition admits one scoped rule and prese
  const conversation=(await db`INSERT INTO conversation(lead_id,connection_id,sender_id,channel,participant_ref,
   controller_type,state,needs_attention_reason)
   VALUES(${lead},${connection},${sender},'WHATSAPP','+15554000001','NONE','WAITING_FOR_HUMAN','NO_HUMAN_CONTROLLER') RETURNING id`)[0]!.id;
- const ruleId=await rule({name:'Respond to conversation state change',triggerType:'CONVERSATION_STATE_CHANGED'});
+ const ruleId=await rule({name:'Respond to conversation state change',triggerType:'CONVERSATION_STATE_CHANGED',
+  conversationStateCondition:'HUMAN_ACTIVE',controllerCondition:'HUMAN'});
+ await db`INSERT INTO conversation(lead_id,connection_id,sender_id,channel,participant_ref,controller_type,state)
+  VALUES(${lead},${connection},${sender},'SYNTHETIC_SECOND_CHANNEL','+15554000001','NONE','WAITING_FOR_HUMAN')`;
  const path='/api/conversations/'+conversation+'/takeover';
  const takeover=(version:number,actor='agent')=>api('POST',path,{version,reason:'Take over synthetic conversation'},actor);
  assert.equal((await takeover(1,'other')).statusCode,404);
@@ -153,7 +202,8 @@ test('Only a freshly attached authenticated customer message admits a scoped Mes
  await db`UPDATE branch SET default_sender_id=${sender} WHERE id=${branch}`;
  const conversation=(await db`INSERT INTO conversation(lead_id,connection_id,sender_id,channel,participant_ref,controller_type,controller_user_id,state)
   VALUES(${lead},${connection},${sender},'WHATSAPP','+15554000001','HUMAN',${users.agent!.id},'HUMAN_ACTIVE') RETURNING id`)[0]!.id;
- const approved=await rule({name:'Receive customer reply',triggerType:'MESSAGE_RECEIVED'});
+ const approved=await rule({name:'Receive customer reply',triggerType:'MESSAGE_RECEIVED',
+  conversationStateCondition:'HUMAN_ACTIVE',controllerCondition:'HUMAN'});
  const body='Synthetic message text must remain in the conversation';
  const message={id:'wamid.autoreceived.'+randomUUID(),from:'15554000001',type:'text',text:{body},timestamp:String(Math.floor(Date.now()/1000))};
  const post=(candidate:typeof message,key='synthetic-signature-key')=>{
