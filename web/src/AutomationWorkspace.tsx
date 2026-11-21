@@ -5,11 +5,16 @@ type Api=<T>(path:string,options?:RequestInit)=>Promise<T>;
 type Rule={id:string;name:string;branch_id:string|null;campaign_id:string|null;campaign_name:string|null;version:number;enabled:boolean;trigger_type:string;trigger_field_id:string|null;lifecycle:string|null;
  owner_condition:string;payment_condition:string;enrollment_condition:string;conversation_state_condition:string|null;controller_condition:string|null;
  condition_field_id:string|null;condition_field_value:unknown;
+ condition_agent_id:string|null;condition_agent_name:string|null;
+ condition_date_basis:DateDraft['basis']|null;condition_date_from:string|null;condition_date_through:string|null;
  action_type:string;delay_minutes:number;priority:string;note:string;reason:string};
 type Definition={name:string;enabled:boolean;triggerType:string;triggerFieldId:string|null;lifecycle:string|null;ownerCondition:string;
  paymentCondition:string;enrollmentCondition:string;conversationStateCondition:string|null;controllerCondition:string|null;
  actionType:string;delayMinutes:number;priority:string;note:string;reason:string};
 type TriggerFieldPage={items:{id:string;label:string}[];nextAfter:string|null};
+type AgentOption={id:string;name:string|null};
+type DateDraft={basis:''|'LEAD_CREATED'|'EVENT_CAPTURED';from:string;through:string};
+const emptyDate:DateDraft={basis:'',from:'',through:''};
 type Processing={id:string;lead_id:string;trigger_type:string;version:number;state:string;failure_count:number;next_run_at:string|null;rule_name:string|null;rule_version:number|null;result_code:string|null;follow_up_id:string|null;created_at:string};
 type History={version:number;created_at:string;state?:string;operation?:string;failure_count?:number;result_code?:string;definition?:Record<string,unknown>};
 const labels={
@@ -45,11 +50,14 @@ const initial=():Definition=>({name:'',enabled:false,triggerType:'LEAD_CREATED',
  paymentCondition:'ANY',enrollmentCondition:'ANY',conversationStateCondition:null,controllerCondition:null,
  actionType:'CREATE_FOLLOW_UP',delayMinutes:60,priority:'NORMAL',note:'',reason:''});
 export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{locale:Locale;api:Api;user:{id:string;role:'SUPER_ADMIN'|'MANAGER';branchId:string|null};branches:{id:string;name:string}[];onOpenLead:(id:string)=>void}){
- const t=labels[locale],epoch=useRef(0),campaignEpoch=useRef(0),fieldEpoch=useRef(0);
+ const t=labels[locale],epoch=useRef(0),campaignEpoch=useRef(0),fieldEpoch=useRef(0),agentEpoch=useRef(0);
  const [rules,setRules]=useState<{items:Rule[];nextCursor:string|null}>({items:[],nextCursor:null}),[selected,setSelected]=useState<Rule|null>(null),[editing,setEditing]=useState(false);
  const [form,setForm]=useState(initial),[branch,setBranch]=useState(user.branchId??''),[campaign,setCampaign]=useState(''),[campaigns,setCampaigns]=useState<{id:string;name:string}[]>([]),[nextCampaign,setNextCampaign]=useState<string|null>(null);
  const [kind,setKind]=useState<'sources'|'executions'>('executions'),[processing,setProcessing]=useState<{items:Processing[];nextCursor:string|null}>({items:[],nextCursor:null});
  const [fields,setFields]=useState<TriggerFieldPage>({items:[],nextAfter:null});
+ const [agents,setAgents]=useState<{items:AgentOption[];nextAfter:string|null}>({items:[],nextAfter:null});
+ const [conditionAgent,setConditionAgent]=useState<AgentOption|null>(null),[agentSearch,setAgentSearch]=useState('');
+ const [dateCondition,setDateCondition]=useState<DateDraft>(emptyDate);
  const [conditionField,setConditionField]=useState(''),[conditionValue,setConditionValue]=useState<unknown>(null);
  const [conditionDetails,setConditionDetails]=useState<FieldRow|null>(null),[conditionDenied,setConditionDenied]=useState(false);
  const [history,setHistory]=useState<{root:string;items:History[];nextVersion:number|null;rule:boolean}|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
@@ -70,6 +78,22 @@ export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{local
   catch{if(n===campaignEpoch.current){setCampaigns([]);setNextCampaign(null);setCampaign('');setError(t.error);}}}
  useEffect(()=>{setSelected(null);setEditing(false);setProcessing({items:[],nextCursor:null});void readRules();return()=>{epoch.current++;};},[user.id,user.role,user.branchId,locale]);
  useEffect(()=>{void readCampaigns();return()=>{campaignEpoch.current++;};},[branch,user.id]);
+ async function readAgents(after?:string){
+  const request=++agentEpoch.current,query=new URLSearchParams({search:agentSearch});
+  if(branch)query.set('branchId',branch);
+  if(after)query.set('after',after);
+  try{
+   const page=await api<typeof agents>('/api/automations/condition-agents?'+query.toString());
+   if(request===agentEpoch.current)setAgents(previous=>({items:after?[...previous.items,...page.items]:page.items,nextAfter:page.nextAfter}));
+  }catch{
+   if(request===agentEpoch.current){setAgents({items:[],nextAfter:null});setError(t.error);}
+  }
+ }
+ useEffect(()=>{
+  setAgents({items:[],nextAfter:null});
+  const timer=window.setTimeout(()=>{if(editing&&form.ownerCondition!=='UNASSIGNED')void readAgents();},200);
+  return()=>{agentEpoch.current++;window.clearTimeout(timer);};
+ },[editing,form.ownerCondition,branch,user.id,agentSearch]);
  function fieldScopeQuery(){
   const query=new URLSearchParams();
   if(branch)query.set('branchId',branch);
@@ -103,6 +127,8 @@ export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{local
  function selectConditionField(id:string){setConditionField(id);setConditionValue(null);setConditionDetails(null);setConditionDenied(false);}
  function edit(r:Rule|null){epoch.current++;setSelected(r);setBranch(r?.branch_id??user.branchId??'');setCampaign(r?.campaign_id??'');
   setConditionField(r?.condition_field_id??'');setConditionValue(r?.condition_field_value??null);
+  setConditionAgent(r?.condition_agent_id?{id:r.condition_agent_id,name:r.condition_agent_name}:null);setAgentSearch('');
+  setDateCondition(r?.condition_date_basis?{basis:r.condition_date_basis,from:r.condition_date_from??'',through:r.condition_date_through??''}:emptyDate);
   setForm(r?{name:r.name,enabled:r.enabled,triggerType:r.trigger_type,triggerFieldId:r.trigger_field_id,lifecycle:r.lifecycle,ownerCondition:r.owner_condition,
   paymentCondition:r.payment_condition,enrollmentCondition:r.enrollment_condition,
   conversationStateCondition:r.conversation_state_condition,controllerCondition:r.controller_condition,
@@ -110,10 +136,14 @@ export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{local
  const currentConditionField=conditionDetails?.id===conditionField?conditionDetails:null;
  const keepHiddenCondition=conditionDenied&&selected?.condition_field_id===conditionField;
  const missingConditionValue=Boolean(conditionField&&!keepHiddenCondition&&(!currentConditionField||conditionValue===null));
- async function save(){if(missingConditionValue)return;setBusy(true);setError('');setHistory(null);try{
+ const invalidDate=Boolean(dateCondition.basis&&(!dateCondition.from&&!dateCondition.through||
+  dateCondition.from&&dateCondition.through&&dateCondition.from>dateCondition.through));
+ async function save(){if(missingConditionValue||invalidDate)return;setBusy(true);setError('');setHistory(null);try{
   const value=currentConditionField?.field_type==='DATETIME'&&typeof conditionValue==='string'?new Date(conditionValue).toISOString():conditionValue;
   const fieldCondition=keepHiddenCondition?undefined:conditionField?{fieldId:conditionField,value}:null;
-  const definition={...form,fieldCondition};
+  const definition={...form,fieldCondition,conditionAgentId:conditionAgent?.id??null,
+   dateCondition:dateCondition.basis?{basis:dateCondition.basis,from:dateCondition.from||undefined,
+    through:dateCondition.through||undefined}:null};
   const payload=selected?{...definition,version:selected.version}:{...definition,branchId:branch||null,campaignId:campaign||null};
   await api('/api/automations'+(selected?'/'+selected.id:''),{method:selected?'PUT':'POST',body:JSON.stringify(payload)});
   setEditing(false);setSelected(null);setForm(initial());await readRules();
@@ -146,6 +176,17 @@ export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{local
    condition:'Field equality condition',value:'Matching value',yes:'Yes',no:'No'},
   fr:{changed:'Champ modifié',select:'Champ surveillé',choose:'Choisir un champ',unavailable:'Champ indisponible pour l’automatisation',more:'Plus de champs',
    condition:'Condition d’égalité du champ',value:'Valeur à comparer',yes:'Oui',no:'Non'}}[locale];
+ const ownerDate={
+  en:{agent:'Assigned agent condition',search:'Search agents',more:'More agents',unavailable:'Agent unavailable for this rule',
+   basis:'Date condition',from:'From date (UTC)',through:'Through date (UTC)',lead:'Lead creation date',event:'Source event capture date',
+   invalid:'Enter at least one date and keep the start on or before the end.'},
+  ar:{agent:'شرط الموظف المعيّن',search:'البحث عن موظف',more:'المزيد من الموظفين',unavailable:'الموظف غير متاح لهذه القاعدة',
+   basis:'شرط التاريخ',from:'من تاريخ (UTC)',through:'حتى تاريخ شامل (UTC)',lead:'تاريخ إنشاء الفرصة',event:'تاريخ التقاط الحدث',
+   invalid:'أدخل تاريخًا واحدًا على الأقل، واجعل البداية تسبق النهاية أو تساويها.'},
+  fr:{agent:'Condition d’agent attribué',search:'Rechercher un agent',more:'Autres agents',unavailable:'Agent indisponible pour cette règle',
+   basis:'Condition de date',from:'À partir du (UTC)',through:'Jusqu’au inclus (UTC)',lead:'Date de création du prospect',event:'Date de capture de l’événement',
+   invalid:'Saisissez au moins une date et choisissez un début antérieur ou égal à la fin.'},
+ }[locale];
  const causal={
   ar:{AUTOMATION_CAUSAL_REPEAT:'نُفذت القاعدة سابقًا في هذه السلسلة',AUTOMATION_CAUSAL_LIMIT:'بلغت السلسلة حد إجراءات الأتمتة'},
   en:{AUTOMATION_CAUSAL_REPEAT:'Rule already ran in this chain',AUTOMATION_CAUSAL_LIMIT:'Automation chain limit reached'},
@@ -161,7 +202,7 @@ export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{local
   {busy&&<p role="status">{t.loading}</p>}{error&&<p role="alert">{error}</p>}
   {editing&&<form data-automation-editor onSubmit={e=>{e.preventDefault();void save();}}><h3>{selected?t.edit:t.new}</h3>
    <label>{t.name}<input required maxLength={100} value={form.name} onChange={e=>change('name',e.target.value)}/></label>
-   <label>{t.scope}<select aria-label={t.scope} disabled={Boolean(selected)||user.role==='MANAGER'||busy} value={branch} onChange={e=>{setBranch(e.target.value);setCampaign('');change('triggerFieldId',null);selectConditionField('');}}>{user.role==='SUPER_ADMIN'&&<option value="">{t.system}</option>}{branches.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select></label>
+   <label>{t.scope}<select aria-label={t.scope} disabled={Boolean(selected)||user.role==='MANAGER'||busy} value={branch} onChange={e=>{setBranch(e.target.value);setCampaign('');change('triggerFieldId',null);selectConditionField('');setConditionAgent(null);setAgentSearch('');}}>{user.role==='SUPER_ADMIN'&&<option value="">{t.system}</option>}{branches.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select></label>
    <label>{t.campaign}<select aria-label={t.campaign} disabled={Boolean(selected)||!branch||busy} value={campaign} onChange={e=>{setCampaign(e.target.value);change('triggerFieldId',null);selectConditionField('');}}><option value="">{t.all}</option>
     {campaign&&!campaigns.some(c=>c.id===campaign)&&<option value={campaign}>{selected?.campaign_name??campaign}</option>}{campaigns.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
    {!selected&&nextCampaign&&<button type="button" disabled={busy} onClick={()=>void readCampaigns(nextCampaign)}>{t.moreCampaigns}</button>}
@@ -174,7 +215,29 @@ export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{local
     </select></label>
    </>}
    <fieldset><legend>{t.conditions}</legend><label>{t.lifecycle}<select aria-label={t.lifecycle} value={form.lifecycle??''} onChange={e=>change('lifecycle',e.target.value||null)}><option value="">{t.any}</option>{['OPEN','CLOSED','ARCHIVED'].map(s=><option key={s}>{s}</option>)}</select></label>
-    <label>{t.owner}<select aria-label={t.owner} value={form.ownerCondition} onChange={e=>change('ownerCondition',e.target.value)}><option value="ANY">{t.any}</option><option value="ASSIGNED">{t.assignedCondition}</option><option value="UNASSIGNED">{t.unassigned}</option></select></label>
+    <label>{t.owner}<select aria-label={t.owner} value={form.ownerCondition} onChange={e=>{change('ownerCondition',e.target.value);if(e.target.value==='UNASSIGNED')setConditionAgent(null);}}><option value="ANY">{t.any}</option><option value="ASSIGNED">{t.assignedCondition}</option><option value="UNASSIGNED">{t.unassigned}</option></select></label>
+    {form.ownerCondition!=='UNASSIGNED'&&<>
+     <label>{ownerDate.search}<input maxLength={100} value={agentSearch} onChange={e=>setAgentSearch(e.target.value)}/></label>
+     <label>{ownerDate.agent}<select aria-label={ownerDate.agent} value={conditionAgent?.id??''}
+      onChange={e=>setConditionAgent(agents.items.find(agent=>agent.id===e.target.value)??null)}>
+      <option value="">{t.any}</option>
+      {conditionAgent&&!agents.items.some(agent=>agent.id===conditionAgent.id)&&
+       <option value={conditionAgent.id}>{conditionAgent.name??ownerDate.unavailable}</option>}
+      {agents.items.map(agent=><option key={agent.id} value={agent.id}>{agent.name}</option>)}
+     </select></label>
+     {agents.nextAfter&&<button type="button" disabled={busy} onClick={()=>void readAgents(agents.nextAfter!)}>{ownerDate.more}</button>}
+    </>}
+    <label>{ownerDate.basis}<select aria-label={ownerDate.basis} value={dateCondition.basis}
+     onChange={e=>{const basis=e.target.value as DateDraft['basis'];setDateCondition(current=>basis?{...current,basis}:emptyDate);}}>
+     <option value="">{t.any}</option><option value="LEAD_CREATED">{ownerDate.lead}</option><option value="EVENT_CAPTURED">{ownerDate.event}</option>
+    </select></label>
+    {dateCondition.basis&&<>
+     <label>{ownerDate.from}<input type="date" value={dateCondition.from} max={dateCondition.through||undefined}
+      onChange={e=>setDateCondition(current=>({...current,from:e.target.value}))}/></label>
+     <label>{ownerDate.through}<input type="date" value={dateCondition.through} min={dateCondition.from||undefined}
+      onChange={e=>setDateCondition(current=>({...current,through:e.target.value}))}/></label>
+     {invalidDate&&<p role="status">{ownerDate.invalid}</p>}
+    </>}
     {([['paymentCondition',financialFields.payment],['enrollmentCondition',financialFields.enrollment]] as const).map(([key,label])=>
      <label key={key}>{label}<select aria-label={label} value={form[key]} onChange={e=>change(key,e.target.value)}>
       {financialOptions.map(([value,text])=><option key={value} value={value}>{text}</option>)}
@@ -204,7 +267,7 @@ export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{local
    <p>{t.timing}</p><label>{t.note}<textarea maxLength={4000} value={form.note} onChange={e=>change('note',e.target.value)}/></label>
    <label><input type="checkbox" checked={form.enabled} onChange={e=>change('enabled',e.target.checked)}/>{t.enabled}</label>
    <label>{t.reason}<input minLength={3} maxLength={500} required value={form.reason} onChange={e=>change('reason',e.target.value)}/></label>
-   {selected&&<p>{t.version} {selected.version}</p>}<div className="actions"><button disabled={busy||missingConditionValue}>{t.save}</button><button type="button" disabled={busy} onClick={()=>setEditing(false)}>{t.cancel}</button></div>
+   {selected&&<p>{t.version} {selected.version}</p>}<div className="actions"><button disabled={busy||missingConditionValue||invalidDate}>{t.save}</button><button type="button" disabled={busy} onClick={()=>setEditing(false)}>{t.cancel}</button></div>
   </form>}
   {rules.items.map(r=><article key={r.id} data-automation-rule={r.id}><h3>{r.name}</h3><p>{triggers.find(([v])=>v===r.trigger_type)?.[1]} → {r.action_type==='CREATE_FOLLOW_UP'?t.follow:t.notify} · {r.enabled?'✓':'—'} · {t.version} {r.version}</p>
    <button disabled={busy} onClick={()=>edit(r)}>{t.edit}</button><button disabled={busy} onClick={()=>void readHistory('/api/automations/'+r.id,true)}>{t.history}</button></article>)}
@@ -215,7 +278,17 @@ export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{local
     <button disabled={busy} onClick={()=>void readHistory('/api/automation/'+kind+'/'+p.id,false)}>{t.processingHistory}</button>{p.state==='DEAD_LETTER'&&<button disabled={busy} onClick={()=>void retry(p)}>{t.retry}</button>}</article>)}
    {!busy&&!processing.items.length&&<p>{t.empty}</p>}{processing.nextCursor&&<button disabled={busy} onClick={()=>void readProcessing(processing.nextCursor!)}>{t.more}</button>}
   </section>
-  {history&&<section data-automation-history><h3>{history.rule?t.history:t.processingHistory}</h3>{history.items.map(h=><article key={h.version}><p>{t.version} {h.version} · {new Date(h.created_at).toLocaleString(locale)}</p>{h.definition?<p>{String(h.definition.name)} · {String(h.definition.reason)} · {String(h.definition.note)}</p>:<p>{status(h.state??'')} · {result(h.result_code??null)} · {h.failure_count}/5</p>}</article>)}
+  {history&&<section data-automation-history><h3>{history.rule?t.history:t.processingHistory}</h3>{history.items.map(h=><article key={h.version}>
+    <p>{t.version} {h.version} · {new Date(h.created_at).toLocaleString(locale)}</p>
+    {h.definition?<><p>{String(h.definition.name)} · {String(h.definition.reason)} · {String(h.definition.note)}</p>
+     {typeof h.definition.condition_agent_id==='string'&&<p>{ownerDate.agent} · <bdi>{h.definition.condition_agent_id}</bdi></p>}
+     {typeof h.definition.condition_date_basis==='string'&&<p>
+      {h.definition.condition_date_basis==='LEAD_CREATED'?ownerDate.lead:ownerDate.event}
+      {typeof h.definition.condition_date_from==='string'&&<> · {ownerDate.from} <bdi>{h.definition.condition_date_from}</bdi></>}
+      {typeof h.definition.condition_date_through==='string'&&<> · {ownerDate.through} <bdi>{h.definition.condition_date_through}</bdi></>}
+     </p>}
+    </>:<p>{status(h.state??'')} · {result(h.result_code??null)} · {h.failure_count}/5</p>}
+   </article>)}
    {history.nextVersion&&<button disabled={busy} onClick={()=>void readHistory(history.root,history.rule,history.nextVersion!)}>{t.more}</button>}</section>}
  </section>;
 }

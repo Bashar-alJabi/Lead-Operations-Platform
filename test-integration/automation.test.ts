@@ -37,6 +37,65 @@ async function fixture(t:TestContext){
  return {db,app,org,branch,other,campaign,users,api,def,rule,create,matches,execute};
 }
 
+test('Automation checks a scoped current assignee and the selected UTC date basis after matching',async t=>{
+ const {db,org,branch,other,campaign,users,api,def,rule,create,matches,execute}=await fixture(t);
+ const outside=(await db`INSERT INTO user_account(organization_id,branch_id,role,name,email,password_hash)
+  VALUES(${org},${other},'AGENT','Other branch agent','outside@automation.test','synthetic') RETURNING id`)[0]!.id;
+ const picker='/api/automations/condition-agents';
+ const options=(await api('GET',picker+'?branchId='+branch)).json().items;
+ assert.deepEqual(new Set(options.map((item:{id:string})=>item.id)),new Set([users.agent!.id,users.second!.id]));
+ assert.equal((await api('GET',picker+'?branchId='+branch,undefined,'other')).statusCode,404);
+ assert.equal((await api('GET',picker+'?branchId='+branch,undefined,'agent')).statusCode,403);
+ assert.deepEqual((await api('GET',picker+'?branchId='+branch,undefined,'foreign')).statusCode,404);
+ const full={...def,branchId:branch,campaignId:campaign};
+ assert.equal((await api('POST','/api/automations',{...full,conditionAgentId:outside})).statusCode,409);
+ assert.equal((await api('POST','/api/automations',{...full,conditionAgentId:users.agent!.id,ownerCondition:'UNASSIGNED'})).statusCode,400);
+ for(const dateCondition of [{basis:'LEAD_CREATED'},{basis:'LEAD_CREATED',from:'2031-02-29'},
+  {basis:'EVENT_CAPTURED',from:'2025-04-02',through:'2025-04-01'}]){
+  assert.equal((await api('POST','/api/automations',{...full,dateCondition})).statusCode,400);
+ }
+
+ const [days]=await db`SELECT (clock_timestamp() AT TIME ZONE 'UTC')::date::text AS today,
+  ((clock_timestamp() AT TIME ZONE 'UTC')::date+1)::text AS tomorrow`;
+ const eventDay={basis:'EVENT_CAPTURED',from:days!.today,through:days!.tomorrow};
+ const agentRule=await rule({name:'Current agent and captured date',conditionAgentId:users.agent!.id,dateCondition:eventDay});
+ const historical='2001-09-12';
+ const createdRule=await rule({name:'Historical lead date',dateCondition:{basis:'LEAD_CREATED',from:historical,through:historical}});
+ const noMatch=await rule({name:'No historical event',dateCondition:{basis:'EVENT_CAPTURED',through:historical}});
+ const deniedAgent=await rule({name:'Other permitted owner',conditionAgentId:users.second!.id});
+ const result=(leadId:string,ruleId:string)=>db`SELECT e.result_code FROM automation_execution e
+   JOIN automation_source s ON s.id=e.source_id WHERE s.lead_id=${leadId} AND e.rule_id=${ruleId}`;
+ const current=await create(),reassigned=await create();
+ await db`UPDATE lead SET created_at='2001-09-12 23:59:59.999999+00' WHERE id=${current}`;
+ await db`UPDATE lead SET created_at='2001-09-13 00:00:00+00' WHERE id=${reassigned}`;
+ await matches();
+ assert.equal((await api('POST','/api/leads/'+reassigned+'/assignment',{version:1,agentId:users.second!.id})).statusCode,200);
+ await execute();
+ assert.equal((await result(current,agentRule))[0]!.result_code,'APPLIED');
+ assert.equal((await result(reassigned,agentRule))[0]!.result_code,'CONDITIONS_NOT_MET');
+ assert.equal((await result(current,createdRule))[0]!.result_code,'APPLIED');
+ assert.equal((await result(reassigned,createdRule))[0]!.result_code,'CONDITIONS_NOT_MET');
+ assert.equal((await result(current,noMatch))[0]!.result_code,'CONDITIONS_NOT_MET');
+ assert.equal((await result(reassigned,deniedAgent))[0]!.result_code,'APPLIED');
+
+ const retain=await api('PUT','/api/automations/'+agentRule,{...def,version:1});
+ assert.equal(retain.statusCode,200,retain.body);
+ const history=(await api('GET','/api/automations/'+agentRule+'/history')).json().items;
+ assert.deepEqual(history.map((item:{definition:{condition_agent_id:string;condition_date_from:string}})=>
+  [item.definition.condition_agent_id,item.definition.condition_date_from]),
+ [[users.agent!.id,days!.today],[users.agent!.id,days!.today]]);
+ const disabled=await create();await matches();
+ await db`UPDATE user_account SET active=false WHERE id=${users.agent!.id}`;
+ await execute();
+ assert.equal((await result(disabled,agentRule))[0]!.result_code,'CONDITIONS_NOT_MET');
+ const off=await api('PUT','/api/automations/'+agentRule,{...def,version:2,enabled:false});
+ assert.equal(off.statusCode,200,off.body);
+ assert.equal((await api('PUT','/api/automations/'+agentRule,{...def,version:3})).statusCode,409);
+ assert.equal((await api('PUT','/api/automations/'+agentRule,{...def,version:3,conditionAgentId:null,dateCondition:null})).statusCode,200);
+ const cleared=(await db`SELECT condition_agent_id,condition_date_basis FROM automation_rule WHERE id=${agentRule}`)[0]!;
+ assert.equal(cleared.condition_agent_id,null);assert.equal(cleared.condition_date_basis,null);
+});
+
 test('Field equality uses typed current values, withholds the criterion after revocation and skips pending work',async t=>{
  const {db,branch,campaign,api,def,rule,create,matches,execute}=await fixture(t);
  const made=await api('POST','/api/fields',{scope:'CAMPAIGN',branchId:branch,campaignId:campaign,key:'automation_score',
