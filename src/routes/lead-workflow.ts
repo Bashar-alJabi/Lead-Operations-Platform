@@ -58,6 +58,32 @@ async function requireFollowup(tx: postgres.TransactionSql, actor: Principal, id
 }
 
 export function registerLeadWorkflowRoutes(app: FastifyInstance, db: Database): void {
+  app.post<{ Params: { id: string }; Body: { lifecycle: 'OPEN'|'CLOSED'|'ARCHIVED' } }>('/api/leads/:id/lifecycle', {
+    schema: { params: leadParam, body: { type: 'object', additionalProperties: false, required: ['lifecycle'],
+      properties: { lifecycle: { enum: ['OPEN','CLOSED','ARCHIVED'] } },
+    } },
+  }, async request => {
+    const actor = await principalFromRequest(request, db);
+    requireRole(actor, 'SUPER_ADMIN', 'MANAGER');
+    return db.begin(async tx => {
+      const lead = await lockedLead(tx, actor, request.params.id);
+      await tx`SELECT id FROM campaign WHERE id=${lead.campaign_id} FOR SHARE`;
+      const session = await currentPaymentSession(tx, actor, request);
+      if (!session) throw new HttpError(403, 'LEAD_LIFECYCLE_ACCESS_REVOKED');
+      try {
+        const [result] = await tx`SELECT apply_lead_lifecycle(${lead.id},${request.body.lifecycle},${actor.id},${session},NULL) AS lifecycle`;
+        return { lifecycle: result!.lifecycle };
+      } catch (error) {
+        if (error instanceof Error && 'code' in error && error.code === 'P0001') {
+          if (error.message === 'LEAD_NOT_FOUND') throw new HttpError(404, error.message);
+          if (error.message === 'FIELD_REQUIRED') throw new HttpError(409, error.message);
+          if (error.message === 'LEAD_LIFECYCLE_ACCESS_REVOKED') throw new HttpError(403, error.message);
+        }
+        throw error;
+      }
+    });
+  });
+
   app.get<{ Params: { id: string } }>('/api/leads/:id/automation-review', {
     schema: { params: leadParam },
   }, async (request, reply) => {

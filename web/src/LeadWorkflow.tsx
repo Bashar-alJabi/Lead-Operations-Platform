@@ -28,6 +28,7 @@ export function LeadWorkflow({ lead, role, locale, api, onChanged }: {
   lead: Lead; role: Role; locale: Locale; api: Api; onChanged: () => Promise<void>;
 }) {
   const t = labels[locale];
+  const automaticClosure = { ar: 'الأتمتة أغلقت الفرصة', en: 'Lead closed by automation', fr: 'Prospect clôturé par l’automatisation' }[locale];
   const [followups, setFollowups] = useState<Followup[]>([]);
   const [followupCursor, setFollowupCursor] = useState<string | null>(null);
   const [activity, setActivity] = useState<History[]>([]);
@@ -136,7 +137,8 @@ export function LeadWorkflow({ lead, role, locale, api, onChanged }: {
         .catch((failure) => setError(String(failure))); }}>{t.more}</button>}
     </section>
     <section className="panel"><h3>{t.activity}</h3><ul className="timeline">{activity.map((item) => <li key={item.id}>
-      <span>{reviewActivity[locale][item.event_type as keyof typeof reviewActivity.en] ?? item.event_type}
+      <span>{item.event_type === 'LIFECYCLE_CHANGED' && item.detail.source === 'AUTOMATION' && item.detail.to === 'CLOSED'
+        ? automaticClosure : reviewActivity[locale][item.event_type as keyof typeof reviewActivity.en] ?? item.event_type}
         {(item.event_type === 'NOTE_ADDED' || item.event_type === 'AUTOMATION_HUMAN_REVIEW_RESOLVED') &&
           <small>{String(item.detail.text ?? '')}</small>}</span><time>{time(item.created_at)}</time>
     </li>)}</ul>{activityCursor && <button className="secondary" onClick={() => { void api<Page<History>>(

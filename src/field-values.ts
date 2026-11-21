@@ -70,12 +70,3 @@ export async function storeManualFieldValues(tx: postgres.TransactionSql, leadId
       VALUES (${leadId}, ${item.fieldId}, ${tx.json(item.value)}, 'MANUAL', ${actorId})`;
   }
 }
-
-export async function enforceRequiredFieldStage(tx: postgres.TransactionSql, leadId: string, campaignId: string,
-  stage: 'CLOSE'|'ENROLLMENT'): Promise<void> {
-  const missing = await tx`SELECT 1 FROM campaign_field cf JOIN field_definition fd ON fd.id = cf.field_id
-    LEFT JOIN lead_field_value lfv ON lfv.field_id = cf.field_id AND lfv.lead_id = ${leadId}
-    WHERE cf.campaign_id = ${campaignId} AND cf.active AND fd.active AND cf.required_stage = ${stage}
-      AND (lfv.lead_id IS NULL OR lfv.value IS NULL) LIMIT 1`;
-  if (missing.length) throw new HttpError(409, 'FIELD_REQUIRED');
-}

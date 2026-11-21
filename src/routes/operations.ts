@@ -6,7 +6,7 @@ import { recordLeadIntakeOrigin } from '../lead-intake-origin.js';
 import { currentPaymentSession } from '../payments/access.js';
 import { decodeCursor, encodeCursor } from '../pagination.js';
 import { identityLockKeys, normalizeContact } from '../contacts.js';
-import { enforceRequiredFieldStage, prepareManualFieldValues, storeManualFieldValues, type ManualFieldInput } from '../field-values.js';
+import { prepareManualFieldValues, storeManualFieldValues, type ManualFieldInput } from '../field-values.js';
 import { registerCampaignRoutes } from './campaigns.js';
 import {leadPredicate,prepareLeadFilter,operationalFilterProperties,type LeadFilter} from '../lead-query.js';
 
@@ -132,21 +132,5 @@ export function registerOperationsRoutes(app: FastifyInstance, db: Database): vo
     const lead = await requireLead(db, actor, request.params.id);
     const activities = await db`SELECT id, actor_user_id, event_type, detail, created_at FROM lead_activity WHERE lead_id = ${lead.id} ORDER BY id DESC LIMIT 100`;
     return { lead, activities };
-  });
-
-  app.post<{ Params: { id: string }; Body: { lifecycle: 'OPEN'|'CLOSED'|'ARCHIVED' } }>('/api/leads/:id/lifecycle', {
-    schema: { params: idParam, body: { type: 'object', additionalProperties: false, required: ['lifecycle'], properties: { lifecycle: { enum: ['OPEN','CLOSED','ARCHIVED'] } } } },
-  }, async (request) => {
-    const actor = await principalFromRequest(request, db);
-    requireRole(actor, 'SUPER_ADMIN', 'MANAGER');
-    const lead = await requireLead(db, actor, request.params.id);
-    await db.begin(async (tx) => {
-      const current = await tx`SELECT lifecycle, campaign_id FROM lead WHERE id = ${lead.id} FOR UPDATE`;
-      if (request.body.lifecycle === 'CLOSED') await enforceRequiredFieldStage(tx, lead.id, current[0]!.campaign_id, 'CLOSE');
-      await tx`UPDATE lead SET lifecycle = ${request.body.lifecycle}, closed_at = ${request.body.lifecycle === 'OPEN' ? null : new Date()},
-        version = version + 1, updated_at = now() WHERE id = ${lead.id}`;
-      await tx`INSERT INTO lead_activity (lead_id, actor_user_id, event_type, detail) VALUES (${lead.id}, ${actor.id}, 'LIFECYCLE_CHANGED', ${tx.json({ from: current[0]!.lifecycle, to: request.body.lifecycle })})`;
-    });
-    return { lifecycle: request.body.lifecycle };
   });
 }

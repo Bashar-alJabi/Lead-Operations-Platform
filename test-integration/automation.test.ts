@@ -38,6 +38,81 @@ async function fixture(t:TestContext){
  return {db,app,org,branch,other,campaign,users,api,def,rule,create,matches,execute};
 }
 
+test('Campaign Status stays independent and approved closure shares the current required-field and Audit guards',async t=>{
+ const {db,branch,campaign,users,api,def,rule,create,matches,execute}=await fixture(t);
+ async function field(key:string,type:'STATUS'|'TEXT',requiredStage:'NONE'|'CLOSE'){
+  const created=await api('POST','/api/fields',{scope:'CAMPAIGN',branchId:branch,campaignId:campaign,key,label:key,
+   fieldType:type,valueMode:'MANUAL',options:type==='STATUS'?[{value:'won',label:'Won',active:true}]:[],validation:{}});
+  assert.equal(created.statusCode,201,created.body);
+  const {id}=created.json();
+  const binding=await api('PUT','/api/campaigns/'+campaign+'/fields/'+id,{active:true,position:0,requiredStage,
+   visibleToAgent:true,editableByAgent:true,visibleToManager:true,editableByManager:true,showInTable:false,
+   showInDetails:true,filterable:false,usableByAutomation:true,usableByAi:false});
+  assert.equal(binding.statusCode,200,binding.body);
+  return id as string;
+ }
+ const status=await field('approved_campaign_status','STATUS','NONE');
+ const closureNote=await field('closure_approval_note','TEXT','CLOSE');
+ const action={delayMinutes:0,priority:'NORMAL',ownerCondition:'ANY'};
+ await rule({...action,name:'Set Status',actionType:'SET_FIELD_VALUE',fieldAction:{fieldId:status,value:'won'}});
+ const close={...action,name:'Close on Won',actionType:'CLOSE_LEAD',triggerType:'FIELD_CHANGED',
+  triggerFieldId:status,fieldCondition:{fieldId:status,value:'won'}};
+ const closeRule=await rule(close);
+ await rule({...close,name:'Second closure approval'});
+ assert.equal((await api('POST','/api/automations',{...def,...close,branchId:branch,campaignId:campaign},'agent')).statusCode,403);
+ const blocked=await create(),allowed=await create();
+ const root=(id:string)=>'/api/leads/'+id;
+ const manual=(id:string,lifecycle:string,who='manager')=>api('POST',root(id)+'/lifecycle',{lifecycle},who);
+ const writeNote=(id:string,value:string|null)=>api('PUT',root(id)+'/fields/'+closureNote,{value});
+ const lifecycle=async(id:string)=>(await db`SELECT lifecycle FROM lead WHERE id=${id}`)[0]!.lifecycle;
+ assert.equal((await writeNote(blocked,null)).statusCode,200);
+ assert.equal((await writeNote(allowed,'Confirmed closure requirements')).statusCode,200);
+ assert.equal((await manual(blocked,'CLOSED')).statusCode,409);
+ assert.equal((await manual(allowed,'CLOSED','agent')).statusCode,403);
+ assert.equal((await manual(allowed,'CLOSED','other')).statusCode,404);
+ await assert.rejects(db`SELECT apply_lead_lifecycle(${allowed},'CLOSED',${users.manager!.id},${users.agent!.session},NULL)`,
+  /LEAD_LIFECYCLE_ACCESS_REVOKED/);
+ await matches();await execute();
+ assert.equal(await lifecycle(allowed),'OPEN');
+ assert.equal((await db`SELECT value FROM lead_field_value WHERE lead_id=${allowed} AND field_id=${status}`)[0]!.value,'won');
+ await matches();
+ await Promise.all(Array.from({length:4},()=>processOneAutomationExecution(db)));
+ await execute();
+ assert.equal(await lifecycle(blocked),'OPEN');
+ assert.equal(await lifecycle(allowed),'CLOSED');
+ assert.equal((await db`SELECT e.result_code FROM automation_execution e JOIN automation_source s ON s.id=e.source_id
+  WHERE s.lead_id=${blocked} AND e.rule_id=${closeRule}`)[0]!.result_code,'FIELD_REQUIRED');
+ const lifecycleAudit=(id:string)=>db`SELECT actor_user_id,detail FROM audit_log
+  WHERE action='LEAD_LIFECYCLE_CHANGED' AND target_id=${id} ORDER BY id`;
+ const effects=await lifecycleAudit(allowed);
+ assert.equal(effects.length,1);
+ assert.equal(effects[0]!.actor_user_id,null);
+ assert.equal(effects[0]!.detail.source,'AUTOMATION');
+ await assert.rejects(db`SELECT apply_lead_lifecycle(${allowed},'CLOSED',NULL,NULL,${effects[0]!.detail.executionId})`,
+  /AUTOMATION_LIFECYCLE_EFFECT_REQUIRED/);
+ assert.equal((await manual(allowed,'OPEN')).statusCode,200);
+ assert.equal((await manual(allowed,'OPEN')).statusCode,200);
+ assert.deepEqual((await lifecycleAudit(allowed)).map(row=>row.actor_user_id),[null,users.manager!.id]);
+
+ const failing=await create();
+ assert.equal((await writeNote(failing,'Ready for closure')).statusCode,200);
+ await matches();await execute();await matches();
+ await db`CREATE FUNCTION test_lifecycle_audit_failure() RETURNS trigger LANGUAGE plpgsql AS $$
+  BEGIN IF NEW.action='LEAD_LIFECYCLE_CHANGED' THEN RAISE EXCEPTION 'Synthetic lifecycle Audit failure'; END IF; RETURN NEW; END $$`;
+ await db`CREATE TRIGGER test_lifecycle_audit_failure BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION test_lifecycle_audit_failure()`;
+ try {
+  await execute();
+  assert.equal(await lifecycle(failing),'OPEN');
+  assert.equal((await lifecycleAudit(failing)).length,0);
+  assert.equal((await db`SELECT count(*)::int AS n FROM lead_activity WHERE lead_id=${failing} AND event_type='LIFECYCLE_CHANGED'`)[0]!.n,0);
+  assert.equal((await manual(failing,'CLOSED')).statusCode,500);
+  assert.equal(await lifecycle(failing),'OPEN');
+ } finally {
+  await db`DROP TRIGGER test_lifecycle_audit_failure ON audit_log`;
+  await db`DROP FUNCTION test_lifecycle_audit_failure()`;
+ }
+});
+
 test('Approved human review is deduplicated, scoped to current ownership and resolved with immutable history',async t=>{
  const {db,branch,campaign,users,api,def,rule,create,matches,execute}=await fixture(t);
  const definition={...def,actionType:'REQUEST_HUMAN_ATTENTION',delayMinutes:0,priority:'NORMAL',note:'Synthetic review <em>as text</em>'};
