@@ -25,7 +25,9 @@ const words={
 
 const initial:Policy={version:0,lookbackDays:30,minimumSamples:10,responseWeight:50,followUpWeight:50,fallbackMethod:'ROUND_ROBIN',reason:''};
 
-export function CampaignPerformanceRouting({campaignId,locale,api,editable}:{campaignId:string;locale:Locale;api:Api;editable:boolean}){
+export function CampaignPerformanceRouting({campaignId,locale,api,editable,onSaved}:{
+ campaignId:string;locale:Locale;api:Api;editable:boolean;onSaved:()=>Promise<void>;
+}){
  const t=words[locale],path='/api/campaigns/'+campaignId+'/performance-routing';
  const [policy,setPolicy]=useState<Policy|null>(null),[history,setHistory]=useState<History|null>(null);
  const [busy,setBusy]=useState(false),[error,setError]=useState(false);
@@ -49,7 +51,7 @@ export function CampaignPerformanceRouting({campaignId,locale,api,editable}:{cam
   void run(async()=>{
    await api(path,{method:'PUT',body:JSON.stringify(body)});
    setHistory(null);
-   await load();
+   await Promise.all([load(),onSaved()]);
   });
  }
  function readHistory(before?:number){

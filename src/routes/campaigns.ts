@@ -58,8 +58,10 @@ async function readiness(sql: Database | postgres.TransactionSql, campaign: post
         AND u.branch_id = ${campaign.branch_id} LIMIT 1`;
     if (!eligible.length) issues.push('NO_ELIGIBLE_AGENTS_CONFIGURED');
   }
-  // Performance scoring requires human-only metrics and a configured sample/fallback policy.
-  if (campaign.routing_method === 'PERFORMANCE') issues.push('PERFORMANCE_ROUTING_NOT_READY');
+  if (campaign.routing_method === 'PERFORMANCE') {
+    const [policy] = await sql`SELECT 1 FROM campaign_performance_routing_policy WHERE campaign_id=${campaign.id}`;
+    if (!policy) issues.push('PERFORMANCE_POLICY_REQUIRED');
+  }
   issues.push(...await sourceCampaignIssues(sql as Database,campaign,lock));
   // The first-contact flow is implemented and verified by ai-initial-contact integration and Browser E2E.
   // Fail closed on its current scoped configuration. This never enables the separate live transport gate.
@@ -251,7 +253,7 @@ export function registerCampaignRoutes(app: FastifyInstance, db: Database): void
   app.put<{ Params: { id: string }; Body: { agentId: string; weight?: number; capacityOverride?: number | null } }>('/api/campaigns/:id/agents', {
     schema: { params: idParam, body: { type: 'object', additionalProperties: false, required: ['agentId'], properties: {
       agentId: { type: 'string', format: 'uuid' }, weight: { type: 'integer', minimum: 1, maximum: 1000 },
-      capacityOverride: { anyOf: [{ type: 'null' }, { type: 'integer', minimum: 0 }] },
+      capacityOverride: { type: ['integer', 'null'], minimum: 0 },
     } } },
   }, async (request) => {
     const actor = await principalFromRequest(request, db);

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { chooseAgent, isWithinWorkingHours } from '../src/routing.js';
+import { rankHumanPerformance, type PerformancePolicy } from '../src/performance-routing.js';
 
 const agent = (id: string, assigned_count = 0, weight = 1, capacity: number | null = null, working_hours: unknown = {}) =>
   ({ id, assigned_count, weight, capacity, working_hours });
@@ -24,8 +25,22 @@ test('working hours use branch timezone', () => {
   assert.equal(chooseAgent([agent('a', 0, 1, null, hours)], 'ROUND_ROBIN', 'UTC', new Date('2026-10-05T07:00:00Z')).agentId, null);
 });
 
-test('manual stays unassigned and performance without sample falls back fairly', () => {
+test('manual stays unassigned', () => {
   assert.deepEqual(chooseAgent([agent('a')], 'MANUAL', 'UTC'), { agentId: null, reason: 'MANUAL_ROUTING' });
-  assert.deepEqual(chooseAgent([agent('b', 2), agent('a', 1)], 'PERFORMANCE', 'UTC'),
-    { agentId: 'a', reason: 'INSUFFICIENT_HUMAN_SAMPLE_FALLBACK' });
+});
+
+test('performance compares enabled human metrics and falls back for a new staff member', () => {
+  const policy: PerformancePolicy = { version: 1, lookback_days: 30, minimum_samples: 2,
+    response_weight: 50, follow_up_weight: 50, fallback_method: 'WEIGHTED' };
+  const candidates = [agent('fast', 2), agent('reliable', 3)];
+  const samples = [
+    { id: 'fast', replies: 2, responseSeconds: 0, followUps: 2, onTime: 0 },
+    { id: 'reliable', replies: 2, responseSeconds: 3600, followUps: 2, onTime: 2 },
+  ];
+  assert.equal(rankHumanPerformance(candidates, samples, policy)?.candidate.id, 'reliable');
+  assert.equal(rankHumanPerformance(candidates, samples, { ...policy, response_weight: 100, follow_up_weight: 0 })?.candidate.id, 'fast');
+  assert.equal(rankHumanPerformance([...candidates, agent('new')], samples, policy), null);
+  assert.equal(rankHumanPerformance(candidates, samples, { ...policy, minimum_samples: 3 }), null);
+  const tied = [{ ...samples[1]!, id: 'fast' }, samples[1]!];
+  assert.equal(rankHumanPerformance(candidates, tied, policy)?.candidate.id, 'fast');
 });

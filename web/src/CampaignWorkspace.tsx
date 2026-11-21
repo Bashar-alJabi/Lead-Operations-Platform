@@ -30,7 +30,7 @@ const text = {
 const issueLabels: Record<string, Record<Locale, string>> = {
   BRANCH_INACTIVE: { ar: 'الفرع غير نشط', fr: 'Agence inactive', en: 'Branch inactive' },
   NO_ELIGIBLE_AGENTS_CONFIGURED: { ar: 'لا يوجد وكيل نشط مؤهل', fr: 'Aucun agent admissible actif', en: 'No active eligible agent' },
-  PERFORMANCE_ROUTING_NOT_READY: { ar: 'توزيع الأداء يحتاج مقاييس بشرية وسياسة عينة وبديل', fr: 'Le routage par performance nécessite des mesures humaines et une politique de repli', en: 'Performance routing needs human metrics, sample and fallback policy' },
+  PERFORMANCE_POLICY_REQUIRED: { ar: 'اعتمد سياسة التوزيع حسب الأداء', fr: 'Approuvez la politique de routage par performance', en: 'Approve the performance routing policy' },
   SOURCE_BINDING_NOT_READY: { ar: 'ربط المصدر الخارجي لم يكتمل', fr: 'Source externe non reliée', en: 'External source binding is not ready' },
   SOURCE_MAPPING_NOT_CONFIGURED: { ar:'انشر Mapping صالحة لكل ربط مصدر مفعّل',fr:'Publiez un mapping valide pour chaque liaison active',en:'Publish valid mapping for every active source binding' },
   SOURCE_CREDENTIAL_UNAVAILABLE: { ar:'راجع بيانات اعتماد Source Connection',fr:'Vérifiez les secrets de la connexion source',en:'Check source connection credentials' },
@@ -108,6 +108,10 @@ export function CampaignWorkspace({ id, locale, api, onBack, onChanged }: {
   if (!detail) return <section className="panel"><button className="link" onClick={onBack}>{t.back}</button>{error && <p role="alert" className="error">{error}</p>}</section>;
   const campaign = detail.campaign;
   const editable = campaign.status !== 'ACTIVE';
+  async function reloadReadiness() {
+    const { issues } = await api<{ issues: string[] }>(`/api/campaigns/${id}/readiness`);
+    setDetail(current => current && { ...current, issues });
+  }
   return <div className="campaign-workspace"><button className="link" onClick={onBack}>{t.back}</button><h2>{t.title}: {campaign.name}</h2>
     {error && <p role="alert" className="error">{error}</p>}
     <section className="panel"><p>{t.status}: <strong>{campaign.status}</strong> · {t.version}: {campaign.version}</p>
@@ -129,7 +133,8 @@ export function CampaignWorkspace({ id, locale, api, onBack, onChanged }: {
       </form><p>{editable ? t.dependency : t.disabled}</p>
     </section>
     {(campaign.routing_method==='PERFORMANCE'||form.routingMethod==='PERFORMANCE')&&
-      <CampaignPerformanceRouting key={'performance-routing-'+id} campaignId={id} locale={locale} api={api} editable={editable}/>}
+      <CampaignPerformanceRouting key={'performance-routing-'+id} campaignId={id} locale={locale} api={api}
+        editable={editable} onSaved={reloadReadiness}/>}
     <section className="panel"><h3>{t.senderOverride}</h3>
       <label>{t.senderOverride}<select disabled={!editable || busy} value={senderOverrideId}
         onChange={(event) => setSenderOverrideId(event.target.value)}><option value="">{t.inheritedSender}</option>

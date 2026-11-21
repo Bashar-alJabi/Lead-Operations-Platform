@@ -37,7 +37,8 @@ export function assignLead(db: Database, actor: Principal, id: string,
     }
     const changed = await tx`UPDATE lead SET assigned_agent_id = ${target}, version = version + 1,
       needs_attention_reason = CASE WHEN ${target}::uuid IS NULL THEN 'UNASSIGNED_BY_MANAGER'
-        WHEN needs_attention_reason IN ('NO_ELIGIBLE_AGENT','UNASSIGNED_BY_MANAGER') THEN NULL ELSE needs_attention_reason END,
+        WHEN needs_attention_reason IN ('NO_ELIGIBLE_AGENT','UNASSIGNED_BY_MANAGER','PERFORMANCE_POLICY_REQUIRED',
+          'INSUFFICIENT_HUMAN_SAMPLE_FALLBACK') THEN NULL ELSE needs_attention_reason END,
       updated_at = now() WHERE id = ${lead.id} RETURNING version`;
     await tx`INSERT INTO assignment_history (lead_id, old_branch_id, old_agent_id, new_branch_id, new_agent_id,
       actor_user_id, method, reason) VALUES (${lead.id}, ${lead.branch_id}, ${lead.assigned_agent_id},

@@ -9,6 +9,14 @@ const labels = {
   en: { title: 'Lead intake origin', read: 'Review intake origin', empty: 'No verified intake record is available for this Lead.', manual: 'Manual entry by an authorized user', source: 'Intake from a connected source', at: 'Recorded at', routing: 'Routing at intake', owner: 'Owner at intake', unassigned: 'Unassigned', note: 'This is a historical record. The current owner may differ.' },
   fr: { title: 'Origine de création du prospect', read: 'Consulter l’origine', empty: 'Aucune trace de création vérifiée disponible pour ce prospect.', manual: 'Saisie manuelle par un utilisateur autorisé', source: 'Réception depuis une source connectée', at: 'Enregistré le', routing: 'Distribution à la création', owner: 'Responsable à la création', unassigned: 'Non attribué', note: 'Il s’agit d’un historique. Le responsable actuel peut être différent.' },
 };
+const performanceReasons: Record<string, { ar: string; en: string; fr: string }> = {
+  HUMAN_PERFORMANCE: { ar: 'إسناد حسب الأداء البشري', en: 'Assigned by human performance', fr: 'Attribution selon la performance humaine' },
+  INSUFFICIENT_HUMAN_SAMPLE_FALLBACK: { ar: 'استُخدم البديل المعتمد لعدم كفاية العينة البشرية',
+    en: 'Used the configured fallback because human samples were insufficient',
+    fr: 'Repli configuré appliqué faute d’échantillons humains suffisants' },
+  PERFORMANCE_POLICY_REQUIRED: { ar: 'تحتاج الحملة إلى سياسة توزيع معتمدة',
+    en: 'Campaign needs an approved routing policy', fr: 'La campagne doit disposer d’une politique de routage approuvée' },
+};
 export function LeadIntakeOrigin({ leadId, revision, locale, api }: { leadId: string; revision: number; locale: 'ar'|'en'|'fr'; api: Api }) {
   const t = labels[locale], [value, setValue] = useState<{ origin: Origin | null } | null>(null), [busy, setBusy] = useState(false), [error, setError] = useState(''), sequence = useRef(0);
   useEffect(() => { sequence.current++; setValue(null); setError(''); setBusy(false); return () => { sequence.current++; }; }, [leadId, revision]);
@@ -28,7 +36,8 @@ export function LeadIntakeOrigin({ leadId, revision, locale, api }: { leadId: st
   const busyReason = { ar: 'إعدادات AI قيد التحديث أو مشغولة. لم يبدأ التواصل الأولي.', en: 'AI configuration is being updated or busy. Initial contact has not started.', fr: 'La configuration IA est en cours de modification ou occupée. Le premier contact n’a pas commencé.' }[locale];
   return <section className="panel" data-lead-intake-origin><h3>{t.title}</h3><button disabled={busy} onClick={() => void read()}>{t.read}</button>
     {error && <p role="alert">{error}</p>}{value && !o && <p>{t.empty}</p>}{o && <div data-lead-intake-record><p>{o.originKind === 'HUMAN_MANUAL' ? t.manual : o.originKind==='APPROVED_IMPORT'?{ar:'استيراد من مصدر معتمد',en:'Intake from an approved import',fr:'Import depuis une source approuvée'}[locale]:t.source} · {o.sourceKind}</p>
-      <p>{t.at}: <time dateTime={o.createdAt}>{new Date(o.createdAt).toLocaleString(locale)}</time></p><p>{t.routing}: {o.routing.method} · {o.routing.reason}</p>
+      <p>{t.at}: <time dateTime={o.createdAt}>{new Date(o.createdAt).toLocaleString(locale)}</time></p>
+      <p>{t.routing}: {o.routing.method} · {performanceReasons[o.routing.reason]?.[locale] ?? o.routing.reason}</p>
       <p style={{ overflowWrap: 'anywhere' }}>{t.owner}: {o.routing.ownerId ?? t.unassigned}</p><p>{t.note}</p>
       {a && <div data-initial-ai-admission><h4>{aiLabels.title}</h4><p>{a.state === 'ADMITTED' ? aiLabels.admitted : aiLabels.blocked}</p>
         {!a.runtime&&<p>{aiLabels.pending}</p>}{a.runtime&&<div data-initial-ai-runtime><p>{a.runtime.jobState} · {a.runtime.actionState??'—'} · {a.runtime.deliveryState??'—'}</p>

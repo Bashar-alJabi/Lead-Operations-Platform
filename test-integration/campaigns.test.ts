@@ -89,7 +89,8 @@ test('Campaign configuration, readiness, scope, concurrency, and history on Post
   const performance = await send('PATCH', `/api/campaigns/${id}`, { ...config, version: latestVersion,
     sourceKind: 'MANUAL', routingMethod: 'PERFORMANCE', messagingEnabled: false, aiEnabled: false }, managerA);
   assert.equal(performance.statusCode, 200, performance.body);
-  assert.deepEqual((await send('GET', `/api/campaigns/${id}/readiness`, undefined, managerA)).json().issues, ['PERFORMANCE_ROUTING_NOT_READY']);
+  assert.deepEqual((await send('GET', `/api/campaigns/${id}/readiness`, undefined, managerA)).json().issues, ['PERFORMANCE_POLICY_REQUIRED']);
+  assert.equal((await send('POST', `/api/campaigns/${id}/activate`, undefined, managerA)).statusCode, 409);
   const policyPath=`/api/campaigns/${id}/performance-routing`;
   const policy={version:0,lookbackDays:30,minimumSamples:12,responseWeight:70,followUpWeight:30,
     fallbackMethod:'WEIGHTED',reason:'Approve synthetic measured routing policy'};
@@ -122,7 +123,7 @@ test('Campaign configuration, readiness, scope, concurrency, and history on Post
   const policyHistory=(await send('GET',policyPath+'/history',undefined,managerA)).json().items;
   assert.deepEqual(policyHistory.map((item:{version:number;minimumSamples:number})=>[item.version,item.minimumSamples]),[[2,15],[1,12]]);
   await assert.rejects(db`DELETE FROM campaign_performance_routing_policy_history WHERE campaign_id=${id}`,/PERFORMANCE_POLICY_HISTORY_IMMUTABLE/);
-  assert.equal((await send('POST', `/api/campaigns/${id}/activate`, undefined, managerA)).statusCode, 409);
+  assert.equal((await send('GET', `/api/campaigns/${id}/readiness`, undefined, managerA)).json().ready, true);
   const readyConfig = await send('PATCH', `/api/campaigns/${id}`, { ...config, version: performance.json().version,
     sourceKind: 'MANUAL', routingMethod: 'WEIGHTED', messagingEnabled: false, aiEnabled: false }, managerA);
   assert.equal(readyConfig.statusCode, 200, readyConfig.body);
@@ -159,4 +160,86 @@ test('Campaign configuration, readiness, scope, concurrency, and history on Post
     'CAMPAIGN_PERFORMANCE_POLICY_SAVED','CAMPAIGN_PERFORMANCE_POLICY_SAVED','CAMPAIGN_UPDATED',
     'CAMPAIGN_ACTIVATED', 'CAMPAIGN_DEACTIVATED', 'CAMPAIGN_AGENT_REMOVED',
   ]);
+
+  await t.test('actual Lead routing uses human work with campaign isolation, fallback and serialized capacity', async () => {
+    const otherAgent = await createUser(branchA, 'AGENT', 'performance-agent@example.test');
+    const created = await send('POST', '/api/campaigns', { branchId: branchA, name: 'Measured', routingMethod: 'PERFORMANCE' }, managerA);
+    assert.equal(created.statusCode, 201, created.body);
+    const campaignId = created.json().id as string;
+    const root = '/api/campaigns/' + campaignId;
+    for (const agentId of [agentA, otherAgent]) {
+      assert.equal((await send('PUT', root + '/agents', { agentId, weight: 2 }, managerA)).statusCode, 200);
+    }
+    const measuredPolicy = { ...policy, minimumSamples: 1, responseWeight: 60, followUpWeight: 40, fallbackMethod: 'MANUAL' };
+    assert.equal((await send('PUT', root + '/performance-routing', measuredPolicy, managerA)).statusCode, 200);
+    assert.equal((await send('POST', root + '/activate', undefined, managerA)).statusCode, 200);
+    async function intake(label: string) {
+      const response = await send('POST', '/api/leads', { branchId: branchA, campaignId,
+        contact: { name: label, email: label.replaceAll(' ', '-')+'@example.test' } }, managerA);
+      assert.equal(response.statusCode, 201, response.body);
+      const leadId = response.json().id as string;
+      const origin = (await send('GET', '/api/leads/'+leadId+'/intake-origin', undefined, managerA)).json().origin;
+      assert.equal(origin.routing.method, 'PERFORMANCE');
+      return { leadId, reason: origin.routing.reason, ownerId: origin.routing.ownerId };
+    }
+    const fallback = await intake('No Human History');
+    assert.equal(fallback.reason, 'INSUFFICIENT_HUMAN_SAMPLE_FALLBACK');
+    assert.equal(fallback.ownerId, null);
+    assert.equal((await send('GET', '/api/leads/'+fallback.leadId, undefined, managerA)).json().lead.needs_attention_reason, fallback.reason);
+    assert.equal((await send('GET', '/api/leads/'+fallback.leadId+'/intake-origin', undefined, managerB)).statusCode, 404);
+    await db`CREATE FUNCTION test_drop_performance_decision() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN IF NEW.action='LEAD_PERFORMANCE_ROUTED' THEN RETURN NULL; END IF; RETURN NEW; END $$`;
+    await db`CREATE TRIGGER test_drop_performance_decision BEFORE INSERT ON audit_log
+      FOR EACH ROW EXECUTE FUNCTION test_drop_performance_decision()`;
+    try {
+      const rejected = await send('POST', '/api/leads', { branchId: branchA, campaignId,
+        contact: { name: 'Routing proof test', email: 'routing-proof-missing@example.test' } }, managerA);
+      assert.equal(rejected.statusCode, 500, rejected.body);
+      assert.equal((await db`SELECT id FROM contact WHERE email_normalized='routing-proof-missing@example.test'`).length, 0);
+    } finally {
+      await db`DROP TRIGGER test_drop_performance_decision ON audit_log`;
+      await db`DROP FUNCTION test_drop_performance_decision()`;
+    }
+    const conn = (await db`INSERT INTO integration_connection(organization_id,branch_id,kind,provider,name,status)
+      VALUES(${organizationId},${branchA},'MESSAGING','META_WHATSAPP_CLOUD','Performance fixture','CONNECTED') RETURNING id`)[0]!.id;
+    const sender = (await db`INSERT INTO messaging_sender(organization_id,connection_id,external_sender_id,display_name,health,capabilities)
+      VALUES(${organizationId},${conn},'performance-fixture','Synthetic','HEALTHY','{"text":true}') RETURNING id`)[0]!.id;
+    const historicLead = lead.json().id as string;
+    for (const fixtureLead of [fallback.leadId, historicLead]) {
+      const cv = (await db`INSERT INTO conversation(lead_id,connection_id,sender_id,channel,participant_ref,controller_type,controller_user_id,state)
+        VALUES(${fixtureLead},${conn},${sender},'WHATSAPP',${fixtureLead},'HUMAN',${agentA},'HUMAN_ACTIVE') RETURNING id`)[0]!.id;
+      // Pre-148 historical fixture. Restore the send guard before running any real intake.
+      await db.begin(async tx => {
+        await tx`ALTER TABLE conversation_message DISABLE TRIGGER ai_send_message_guard`;
+        await tx`INSERT INTO conversation_message(conversation_id,connection_id,sender_id,direction,author_type,body,delivery_state,sent_at)
+          VALUES(${cv},${conn},${sender},'OUTBOUND','AI','Automated','SENT',now()-interval '2 hours'+interval '10 seconds')`;
+        await tx`ALTER TABLE conversation_message ENABLE TRIGGER ai_send_message_guard`;
+      });
+      await db`INSERT INTO conversation_message(conversation_id,connection_id,sender_id,direction,author_type,author_user_id,body,
+        delivery_state,sent_at,received_at) VALUES
+        (${cv},${conn},${sender},'INBOUND','CUSTOMER',NULL,'Question','RECEIVED',NULL,now()-interval '2 hours'),
+        (${cv},${conn},${sender},'OUTBOUND','HUMAN',${otherAgent},'Fast reply','SENT',now()-interval '119 minutes',NULL),
+        (${cv},${conn},${sender},'OUTBOUND','HUMAN',${otherAgent},'Second reply','SENT',now()-interval '118 minutes',NULL),
+        (${cv},${conn},${sender},'OUTBOUND','HUMAN',${agentA},'Late reply','SENT',now()-interval '80 minutes',NULL)`;
+      await db`INSERT INTO follow_up(lead_id,owner_user_id,due_at,created_by,status,completed_by,completed_at) VALUES
+        (${fixtureLead},${agentA},now()-interval '1 hour',${agentA},'OPEN',NULL,NULL),
+        (${fixtureLead},${otherAgent},now()-interval '1 hour',${otherAgent},'COMPLETED',${otherAgent},now()-interval '61 minutes'),
+        (${fixtureLead},${otherAgent},now()-interval '1 hour',${otherAgent},'COMPLETED',${agentA},now()-interval '61 minutes')`;
+    }
+    assert.equal((await send('PUT', root+'/agents', { agentId: otherAgent, capacityOverride: 1 }, managerA)).statusCode, 200);
+    const simultaneous = await Promise.all([intake('First Measured Intake'), intake('Second Measured Intake')]);
+    assert.deepEqual(new Set(simultaneous.map(result => result.ownerId)), new Set([otherAgent, agentA]));
+    assert.ok(simultaneous.every(result => result.reason==='HUMAN_PERFORMANCE'));
+    const winner = simultaneous.find(result => result.ownerId===otherAgent)!;
+    const [proof] = await db`SELECT detail FROM audit_log WHERE action='LEAD_PERFORMANCE_ROUTED' AND target_id=${winner.leadId}`;
+    assert.equal(proof!.detail.performance.policyVersion, 1);
+    assert.deepEqual(proof!.detail.performance.sample, { id: otherAgent, replies: 1, responseSeconds: 60, followUps: 1, onTime: 1 });
+    assert.equal((await send('PUT', root+'/agents', { agentId: agentA, capacityOverride: 0 }, managerA)).statusCode, 200);
+    assert.equal((await db`SELECT capacity_override FROM campaign_agent WHERE campaign_id=${campaignId} AND agent_id=${agentA}`)[0]!.capacity_override, 0);
+    const capacity = await intake('Beyond Available Capacity');
+    assert.equal(capacity.ownerId, null);
+    assert.equal(capacity.reason, 'NO_ELIGIBLE_AGENT');
+    assert.equal((await send('PUT', root+'/agents', { agentId: agentA, capacityOverride: null }, managerA)).statusCode, 200);
+    assert.equal((await db`SELECT capacity_override FROM campaign_agent WHERE campaign_id=${campaignId} AND agent_id=${agentA}`)[0]!.capacity_override, null);
+  });
 });
