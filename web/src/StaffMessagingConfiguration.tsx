@@ -127,10 +127,34 @@ function PersonalPreference({api,locale}:Props) {
  </section>;
 }
 
+function StaffMessagingActivity({api,locale}:Props) {
+ const t={
+  ar:{title:'نشاط Messaging الداخلي',empty:'لا إشعارات مجهّزة.',prepared:'مجهّز',suppressed:'أوقف لتغيّر الإعداد'},
+  en:{title:'Internal messaging activity',empty:'No prepared notifications.',prepared:'Prepared',suppressed:'Suppressed after a change'},
+  fr:{title:'Activité de messagerie interne',empty:'Aucune notification préparée.',prepared:'Préparée',suppressed:'Bloquée après modification'},
+ }[locale];
+ type Page={items:{id:string;eventType:string;language:NotificationLocale;preparedAt:string;state:'PREPARED'|'SUPPRESSED'}[];nextCursor:string|null};
+ const [feed,setFeed]=useState<Page|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
+ async function load(cursor?:string){
+  setBusy(true);setError('');
+  try{setFeed(await api<Page>(root+'/outbox'+(cursor?'?cursor='+encodeURIComponent(cursor):'')));}
+  catch(failure){setFeed(null);setError(String(failure));}
+  finally{setBusy(false);}
+ }
+ return <section className="panel" data-staff-messaging-activity><h4>{t.title}</h4>
+  <button disabled={busy} onClick={()=>void load()}>{labels[locale].refresh}</button>
+  {error&&<p role="alert">{error}</p>}
+  {feed&&(feed.items.length?<ul>{feed.items.map(item=><li key={item.id}>
+   {eventLabel(item.eventType,locale)} · {item.language} · {item.state==='PREPARED'?t.prepared:t.suppressed} · {new Date(item.preparedAt).toLocaleString(locale)}
+  </li>)}</ul>:<p>{t.empty}</p>)}
+  {feed?.nextCursor&&<button disabled={busy} onClick={()=>void load(feed.nextCursor!)}>{labels[locale].older}</button>}
+ </section>;
+}
+
 export function StaffMessagingConfiguration(props:Props) {
  const [open,setOpen]=useState(false);
  return <details onToggle={event=>setOpen(event.currentTarget.open)}><summary>{labels[props.locale].title}</summary>
   {open&&props.user.role!=='AGENT'&&<BranchBinding {...props}/>}
-  {open&&props.user.role!=='SUPER_ADMIN'&&<PersonalPreference {...props}/>}
+  {open&&props.user.role!=='SUPER_ADMIN'&&<><PersonalPreference {...props}/><StaffMessagingActivity {...props}/></>}
  </details>;
 }

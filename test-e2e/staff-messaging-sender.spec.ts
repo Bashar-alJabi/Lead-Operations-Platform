@@ -2,9 +2,9 @@ import {expect,test} from '@playwright/test';
 import {readFile} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
 
-test('Manager reserves a dedicated sender, excludes it from customer setup and binds approved static wording',async({page})=>{
+test('Manager reserves and binds a sender while an opted-in Agent sees prepared internal alerts',async({page,browser})=>{
  await page.setExtraHTTPHeaders({'x-e2e-rate-scope':randomUUID()});
- const {password}=JSON.parse(await readFile('.local/e2e/fixture.json','utf8')) as {password:string};
+ const {password,testToken}=JSON.parse(await readFile('.local/e2e/fixture.json','utf8')) as {password:string;testToken:string};
  await page.goto('/');
  await page.getByRole('combobox',{name:'Language',exact:true}).selectOption('en');
  await page.getByLabel('Email',{exact:true}).fill('manager@browser.test');
@@ -37,4 +37,40 @@ test('Manager reserves a dedicated sender, excludes it from customer setup and b
  await expect(binding).toContainText('Approve synthetic staff wording');
  const preferences=page.locator('[data-staff-messaging-preference]');
  await expect(preferences.getByLabel('Enable event',{exact:true})).toBeDisabled();
+ const context=await browser.newContext({extraHTTPHeaders:{'x-e2e-rate-scope':randomUUID()}});
+ try {
+  const staff=await context.newPage();await staff.goto('/');
+  await staff.getByRole('combobox',{name:'Language',exact:true}).selectOption('en');
+  await staff.getByLabel('Email',{exact:true}).fill('agent@browser.test');
+  await staff.getByLabel('Password',{exact:true}).fill(password);
+  await staff.getByRole('button',{name:'Sign in',exact:true}).click();
+  await expect(staff.getByRole('button',{name:'Sign out',exact:true})).toBeVisible();
+  const actor=await(await staff.request.get('/api/auth/me')).json();
+  const headers={origin:'http://127.0.0.1:4100'},phone='+15550074302';
+  const base='/api/notification-messaging';
+  expect((await page.request.put(`/api/users/${actor.id}/notification-messaging-destination`,{headers,data:{version:0,phone}})).status()).toBe(200);
+  expect((await staff.request.put(base+'/destination',{headers,data:{version:1,phone,enabled:true}})).status()).toBe(200);
+  expect((await staff.request.put(base+'/preferences/LEAD_ASSIGNED',{headers,data:{version:0,language:'en',enabled:true}})).status()).toBe(200);
+  const create=await page.request.post('/api/campaigns',{headers,data:{branchId:actor.branchId,name:'Staff messaging test campaign',routingMethod:'MANUAL'}});
+  expect(create.status()).toBe(201);
+  const {id:campaignId}=await create.json();
+  expect((await page.request.post(`/api/campaigns/${campaignId}/activate`,{headers})).status()).toBe(200);
+  const lead=await page.request.post('/api/leads',{headers,data:{branchId:actor.branchId,campaignId,contact:{name:'Staff test lead',phone:'+15550074303'}}});
+  expect(lead.status()).toBe(201);
+  const {id:leadId}=await lead.json();
+  expect((await page.request.post(`/api/leads/${leadId}/assignment`,{headers,data:{version:1,agentId:actor.id,reason:'Trigger a synthetic staff alert'}})).status()).toBe(200);
+  const prepared=await page.request.post('/__test__/staff-messaging-publication',{
+   headers:{...headers,authorization:'Bearer '+testToken},
+  });
+  expect(prepared.status(),await prepared.text()).toBe(200);
+  await staff.getByRole('button',{name:'Notifications',exact:true}).click();
+  await staff.getByText('Internal messaging notifications',{exact:true}).click();
+  const activity=staff.locator('[data-staff-messaging-activity]');
+  await activity.getByRole('button',{name:'Reload settings',exact:true}).click();
+  await expect(activity).toContainText('Prepared');
+  await expect(activity).not.toContainText(phone);
+  expect((await staff.request.put(base+'/destination',{headers,data:{version:2,phone:null,enabled:false}})).status()).toBe(200);
+  await activity.getByRole('button',{name:'Reload settings',exact:true}).click();
+  await expect(activity).toContainText('Suppressed after a change');
+ } finally {await context.close();}
 });

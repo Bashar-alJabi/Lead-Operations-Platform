@@ -84,6 +84,7 @@ import { registerNotificationRoutes } from './routes/notifications.js';
 import { registerOperationalNotificationRoutes } from './operational-notifications.js';
 import { registerStaffMessagingDestinationRoutes } from './routes/staff-messaging-destination.js';
 import { registerStaffMessagingConfigurationRoutes } from './routes/staff-messaging-configuration.js';
+import { registerStaffMessagingOutboxRoutes } from './staff-messaging-outbox.js';
 import { registerLeadAttentionRoutes } from './lead-attention-notifications.js';
 import {registerAutomationRoutes} from './routes/automations.js';
 import {registerConversationNotificationRoutes} from './routes/conversation-notifications.js';
@@ -162,6 +163,7 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   registerOperationalNotificationRoutes(app, db);
   registerStaffMessagingDestinationRoutes(app, db);
   registerStaffMessagingConfigurationRoutes(app, db);
+  registerStaffMessagingOutboxRoutes(app, db);
   registerLeadAttentionRoutes(app, db);
   registerConversationNotificationRoutes(app, db);
   registerFollowUpNotificationRoutes(app, db);

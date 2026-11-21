@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import { createHmac, randomBytes } from 'node:crypto';
 import { test } from 'node:test';
+import { setTimeout as delay } from 'node:timers/promises';
 import { buildApp } from '../src/app.js';
 import { createDatabase } from '../src/db.js';
 import { sealSecret } from '../src/credentials.js';
 import { sha256 } from '../src/security.js';
+import { processOneStaffMessagingPublication } from '../src/staff-messaging-outbox.js';
 
 const url=process.env.TEST_DATABASE_URL;
 if(!url||new URL(url).pathname!=='/lead_operations_test'||!['localhost','127.0.0.1','[::1]'].includes(new URL(url).hostname))
@@ -131,4 +133,59 @@ test('Staff sender reservations isolate callbacks and authorize only scoped stat
  assert.equal((await api('PUT',personal+'/LEAD_ASSIGNED','agent',settings)).statusCode,409);
  assert.equal((await api('GET',personal+'/LEAD_ASSIGNED/history','agent')).json().items[0].snapshot.enabled,true);
  assert.equal((await api('GET',personal+'/LEAD_ASSIGNED/history','manager')).json().items.length,0);
+
+ // Real Lead assignment writes the event; subsequent routing and preference changes still fence the outbox.
+ assert.equal((await api('PUT',binding,'manager',{...update,version:2})).statusCode,200);
+ const campaignResponse=await api('POST','/api/campaigns','manager',{branchId:branch,name:'Staff publication campaign',routingMethod:'MANUAL'});
+ assert.equal(campaignResponse.statusCode,201,campaignResponse.body);
+ const campaign=campaignResponse.json().id;
+ assert.equal((await api('POST',`/api/campaigns/${campaign}/activate`)).statusCode,200);
+ const createLead=async(name:string,phone:string)=>{
+  const create=await api('POST','/api/leads','manager',{branchId:branch,campaignId:campaign,contact:{name,phone}});
+  assert.equal(create.statusCode,201,create.body);
+  return create.json().id as string;
+ };
+ const target=await createLead('First publication','+15550678001');
+ const assign=(id:string,version:number,agentId:string|null)=>api('POST',`/api/leads/${id}/assignment`,'manager',
+  {version,agentId,reason:'Staff publication fixture'});
+ assert.equal((await assign(target,1,accounts.agent!)).statusCode,200);
+ const outbox='/api/notification-messaging/outbox';
+ assert.deepEqual((await api('GET',outbox,'agent')).json().items,[]);
+ await db`CREATE FUNCTION fail_staff_audience_audit_fixture() RETURNS trigger LANGUAGE plpgsql AS $$
+  BEGIN IF NEW.action='STAFF_MESSAGING_AUDIENCE_PREPARED' THEN RAISE EXCEPTION 'Synthetic Audit failure'; END IF; RETURN NEW; END $$`;
+ await db`CREATE TRIGGER fail_staff_audience_audit_fixture BEFORE INSERT ON audit_log
+  FOR EACH ROW EXECUTE FUNCTION fail_staff_audience_audit_fixture()`;
+ try {
+  assert.equal(await processOneStaffMessagingPublication(db),true);
+  assert.equal((await db`SELECT failures FROM staff_messaging_publication`)[0]!.failures,1);
+  assert.equal((await db`SELECT count(*)::int n FROM staff_messaging_outbox`)[0]!.n,0);
+ } finally {
+  await db`DROP TRIGGER fail_staff_audience_audit_fixture ON audit_log`;
+  await db`DROP FUNCTION fail_staff_audience_audit_fixture()`;
+ }
+ await delay(1100);
+ const copies=await Promise.all(Array.from({length:5},()=>processOneStaffMessagingPublication(db)));
+ assert.equal(copies.filter(Boolean).length,1);
+ const [prepared]=(await api('GET',outbox,'agent')).json().items;
+ assert.equal(prepared.eventType,'LEAD_ASSIGNED');
+ assert.equal(prepared.language,'en');
+ assert.equal(prepared.state,'PREPARED');
+ assert.doesNotMatch(JSON.stringify(prepared),/15550090105|First publication/);
+ assert.deepEqual((await api('GET',outbox,'manager')).json().items,[]);
+ assert.equal((await api('PUT','/api/notification-messaging/destination','agent',{version:2,enabled:false,phone:null})).statusCode,200);
+ assert.equal((await api('GET',outbox,'agent')).json().items[0].state,'SUPPRESSED');
+ assert.equal((await assign(target,2,null)).statusCode,200);
+ assert.deepEqual((await api('GET',outbox,'agent')).json().items,[]);
+
+ const later=await createLead('After the consent withdrawal','+15550678002');
+ assert.equal((await assign(later,1,accounts.agent!)).statusCode,200);
+ assert.equal((await api('PUT','/api/notification-messaging/destination','agent',{version:3,enabled:true,phone:syntheticPhone})).statusCode,200);
+ assert.equal(await processOneStaffMessagingPublication(db),true);
+ assert.deepEqual((await api('GET',outbox,'agent')).json().items,[],'Late consent cannot prepare a historical event');
+ assert.equal((await db`SELECT count(*)::int n FROM staff_messaging_outbox`)[0]!.n,1);
+ const stale=await createLead('Binding cancelled before materialization','+15550678003');
+ assert.equal((await assign(stale,1,accounts.agent!)).statusCode,200);
+ assert.equal((await api('PUT',binding,'manager',{...update,version:3,enabled:false})).statusCode,200);
+ assert.equal(await processOneStaffMessagingPublication(db),true);
+ assert.equal((await db`SELECT count(*)::int n FROM staff_messaging_publication WHERE state='SUPPRESSED'`)[0]!.n,1);
 });
