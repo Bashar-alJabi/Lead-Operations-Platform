@@ -917,3 +917,9 @@ Formality/disclosure/handoff operational defaults وCampaign overrides لهاver
 اختيرتmanifest دائمةبدلCSV مخزنةلتجنبartifact قديمةتحتويdata فقدصاحبهاحققراءتها. CSV تُولدبstream/backpressure وقيمحالية،ولايُنشأURL عام أوblob يُسلّمبمجردمعرفةUUID. page-size25 وقيمcalculated عبرbatch shared service معLead details؛لاnetwork N+1 أوقياسHuman أداءمنAI. metadata/history keyset paged،وTTL/cancel يزيلانmembership معإبقاءالتاريخ. trade-off أنmembership تُلتقطتدريجيًاوالقيمتُقرأعندالتنزيل،وليستsnapshot محاسبية؛يظهرذلكفيUI. [العقدوحدودالحمايةوالسعة](lead-export.md).
 
 Native174 تعالجSQL NULL فيصلاحيةLead غيرالمسندةلـAgent بـCOALESCEfalse؛هذايحميNOT EXISTS/preflight/native member guards معًا،ويمنعبدءCSV عندماالنطاقمرفوض. لا تعديللـ173 المطبقة؛اختبار403 قبلheaders وnative forged-member وfull gates يثبتانالتصحيح.
+
+## قراءة سجل Audit الإداري — migration 225
+
+تعرض `GET /api/audit-events` نسخة محددة من سجل Audit. تعيد التحقق من الحساب والدور والجلسة ضمن معاملة القراءة. يقرأ Super Admin ضمن مؤسسته، ويقرأ Manager أحداث فرعه المسجَّل في السجل. يُعرض اسم المستخدم الحالي ضمن نطاقه، وتبقى هوية الفاعل المحجوبة متميزة عن حدث النظام. تسجل واجهة العمليات نشاط كل مورد ضمن صلاحياته الحالية.
+
+تحد الصفحة إلى 50 حدثًا باستخدام معرّف السجل التنازلي ومؤشر الصفحة التالي. تفصل فهارس 225 استعلام المؤسسة عن استعلام الفرع. تدعم القراءة مرشحات الإجراء والفاعل ومعرّف السجل وتواريخ UTC. تقتصر الحقول على البيانات الوصفية المعرّفة وقيم انتقال Lifecycle المعروفة. تبقى تفاصيل الأحداث الأصلية في قاعدة البيانات ضمن سجلاتها الحالية، وتزيل الواجهة النتائج السابقة عند فشل إعادة القراءة.

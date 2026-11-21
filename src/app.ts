@@ -26,6 +26,7 @@ import { registerIdentityEmailRoutes } from './routes/identity-email.js';
 import { registerContactRoutes } from './routes/contacts.js';
 import { registerFieldRoutes } from './routes/fields.js';
 import { registerLeadWorkflowRoutes } from './routes/lead-workflow.js';
+import { registerAuditRoutes } from './routes/audit.js';
 import { registerLeadIntakeOriginRoutes } from './routes/lead-intake-origin.js';
 import {registerAIInitialMessageRoutes} from './routes/ai-initial-message.js';
 import { registerLeadViewRoutes } from './routes/lead-views.js';
@@ -176,6 +177,7 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   registerContactRoutes(app, db);
   registerFieldRoutes(app, db);
   registerLeadWorkflowRoutes(app, db);
+  registerAuditRoutes(app, db);
   registerLeadIntakeOriginRoutes(app, db);
   registerAIInitialMessageRoutes(app,db);
   registerLeadViewRoutes(app, db);
