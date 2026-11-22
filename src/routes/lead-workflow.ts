@@ -59,6 +59,26 @@ async function requireFollowup(tx: postgres.TransactionSql, actor: Principal, id
 }
 
 export function registerLeadWorkflowRoutes(app: FastifyInstance, db: Database): void {
+  app.get<{ Params: { id: string }; Querystring: { cursor?: string } }>('/api/leads/:id/ai-followups',{
+    schema:{params:leadParam,querystring:{type:'object',additionalProperties:false,properties:{cursor:{type:'string',maxLength:256}}}},
+  }, async (request,reply) => {
+    const actor=await principalFromRequest(request,db),cursor=decodeCursor(request.query.cursor),limit=20;
+    reply.header('Cache-Control','no-store');
+    return db.begin(async tx => {
+      const lead=await lockedLead(tx,actor,request.params.id,false);
+      if (!await currentPaymentSession(tx,actor,request)) throw new HttpError(403,'LEAD_ACCESS_REVOKED');
+      const rows=await tx`SELECT id,state,stop_reason AS reason,anchored_at AS "anchoredAt",due_at AS "dueAt",
+        changed_at AS "changedAt",anchored_at::text AS cursor_at
+        FROM ai_followup_schedule WHERE lead_id=${lead.id} AND organization_id=${actor.organizationId}
+          AND branch_id=${lead.branch_id} AND campaign_id=${lead.campaign_id}
+          AND (${cursor?.timestamp??null}::text::timestamptz IS NULL OR
+            (anchored_at,id)<(${cursor?.timestamp??null}::text::timestamptz,${cursor?.id??null}::uuid))
+        ORDER BY anchored_at DESC,id DESC LIMIT ${limit+1}`;
+      const items=rows.slice(0,limit), last=items.at(-1);
+      return { items,nextCursor:rows.length>limit && last ? encodeCursor({timestamp:last.cursor_at,id:last.id}) : null };
+    });
+  });
+
   const transferPath = '/api/leads/:id/branch-transfers';
   app.post<{ Params: { id: string }; Body: { version: number; branchId: string; campaignId: string; agentId: string | null; reason: string } }>(transferPath, {
     schema: { params: leadParam, body: { type: 'object', additionalProperties: false,

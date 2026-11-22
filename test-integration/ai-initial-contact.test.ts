@@ -10,6 +10,7 @@ import {emptyKnowledge} from '../src/ai/knowledge.js';
 import {emptyAIOperationalConfig} from '../src/ai/operational-config.js';
 import {emptyAIBehaviorPolicy} from '../src/ai/behavior-policy.js';
 import {processOneAIInitialContact,applyInitialContact} from '../src/ai/initial-contact.js';
+import {processOneAIFollowupSchedule} from '../src/ai/followup-schedule.js';
 import {processOneMessagingJob} from '../src/messaging/send-worker.js';
 import {metaWhatsAppSendAdapter} from '../src/messaging/providers.js';
 import {processOneInboundEvent} from '../src/messaging/inbound-events.js';
@@ -64,6 +65,9 @@ test('Initial contact config to actual trusted intake, durable worker, central p
  assert.equal((await api('GET',followupRoot)).json().ready,false);
  assert.equal((await api('PUT',followupRoot,{...approval,version:2})).statusCode,200);
  assert.equal((await db`SELECT count(*)::int AS n FROM conversation_message`)[0]!.n,0);
+ const timing=await api('PUT','/api/ai/campaigns/'+campaign+'/followup-policy',{version:0,
+  definition:{enabled:true,initialDelaySeconds:0,delaysSeconds:[1],stopOnReply:true,finalAction:'COMPLETE'},reason:'Enable synthetic follow-up timing'});
+ assert.equal(timing.statusCode,200,timing.body);
  let n=0;const intake=async(status='GRANTED')=>{const phone='+1555888'+String(++n).padStart(4,'0'),ct=(await db`INSERT INTO contact(organization_id,name,phone_normalized) VALUES(${org},'Synthetic customer',${phone}) RETURNING id`)[0]!.id;
    await db`INSERT INTO lead(organization_id,branch_id,campaign_id,contact_id,source_kind,lifecycle) VALUES(${org},${branch},${campaign},${ct},'MANUAL','CLOSED')`;
    if(status==='GRANTED')await db`INSERT INTO messaging_consent(contact_id,channel,status,source,evidence) VALUES(${ct},'WHATSAPP','GRANTED','Trusted synthetic consent','Synthetic explicit opt-in record')`;
@@ -75,12 +79,25 @@ test('Initial contact config to actual trusted intake, durable worker, central p
  const action=(await db`SELECT * FROM ai_initial_send_action WHERE admission_id=${first.admission}`)[0]!;assert.equal(action.state,'APPLIED');
  assert.equal((await db`SELECT assigned_agent_id FROM lead WHERE id=${first.lead}`)[0]!.assigned_agent_id,null);
  assert.equal(await processOneAIInitialContact(db),false);assert.equal(sends,0);
+ assert.equal((await api('GET','/api/leads/'+first.lead+'/ai-followups')).json().items.length,0);
  const dispatch=()=>processOneMessagingJob(db,{...metaWhatsAppSendAdapter},{syntheticAI:true});assert.equal(await dispatch(),true);assert.equal(sends,1);
  assert.equal((await db`SELECT delivery_state FROM conversation_message WHERE id=${action.message_id}`)[0]!.delivery_state,'SENT');assert.equal((await db`SELECT state FROM conversation WHERE id=${action.conversation_id}`)[0]!.state,'AI_WAITING_FOR_LEAD');
+ const schedulePath='/api/leads/'+first.lead+'/ai-followups',waiting=(await api('GET',schedulePath)).json().items[0];
+ assert.equal(waiting.state,'WAITING');assert.equal(Date.parse(waiting.dueAt)-Date.parse(waiting.anchoredAt),1000);
+ assert.equal((await api('GET',schedulePath,undefined,'second')).statusCode,404);
+ await assert.rejects(db`INSERT INTO ai_followup_schedule(acknowledged_attempt_id) SELECT acknowledged_attempt_id FROM ai_followup_schedule WHERE id=${waiting.id}`,/AI_FOLLOWUP_ACK_REQUIRED/);
+ await assert.rejects(db`UPDATE ai_followup_schedule SET due_at=clock_timestamp() WHERE id=${waiting.id}`,/AI_FOLLOWUP_SCHEDULE_RETAINED/);
+ await delay(1100);
+ const due=await Promise.all(Array.from({length:5},()=>processOneAIFollowupSchedule(db)));
+ assert.equal(due.filter(Boolean).length,1);
+ assert.equal((await api('GET',schedulePath)).json().items[0].state,'READY');
+ assert.equal((await db`SELECT count(*)::int AS n FROM conversation_message WHERE conversation_id=${action.conversation_id}`)[0]!.n,1);
  const dto=(await api('GET','/api/leads/'+first.lead+'/intake-origin')).json().origin.initialAI;assert.equal(dto.runtime.deliveryState,'SENT');assert.equal(dto.runtimeStarted,true);assert.equal((await api('GET','/api/leads/'+first.lead+'/intake-origin',undefined,'second')).statusCode,404);
  // Real signed inbound continues through the existing isolated AI reply pipeline, without fabricated initial inbound.
  const payload=JSON.stringify({object:'whatsapp_business_account',entry:[{id:'123456789',changes:[{field:'messages',value:{messaging_product:'whatsapp',metadata:{phone_number_id:'15550001111'},messages:[{id:'reply-'+randomUUID(),from:first.phone.slice(1),timestamp:String(Math.floor(Date.now()/1000)),type:'text',text:{body:'What is the campaign price?'}}]}}]}]});
  assert.equal((await app.inject({method:'POST',url:'/api/webhooks/messaging/meta/'+mc,payload,headers:{'content-type':'application/json','x-hub-signature-256':'sha256='+createHmac('sha256','synthetic-initial-hmac').update(payload).digest('hex')}})).statusCode,200);assert.equal(await processOneInboundEvent(db),true);
+ assert.equal((await api('GET',schedulePath)).json().items[0].reason,'CUSTOMER_REPLIED');
+ assert.equal((await api('GET',schedulePath)).json().items[0].state,'STOPPED');
  assert.equal(await processOneAICustomerProposal(db,{adapters:{OPENAI:{simulate:async()=>null,proposeCustomer:async()=>({decision:'ANSWER',referenceIds:['section:prices'],questionId:null,answerValue:null,sourceQuote:null,handoffReason:null})}}}),true);
  assert.equal(await processOneAICustomerSend(db),true);assert.equal((await db`SELECT count(*)::int AS n FROM conversation_message WHERE conversation_id=${action.conversation_id} AND author_type='CUSTOMER'`)[0]!.n,1);
  // Avoid sending the follow-on text with this template-only transport fixture.
@@ -91,6 +108,7 @@ test('Initial contact config to actual trusted intake, durable worker, central p
  const cv=(await db`SELECT version FROM conversation WHERE id=${ta.conversation_id}`)[0]!;assert.equal((await api('POST','/api/conversations/'+ta.conversation_id+'/takeover',{version:cv.version,reason:'Manager takes over before initial send'})).statusCode,200);await dispatch();assert.equal(sends,1);
  const uncertain=await intake();await processOneAIInitialContact(db);mode='UNKNOWN';await dispatch();assert.equal(sends,2);const ua=(await db`SELECT message_id FROM ai_initial_send_action WHERE admission_id=${uncertain.admission}`)[0]!;
  assert.equal((await db`SELECT delivery_state FROM conversation_message WHERE id=${ua.message_id}`)[0]!.delivery_state,'UNKNOWN');assert.equal(await dispatch(),false);assert.equal(sends,2);
+ assert.equal((await api('GET','/api/leads/'+uncertain.lead+'/ai-followups')).json().items.length,0);
  // Explicit synthetic fixture reset after the separate UNKNOWN case; production never auto-clears provider health.
  await db`UPDATE messaging_sender SET health='HEALTHY' WHERE id=${sender}`;
  await db`UPDATE integration_connection SET status='CONNECTED' WHERE id=${mc}`;
@@ -127,4 +145,10 @@ test('Initial contact config to actual trusted intake, durable worker, central p
  const sourceAdmission=(await db`SELECT a.*,r.origin_kind,r.actor_id,r.session_id FROM ai_initial_admission a JOIN lead_intake_receipt r ON r.id=a.receipt_id WHERE r.lead_id=${processed.lead_id}`)[0]!;
  assert.equal(sourceAdmission.origin_kind,'SOURCE');assert.equal(sourceAdmission.actor_id,null);assert.equal(sourceAdmission.session_id,null);assert.equal(sourceAdmission.state,'ADMITTED');
  await processOneAIInitialContact(db);const sa=(await db`SELECT * FROM ai_initial_send_action WHERE admission_id=${sourceAdmission.id}`)[0]!;assert.equal(sa.state,'APPLIED');assert.equal(await dispatch(),true);assert.equal(sends,3);
+ const sourceSchedule='/api/leads/'+processed.lead_id+'/ai-followups';
+ assert.equal((await api('GET',sourceSchedule)).json().items[0].state,'WAITING');
+ const sourceVersion=(await db`SELECT version FROM conversation WHERE id=${sa.conversation_id}`)[0]!.version;
+ assert.equal((await api('POST','/api/conversations/'+sa.conversation_id+'/takeover',{version:sourceVersion,reason:'Manager ends the AI episode'})).statusCode,200);
+ assert.equal((await api('GET',sourceSchedule)).json().items[0].reason,'AI_CONTROL_CHANGED');
+ assert.equal((await db`SELECT count(*)::int AS n FROM audit_log WHERE target_id=${first.lead} AND action IN ('AI_FOLLOWUP_WAITING','AI_FOLLOWUP_READY','AI_FOLLOWUP_STOPPED')`)[0]!.n,3);
 });

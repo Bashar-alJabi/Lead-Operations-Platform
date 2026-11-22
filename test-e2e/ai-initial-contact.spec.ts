@@ -33,6 +33,8 @@ test('First AI contact uses managed approved template UI, fresh real intake, tru
  await expect(followup).toContainText('Approved synthetic follow-up');
  await expect(followup.getByRole('list')).toContainText('Independent follow-up approval');
  await expect(setup).toContainText('Approved first contact price 100 EUR');
+ expect((await page.request.put('/api/ai/campaigns/'+cid+'/followup-policy',{headers,data:{version:0,definition:{enabled:true,
+  initialDelaySeconds:0,delaysSeconds:[240],stopOnReply:true,finalAction:'COMPLETE'},reason:'Synthetic scheduled follow-up'}})).status()).toBe(200);
  const create=async(name:string)=>{const r=await page.request.post('/api/leads',{headers,data:{branchId:me.branchId,campaignId:cid,contact:{name,phone:'+15556667901'}}});expect(r.status(),await r.text()).toBe(201);return(await r.json()).id;};
  const old=await create('Browser actual initial customer'),consentPath='/api/leads/'+old+'/messaging-consent',v=(await(await page.request.get(consentPath)).json()).version;
  expect((await page.request.put(consentPath,{headers,data:{version:v,status:'GRANTED',doNotContact:false,evidence:'Authorized synthetic prior opt-in',source:'Dedicated synthetic record'}})).status()).toBe(200);
@@ -47,5 +49,12 @@ test('First AI contact uses managed approved template UI, fresh real intake, tru
  const panel=page.locator('[data-lead-intake-origin]');await panel.getByRole('button',{name:'Review intake origin',exact:true}).click();await expect(panel.locator('[data-initial-ai-runtime]')).toContainText('QUEUED');
  expect((await page.request.post('/__test__/ai-customer-send',{headers:fixtureHeaders,data:{dispatch:true}})).status()).toBe(200);await panel.getByRole('button',{name:'Review intake origin',exact:true}).click();await expect(panel.locator('[data-initial-ai-runtime]')).toContainText('SENT');
  const dto=(await(await page.request.get('/api/leads/'+lead+'/intake-origin')).json()).origin.initialAI;expect(dto.runtime.deliveryState).toBe('SENT');expect(dto.liveTransferEnabled).toBe(false);
+ const scheduled=page.locator('[data-ai-followup-schedule]');
+ await scheduled.getByRole('button',{name:'Review AI follow-ups',exact:true}).click();
+ await expect(scheduled.getByRole('listitem')).toContainText('Scheduled');
+ const takeover=await page.request.post(`/api/conversations/${dto.runtime.conversationId}/takeover`,{headers,data:{version:1,reason:'Manager stops the scheduled follow-up'}});
+ expect(takeover.ok(),await takeover.text()).toBeTruthy();
+ await scheduled.getByRole('button',{name:'Review AI follow-ups',exact:true}).click();
+ await expect(scheduled.getByRole('listitem')).toContainText('Conversation control changed');
  await page.getByRole('combobox',{name:'Language'}).selectOption('fr');await expect(panel).toContainText('La mise en file ne prouve pas');await page.getByRole('combobox',{name:'Language'}).selectOption('ar');await page.setViewportSize({width:390,height:844});await expect(panel).toContainText('الإدراج في قائمة الإرسال');await panel.screenshot({path:'.local/e2e/ai-initial-contact-ar.png'});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);expect(errors).toEqual([]);
 });

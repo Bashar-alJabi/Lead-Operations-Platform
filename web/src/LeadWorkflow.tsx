@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import {FollowUpNotificationStatus} from './FollowUpNotifications.js';
 import { LeadAutomationReview } from './LeadAutomationReview.js';
 import { LeadBranchTransfer } from './LeadBranchTransfer.js';
+import { AIFollowupSchedule } from './AIFollowupSchedule.js';
 
 type Api = <T>(path: string, options?: RequestInit) => Promise<T>;
 type Locale = 'ar'|'fr'|'en';
@@ -81,6 +82,7 @@ export function LeadWorkflow({ lead, role, locale, api, onChanged }: {
     return new Date(date.getTime() - offset).toISOString().slice(0, 16);
   };
   return <div className="lead-workflow">
+    <AIFollowupSchedule key={lead.id} leadId={lead.id} locale={locale} api={api} />
     {role === 'SUPER_ADMIN' && <LeadBranchTransfer key={`${lead.id}:${lead.branch_id}`} lead={lead} locale={locale} api={api}
       onChanged={async () => { await onChanged(); await load(); }} />}
     <LeadAutomationReview key={`${lead.id}:${lead.version}`} leadId={lead.id} locale={locale} api={api}
