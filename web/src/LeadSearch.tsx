@@ -10,7 +10,10 @@ type User = { id: string; name: string; role: string; branch_id: string | null }
 type Field = { id: string; label: string; field_type: string; validation?:{currency?:string}; options: { value: string; label: string; active: boolean }[] };
 export type LeadColumn = 'contact'|'campaign'|'branch'|'lifecycle'|'owner'|'source'|'created_at'|'followup';
 export const defaultLeadColumns: LeadColumn[] = ['contact','campaign','branch','lifecycle','owner'];
-type SavedView = { id: string; owner_user_id: string; name: string; scope: string; filters: Record<string, string>; columns: LeadColumn[] };
+type SavedView = { id: string; owner_user_id: string; name: string; scope: string; filters: Record<string, string>; columns: LeadColumn[];
+  fieldColumns?:string[]|null;fieldFilterUnavailable?:boolean };
+type TableChoices = { items:{id:string;label:string}[];nextAfter:string|null };
+const maxCampaignColumns=12;
 const labels = {
   ar: { search: 'بحث بالاسم أو الهاتف أو البريد أو رقم الفرصة', branch: 'الفرع', campaign: 'الحملة', agent: 'الوكيل', lifecycle: 'حالة الفرصة', source: 'المصدر', from: 'من تاريخ', to: 'إلى تاريخ', followup: 'المتابعة', field: 'حقل الحملة', value: 'قيمة الحقل', all: 'الكل', noFollowup: 'بلا متابعة مفتوحة', overdue: 'متابعة متأخرة', upcoming: 'متابعة قادمة', apply: 'تطبيق الفلاتر', reset: 'إزالة الفلاتر', views: 'المشاهد المحفوظة', viewName: 'اسم المشهد', saveView: 'حفظ المشهد', removeView: 'حذف المشهد', scope: 'النطاق', personal: 'شخصي', sharedBranch: 'مشترك في الفرع', sharedOrg: 'مشترك في المؤسسة', more: 'المزيد', sort: 'الترتيب', newest: 'الأحدث أولاً', oldest: 'الأقدم أولاً', columns: 'الأعمدة الظاهرة', contact: 'جهة الاتصال', owner: 'المسؤول', created: 'تاريخ الإنشاء' },
   fr: { search: 'Nom, téléphone, e-mail ou ID', branch: 'Agence', campaign: 'Campagne', agent: 'Agent', lifecycle: 'Cycle', source: 'Source', from: 'Depuis', to: 'Jusqu’à', followup: 'Suivi', field: 'Champ', value: 'Valeur', all: 'Tous', noFollowup: 'Sans suivi ouvert', overdue: 'Suivi en retard', upcoming: 'Suivi à venir', apply: 'Appliquer', reset: 'Effacer', views: 'Vues enregistrées', viewName: 'Nom de la vue', saveView: 'Enregistrer la vue', removeView: 'Supprimer', scope: 'Portée', personal: 'Personnel', sharedBranch: 'Agence partagée', sharedOrg: 'Organisation partagée', more: 'Plus', sort: 'Tri', newest: 'Plus récent', oldest: 'Plus ancien', columns: 'Colonnes visibles', contact: 'Contact', owner: 'Responsable', created: 'Créé le' },
@@ -23,7 +26,7 @@ const empty: Filter = { conversationState:'',controller:'',payment:'',enrollment
 export function LeadSearch({ locale, branches, campaigns, users, currentUser, api, onSearch, columns, onColumns }: {
   locale: Locale; branches: Branch[]; campaigns: Campaign[]; users: User[];
   currentUser: { id: string; role: string; branchId: string | null }; api: Api;
-  onSearch: (query: string) => Promise<void>; columns: LeadColumn[]; onColumns: (columns: LeadColumn[]) => void;
+  onSearch: (query: string,fieldColumns:string[]|null) => Promise<void>; columns: LeadColumn[]; onColumns: (columns: LeadColumn[]) => void;
 }) {
   const t = labels[locale];
   const extra={ar:{state:'حالة المحادثة',controller:'المتحكم بالمحادثة',payment:'الدفع',enrollment:'التسجيل',attention:'الانتباه',mode:'وضع السجلات المالية',paid:'دفع مؤكد',none:'بلا تأكيد',enrolled:'تسجيل مؤكد',yes:'تحتاج انتباهًا',no:'لا تحتاج انتباهًا'},en:{state:'Conversation state',controller:'Conversation controller',payment:'Payment',enrollment:'Enrollment',attention:'Attention',mode:'Financial record mode',paid:'Confirmed payment',none:'No confirmation',enrolled:'Confirmed enrollment',yes:'Needs attention',no:'No attention flag'},fr:{state:'État de conversation',controller:'Contrôle de conversation',payment:'Paiement',enrollment:'Inscription',attention:'Attention',mode:'Mode des données financières',paid:'Paiement confirmé',none:'Sans confirmation',enrolled:'Inscription confirmée',yes:'À examiner',no:'Sans alerte'}}[locale];
@@ -35,6 +38,12 @@ export function LeadSearch({ locale, branches, campaigns, users, currentUser, ap
   const [viewCursor, setViewCursor] = useState<string | null>(null);
   const [viewName, setViewName] = useState('');
   const [viewScope, setViewScope] = useState<'PERSONAL'|'BRANCH'|'ORGANIZATION'>('PERSONAL');
+  const [fieldColumns,setFieldColumns]=useState<string[]|null>(null);
+  const [tableChoices,setTableChoices]=useState<(TableChoices&{campaignId:string})|null>(null);
+  const choices=tableChoices?.campaignId===form.campaignId ? tableChoices : null;
+  const checkedFieldColumns=fieldColumns??choices?.items.slice(0,maxCampaignColumns).map(field=>field.id)??[];
+  const tableWords={ar:{columns:'أعمدة الحملة',more:'المزيد من حقول الحملة'},en:{columns:'Campaign columns',more:'More campaign fields'},
+    fr:{columns:'Colonnes de campagne',more:'Autres champs de campagne'}}[locale];
   const columnOptions: { value: LeadColumn; label: string }[] = [
     { value: 'contact', label: t.contact }, { value: 'campaign', label: t.campaign },
     { value: 'branch', label: t.branch }, { value: 'lifecycle', label: t.lifecycle },
@@ -48,6 +57,24 @@ export function LeadSearch({ locale, branches, campaigns, users, currentUser, ap
     setViewCursor(result.nextCursor);
   }
   useEffect(() => { void loadViews().catch((failure) => setError(String(failure))); }, [currentUser.id]);
+  useEffect(()=>{
+    if(!form.campaignId){setTableChoices(null);return;}
+    const campaignId=form.campaignId;
+    let cancelled=false;
+    void api<TableChoices>(`/api/campaigns/${campaignId}/table-fields`)
+      .then(page=>{if(!cancelled)setTableChoices({...page,campaignId});})
+      .catch(failure=>{if(!cancelled){setTableChoices(null);setError(String(failure));}});
+    return ()=>{cancelled=true;};
+  },[form.campaignId,currentUser.id,currentUser.role,currentUser.branchId]);
+  async function moreTableChoices(){
+    if(!choices?.nextAfter) return;
+    const {campaignId,nextAfter}=choices;
+    try{
+      const page=await api<TableChoices>(`/api/campaigns/${campaignId}/table-fields?after=${encodeURIComponent(nextAfter)}`);
+      setTableChoices(previous=>previous?.campaignId===campaignId&&previous.nextAfter===nextAfter
+        ? {...page,campaignId,items:[...previous.items,...page.items]} : previous);
+    }catch(failure){setError(String(failure));}
+  }
   useEffect(() => {
     if (!form.campaignId) { setFields([]); return; }
     let cancelled = false;
@@ -57,10 +84,13 @@ export function LeadSearch({ locale, branches, campaigns, users, currentUser, ap
     return () => { cancelled = true; };
   }, [form.campaignId]);
   const field = fields.find((item) => item.id === form.fieldId);
-  const set = (key: FilterKey, value: string) => setForm((current) => ({ ...current, [key]: value,
-    ...(key === 'campaignId' ? { fieldId: '', fieldValue: '' } : {}),
-    ...(key === 'fieldId' ? { fieldValue: '' } : {}),
-  }));
+  const set = (key: FilterKey, value: string) => {
+    if(key==='campaignId')setFieldColumns(null);
+    setForm((current) => ({ ...current, [key]: value,
+      ...(key === 'campaignId' ? { fieldId: '', fieldValue: '' } : {}),
+      ...(key === 'fieldId' ? { fieldValue: '' } : {}),
+    }));
+  };
   const select = (key: FilterKey, title: string, values: { value: string; label: string }[]) =>
     <label>{title}<select aria-label={title} value={form[key]} onChange={(event) => set(key, event.target.value)}>
       <option value="">{t.all}</option>{values.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>;
@@ -80,7 +110,7 @@ export function LeadSearch({ locale, branches, campaigns, users, currentUser, ap
   }
   async function submit(next: Filter) {
     setBusy(true); setError('');
-    try { await onSearch(buildQuery(next).toString()); }
+    try { await onSearch(buildQuery(next).toString(),next.campaignId?fieldColumns:null); }
     catch (failure) { setError(String(failure)); } finally { setBusy(false); }
   }
   async function saveView() {
@@ -89,13 +119,19 @@ export function LeadSearch({ locale, branches, campaigns, users, currentUser, ap
       const filters = Object.fromEntries(buildQuery(form).entries());
       await api('/api/lead-views', { method: 'POST', body: JSON.stringify({ name: viewName,
         scope: viewScope, ...(viewScope === 'BRANCH' && currentUser.role === 'SUPER_ADMIN' ? { branchId: form.branchId } : {}),
-        filters, columns }) });
+        filters, columns,...(form.campaignId&&(fieldColumns!==null||choices)?{fieldColumns:checkedFieldColumns}:{}) }) });
       setViewName(''); await loadViews();
     } catch (failure) { setError(String(failure)); } finally { setBusy(false); }
   }
-  async function applyView(view: SavedView) {
+  async function applyView(viewId: string) {
     setBusy(true); setError('');
     try {
+      const view=await api<SavedView>(`/api/lead-views/${viewId}`);
+      if(view.fieldFilterUnavailable){
+        setError({ar:'تعذّر فتح المشهد لأن حقل الفلتر لم يعد متاحًا لك.',en:'The saved view uses a filter field you can no longer access.',
+          fr:'Cette vue utilise un champ de filtre auquel vous n’avez plus accès.'}[locale]);
+        return;
+      }
       const query = new URLSearchParams(view.filters);
       setForm({ ...empty, ...view.filters,
         fieldValue: view.filters.fieldValue ? fieldFilterInputValue(JSON.parse(view.filters.fieldValue)) : '',
@@ -103,7 +139,9 @@ export function LeadSearch({ locale, branches, campaigns, users, currentUser, ap
         to: view.filters.to ? new Date(view.filters.to).toISOString().slice(0, 16) : '',
       });
       onColumns(view.columns?.length ? view.columns.filter((column) => columnOptions.some((option) => option.value === column)) : defaultLeadColumns);
-      await onSearch(query.toString());
+      const selected=view.fieldColumns??null;
+      setFieldColumns(selected);
+      await onSearch(query.toString(),selected);
     }
     catch (failure) { setError(String(failure)); } finally { setBusy(false); }
   }
@@ -133,11 +171,17 @@ export function LeadSearch({ locale, branches, campaigns, users, currentUser, ap
       <label key={option.value}><input type="checkbox" checked={columns.includes(option.value)}
         disabled={columns.length === 1 && columns.includes(option.value)}
         onChange={(event) => onColumns(event.target.checked ? [...columns, option.value] : columns.filter((value) => value !== option.value))} />{option.label}</label>)}</fieldset>
+    {choices&&choices.items.length>0&&<fieldset className="lead-column-options"><legend>{tableWords.columns}</legend>
+      {choices.items.map(field=><label key={field.id}><input type="checkbox" data-campaign-field-column={field.id}
+        checked={checkedFieldColumns.includes(field.id)} disabled={checkedFieldColumns.length>=maxCampaignColumns&&!checkedFieldColumns.includes(field.id)}
+        onChange={event=>setFieldColumns(event.target.checked?[...checkedFieldColumns,field.id]:checkedFieldColumns.filter(id=>id!==field.id))}/>{field.label}</label>)}
+      {choices.nextAfter&&<button className="secondary" type="button" disabled={busy} onClick={()=>void moreTableChoices()}>{tableWords.more}</button>}
+    </fieldset>}
     <button disabled={busy}>{t.apply}</button><button className="secondary" type="button" disabled={busy}
-      onClick={() => { setForm(empty); onColumns(defaultLeadColumns); void submit(empty); }}>{t.reset}</button>
+      onClick={() => { setForm(empty); setFieldColumns(null); onColumns(defaultLeadColumns); void submit(empty); }}>{t.reset}</button>
   </form><div className="saved-view-controls"><h3>{t.views}</h3><div className="actions">
     {views.map((view) => <span key={view.id} className="saved-view-item"><button className="secondary" type="button" disabled={busy}
-      onClick={() => void applyView(view)}>{view.name}</button>{view.owner_user_id === currentUser.id && <button className="link"
+      onClick={() => void applyView(view.id)}>{view.name}</button>{view.owner_user_id === currentUser.id && <button className="link"
       disabled={busy} onClick={() => { setBusy(true); void api(`/api/lead-views/${view.id}`, { method: 'DELETE' })
         .then(() => loadViews()).catch((failure) => setError(String(failure))).finally(() => setBusy(false)); }}>{t.removeView}</button>}</span>)}
     {viewCursor && <button className="secondary" onClick={() => void loadViews(viewCursor).catch((failure) => setError(String(failure)))}>{t.more}</button>}

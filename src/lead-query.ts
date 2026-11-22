@@ -14,6 +14,14 @@ export const operationalFilterProperties={
 } as const;
 
 export type PreparedLeadFilter={value:postgres.JSONValue|null;emptyScope:boolean};
+export function leadFilterFieldAccess(tx:postgres.TransactionSql,actor:Principal){
+ return tx`ca.organization_id=${actor.organizationId} AND fd.organization_id=ca.organization_id
+   AND (fd.branch_id IS NULL OR fd.branch_id=ca.branch_id) AND (fd.campaign_id IS NULL OR fd.campaign_id=ca.id)
+   AND (${actor.role==='SUPER_ADMIN'} OR ca.branch_id=${actor.branchId}) AND cf.active AND fd.active AND cf.filterable
+   AND (${actor.role!=='AGENT'} OR EXISTS(SELECT 1 FROM lead visible WHERE visible.campaign_id=ca.id AND visible.organization_id=${actor.organizationId}
+    AND visible.branch_id=${actor.branchId} AND visible.assigned_agent_id=${actor.id}))
+   AND (${actor.role==='SUPER_ADMIN'} OR ${actor.role==='MANAGER'} AND cf.visible_to_manager OR ${actor.role==='AGENT'} AND cf.visible_to_agent)`;
+}
 export async function prepareLeadFilter(tx:postgres.TransactionSql,actor:Principal,q:LeadFilter):Promise<PreparedLeadFilter>{
  if(q.branchId)requireBranch(actor,q.branchId);
  if(q.from&&q.to&&Date.parse(q.from)>Date.parse(q.to))throw new HttpError(400,'INVALID_DATE_RANGE');
@@ -25,12 +33,7 @@ export async function prepareLeadFilter(tx:postgres.TransactionSql,actor:Princip
  if(!q.fieldId)return {value:null,emptyScope:false};
  if(!q.campaignId)throw new HttpError(400,'FIELD_FILTER_REQUIRES_CAMPAIGN');
  const f=(await tx`SELECT fd.field_type,fd.value_mode,fd.options,fd.validation FROM campaign_field cf JOIN field_definition fd ON fd.id=cf.field_id
-  JOIN campaign ca ON ca.id=cf.campaign_id WHERE cf.campaign_id=${q.campaignId} AND cf.field_id=${q.fieldId} AND ca.organization_id=${actor.organizationId}
-   AND fd.organization_id=ca.organization_id AND (fd.branch_id IS NULL OR fd.branch_id=ca.branch_id) AND (fd.campaign_id IS NULL OR fd.campaign_id=ca.id)
-   AND (${actor.role==='SUPER_ADMIN'} OR ca.branch_id=${actor.branchId}) AND cf.active AND fd.active AND cf.filterable
-   AND (${actor.role!=='AGENT'} OR EXISTS(SELECT 1 FROM lead visible WHERE visible.campaign_id=ca.id AND visible.organization_id=${actor.organizationId}
-    AND visible.branch_id=${actor.branchId} AND visible.assigned_agent_id=${actor.id}))
-   AND (${actor.role==='SUPER_ADMIN'} OR ${actor.role==='MANAGER'} AND cf.visible_to_manager OR ${actor.role==='AGENT'} AND cf.visible_to_agent)`)[0];
+  JOIN campaign ca ON ca.id=cf.campaign_id WHERE cf.campaign_id=${q.campaignId} AND cf.field_id=${q.fieldId} AND ${leadFilterFieldAccess(tx,actor)}`)[0];
  if(!f)throw new HttpError(404,'FIELD_NOT_FOUND');if(f.value_mode==='CALCULATED')throw new HttpError(409,'CALCULATED_FILTER_NOT_READY');
  let parsed:unknown;try{parsed=JSON.parse(q.fieldValue!);}catch{throw new HttpError(400,'FIELD_FILTER_INVALID');}
  const value=validateFieldValue(f.field_type as FieldType,parsed,f.options as FieldOption[],f.validation as FieldValidation) as postgres.JSONValue;

@@ -28,7 +28,7 @@ test('Campaign lead columns show current permitted field values and clear after 
     const {id:fieldId}=await field.json();
     const bindingUrl=`/api/campaigns/${campaignId}/fields/${fieldId}`;
     const binding={active:true,position:0,requiredStage:'NONE',visibleToAgent:true,editableByAgent:false,visibleToManager:true,
-      editableByManager:true,showInTable:true,showInDetails:true,filterable:false,usableByAutomation:false,usableByAi:false};
+      editableByManager:true,showInTable:true,showInDetails:true,filterable:true,usableByAutomation:false,usableByAi:false};
     expect((await manager.request.put(bindingUrl,{headers,data:binding})).status()).toBe(200);
     expect((await manager.request.post(`/api/campaigns/${campaignId}/activate`,{headers})).status()).toBe(200);
     const lead=await manager.request.post('/api/leads',{headers,data:{campaignId,branchId,contact:{name:'Campaign table customer',email:'table-'+randomUUID()+'@browser.test'}}});
@@ -47,10 +47,27 @@ test('Campaign lead columns show current permitted field values and clear after 
     await expect(cell).toHaveText(untrusted);
     await expect(cell.locator('img')).toHaveCount(0);
 
-    expect((await manager.request.put(bindingUrl,{headers,data:{...binding,version:1,visibleToAgent:false}})).status()).toBe(200);
+    const fieldChoice=agent.locator(`[data-campaign-field-column="${fieldId}"]`);
+    await expect(fieldChoice).toBeChecked();
+    await agent.getByLabel('View name',{exact:true}).fill('Campaign field saved');
+    await agent.getByRole('button',{name:'Save view',exact:true}).click();
+    await expect(agent.getByRole('button',{name:'Campaign field saved',exact:true})).toBeVisible();
+    await fieldChoice.uncheck();
     await agent.getByRole('button',{name:'Apply filters',exact:true}).click();
     await expect(column).toHaveCount(0);
+    await agent.getByRole('button',{name:'Campaign field saved',exact:true}).click();
+    await expect(cell).toHaveText(untrusted);
+    expect((await agent.request.post('/api/lead-views',{headers,data:{name:'Sensitive field filter',scope:'PERSONAL',
+      filters:{campaignId,fieldId,fieldValue:JSON.stringify(untrusted)},columns:['contact'],fieldColumns:[fieldId]}})).status()).toBe(201);
+
+    expect((await manager.request.put(bindingUrl,{headers,data:{...binding,version:1,visibleToAgent:false}})).status()).toBe(200);
+    await agent.getByRole('button',{name:'Campaign field saved',exact:true}).click();
+    await expect(agent.locator(`[data-lead-row="${leadId}"]`)).toBeVisible();
+    await expect(column).toHaveCount(0);
     await expect(cell).toHaveCount(0);
+    await agent.reload();
+    await agent.getByRole('button',{name:'Sensitive field filter',exact:true}).click();
+    await expect(agent.getByRole('alert')).toContainText('uses a filter field you can no longer access');
     expect(await agent.evaluate(()=>Object.hasOwn(window,'leadTableXss'))).toBe(false);
   }finally{await managerContext.close();await agentContext.close();}
 });

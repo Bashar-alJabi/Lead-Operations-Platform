@@ -47,10 +47,13 @@ type Lead = { id: string; branch_id: string; campaign_id: string; campaign_name?
 type CampaignTableField = { id: string; label: string; fieldType: string };
 type LeadPage = { items: Lead[]; nextCursor: string | null; tableFields?: CampaignTableField[] };
 
-function leadListUrl(filters: string, cursor?: string) {
+function leadListUrl(filters: string, fieldColumns: string[] | null, cursor?: string) {
   const query = new URLSearchParams(filters);
   query.set('limit', '50');
-  if (query.has('campaignId')) query.set('tableFields', 'true');
+  if (query.has('campaignId') && fieldColumns?.length!==0) {
+    query.set('tableFields', 'true');
+    for (const fieldId of fieldColumns??[]) query.append('fieldColumn',fieldId);
+  }
   if (cursor) query.set('cursor', cursor);
   return '/api/leads?' + query;
 }
@@ -153,6 +156,7 @@ function App() {
   const [nextCampaignCursor, setNextCampaignCursor] = useState<string | null>(null);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [campaignTableFields, setCampaignTableFields] = useState<CampaignTableField[]>([]);
+  const [leadFieldColumns, setLeadFieldColumns] = useState<string[] | null>(null);
   const [nextLeadCursor, setNextLeadCursor] = useState<string | null>(null);
   const [leadQuery, setLeadQuery] = useState('');
   const [leadColumns, setLeadColumns] = useState<LeadColumn[]>(defaultLeadColumns);
@@ -202,7 +206,7 @@ function App() {
     try {
       const [branchResult, campaignResult, leadResult, userResult] = await Promise.allSettled([
         api<{ items: Branch[] }>('/api/branches'), api<{ items: Campaign[]; nextCursor: string | null }>('/api/campaigns'),
-        api<LeadPage>(leadListUrl(leadQuery)),
+        api<LeadPage>(leadListUrl(leadQuery,leadFieldColumns)),
         user.role === 'AGENT' ? Promise.resolve({ items: [] as ManagedUser[], nextCursor: null }) : api<{ items: ManagedUser[]; nextCursor: string | null }>('/api/users'),
       ]);
       if (sequence !== refreshSequence.current) return;
@@ -216,7 +220,7 @@ function App() {
     } catch (failure) { if (sequence === refreshSequence.current) setError(String(failure)); } finally { if (sequence === refreshSequence.current) setBusy(false); }
   }
   useEffect(() => {
-    setBranches([]); setCampaigns([]); setLeads([]); setCampaignTableFields([]); setUsers([]); setNextCampaignCursor(null); setNextLeadCursor(null); setNextUserCursor(null);
+    setBranches([]); setCampaigns([]); setLeads([]); setCampaignTableFields([]); setLeadFieldColumns(null); setUsers([]); setNextCampaignCursor(null); setNextLeadCursor(null); setNextUserCursor(null);
     setHoursResource(null); setStaffDestination(null); setAgentProfile(null); setResetTarget(null); setScopeTarget(null);
     void refresh(); return () => { refreshSequence.current++; };
   }, [user?.id]);
@@ -258,8 +262,9 @@ function App() {
     catch (failure) { setError(String(failure)); } finally { setBusy(false); }
   }
 
-  async function searchLeads(query: string) {
-    const result = await api<LeadPage>(leadListUrl(query));
+  async function searchLeads(query: string, fieldColumns: string[] | null) {
+    const result = await api<LeadPage>(leadListUrl(query,fieldColumns));
+    setLeadFieldColumns(fieldColumns);
     setCampaignTableFields(result.tableFields ?? []);
     setLeadQuery(query); setLeads(result.items); setNextLeadCursor(result.nextCursor); setSelectedLeadIds([]);
   }
@@ -505,7 +510,7 @@ function App() {
           <button className="link" onClick={()=>{setResetTarget(null);setScopeTarget(null);setAgentProfile(null);setStaffDestination({id:item.id,name:item.name});}}>{staffMessagingLabel(locale)}</button></>}</td></tr>)}
         </tbody></table></div>{(page === 'leads' ? leads : page === 'campaigns' ? campaigns : page === 'branches' ? branches : users).length === 0 && <div className="empty">{t.noData}</div>}
         {page === 'leads' && nextLeadCursor && <div className="load-more"><button className="secondary" disabled={busy} onClick={() => { setBusy(true);
-          api<LeadPage>(leadListUrl(leadQuery, nextLeadCursor))
+          api<LeadPage>(leadListUrl(leadQuery,leadFieldColumns,nextLeadCursor))
             .then((result) => { setCampaignTableFields(result.tableFields ?? []); setLeads((existing) => [...existing, ...result.items]); setNextLeadCursor(result.nextCursor); })
             .catch((failure) => setError(String(failure))).finally(() => setBusy(false)); }}>{locale === 'ar' ? 'تحميل المزيد' : locale === 'fr' ? 'Afficher plus' : 'Load more'}</button></div>}
         {page === 'campaigns' && nextCampaignCursor && <div className="load-more"><button className="secondary" data-campaign-next-page disabled={busy} onClick={() => { setBusy(true);

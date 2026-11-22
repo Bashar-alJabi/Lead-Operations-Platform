@@ -120,11 +120,43 @@ test('dynamic field definitions, bindings, values, history, and role scope', asy
   assert.equal(managerTable.json().items[0].tableValues[hiddenId],storedSecret);
   const outsideTable = await send('GET', table, undefined, managerB);
   assert.deepEqual(outsideTable.json(),{items:[],tableFields:[],nextCursor:null});
+  const onlyCalculated = await send('GET',table+'&fieldColumn='+calculatedId,undefined,agent);
+  assert.deepEqual(onlyCalculated.json().items[0].tableValues,{[calculatedId]:0});
+  const selected = await send('GET',table+'&fieldColumn='+selectId+'&fieldColumn='+calculatedId,undefined,agent);
+  assert.deepEqual(selected.json().items[0].tableValues,{[selectId]:'high',[calculatedId]:0});
+  const disallowed = await send('GET',table+'&fieldColumn='+hiddenId,undefined,agent);
+  assert.deepEqual(disallowed.json().tableFields,[]);
+  assert.ok(!disallowed.body.includes(hiddenId));
+  const view={name:'Current campaign columns',scope:'PERSONAL',filters:{campaignId:campaign},columns:['contact'],fieldColumns:[selectId]};
+  const storedView = await send('POST','/api/lead-views',view,agent);
+  assert.equal(storedView.statusCode,201,storedView.body);
+  assert.equal((await send('POST','/api/lead-views',{...view,name:'Hidden',fieldColumns:[hiddenId]},agent)).statusCode,404);
+  assert.equal((await send('POST','/api/lead-views',{...view,name:'No campaign',filters:{}},agent)).statusCode,400);
+  assert.deepEqual((await send('GET','/api/lead-views',undefined,agent)).json().items[0].fieldColumns,[selectId]);
+  const zeroColumns=await send('POST','/api/lead-views',{...view,name:'Static columns only',fieldColumns:[]},agent);
+  assert.equal(zeroColumns.statusCode,201,zeroColumns.body);
+  assert.deepEqual((await send('GET','/api/lead-views/'+zeroColumns.json().id,undefined,agent)).json().fieldColumns,[]);
+  const filterView=await send('POST','/api/lead-views',{...view,name:'Permitted answer filter',
+    filters:{campaignId:campaign,fieldId:selectId,fieldValue:'"high"'}},agent);
+  assert.equal(filterView.statusCode,201,filterView.body);
   await db`UPDATE campaign_field SET show_in_table=false WHERE campaign_id=${campaign} AND field_id=${selectId}`;
   const afterPolicyChange = await send('GET', table, undefined, agent);
   assert.deepEqual(afterPolicyChange.json().tableFields.map((field:{id:string})=>field.id),[calculatedId]);
   assert.ok(!afterPolicyChange.body.includes(selectId));
-  await db`UPDATE campaign_field SET show_in_table=true WHERE campaign_id=${campaign} AND field_id=${selectId}`;
+  const maskedView = await send('GET','/api/lead-views',undefined,agent);
+  assert.deepEqual(maskedView.json().items.find((item:{id:string})=>item.id===storedView.json().id).fieldColumns,[]);
+  await db`UPDATE campaign_field SET visible_to_agent=false,editable_by_agent=false WHERE campaign_id=${campaign} AND field_id=${selectId}`;
+  const deniedView=await send('GET','/api/lead-views',undefined,agent);
+  const restricted=deniedView.json().items.find((item:{id:string})=>item.id===filterView.json().id);
+  assert.deepEqual(restricted.filters,{campaignId:campaign});
+  assert.equal(restricted.fieldFilterUnavailable,true);
+  assert.ok(!deniedView.body.includes(selectId) && !deniedView.body.includes('high'));
+  const filterViewPath='/api/lead-views/'+filterView.json().id;
+  const currentView=await send('GET',filterViewPath,undefined,agent);
+  assert.equal(currentView.statusCode,200,currentView.body);
+  assert.deepEqual(currentView.json(),restricted);
+  assert.equal((await send('GET',filterViewPath,undefined,managerB)).statusCode,404);
+  await db`UPDATE campaign_field SET show_in_table=true,visible_to_agent=true,editable_by_agent=true WHERE campaign_id=${campaign} AND field_id=${selectId}`;
   const history = await send('GET', `/api/leads/${leadId}/fields/${selectId}/history?limit=1`, undefined, agent);
   assert.equal(history.statusCode, 200, history.body);
   assert.equal(history.json().items.length, 1);
@@ -212,4 +244,20 @@ test('dynamic field definitions, bindings, values, history, and role scope', asy
   assert.equal(metrics.find((item: { id: string }) => item.id === metricIds.ai_attempts).value, 1);
   assert.equal(metrics.find((item: { id: string }) => item.id === metricIds.human_attempts).value, 2);
   assert.equal(metrics.find((item: { id: string }) => item.id === metricIds.human_response_seconds).value, 600);
+  await db`WITH extra AS (
+    INSERT INTO field_definition(organization_id,branch_id,campaign_id,key,label,field_type)
+    SELECT ${organizationId},${branchA},${campaign},'table_extra_'||n,'Table extra '||n,'TEXT' FROM generate_series(1,28) n
+    RETURNING id
+  ) INSERT INTO campaign_field(campaign_id,field_id,position,show_in_table,visible_to_agent)
+    SELECT ${campaign},id,100,true,true FROM extra`;
+  const catalogPath=`/api/campaigns/${campaign}/table-fields`;
+  const firstColumns=await send('GET',catalogPath,undefined,agent);
+  const nextColumns=await send('GET',catalogPath+'?after='+firstColumns.json().nextAfter,undefined,agent);
+  assert.equal(firstColumns.statusCode,200,firstColumns.body);
+  assert.equal(firstColumns.json().items.length,25);
+  assert.equal(nextColumns.statusCode,200,nextColumns.body);
+  assert.ok(nextColumns.json().items.length>0);
+  assert.equal(nextColumns.json().nextAfter,null);
+  assert.ok(nextColumns.json().items.every((item:{id:string})=>!firstColumns.json().items.some((first:{id:string})=>first.id===item.id)));
+  assert.deepEqual((await send('GET',catalogPath,undefined,managerB)).json().items,[]);
 });
