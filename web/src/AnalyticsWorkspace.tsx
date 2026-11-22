@@ -1,4 +1,5 @@
 import {FieldFilterValue} from './FieldFilterValue.js';
+import type {FilterField} from './field-filter.js';
 import {fieldFilterValue} from './field-filter.js';
 import {useEffect,useRef,useState} from 'react';
 type Locale='ar'|'en'|'fr';
@@ -10,7 +11,7 @@ type Report={as_of:string;paymentMode:string;humanAuthorId:string|null;leads:Rec
 type Group={id:string;name:string;leads:string;configured_leads:string;converted:string;rate:string|null;definition:string|null;definition_version:number|null};
 type Author={id:string;name:string;contacted_leads:string;human_attempts:string;response_samples:string;response_seconds:string|null};
 type Lead={id:string;contact_name:string|null;campaign_name:string;branch_name:string;lifecycle:string;created_at:string;first_platform:string|null;first_ai:string|null;first_human:string|null;first_customer_response:string|null};
-type Field={id:string;label:string;field_type:string;validation?:{currency?:string};options:{value:string;label:string;active:boolean}[]};
+type Field=FilterField&{id:string;label:string;options:{value:string;label:string;active:boolean}[]};
 const words={
  en:{title:'Analytics',basis:'Current records for leads created within the selected period. Dates filter Lead creation, not payment or message dates. Linked historical records remain included.',
   qualificationComplete:'Qualification complete',qualificationIncomplete:'Qualification incomplete',

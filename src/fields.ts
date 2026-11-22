@@ -9,6 +9,11 @@ export const calculationKinds = ['LEAD_AGE_DAYS','FIRST_PLATFORM_CONTACT_AT','FI
   'TIME_SINCE_LAST_CONTACT_SECONDS','AI_CONTACT_ATTEMPTS','HUMAN_CONTACT_ATTEMPTS','HUMAN_RESPONSE_SECONDS'] as const;
 export type CalculationKind = typeof calculationKinds[number];
 
+const timestampCalculations = new Set<CalculationKind>(['FIRST_PLATFORM_CONTACT_AT','FIRST_AI_CONTACT_AT','FIRST_HUMAN_CONTACT_AT']);
+export function calculatedFilterType(kind: CalculationKind): 'NUMBER' | 'DATETIME' {
+  return timestampCalculations.has(kind) ? 'DATETIME' : 'NUMBER';
+}
+
 const selectTypes: readonly FieldType[] = ['SINGLE_SELECT','MULTI_SELECT','STATUS','INTEREST'];
 
 export function validateFieldConfiguration(fieldType: FieldType, valueMode: string, options: FieldOption[],

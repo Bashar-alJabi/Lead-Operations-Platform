@@ -269,6 +269,13 @@ function App() {
     setLeadQuery(query); setLeads(result.items); setNextLeadCursor(result.nextCursor); setSelectedLeadIds([]);
   }
 
+  function clearLeadSearchResults() {
+    setLeads([]);
+    setCampaignTableFields([]);
+    setNextLeadCursor(null);
+    setSelectedLeadIds([]);
+  }
+
   async function bulkAssign() {
     const items = leads.filter((lead) => selectedLeadIds.includes(lead.id)).map((lead) => ({ id: lead.id, version: lead.version }));
     if (!items.length || items.length > 50) return;
@@ -449,7 +456,7 @@ function App() {
         role={user.role} actorId={user.id} locale={locale} api={api} />
     </section> : <>
       {page === 'leads' && <LeadSearch locale={locale} branches={branches} campaigns={campaigns} users={users} currentUser={user}
-        api={api} onSearch={searchLeads} columns={leadColumns} onColumns={setLeadColumns} />}
+        api={api} onSearch={searchLeads} onClearResults={clearLeadSearchResults} columns={leadColumns} onColumns={setLeadColumns} />}
       {page === 'leads' && canManage && <section className="panel"><div className="actions">
         <strong>{locale === 'ar' ? `المحدد: ${selectedLeadIds.length} / 50` : locale === 'fr' ? `Sélection : ${selectedLeadIds.length} / 50` : `Selected: ${selectedLeadIds.length} / 50`}</strong>
         <button type="button" className="secondary" onClick={() => setSelectedLeadIds(leads.slice(0, 50).map((lead) => lead.id))}>{locale === 'ar' ? 'تحديد أول 50 ظاهرة' : locale === 'fr' ? 'Sélectionner les 50 premiers' : 'Select first 50 shown'}</button>

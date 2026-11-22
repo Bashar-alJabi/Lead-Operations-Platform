@@ -37,7 +37,8 @@ async function fixture(t:TestContext){
 }
 
 test('Durable export captures authorized membership once across concurrent creation/workers, then streams current typed values and calculated facts with CSV protection',async t=>{
- const {db,api,input,create,status,fields,leads}=await fixture(t),body=input();
+ const {db,api,input,create,status,fields,leads,campaigns}=await fixture(t);
+ const body=input({filters:{campaignId:campaigns[0],sort:'CREATED_ASC',fieldId:fields.calculated,fieldValue:'0'}});
  const jobs=await Promise.all(Array.from({length:8},()=>create(body)));assert.equal(new Set(jobs).size,1);const id=jobs[0]!;
  assert.equal((await api('GET','/api/lead-exports/'+id+'/download')).statusCode,409);
  await Promise.all(Array.from({length:8},()=>processOneExport(db)));const state=await status(id);assert.equal(state.state,'DONE');assert.equal(state.rowCount,2);

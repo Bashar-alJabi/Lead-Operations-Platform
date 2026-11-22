@@ -205,7 +205,7 @@ test('dynamic field definitions, bindings, values, history, and role scope', asy
 
   const metricIds: Record<string, string> = {};
   for (const [key, kind] of [['ai_attempts','AI_CONTACT_ATTEMPTS'], ['human_attempts','HUMAN_CONTACT_ATTEMPTS'],
-    ['human_response_seconds','HUMAN_RESPONSE_SECONDS']] as const) {
+    ['human_response_seconds','HUMAN_RESPONSE_SECONDS'], ['first_human','FIRST_HUMAN_CONTACT_AT']] as const) {
     const created = await send('POST', '/api/fields', { scope: 'CAMPAIGN', branchId: branchA, campaignId: campaign,
       key, label: key, fieldType: 'CALCULATED', valueMode: 'CALCULATED', options: [], validation: {}, calculation: { kind } }, managerA);
     assert.equal(created.statusCode, 201, created.body);
@@ -244,6 +244,47 @@ test('dynamic field definitions, bindings, values, history, and role scope', asy
   assert.equal(metrics.find((item: { id: string }) => item.id === metricIds.ai_attempts).value, 1);
   assert.equal(metrics.find((item: { id: string }) => item.id === metricIds.human_attempts).value, 2);
   assert.equal(metrics.find((item: { id: string }) => item.id === metricIds.human_response_seconds).value, 600);
+  assert.equal(metrics.find((item: { id: string }) => item.id === metricIds.first_human).value, firstHuman.toISOString());
+
+  const withoutMessages=await send('POST','/api/leads',{branchId:branchA,campaignId:campaign,
+    contact:{name:'No contact yet',phone:'+15550000193'},fields:[{fieldId:requiredId,value:'REVIEW'}]},managerA);
+  assert.equal(withoutMessages.statusCode,201,withoutMessages.body);
+  const filtered=(fieldId:string,value:unknown)=>new URLSearchParams({
+    campaignId:campaign,fieldId,fieldValue:JSON.stringify(value),
+  }).toString();
+  const responses=filtered(metricIds.human_response_seconds!,600);
+  const query=await send('GET','/api/leads?tableFields=true&limit=1&'+responses,undefined,agent);
+  assert.equal(query.statusCode,200,query.body);
+  assert.deepEqual(query.json().items.map((item:{id:string})=>item.id),[leadId]);
+  assert.equal(query.json().items[0].tableValues[metricIds.human_response_seconds!],600);
+  assert.equal(query.json().nextCursor,null);
+  const noResponse=await send('GET','/api/leads?'+filtered(metricIds.human_response_seconds!,0),undefined,managerA);
+  assert.deepEqual(noResponse.json().items,[]);
+  const zeroAttempts=await send('GET','/api/leads?limit=1&'+filtered(metricIds.human_attempts!,0),undefined,managerA);
+  assert.equal(zeroAttempts.statusCode,200,zeroAttempts.body);
+  assert.equal(zeroAttempts.json().items[0].id,withoutMessages.json().id);
+  const time=await send('GET','/api/leads?'+filtered(metricIds.first_human!,firstHuman.toISOString().replace('Z','+00:00')),undefined,managerA);
+  assert.equal(time.statusCode,200,time.body);
+  assert.deepEqual(time.json().items.map((item:{id:string})=>item.id),[leadId]);
+  for (const value of [-1,0.5,'600',null]) {
+    assert.equal((await send('GET','/api/leads?'+filtered(metricIds.human_response_seconds!,value),undefined,agent)).statusCode,400);
+  }
+  const cohort=await send('GET','/api/analytics/leads?metric=ALL&'+responses,undefined,agent);
+  assert.equal(cohort.statusCode,200,cohort.body);
+  assert.deepEqual(cohort.json().items.map((item:{id:string})=>item.id),[leadId]);
+  assert.equal((await send('GET','/api/leads?'+responses,undefined,managerB)).statusCode,404);
+  const savedCalculation=await send('POST','/api/lead-views',{...view,name:'Response seconds',
+    filters:Object.fromEntries(new URLSearchParams(responses)),fieldColumns:[metricIds.human_response_seconds]},agent);
+  assert.equal(savedCalculation.statusCode,201,savedCalculation.body);
+  await db`UPDATE campaign_field SET visible_to_agent=false WHERE campaign_id=${campaign} AND field_id=${metricIds.human_response_seconds!}`;
+  const hiddenCalculation=await send('GET','/api/lead-views/'+savedCalculation.json().id,undefined,agent);
+  assert.deepEqual(hiddenCalculation.json().filters,{campaignId:campaign});
+  assert.equal(hiddenCalculation.json().fieldFilterUnavailable,true);
+  assert.equal((await send('GET','/api/analytics/leads?metric=ALL&'+responses,undefined,agent)).statusCode,404);
+  const catalog=await send('GET',`/api/campaigns/${campaign}/filter-fields`,undefined,agent);
+  assert.ok(!catalog.body.includes(metricIds.human_response_seconds!));
+  assert.equal(catalog.json().items.find((item:{id:string})=>item.id===metricIds.first_human).filter_type,'DATETIME');
+
   await db`WITH extra AS (
     INSERT INTO field_definition(organization_id,branch_id,campaign_id,key,label,field_type)
     SELECT ${organizationId},${branchA},${campaign},'table_extra_'||n,'Table extra '||n,'TEXT' FROM generate_series(1,28) n

@@ -11,6 +11,10 @@ export function FieldFilterValue({field,value,onChange,label,all}:{field:Field;v
  }
  if(field.field_type==='BOOLEAN')return <select aria-label={label} value={value} onChange={e=>onChange(e.target.value)}><option value="">{all}</option><option value="true">true</option><option value="false">false</option></select>;
  if(field.options?.length)return <select aria-label={label} value={value} onChange={e=>onChange(e.target.value)}><option value="">{all}</option>{field.options.filter(o=>o.active).map(o=><option key={o.value} value={o.value}>{o.label}</option>)}</select>;
- const type=['NUMBER','PERCENTAGE','DURATION','CURRENCY'].includes(field.field_type)?'number':field.field_type==='DATE'?'date':field.field_type==='TIME'?'time':field.field_type==='EMAIL'?'email':field.field_type==='URL'?'url':'text';
- return <><input aria-label={label} type={type} step="any" value={fieldFilterInputValue(value)} onChange={e=>onChange(e.target.value)}/>{field.field_type==='CURRENCY'&&<small>{field.validation?.currency}</small>}</>;
+ const fieldType=field.filter_type??field.field_type;
+ const type=['NUMBER','PERCENTAGE','DURATION','CURRENCY'].includes(fieldType)?'number':fieldType==='DATE'?'date':fieldType==='TIME'?'time':fieldType==='EMAIL'?'email':fieldType==='URL'?'url':'text';
+ const isCalculatedNumber=field.filter_type==='NUMBER';
+ return <><input aria-label={label} type={type} step={isCalculatedNumber?1:'any'} min={isCalculatedNumber?0:undefined}
+  placeholder={fieldType==='DATETIME'?'YYYY-MM-DDTHH:mm:ssZ':undefined}
+  value={fieldFilterInputValue(value)} onChange={e=>onChange(e.target.value)}/>{field.field_type==='CURRENCY'&&<small>{field.validation?.currency}</small>}</>;
 }

@@ -1,10 +1,9 @@
-import {leadFilterFieldAccess,operationalFilterProperties,type LeadFilter} from '../lead-query.js';
+import {leadFilterFieldAccess,operationalFilterProperties,prepareLeadFilter,type LeadFilter} from '../lead-query.js';
 import type { FastifyInstance } from 'fastify';
 import type postgres from 'postgres';
 import type { Database } from '../db.js';
 import { decodeCursor, encodeCursor } from '../pagination.js';
 import { HttpError, principalFromRequest, requireBranch, type Principal } from '../security.js';
-import { validateFieldValue, type FieldOption, type FieldType, type FieldValidation } from '../fields.js';
 import {currentPaymentSession} from '../payments/access.js';
 import {campaignTableFieldAccess,maxLeadTableFields,readCampaignTableFields} from '../lead-table-fields.js';
 
@@ -54,16 +53,8 @@ async function validateView(db: postgres.TransactionSql, actor: Principal, input
     if (!campaign[0]) throw new HttpError(404, 'CAMPAIGN_NOT_FOUND');
     if (input.scope === 'BRANCH' && campaign[0].branch_id !== branchId) throw new HttpError(400, 'VIEW_BRANCH_FILTER_CONFLICT');
   }
-  if (filter.fieldId) {
-    const field = await db`SELECT fd.field_type, fd.options, fd.validation FROM campaign_field cf JOIN field_definition fd ON fd.id=cf.field_id
-      JOIN campaign ca ON ca.id=cf.campaign_id WHERE cf.campaign_id=${filter.campaignId!} AND cf.field_id=${filter.fieldId}
-        AND fd.value_mode<>'CALCULATED' AND ${leadFilterFieldAccess(db,actor)}`;
-    if (!field.length) throw new HttpError(404, 'FIELD_NOT_FOUND');
-    let value: unknown;
-    try { value = JSON.parse(filter.fieldValue!); } catch { throw new HttpError(400, 'FIELD_FILTER_INVALID'); }
-    const normalized = validateFieldValue(field[0]!.field_type as FieldType, value,
-      field[0]!.options as FieldOption[], field[0]!.validation as FieldValidation);
-    if (normalized === null) throw new HttpError(400, 'FIELD_FILTER_INVALID');
+  if (filter.fieldId && (await prepareLeadFilter(db,actor,filter)).emptyScope) {
+    throw new HttpError(404, 'FIELD_NOT_FOUND');
   }
   if (input.fieldColumns?.length && filter.campaignId) {
     const {fields}=await readCampaignTableFields(db,actor,filter.campaignId,[],input.fieldColumns);
@@ -87,7 +78,7 @@ function visibleLeadViews(tx:postgres.TransactionSql,actor:Principal) {
             SELECT 1 FROM campaign ca JOIN campaign_field cf ON cf.campaign_id=ca.id
             JOIN field_definition fd ON fd.id=cf.field_id
             WHERE ca.id::text=v.filters->>'campaignId' AND fd.id::text=v.filters->>'fieldId'
-              AND fd.value_mode<>'CALCULATED' AND ${leadFilterFieldAccess(tx,actor)}) AS value
+              AND ${leadFilterFieldAccess(tx,actor)}) AS value
         ) denied WHERE organization_id = ${actor.organizationId}
           AND (owner_user_id = ${actor.id} OR (${actor.role !== 'AGENT'} AND
             ((scope = 'ORGANIZATION' AND ${actor.role !== 'AGENT'}) OR

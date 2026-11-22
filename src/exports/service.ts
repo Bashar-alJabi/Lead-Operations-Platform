@@ -105,7 +105,7 @@ export async function processOneExport(db:Database):Promise<boolean>{
   try{await tx.savepoint(async step=>{
    const actor=await exportActor(step,j);await exportFields(step,actor,exportInput(j));const prepared=await prepareLeadFilter(step,actor,j.filters),asc=j.filters.sort==='CREATED_ASC';
    const rows=await step`SELECT l.id,l.branch_id,l.campaign_id,l.created_at::text AS created_text FROM lead l LEFT JOIN contact c ON c.id=l.contact_id
-    WHERE ${leadPredicate(step,actor,j.filters,prepared)} AND l.created_at<=${j.created_text}::text::timestamptz
+    WHERE ${leadPredicate(step,actor,j.filters,prepared,j.created_text)} AND l.created_at<=${j.created_text}::text::timestamptz
      AND (${j.selected_ids.length===0} OR l.id=ANY(${step.array(j.selected_ids)}::uuid[]))
      AND (${j.cursor_text}::text::timestamptz IS NULL OR ${asc} AND (l.created_at,l.id)>(${j.cursor_text}::text::timestamptz,${j.cursor_id}::uuid)
       OR NOT ${asc} AND (l.created_at,l.id)<(${j.cursor_text}::text::timestamptz,${j.cursor_id}::uuid))

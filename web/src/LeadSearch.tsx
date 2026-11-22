@@ -1,4 +1,5 @@
 import {FieldFilterValue} from './FieldFilterValue.js';
+import type {FilterField} from './field-filter.js';
 import {fieldFilterValue,fieldFilterInputValue} from './field-filter.js';
 import { useEffect, useState } from 'react';
 
@@ -7,7 +8,7 @@ type Locale = 'ar'|'fr'|'en';
 type Branch = { id: string; name: string };
 type Campaign = { id: string; name: string; branch_id: string };
 type User = { id: string; name: string; role: string; branch_id: string | null };
-type Field = { id: string; label: string; field_type: string; validation?:{currency?:string}; options: { value: string; label: string; active: boolean }[] };
+type Field = FilterField & { id: string; label: string; options: { value: string; label: string; active: boolean }[] };
 export type LeadColumn = 'contact'|'campaign'|'branch'|'lifecycle'|'owner'|'source'|'created_at'|'followup';
 export const defaultLeadColumns: LeadColumn[] = ['contact','campaign','branch','lifecycle','owner'];
 type SavedView = { id: string; owner_user_id: string; name: string; scope: string; filters: Record<string, string>; columns: LeadColumn[];
@@ -23,10 +24,11 @@ type FilterKey = 'conversationState'|'controller'|'payment'|'enrollment'|'attent
 type Filter = Record<FilterKey, string>;
 const empty: Filter = { conversationState:'',controller:'',payment:'',enrollment:'',attention:'',paymentMode:'',q: '', branchId: '', campaignId: '', assignedAgentId: '', lifecycle: '', sourceKind: '', from: '', to: '', followup: '', fieldId: '', fieldValue: '', sort: 'CREATED_DESC' };
 
-export function LeadSearch({ locale, branches, campaigns, users, currentUser, api, onSearch, columns, onColumns }: {
+export function LeadSearch({ locale, branches, campaigns, users, currentUser, api, onSearch, onClearResults, columns, onColumns }: {
   locale: Locale; branches: Branch[]; campaigns: Campaign[]; users: User[];
   currentUser: { id: string; role: string; branchId: string | null }; api: Api;
-  onSearch: (query: string,fieldColumns:string[]|null) => Promise<void>; columns: LeadColumn[]; onColumns: (columns: LeadColumn[]) => void;
+  onSearch: (query: string,fieldColumns:string[]|null) => Promise<void>; onClearResults: () => void;
+  columns: LeadColumn[]; onColumns: (columns: LeadColumn[]) => void;
 }) {
   const t = labels[locale];
   const extra={ar:{state:'حالة المحادثة',controller:'المتحكم بالمحادثة',payment:'الدفع',enrollment:'التسجيل',attention:'الانتباه',mode:'وضع السجلات المالية',paid:'دفع مؤكد',none:'بلا تأكيد',enrolled:'تسجيل مؤكد',yes:'تحتاج انتباهًا',no:'لا تحتاج انتباهًا'},en:{state:'Conversation state',controller:'Conversation controller',payment:'Payment',enrollment:'Enrollment',attention:'Attention',mode:'Financial record mode',paid:'Confirmed payment',none:'No confirmation',enrolled:'Confirmed enrollment',yes:'Needs attention',no:'No attention flag'},fr:{state:'État de conversation',controller:'Contrôle de conversation',payment:'Paiement',enrollment:'Inscription',attention:'Attention',mode:'Mode des données financières',paid:'Paiement confirmé',none:'Sans confirmation',enrolled:'Inscription confirmée',yes:'À examiner',no:'Sans alerte'}}[locale];
@@ -129,6 +131,9 @@ export function LeadSearch({ locale, branches, campaigns, users, currentUser, ap
     try {
       const view=await api<SavedView>(`/api/lead-views/${viewId}`);
       if(view.fieldFilterUnavailable){
+        onClearResults();
+        setForm(empty);
+        setFieldColumns(null);
         setError({ar:'تعذّر فتح المشهد لأن حقل الفلتر لم يعد متاحًا لك.',en:'The saved view uses a filter field you can no longer access.',
           fr:'Cette vue utilise un champ de filtre auquel vous n’avez plus accès.'}[locale]);
         return;

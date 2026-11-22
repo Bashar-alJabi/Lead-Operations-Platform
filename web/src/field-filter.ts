@@ -1,4 +1,4 @@
-export type FilterField={field_type:string;validation?:{currency?:string}};
+export type FilterField={field_type:string;filter_type?:'NUMBER'|'DATETIME';validation?:{currency?:string}};
 export function fieldFilterInputValue(value:unknown):string {
  if(Array.isArray(value))return JSON.stringify(value);
  if(value&&typeof value==='object'&&'amount'in value)return String(value.amount);
@@ -11,7 +11,7 @@ export function fieldFilterValue(field:FilterField|undefined,text:string):unknow
   return text.split(',').map(t=>t.trim()).filter(Boolean);
  }
  if(field?.field_type==='CURRENCY')return {amount:Number(text),currency:field.validation?.currency};
- if(field&&['NUMBER','PERCENTAGE','DURATION'].includes(field.field_type))return Number(text);
+ if(field&&['NUMBER','PERCENTAGE','DURATION'].includes(field.filter_type??field.field_type))return Number(text);
  if(field?.field_type==='BOOLEAN')return text==='true';
  return text;
 }

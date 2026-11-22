@@ -285,7 +285,7 @@ test('Approved customer AI Handoff owns current authority, durable atomic transi
     let waiting = false;
     for (let i = 0; i < 80; i++) {
       waiting = (await db`SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock'
-        AND query LIKE '%l.branch_id FROM conversation cv%' AND pid<>pg_backend_pid()) AS waiting`)[0]!.waiting;
+        AND query LIKE '%FROM conversation cv%' AND query LIKE '%FOR UPDATE OF l%' AND pid<>pg_backend_pid()) AS waiting`)[0]!.waiting;
       if (waiting) break; await new Promise(resolve => setTimeout(resolve, 25));
     }
     assert.equal(waiting, true);

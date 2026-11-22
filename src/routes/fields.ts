@@ -4,10 +4,11 @@ import type postgres from 'postgres';
 import type { Database } from '../db.js';
 import { calculateLeadFields } from '../calculated-fields.js';
 import { writeManualFieldValue } from '../field-values.js';
-import { calculationKinds, fieldTypes, validateFieldConfiguration,
+import { calculatedFilterType, calculationKinds, fieldTypes, validateFieldConfiguration,
   type CalculationKind, type FieldOption, type FieldType, type FieldValidation } from '../fields.js';
 import { decodeCursor, encodeCursor } from '../pagination.js';
 import { HttpError, principalFromRequest, requireBranch, requireRole, type Principal } from '../security.js';
+import { leadFilterFieldAccess } from '../lead-query.js';
 
 const idParam = { type: 'object', additionalProperties: false, required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } as const;
 const bindingParam = { type: 'object', additionalProperties: false, required: ['id','fieldId'], properties: {
@@ -67,17 +68,12 @@ export function registerFieldRoutes(app: FastifyInstance, db: Database): void {
       AND (${actor.role !== 'AGENT'} OR EXISTS
         (SELECT 1 FROM lead WHERE campaign_id = ${request.params.id} AND assigned_agent_id = ${actor.id}))`;
     if (!campaign[0]) throw new HttpError(404, 'CAMPAIGN_NOT_FOUND');
-    const rows = await tx`SELECT fd.id, fd.key, fd.label, fd.field_type, fd.options, fd.validation
+    const rows = await tx`SELECT fd.id, fd.key, fd.label, fd.field_type, fd.options, fd.validation, fd.calculation->>'kind' AS calculation_kind
       FROM campaign_field cf JOIN field_definition fd ON fd.id = cf.field_id JOIN campaign ca ON ca.id=cf.campaign_id
-      WHERE cf.campaign_id = ${request.params.id} AND fd.organization_id = ${actor.organizationId}
-        AND ca.organization_id=${actor.organizationId} AND (${actor.role==='SUPER_ADMIN'} OR ca.branch_id=${actor.branchId})
-        AND (${actor.role!=='AGENT'} OR EXISTS(SELECT 1 FROM lead visible WHERE visible.campaign_id=ca.id AND visible.organization_id=${actor.organizationId} AND visible.branch_id=${actor.branchId} AND visible.assigned_agent_id=${actor.id}))
-        AND (fd.branch_id IS NULL OR fd.branch_id=ca.branch_id) AND (fd.campaign_id IS NULL OR fd.campaign_id=ca.id)
-        AND cf.active AND fd.active AND cf.filterable AND fd.value_mode <> 'CALCULATED'
-        AND (${actor.role === 'SUPER_ADMIN'} OR (${actor.role === 'MANAGER'} AND cf.visible_to_manager)
-          OR (${actor.role === 'AGENT'} AND cf.visible_to_agent))
+      WHERE cf.campaign_id = ${request.params.id} AND ${leadFilterFieldAccess(tx,actor)}
       ORDER BY cf.position, fd.id`;
-    return { items: rows };
+    return { items: rows.map(({calculation_kind,...row})=>calculation_kind
+      ? {...row,filter_type:calculatedFilterType(calculation_kind as CalculationKind)} : row) };
     });
   });
 

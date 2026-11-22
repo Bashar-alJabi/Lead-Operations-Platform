@@ -762,6 +762,10 @@ S3 configured adapter يتطلب credentials deployment صريحة بأسماء 
 - إنشاء المستخدم بعد التهيئة يتم بالدعوة: لا يحدد المسؤول كلمة مرور الموظف. `credential_token` يحتفظ بـSHA-256 للرمز فقط، وتُشفّر نسخة التسليم في job بـAES-GCM وAAD خاص بالـjob؛ رابط البريد يضع الرمز في URL fragment فلا يُرسل إلى خادم الواجهة ضمن HTTP request. Reset/Invitation تستهلك الرمز atomically وتُبطل الرموز القديمة، وReset يبطل جلسات المستخدم. Email adapter يفصل SMTP عن منطق الحسابات، وConnection المشفرة تضبط من داخل المنصة. Worker مستقل يستخدم PostgreSQL leases و`SKIP LOCKED` وretries bounded؛ لوحة الإدارة تعرض حالات التسليم دون payload أو secrets. لا يُعد اختبار fake تحققاً مباشراً من SMTP.
 - credentials مشفرة في قاعدة البيانات، ومفتاح التشفير deployment secret خارج قاعدة البيانات. API لا يعيد قيمتها، ولا تدخل logs أو AI context.
 
+### عرض وترشيح الحقول المحسوبة
+
+تستدعي تفاصيل Lead والقائمة والتصدير الدالة `lead_calculated_field_values` للحسابات المسندة إلى الحملة. يستدعيها استعلام الترشيح للحقل المطلوب داخل نطاق Lead والحملة وبعد التحقق من ربط الحقل و`filterable` وصلاحيته للدور الحالي. يقارن الاستعلام القيمة الفعلية قبل التقسيم إلى صفحات، ويحافظ على الفرق بين عدم توافر قيمة ونتيجة صفر. يثبت العامل مرجع الوقت المستخدم لحساب عمر الفرصة والمدة منذ آخر تواصل عند طلب التصدير، ويعيد التحقق من الصلاحيات والحقائق المتاحة عند تجهيز كل صفحة.
+
 ## الرسائل والـAI
 
 مرحلة إعداد Messaging الحالية تُخزن `IntegrationConnection` بنطاق Organization أو Branch ونسخة تحديث متفائلة، وتُشفّر مجموعة credential باستخدام AAD المرتبط بالاتصال. `MessagingProviderAdapter` يفصل اكتشاف Senders عن قاعدة البيانات؛ Adapter الخاص بـMeta يجلب Phone Numbers من Graph API بمسار/حقول ثابتة وصفحات محدودة ومهلة اتصال، ولا يتبع `paging.next` القادم من المزود كعنوان URL. اختبار الاكتشاف لا يثبت الإرسال، لذلك يعيد `WARNING/SEND_NOT_TESTED` وSender health `UNKNOWN`. يعرض Manager اتصال Organization وأرقامه المربوطة بفرعه فقط، ويبقى تعديل هذا الاتصال لدى Super Admin. إعادة التهيئة تتطلب فحصًا جديدًا؛ ويظل Sender غير المكتشف غير نشط. هذا checkpoint لا يربط بعد قواعد الإرسال بخدمة API أو Worker.

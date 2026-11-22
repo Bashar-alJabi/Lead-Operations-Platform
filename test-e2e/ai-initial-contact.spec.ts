@@ -83,7 +83,7 @@ test('First AI contact uses managed approved template UI, fresh real intake, tru
  expect((await page.request.post('/__test__/ai-initial-process',{headers:fixtureHeaders})).ok()).toBeTruthy();
  expect((await page.request.post('/__test__/ai-customer-send',{headers:fixtureHeaders,data:{dispatch:true}})).ok()).toBeTruthy();
  const policyPath='/api/messaging/campaigns/'+cid+'/policy',policy=(await (await page.request.get(policyPath)).json());
- expect((await page.request.put(policyPath,{headers,data:{version:policy.version,sendingWindow:null,maxAttempts:null,minIntervalSeconds:180}})).ok()).toBeTruthy();
+ expect((await page.request.put(policyPath,{headers,data:{version:policy.version,sendingWindow:null,maxAttempts:null,minIntervalSeconds:20}})).ok()).toBeTruthy();
  await expect.poll(async()=>{
   const action=await page.request.post('/__test__/ai-followup-process',{headers:fixtureHeaders});
   return action.ok() && (await action.json()).queued;
@@ -94,5 +94,18 @@ test('First AI contact uses managed approved template UI, fresh real intake, tru
  await expect(scheduled.getByRole('listitem')).toContainText('Next policy check');
  await expect(scheduled.getByRole('listitem')).toContainText('Waiting for the minimum sending interval');
  await panel.getByRole('button',{name:'Review intake origin',exact:true}).click();
- await page.getByRole('combobox',{name:'Language'}).selectOption('fr');await expect(panel).toContainText('La mise en file ne prouve pas');await page.getByRole('combobox',{name:'Language'}).selectOption('ar');await page.setViewportSize({width:390,height:844});await expect(panel).toContainText('الإدراج في قائمة الإرسال');await panel.screenshot({path:'.local/e2e/ai-initial-contact-ar.png'});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);expect(errors).toEqual([]);
+ await page.getByRole('combobox',{name:'Language'}).selectOption('fr');await expect(panel).toContainText('La mise en file ne prouve pas');await page.getByRole('combobox',{name:'Language'}).selectOption('ar');await page.setViewportSize({width:390,height:844});await expect(panel).toContainText('الإدراج في قائمة الإرسال');await panel.screenshot({path:'.local/e2e/ai-initial-contact-ar.png'});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
+ // Complete the real dispatch after its policy delay. A later scenario must not consume this send.
+ await expect.poll(async()=>{
+  const dispatch=await page.request.post('/__test__/ai-customer-send',{headers:fixtureHeaders,data:{dispatch:true}});
+  expect(dispatch.ok()).toBeTruthy();
+  return (await dispatch.json()).processed;
+ },{timeout:30_000,intervals:[250,500,1000]}).toBe(true);
+ const completed=await page.request.post('/__test__/ai-followup-process',{headers:fixtureHeaders});
+ expect(completed.ok(),await completed.text()).toBeTruthy();
+ expect((await completed.json()).finalized).toBe(true);
+ await page.getByRole('combobox',{name:'Language'}).selectOption('en');
+ await scheduled.getByRole('button',{name:'Review AI follow-ups',exact:true}).click();
+ await expect(scheduled.getByRole('listitem')).toContainText('Follow-up cycle completed');
+ expect(errors).toEqual([]);
 });

@@ -1,6 +1,6 @@
 import type postgres from 'postgres';
 import {HttpError,requireBranch,type Principal} from './security.js';
-import {validateFieldValue,type FieldType,type FieldOption,type FieldValidation} from './fields.js';
+import {calculatedFilterType,validateFieldValue,type CalculationKind,type FieldType,type FieldOption,type FieldValidation} from './fields.js';
 
 export type LeadFilter={q?:string;branchId?:string;campaignId?:string;contactId?:string;assignedAgentId?:string;lifecycle?:string;sourceKind?:string;
  from?:string;to?:string;followup?:'NONE'|'OVERDUE'|'UPCOMING';fieldId?:string;fieldValue?:string;
@@ -13,7 +13,7 @@ export const operationalFilterProperties={
  controller:{enum:['AI','HUMAN','NONE']},payment:{enum:['CONFIRMED','NONE']},enrollment:{enum:['ENROLLED','NONE']},attention:{enum:['YES','NO']},paymentMode:{enum:['LIVE','TEST','ALL']},
 } as const;
 
-export type PreparedLeadFilter={value:postgres.JSONValue|null;emptyScope:boolean};
+export type PreparedLeadFilter={value:postgres.JSONValue|null;emptyScope:boolean;calculationKind?:CalculationKind};
 export function leadFilterFieldAccess(tx:postgres.TransactionSql,actor:Principal){
  return tx`ca.organization_id=${actor.organizationId} AND fd.organization_id=ca.organization_id
    AND (fd.branch_id IS NULL OR fd.branch_id=ca.branch_id) AND (fd.campaign_id IS NULL OR fd.campaign_id=ca.id)
@@ -32,18 +32,45 @@ export async function prepareLeadFilter(tx:postgres.TransactionSql,actor:Princip
   AND branch_id=${actor.branchId} AND campaign_id=${q.campaignId} AND assigned_agent_id=${actor.id} LIMIT 1`).length)return {value:null,emptyScope:true};
  if(!q.fieldId)return {value:null,emptyScope:false};
  if(!q.campaignId)throw new HttpError(400,'FIELD_FILTER_REQUIRES_CAMPAIGN');
- const f=(await tx`SELECT fd.field_type,fd.value_mode,fd.options,fd.validation FROM campaign_field cf JOIN field_definition fd ON fd.id=cf.field_id
+ const f=(await tx`SELECT fd.field_type,fd.value_mode,fd.options,fd.validation,fd.calculation FROM campaign_field cf JOIN field_definition fd ON fd.id=cf.field_id
   JOIN campaign ca ON ca.id=cf.campaign_id WHERE cf.campaign_id=${q.campaignId} AND cf.field_id=${q.fieldId} AND ${leadFilterFieldAccess(tx,actor)}`)[0];
- if(!f)throw new HttpError(404,'FIELD_NOT_FOUND');if(f.value_mode==='CALCULATED')throw new HttpError(409,'CALCULATED_FILTER_NOT_READY');
+ if(!f)throw new HttpError(404,'FIELD_NOT_FOUND');
  let parsed:unknown;try{parsed=JSON.parse(q.fieldValue!);}catch{throw new HttpError(400,'FIELD_FILTER_INVALID');}
+ if(f.value_mode==='CALCULATED'){
+  const calculationKind=f.calculation.kind as CalculationKind;
+  const type=calculatedFilterType(calculationKind);
+  const value=validateFieldValue(type,parsed,[],{min:0}) as number|string|null;
+  if(value===null || (typeof value==='number'&&!Number.isSafeInteger(value)))throw new HttpError(400,'FIELD_FILTER_INVALID');
+  return {value,calculationKind,emptyScope:false};
+ }
  const value=validateFieldValue(f.field_type as FieldType,parsed,f.options as FieldOption[],f.validation as FieldValidation) as postgres.JSONValue;
  if(value===null)throw new HttpError(400,'FIELD_FILTER_INVALID');return {value,emptyScope:false};
 }
 
+function fieldPredicate(tx:postgres.TransactionSql,actor:Principal,q:LeadFilter,field:PreparedLeadFilter,asOf?:string){
+ if(!q.fieldId)return tx`true`;
+ if(field.value===null)return tx`false`;
+ const value=tx.json(field.value);
+ const calculation=field.calculationKind;
+ const definition=tx`FROM campaign_field cf JOIN field_definition fd ON fd.id=cf.field_id
+   WHERE cf.campaign_id=l.campaign_id AND cf.field_id=${q.fieldId} AND cf.active AND cf.filterable AND fd.active
+    AND fd.organization_id=l.organization_id AND (fd.branch_id IS NULL OR fd.branch_id=l.branch_id) AND (fd.campaign_id IS NULL OR fd.campaign_id=l.campaign_id)
+    AND (${actor.role==='SUPER_ADMIN'} OR ${actor.role==='MANAGER'} AND cf.visible_to_manager OR ${actor.role==='AGENT'} AND cf.visible_to_agent)`;
+ if(calculation)return tx`EXISTS(SELECT 1 ${definition}
+   AND l.organization_id=${actor.organizationId} AND l.campaign_id=${q.campaignId!}
+   AND (${actor.role==='SUPER_ADMIN'} OR l.branch_id=${actor.branchId}
+    AND (${actor.role==='MANAGER'} OR l.assigned_agent_id=${actor.id}))
+   AND fd.value_mode='CALCULATED' AND fd.calculation->>'kind'=${calculation}
+   AND (lead_calculated_field_values(l.id,l.created_at,ARRAY[${calculation}::text],
+     coalesce(${asOf??null}::text::timestamptz,statement_timestamp())) -> ${calculation}::text)=${value}::jsonb)`;
+ return tx`EXISTS(SELECT 1 ${definition} AND fd.value_mode<>'CALCULATED'
+   AND EXISTS(SELECT 1 FROM lead_field_value fv WHERE fv.lead_id=l.id AND fv.field_id=fd.id
+    AND md5(fv.value::text)=md5((${value}::jsonb)::text) AND fv.value=${value}::jsonb))`;
+}
+
 // Aliases l/c refer to Lead/Contact. Both the ordinary list and Analytics use exactly this predicate.
-export function leadPredicate(tx:postgres.TransactionSql,actor:Principal,q:LeadFilter,field:PreparedLeadFilter){
+export function leadPredicate(tx:postgres.TransactionSql,actor:Principal,q:LeadFilter,field:PreparedLeadFilter,asOf?:string){
  if(field.emptyScope)return tx`false`;
- const fieldValue=field.value;
  const search=q.q?.trim().normalize('NFKC').toLowerCase()??'',phone=search.replace(/[\s().-]/g,''),id=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(search)?search:null;
  return tx`l.organization_id=${actor.organizationId} AND (${actor.role==='SUPER_ADMIN'} OR l.branch_id=${actor.branchId}
   AND (${actor.role==='MANAGER'} OR ${actor.role==='AGENT'} AND l.assigned_agent_id=${actor.id}))
@@ -65,11 +92,7 @@ export function leadPredicate(tx:postgres.TransactionSql,actor:Principal,q:LeadF
   AND (${q.followup??null}::text IS NULL OR ${q.followup==='NONE'} AND NOT EXISTS(SELECT 1 FROM follow_up f WHERE f.lead_id=l.id AND f.status='OPEN')
    OR ${q.followup==='OVERDUE'} AND EXISTS(SELECT 1 FROM follow_up f WHERE f.lead_id=l.id AND f.status='OPEN' AND f.due_at<statement_timestamp())
    OR ${q.followup==='UPCOMING'} AND EXISTS(SELECT 1 FROM follow_up f WHERE f.lead_id=l.id AND f.status='OPEN' AND f.due_at>=statement_timestamp()))
-  AND (${q.fieldId??null}::uuid IS NULL OR EXISTS(SELECT 1 FROM lead_field_value fv JOIN campaign_field cf ON cf.campaign_id=l.campaign_id AND cf.field_id=fv.field_id
-   JOIN field_definition fd ON fd.id=cf.field_id WHERE fv.lead_id=l.id AND fv.field_id=${q.fieldId??null} AND cf.active AND cf.filterable AND fd.active
-    AND fd.organization_id=l.organization_id AND (fd.branch_id IS NULL OR fd.branch_id=l.branch_id) AND (fd.campaign_id IS NULL OR fd.campaign_id=l.campaign_id)
-    AND (${actor.role==='SUPER_ADMIN'} OR ${actor.role==='MANAGER'} AND cf.visible_to_manager OR ${actor.role==='AGENT'} AND cf.visible_to_agent)
-    AND md5(fv.value::text)=md5((${fieldValue===null?null:tx.json(fieldValue)}::jsonb)::text) AND fv.value=${fieldValue===null?null:tx.json(fieldValue)}::jsonb))
+  AND ${fieldPredicate(tx,actor,q,field,asOf)}
   AND (${!q.conversationState&&!q.controller} OR EXISTS(SELECT 1 FROM conversation cv WHERE cv.lead_id=l.id
    AND (${q.conversationState??null}::text IS NULL OR cv.state=${q.conversationState??null}) AND (${q.controller??null}::text IS NULL OR cv.controller_type=${q.controller??null})))
   AND (${!q.payment} OR (${q.payment==='CONFIRMED'})=EXISTS(SELECT 1 FROM analytics_payment_fact pf WHERE pf.lead_id=l.id AND pf.organization_id=l.organization_id AND pf.state='CONFIRMED' AND (${q.paymentMode??'ALL'}='ALL' OR pf.mode=${q.paymentMode??'ALL'})))
