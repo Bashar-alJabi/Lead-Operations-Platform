@@ -130,7 +130,7 @@ function App() {
   },[user?.id,user?.role,user?.branchId,page,notificationRevision]);
   const [hoursResource,setHoursResource] = useState<{scope:'BRANCH'|'USER';id:string;name:string}|null>(null);
   const [agentProfile,setAgentProfile] = useState<string|null>(null);
-  const [resetTarget,setResetTarget] = useState<{id:string;email:string}|null>(null);
+  const [resetTarget,setResetTarget] = useState<{id:string;email:string;operatorId:string}|null>(null);
   useEffect(()=>{setHoursResource(null);},[page,user?.id]);
   const [selectedLead, setSelectedLead] = useState<string | null>(null);
   const [fieldRefresh, setFieldRefresh] = useState(0);
@@ -199,6 +199,7 @@ function App() {
   }
   useEffect(() => {
     setBranches([]); setCampaigns([]); setLeads([]); setUsers([]); setNextCampaignCursor(null); setNextLeadCursor(null); setNextUserCursor(null);
+    setHoursResource(null); setStaffDestination(null); setAgentProfile(null); setResetTarget(null);
     void refresh(); return () => { refreshSequence.current++; };
   }, [user?.id]);
   useEffect(() => { setLeadFieldValues({}); }, [form.campaignId]);
@@ -347,8 +348,8 @@ function App() {
         : <WorkingHoursEditor key={hoursResource.id} scope="USER" id={hoursResource.id} locale={locale} api={api} initiallyOpen/>}</section>}
     {page==='users'&&canManage&&agentProfile&&<section className="panel"><button className="link" onClick={()=>setAgentProfile(null)}>{t.back}</button>
       <AgentProfileWorkspace key={agentProfile} id={agentProfile} locale={locale} api={api} onChanged={refresh}/></section>}
-    {page==='users'&&isAdmin&&resetTarget&&<section className="panel"><button className="link" onClick={()=>setResetTarget(null)}>{t.back}</button>
-      <UserPasswordReset key={resetTarget.id} {...resetTarget} locale={locale} api={api}/></section>}
+    {page==='users'&&isAdmin&&resetTarget?.operatorId===user.id&&<section className="panel"><button className="link" onClick={()=>setResetTarget(null)}>{t.back}</button>
+      <UserPasswordReset key={resetTarget.id} id={resetTarget.id} email={resetTarget.email} locale={locale} api={api}/></section>}
     {page==='users' && canManage && staffDestination && <section className="panel"><h2>{staffDestination.name}</h2>
       <button className="link" onClick={()=>setStaffDestination(null)}>{t.back}</button>
       <StaffMessagingDestination key={user.id+':'+staffDestination.id} staffId={staffDestination.id} locale={locale} api={api}/></section>}
@@ -458,7 +459,7 @@ function App() {
         {page === 'users' && users.map((item) => <tr key={item.id}><td><strong>{item.name}</strong></td><td>{item.email}</td><td>{item.role}</td><td>{branches.find((branch) => branch.id === item.branch_id)?.name || '—'}</td><td>{item.credential_state === 'INVITED' ? t.invited : item.active ? t.active : t.inactive}</td><td>{item.id !== user.id && (isAdmin || (item.role === 'AGENT' && item.branch_id === user.branchId)) && <div className="actions">
           {item.active && item.credential_state === 'INVITED' && <button className="link" disabled={busy} onClick={() => void submit(`/api/users/${item.id}/invitation`, {})}>{t.inviteAgain}</button>}
           {isAdmin && item.role!=='SUPER_ADMIN' && item.active && item.credential_state==='READY' && <button className="link" disabled={busy}
-            onClick={()=>{setResetTarget({id:item.id,email:item.email});setAgentProfile(null);setHoursResource(null);setStaffDestination(null);}}>{passwordResetLabel(locale)}</button>}
+            onClick={()=>{setResetTarget({id:item.id,email:item.email,operatorId:user.id});setAgentProfile(null);setHoursResource(null);setStaffDestination(null);}}>{passwordResetLabel(locale)}</button>}
           <button className="link" disabled={busy} onClick={() => { setBusy(true); setError('');
             void api(`/api/users/${item.id}/status`, { method: 'PATCH', body: JSON.stringify({ active: !item.active }) })
               .then(() => { if(staffDestination?.id===item.id)setStaffDestination(null);return refresh(); }).catch((failure) => setError(String(failure))).finally(() => setBusy(false)); }}>{item.active ? t.disable : t.enable}</button></div>}{item.role !== 'SUPER_ADMIN' && (isAdmin || item.role === 'AGENT' && item.branch_id === user.branchId) && <>

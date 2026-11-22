@@ -60,4 +60,10 @@ test('Super Admin queues a reset link for the registered staff address and the r
       expect((await recovery.request.post('/api/auth/login',{headers,data:{email,password:newPassword}})).status()).toBe(200);
     } finally { await recovery.close(); }
   } finally { await staff.close(); }
+  await page.getByRole('button',{name:'Sign out',exact:true}).click();
+  await page.getByLabel('Email',{exact:true}).fill('admin@browser.test');
+  await page.getByLabel('Password',{exact:true}).fill(password);
+  await page.getByRole('button',{name:'Sign in',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Sign out',exact:true})).toBeVisible();
+  await expect(page.locator('[data-user-password-reset]')).toHaveCount(0);
 });
