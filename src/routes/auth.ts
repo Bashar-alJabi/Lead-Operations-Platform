@@ -4,6 +4,7 @@ import { isProduction, sessionCookie } from '../config.js';
 import { HttpError, newToken, passwordHash, passwordVerify, principalFromRequest, requireBranch, requireRole, safeTokenEqual, sha256 } from '../security.js';
 import { enqueueIdentityEmail, identityEmailConnection } from '../identity-email.js';
 import { decodeCursor, encodeCursor } from '../pagination.js';
+import { registerAgentProfileRoutes } from './agent-profile.js';
 
 const emailPattern = '^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$';
 const passwordSchema = { type: 'string', minLength: 12, maxLength: 256 } as const;
@@ -13,6 +14,7 @@ function setSessionCookie(reply: FastifyReply, token: string) {
 }
 
 export function registerAuthRoutes(app: FastifyInstance, db: Database): void {
+  registerAgentProfileRoutes(app,db);
   app.get('/api/setup/status', async () => {
     const rows = await db`SELECT EXISTS(SELECT 1 FROM user_account) AS initialized`;
     return { initialized: rows[0]?.initialized === true };

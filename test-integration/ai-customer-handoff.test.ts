@@ -220,7 +220,10 @@ test('Approved customer AI Handoff owns current authority, durable atomic transi
   await assert.rejects(db`UPDATE ai_handoff_reception_event SET snapshot='{}' WHERE action_id=${action.id}`,/IMMUTABLE/);
   await assert.rejects(db`DELETE FROM ai_handoff_reception_event WHERE action_id=${action.id}`,/IMMUTABLE/);
   await db`INSERT INTO campaign_agent(campaign_id,agent_id) VALUES(${campaign},${users.agent!.id}),(${campaign},${users.second!.id})`;
-  await db`UPDATE user_account SET capacity=0 WHERE id=${users.agent!.id}`;
+  const agentProfile='/api/users/'+users.agent!.id+'/agent-profile';
+  const agentSettings=(await api('GET',agentProfile)).json();
+  assert.equal((await api('PUT',agentProfile,{version:agentSettings.version,name:agentSettings.name,capacity:0,
+    reason:'Exercise reception for a current owner at full capacity'})).statusCode,200);
   const reception = async () => (await api('GET',review)).json().reception;
   assert.equal((await reception()).reason,'CURRENT_OWNER_READY');assert.equal((await reception()).receiverId,users.agent!.id);
   const hoursRoot='/api/users/'+users.agent!.id+'/working-hours',branchHoursRoot='/api/branches/'+branch+'/working-hours';

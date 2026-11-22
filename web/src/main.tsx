@@ -22,6 +22,7 @@ import { LeadCustomerOperations } from './LeadCustomerOperations.js';
 import { MetaSourceSetup } from './MetaSourceSetup.js';
 import { GenericSourceWorkspace } from './GenericSourceWorkspace.js';
 import { BranchTimeWorkspace } from './BranchTimeWorkspace.js';
+import { AgentProfileWorkspace,agentProfileLabel } from './AgentProfileWorkspace.js';
 import { PaymentSetup } from './PaymentSetup.js';
 import { AISetup } from './AISetup.js';
 import { AIHumanHandoffQueue } from './AIHumanHandoffQueue.js';
@@ -127,6 +128,7 @@ function App() {
     return()=>{alive=false;};
   },[user?.id,user?.role,user?.branchId,page,notificationRevision]);
   const [hoursResource,setHoursResource] = useState<{scope:'BRANCH'|'USER';id:string;name:string}|null>(null);
+  const [agentProfile,setAgentProfile] = useState<string|null>(null);
   useEffect(()=>{setHoursResource(null);},[page,user?.id]);
   const [selectedLead, setSelectedLead] = useState<string | null>(null);
   const [fieldRefresh, setFieldRefresh] = useState(0);
@@ -331,7 +333,7 @@ function App() {
   return <div className="app-shell"><aside className="sidebar"><div className="brand">{t.app}</div><div className="user-block"><strong>{user.name}</strong><span>{user.role.replace('_', ' ')}</span></div>
     <nav>{(['leads','contacts','contactReviews','followups','campaigns','fields','branches','users','emailSetup','identityEmail','messagingSetup','metaSources','genericSources','paymentSetup','aiSetup','googleSetup','analytics','automations','notifications','audit','profile'] as Page[]).filter((item) =>
       item === 'emailSetup' || item === 'identityEmail' || item === 'contactReviews' || item === 'messagingSetup' || item === 'metaSources' || item === 'paymentSetup' || item === 'aiSetup' || item === 'googleSetup' || item === 'automations' ? canManage : canManage || item === 'leads' || item === 'contacts' || item === 'profile' || item === 'followups' || item === 'notifications' || item === 'analytics').map((item) =>
-      <button key={item} aria-label={t[item]} className={page === item ? 'selected' : ''} onClick={() => { setPage(item); setSelectedLead(null); setSelectedCampaign(null); setStaffDestination(null); setShowForm(false); setForm({}); setNotice(''); }}>{t[item]}{item==='notifications'&&hasUnreadNotifications&&<span role="status" aria-label={locale==='ar'?'إشعارات غير مقروءة':locale==='fr'?'Notifications non lues':'Unread notifications'} style={{marginInlineStart:'.5rem'}}>●</span>}</button>)}</nav>
+      <button key={item} aria-label={t[item]} className={page === item ? 'selected' : ''} onClick={() => { setPage(item); setSelectedLead(null); setSelectedCampaign(null); setStaffDestination(null); setAgentProfile(null); setShowForm(false); setForm({}); setNotice(''); }}>{t[item]}{item==='notifications'&&hasUnreadNotifications&&<span role="status" aria-label={locale==='ar'?'إشعارات غير مقروءة':locale==='fr'?'Notifications non lues':'Unread notifications'} style={{marginInlineStart:'.5rem'}}>●</span>}</button>)}</nav>
     <div className="sidebar-bottom">{language}<button onClick={() => { void api('/api/auth/logout', { method: 'POST' }).then(() => {setInitialImportId(null);setUser(null);}); }}>{t.logout}</button></div>
   </aside><main className="content"><header><div><small>Lead Operations</small><h1>{selectedLead ? t.details : t[page]}</h1></div><button className="secondary" onClick={() => void (page === 'identityEmail' ? refreshDeliveryJobs() : page === 'contacts' || page === 'contactReviews' || page === 'fields' ? setWorkspaceRefresh((value) => value + 1) : refresh())} disabled={busy}>{t.retry}</button></header>
     {error && <div role="alert" className="error">{error}</div>}
@@ -341,6 +343,8 @@ function App() {
       {hoursResource.scope==='BRANCH'
         ? <BranchTimeWorkspace key={hoursResource.id} id={hoursResource.id} locale={locale} api={api} onChanged={refresh}/>
         : <WorkingHoursEditor key={hoursResource.id} scope="USER" id={hoursResource.id} locale={locale} api={api} initiallyOpen/>}</section>}
+    {page==='users'&&canManage&&agentProfile&&<section className="panel"><button className="link" onClick={()=>setAgentProfile(null)}>{t.back}</button>
+      <AgentProfileWorkspace key={agentProfile} id={agentProfile} locale={locale} api={api} onChanged={refresh}/></section>}
     {page==='users' && canManage && staffDestination && <section className="panel"><h2>{staffDestination.name}</h2>
       <button className="link" onClick={()=>setStaffDestination(null)}>{t.back}</button>
       <StaffMessagingDestination key={user.id+':'+staffDestination.id} staffId={staffDestination.id} locale={locale} api={api}/></section>}
@@ -452,8 +456,9 @@ function App() {
           <button className="link" disabled={busy} onClick={() => { setBusy(true); setError('');
             void api(`/api/users/${item.id}/status`, { method: 'PATCH', body: JSON.stringify({ active: !item.active }) })
               .then(() => { if(staffDestination?.id===item.id)setStaffDestination(null);return refresh(); }).catch((failure) => setError(String(failure))).finally(() => setBusy(false)); }}>{item.active ? t.disable : t.enable}</button></div>}{item.role !== 'SUPER_ADMIN' && (isAdmin || item.role === 'AGENT' && item.branch_id === user.branchId) && <>
-          <button className="link" data-hours-open={item.id} onClick={()=>setHoursResource({scope:'USER',id:item.id,name:item.name})}>{locale==='ar'?'إعداد ساعات العمل':locale==='fr'?'Configurer les horaires':'Configure working hours'}</button>
-          <button className="link" onClick={()=>setStaffDestination({id:item.id,name:item.name})}>{staffMessagingLabel(locale)}</button></>}</td></tr>)}
+          {item.role==='AGENT'&&<button className="link" onClick={()=>{setAgentProfile(item.id);setHoursResource(null);setStaffDestination(null);}}>{agentProfileLabel(locale)}</button>}
+          <button className="link" data-hours-open={item.id} onClick={()=>{setAgentProfile(null);setHoursResource({scope:'USER',id:item.id,name:item.name});}}>{locale==='ar'?'إعداد ساعات العمل':locale==='fr'?'Configurer les horaires':'Configure working hours'}</button>
+          <button className="link" onClick={()=>{setAgentProfile(null);setStaffDestination({id:item.id,name:item.name});}}>{staffMessagingLabel(locale)}</button></>}</td></tr>)}
         </tbody></table></div>{(page === 'leads' ? leads : page === 'campaigns' ? campaigns : page === 'branches' ? branches : users).length === 0 && <div className="empty">{t.noData}</div>}
         {page === 'leads' && nextLeadCursor && <div className="load-more"><button className="secondary" disabled={busy} onClick={() => { setBusy(true);
           api<{ items: Lead[]; nextCursor: string | null }>(`/api/leads?${leadQuery ? leadQuery + '&' : ''}limit=50&cursor=${encodeURIComponent(nextLeadCursor)}`)
