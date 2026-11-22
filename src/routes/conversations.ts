@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
+import type postgres from 'postgres';
 import type { Database } from '../db.js';
-import { HttpError, principalFromRequest, requireLead, requireRole } from '../security.js';
+import { HttpError, principalFromRequest, requireLead, requireRole, type Principal } from '../security.js';
 import { resolveConfiguredSender } from '../messaging/sender-resolution.js';
 import { decodeCursor, encodeCursor } from '../pagination.js';
 import { metaMediaCapabilities } from '../media/meta-outbound.js';
@@ -21,6 +22,22 @@ const idParam = { type: 'object', additionalProperties: false, required: ['id'],
 function recheckableAttention(reason: string | null): boolean {
   return Boolean(reason?.startsWith('PINNED_') || reason === 'PARTICIPANT_CHANGED'
     || reason === 'CONNECTION_SENDER_MISMATCH');
+}
+
+async function lockConversationLead(tx:postgres.TransactionSql,actor:Principal,conversationId:string){
+  const [branch]=await tx`SELECT b.id,b.active FROM branch b JOIN lead l ON l.branch_id=b.id JOIN conversation cv ON cv.lead_id=l.id
+    WHERE cv.id=${conversationId} AND l.organization_id=${actor.organizationId}
+      AND (${actor.role==='SUPER_ADMIN'} OR l.branch_id=${actor.branchId})
+      AND (${actor.role!=='AGENT'} OR l.assigned_agent_id=${actor.id}) FOR SHARE OF b`;
+  if(!branch) throw new HttpError(404,'CONVERSATION_NOT_FOUND');
+  if(!branch.active) throw new HttpError(409,'BRANCH_DISABLED');
+  const [lead]=await tx`SELECT l.id,l.branch_id,l.campaign_id,l.contact_id,l.lifecycle FROM conversation cv
+    JOIN lead l ON l.id=cv.lead_id WHERE cv.id=${conversationId} AND l.organization_id=${actor.organizationId}
+      AND (${actor.role==='SUPER_ADMIN'} OR l.branch_id=${actor.branchId})
+      AND (${actor.role!=='AGENT'} OR l.assigned_agent_id=${actor.id}) FOR UPDATE OF l`;
+  if(!lead) throw new HttpError(404,'CONVERSATION_NOT_FOUND');
+  if(lead.branch_id!==branch.id) throw new HttpError(409,'CONVERSATION_CONTEXT_CHANGED');
+  return lead;
 }
 
 export function registerConversationRoutes(app: FastifyInstance, db: Database): void {
@@ -98,8 +115,10 @@ export function registerConversationRoutes(app: FastifyInstance, db: Database): 
       const rows = await db`SELECT c.id, c.sender_id, s.display_name AS sender_name,
           s.capabilities AS sender_capabilities, ic.provider AS sender_provider, c.connection_id,
           c.channel, c.participant_ref, c.controller_type, c.controller_user_id, c.version,
-          u.name AS controller_name, c.state, c.needs_attention_reason, c.started_at, c.last_message_at
+          u.name AS controller_name, c.state, c.needs_attention_reason, c.started_at, c.last_message_at,
+          COALESCE(ca.ai_config->>'enabled'='true' AND ca.messaging_config->>'enabled'='true',false) AS ai_control_enabled
         FROM conversation c JOIN lead l ON l.id = c.lead_id
+        JOIN campaign ca ON (ca.id,ca.branch_id,ca.organization_id)=(l.campaign_id,l.branch_id,l.organization_id)
         JOIN messaging_sender s ON s.id = c.sender_id JOIN integration_connection ic ON ic.id = c.connection_id
         LEFT JOIN user_account u ON u.id = c.controller_user_id
         WHERE c.lead_id = ${request.params.id} AND l.organization_id = ${actor.organizationId}
@@ -123,7 +142,9 @@ export function registerConversationRoutes(app: FastifyInstance, db: Database): 
         s.capabilities AS sender_capabilities, ic.provider AS sender_provider,
         c.connection_id, c.channel, c.participant_ref, c.controller_type, c.controller_user_id, c.version,
         u.name AS controller_name, c.state, c.needs_attention_reason,
+        COALESCE(ca.ai_config->>'enabled'='true' AND ca.messaging_config->>'enabled'='true',false) AS ai_control_enabled,
         c.started_at, c.last_message_at FROM conversation c JOIN lead l ON l.id = c.lead_id
+        JOIN campaign ca ON (ca.id,ca.branch_id,ca.organization_id)=(l.campaign_id,l.branch_id,l.organization_id)
         JOIN messaging_sender s ON s.id = c.sender_id JOIN integration_connection ic ON ic.id = c.connection_id
         LEFT JOIN user_account u ON u.id = c.controller_user_id
       WHERE c.id = ${request.params.id} AND l.organization_id = ${actor.organizationId}
@@ -209,21 +230,7 @@ export function registerConversationRoutes(app: FastifyInstance, db: Database): 
       const actor = await principalFromRequest(request, db);
       if (!request.body.reason.trim()) throw new HttpError(400, 'TAKEOVER_REASON_REQUIRED');
       return db.begin(async (tx) => {
-        const branch = (await tx`SELECT b.id,b.active FROM branch b JOIN lead l ON l.branch_id=b.id JOIN conversation cv ON cv.lead_id=l.id
-          WHERE cv.id=${request.params.id} AND l.organization_id=${actor.organizationId}
-            AND (${actor.role === 'SUPER_ADMIN'} OR l.branch_id=${actor.branchId})
-            AND (${actor.role !== 'AGENT'} OR l.assigned_agent_id=${actor.id}) FOR SHARE OF b`)[0];
-        if (!branch) throw new HttpError(404, 'CONVERSATION_NOT_FOUND');
-        if (!branch.active) throw new HttpError(409, 'BRANCH_DISABLED');
-        const lead = (await tx`SELECT l.id, l.branch_id FROM conversation cv
-          JOIN lead l ON l.id = cv.lead_id WHERE cv.id = ${request.params.id}
-            AND l.organization_id = ${actor.organizationId}
-            AND (${actor.role === 'SUPER_ADMIN'} OR
-              (${actor.role === 'MANAGER'} AND l.branch_id = ${actor.branchId}) OR
-              (${actor.role === 'AGENT'} AND l.assigned_agent_id = ${actor.id}))
-          FOR UPDATE OF l`)[0];
-        if (!lead) throw new HttpError(404, 'CONVERSATION_NOT_FOUND');
-        if (lead.branch_id !== branch.id) throw new HttpError(409, 'CONVERSATION_CONTEXT_CHANGED');
+        const lead=await lockConversationLead(tx,actor,request.params.id);
         const cv = (await tx`SELECT id, state, version, controller_type, controller_user_id,
             needs_attention_reason FROM conversation WHERE id = ${request.params.id} FOR UPDATE`)[0]!;
         if (!await currentPaymentSession(tx, actor, request)) throw new HttpError(403, 'CONVERSATION_ACCESS_REVOKED');
@@ -248,4 +255,60 @@ export function registerConversationRoutes(app: FastifyInstance, db: Database): 
         return { state: 'HUMAN_ACTIVE', version: changed.version, existing: false };
       });
     });
+
+  app.post<{Params:{id:string};Body:{version:number;reason:string}}>('/api/conversations/:id/return-to-ai',{
+    schema:{params:idParam,body:{type:'object',additionalProperties:false,required:['version','reason'],properties:{
+      version:{type:'integer',minimum:1,maximum:2147483646},reason:{type:'string',minLength:3,maxLength:500},
+    }}},
+  },async request=>{
+    const actor=await principalFromRequest(request,db),reason=request.body.reason.trim();
+    if(reason.length<3||/[\x00-\x1f\x7f]/.test(reason)) throw new HttpError(400,'AI_RETURN_REASON_REQUIRED');
+    return db.begin(async tx=>{
+      const lead=await lockConversationLead(tx,actor,request.params.id);
+      const [campaign]=await tx`SELECT id,status,ai_config,messaging_config FROM campaign
+        WHERE (id,branch_id,organization_id)=(${lead.campaign_id},${lead.branch_id},${actor.organizationId}) FOR SHARE`;
+      const [cv]=await tx`SELECT id,version,state,controller_type,controller_user_id,channel,participant_ref,sender_id,connection_id,needs_attention_reason
+        FROM conversation WHERE id=${request.params.id} AND lead_id=${lead.id} FOR UPDATE`;
+      if(!cv||!await currentPaymentSession(tx,actor,request)) throw new HttpError(403,'CONVERSATION_ACCESS_REVOKED');
+      if(cv.version!==request.body.version) throw new HttpError(409,'CONVERSATION_VERSION_CONFLICT');
+      if(lead.lifecycle!=='OPEN'||cv.state!=='HUMAN_ACTIVE'||cv.controller_type!=='HUMAN') throw new HttpError(409,'AI_RETURN_REQUIRES_HUMAN_CONTROL');
+      if(actor.role==='AGENT'&&cv.controller_user_id!==actor.id) throw new HttpError(403,'AI_RETURN_CONTROLLER_REQUIRED');
+      if(!campaign||campaign.status!=='ACTIVE'||campaign.ai_config?.enabled!==true||campaign.messaging_config?.enabled!==true)
+        throw new HttpError(409,'AI_RETURN_CAMPAIGN_NOT_ENABLED');
+      if(cv.needs_attention_reason) throw new HttpError(409,'AI_RETURN_ATTENTION_REQUIRED');
+      const [contact]=await tx`SELECT phone_normalized FROM contact WHERE id=${lead.contact_id}
+        AND organization_id=${actor.organizationId} FOR SHARE`;
+      if(cv.channel!=='WHATSAPP'||!contact?.phone_normalized||contact.phone_normalized!==cv.participant_ref)
+        throw new HttpError(409,'AI_RETURN_PARTICIPANT_CHANGED');
+      const [consent]=await tx`SELECT status,do_not_contact FROM messaging_consent WHERE contact_id=${lead.contact_id} AND channel='WHATSAPP' FOR SHARE`;
+      if(consent?.status!=='GRANTED'||consent.do_not_contact) throw new HttpError(409,'AI_RETURN_CONSENT_REQUIRED');
+      await tx`SELECT s.id FROM messaging_sender s JOIN integration_connection ic ON ic.id=s.connection_id
+        WHERE s.id=${cv.sender_id} AND ic.id=${cv.connection_id} FOR SHARE OF s,ic`;
+      const sender=await resolveConfiguredSender(tx,{organizationId:actor.organizationId,branchId:lead.branch_id,
+        campaignId:lead.campaign_id,pinnedSenderId:cv.sender_id});
+      if(!sender.sender||sender.sender.connectionId!==cv.connection_id) throw new HttpError(409,'AI_RETURN_SENDER_UNAVAILABLE');
+      const [setup]=await tx`SELECT coalesce((cc.definition->'profiles'->>'CONVERSATION')::uuid,
+          (bc.definition->'profiles'->>'CONVERSATION')::uuid) AS profile_id,
+        (SELECT version FROM ai_knowledge_publication WHERE campaign_id=${lead.campaign_id} ORDER BY version DESC LIMIT 1) AS knowledge_version,
+        ai_effective_tool_policy(${lead.branch_id},${lead.campaign_id})->'allowedTools' ? 'sendConversationMessage' AS send_allowed
+        FROM campaign c LEFT JOIN ai_operational_config cc ON cc.scope='CAMPAIGN' AND cc.resource_id=c.id
+        LEFT JOIN ai_operational_config bc ON bc.scope='BRANCH' AND bc.resource_id=c.branch_id WHERE c.id=${lead.campaign_id}`;
+      if(!setup?.profile_id||!setup.knowledge_version||!setup.send_allowed) throw new HttpError(409,'AI_RETURN_CONFIGURATION_NOT_READY');
+      await tx`SELECT p.id FROM ai_model_profile p JOIN integration_connection ic ON ic.id=p.connection_id
+        WHERE p.id=${setup.profile_id} FOR SHARE OF p,ic`;
+      const [profile]=await tx`SELECT ai_operational_profile_usable(${lead.branch_id},${setup.profile_id},'CONVERSATION') AS usable`;
+      if(!profile?.usable) throw new HttpError(409,'AI_RETURN_CONFIGURATION_NOT_READY');
+      const [updated]=await tx`UPDATE conversation SET controller_type='AI',controller_user_id=NULL,state='AI_ACTIVE',version=version+1
+        WHERE id=${cv.id} RETURNING version`;
+      await tx`INSERT INTO conversation_handoff(conversation_id,from_controller,from_user_id,to_controller,reason,requested_by,created_at)
+        VALUES(${cv.id},'HUMAN',${cv.controller_user_id},'AI',${reason},${actor.id},clock_timestamp())`;
+      const detail={conversationId:cv.id,reason,previousControllerUserId:cv.controller_user_id};
+      await tx`INSERT INTO lead_activity(lead_id,actor_user_id,event_type,detail)
+        VALUES(${lead.id},${actor.id},'CONVERSATION_RETURNED_TO_AI',${tx.json(detail)})`;
+      await tx`INSERT INTO audit_log(organization_id,branch_id,actor_user_id,action,target_type,target_id,detail)
+        VALUES(${actor.organizationId},${lead.branch_id},${actor.id},'CONVERSATION_RETURNED_TO_AI','CONVERSATION',${cv.id},
+          ${tx.json({...detail,profileId:setup.profile_id,knowledgeVersion:setup.knowledge_version})})`;
+      return {state:'AI_ACTIVE',version:updated!.version};
+    });
+  });
 }

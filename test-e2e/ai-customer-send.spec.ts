@@ -36,7 +36,7 @@ test('AI replies use signed sources, approved content, durable native queues and
     await consent('GRANTED');
     const control = (data: object) => manager.request.post('/__test__/ai-customer-proposal', { headers: fixtureHeaders, data: { conversationId: cv, ...data } });
     const enabled = await control({ enable: true, messaging: true }); expect(enabled.status(), await enabled.text()).toBe(200);
-    const inbound = () => manager.request.post('/__test__/ai-customer-inbound', { headers: fixtureHeaders, data: { conversationId: cv, body: 'What is the approved reply?', aiControl: true } });
+    const inbound = (aiControl=true) => manager.request.post('/__test__/ai-customer-inbound', { headers: fixtureHeaders, data: { conversationId: cv, body: 'What is the approved reply?', aiControl } });
     const execute = () => manager.request.post('/__test__/ai-customer-send', { headers: fixtureHeaders });
     const dispatch = () => manager.request.post('/__test__/ai-customer-send', { headers: fixtureHeaders, data: { dispatch: true } });
     expect((await page.request.post('/__test__/ai-customer-send')).status()).toBe(403);
@@ -58,6 +58,26 @@ test('AI replies use signed sources, approved content, durable native queues and
     await read(); await expect(panel.locator('[data-ai-customer-action]').first()).toContainText('CONSENT_REQUIRED'); await expect(panel.locator('[data-ai-customer-action]').first()).toContainText('this action queued no customer reply');
     const state = (await (await page.request.get('/api/leads/' + lead + '/conversations')).json()).items[0];
     expect((await page.request.post('/api/conversations/' + cv + '/takeover', { headers, data: { version: state.version, reason: 'Human reviews blocked AI send' } })).status()).toBe(200);
+    await page.reload();
+    await page.getByRole('row').filter({hasText:leadName}).getByRole('button',{name:'Details',exact:true}).click();
+    await messages.getByRole('button',{name:'View messages',exact:true}).click();
+    const returnPanel=messages.locator('[data-conversation-ai-return]');
+    await returnPanel.getByLabel('Reason to return control to AI',{exact:true}).fill('Employee finished the review');
+    const resume=returnPanel.getByRole('button',{name:'Return control to AI',exact:true});
+    const messageCount=async()=>(await (await page.request.get(`/api/conversations/${cv}/messages`)).json()).items.length;
+    const beforeResume=await messageCount();
+    await resume.click();
+    await expect(messages.getByRole('alert')).toContainText('AI_RETURN_CONSENT_REQUIRED');
+    await consent('GRANTED');await resume.click();
+    await expect(returnPanel).toHaveCount(0);
+    await expect(messages.getByRole('row').filter({hasText:'AI_ACTIVE'})).toHaveCount(1);
+    expect(await messageCount()).toBe(beforeResume);
+    expect((await inbound(false)).status()).toBe(200);
+    expect((await control({process:true})).status()).toBe(200);
+    await read();await expect(panel).toContainText('ANSWER');
+    await page.reload();
+    await page.getByRole('row').filter({hasText:leadName}).getByRole('button',{name:'Details',exact:true}).click();
+    await expect(page.getByRole('listitem').filter({hasText:'Conversation returned to AI'})).toContainText('Employee finished the review');
     const secondContext = await browser.newContext({ extraHTTPHeaders: { 'x-e2e-rate-scope': randomUUID() } }), second = await secondContext.newPage(); try { await login(second, 'second'); expect((await second.request.get('/api/conversations/' + cv + '/ai-customer-executions')).status()).toBe(404); } finally { await secondContext.close(); }
     expect(errors).toEqual([]);
   } finally { await managerContext.close(); await agentContext.close(); }

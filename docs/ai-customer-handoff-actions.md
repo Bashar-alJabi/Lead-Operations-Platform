@@ -1,5 +1,11 @@
 # تنفيذ طلب Human Handoff من Customer AI
 
+## إعادة التحكم إلى AI بطلب موظف
+
+يعيد `POST /api/conversations/:id/return-to-ai` التحكم من `HUMAN_ACTIVE` إلى `AI_ACTIVE` بطلب يتضمن نسخة المحادثة وسبب القرار. يعيد الخادم فحص الجلسة ونطاق الفرع والفرصة والتحكم الحالي. يستطيع الوكيل تنفيذ الإجراء في محادثته التي يتحكم بها، ويعمل المدير ضمن فرعه. يتطلب الانتقال حملة نشطة مفعّلة لـAI وMessaging، ومعرفة منشورة وملف محادثة صالحًا وأداة إرسال معتمدة وموافقة العميل وعدم وجود حجب للمحادثة أو خلل في المرسل المثبّت.
+
+يحفظ الانتقال `conversation_handoff` وActivity وAudit في معاملة واحدة، ويبقى مالك Lead كما هو. تستخدم migration 240 وقت الاستلام لدى PostgreSQL ووقت إعادة التحكم لاستبعاد الرسائل التي استلمها النظام قبل الانتقال من مسار التنفيذ الآلي. تظل هذه الرسائل في تاريخ المحادثة حتى إذا عالجها العامل بعدها. يخضع الحدث الوارد الجديد لمصدر الرسائل الموثوق وقواعد السياق الحالية قبل أي استدلال أو إرسال. استخدمت الاختبارات مزوّدًا وهميًا وبيانات اصطناعية، ويبقى التحقق الحي معلقًا على الإعداد والتفويض الخارجيين.
+
 **تحديث Native143:** fresh BLOCKED mandatory action قد تحفظ safety-stop receipt مستقلة وprocessing Attention إذا بقي المصدر الحالي ونطاقه وAI control بلا حجب آخر. APPLIED Handoff proof لا تتغير،ولا ينشأ Human controller أوnotification/SLA من الطلب المحجوب. Human/newer/foreign/provider attention تبقى محفوظة. [العقد](ai-mandatory-handoff-safety.md). وصف BLOCKED بلا تغيير في المرحلة125 أدناه هو baseline السابقة؛current safety receipt تميز حالة الإيقاف الفعلية.
 
 **تحديث Native142:** Qualification child source/condition/current proof وmulti-action UI منفذة؛[العقد الحالي](ai-qualification-handoff.md). لا تتغير سلطة direct HANDOFF الأصلية. بدل مطابقةoriginal context بعد own Qualification write،تطابق child context المشتقة بدقة؛كلباقيfences تبقىكاملة. أسبابHANDOFF التسعةمثبتة،وvalidated HANDOFF دونtool admission تتوقفprocessing Attention. Full mandatory/runtime/customer sends مازالتغيرمكتملة؛Live/full activation معطلتان.

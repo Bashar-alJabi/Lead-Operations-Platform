@@ -287,17 +287,20 @@ export async function processInboundEvent(tx: postgres.TransactionSql, eventId: 
     lead_id = ${leadId}, conversation_id = ${conversationId}, resolved_by = ${decision?.actor.id ?? null},
     resolved_at = now() WHERE id = ${event.id}`;
   // Preserve active AI only for a newly eligible implemented tool path. Diagnostic attention never grants execution.
-  const admitted = (await tx`WITH source AS (SELECT ai_customer_proposal_context(${event.id}) AS context)
-    SELECT ai_qualification_admissible(context) OR ai_handoff_admissible(context) OR ai_send_admissible(context) AS allowed FROM source`)[0]!.allowed;
-  if (!admitted) await tx`UPDATE conversation SET
+  const admission=(await tx`WITH source AS (SELECT ai_customer_proposal_context(${event.id}) AS context)
+    SELECT ai_inbound_after_control_return(${event.id}) AS after_return,
+      ai_qualification_admissible(context) OR ai_handoff_admissible(context) OR ai_send_admissible(context) AS allowed FROM source`)[0]!;
+  if (admission.after_return && !admission.allowed) await tx`UPDATE conversation SET
     -- Fresh diagnostic work may replace a processing diagnostic, never an unknown send or operational safety stop.
     needs_attention_reason = CASE WHEN controller_type = 'AI' AND (needs_attention_reason IS NULL OR
       needs_attention_reason IN ('AI_PROCESSING_NOT_READY','AI_CUSTOMER_CONTEXT_TOO_LARGE','AI_QUEUE_BACKPRESSURE')) THEN 'AI_PROCESSING_NOT_READY'
       ELSE needs_attention_reason END,
     state = CASE WHEN controller_type = 'AI' THEN 'AI_HANDOFF_REQUIRED' ELSE state END
     WHERE id = ${conversationId}`;
-  const trace = await recordBlockedCustomerAIInbound(tx, event.id);
-  if (trace && !trace.duplicate) await enqueueCustomerProposal(tx, event.id);
+  if(admission.after_return){
+    const trace=await recordBlockedCustomerAIInbound(tx,event.id);
+    if(trace&&!trace.duplicate) await enqueueCustomerProposal(tx,event.id);
+  }
   await tx`INSERT INTO audit_log (organization_id, branch_id, actor_user_id, action,
     target_type, target_id, detail) SELECT l.organization_id, l.branch_id,
       ${decision?.actor.id ?? null}, 'INBOUND_MESSAGE_ATTACHED', 'MESSAGE', ${inserted[0]?.id ?? existing?.id},

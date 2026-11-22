@@ -23,7 +23,7 @@ const extensionMime:Record<string,string>={ jpg:'image/jpeg',jpeg:'image/jpeg',p
 type Conversation = { id: string; sender_id: string; sender_name: string; participant_ref: string;
   sender_capabilities: { media?: string[];mediaRules?:Partial<Record<MediaKind,MediaRule>> };
   controller_type: string; controller_user_id: string | null; controller_name: string | null; state: string; version: number;
-  needs_attention_reason: string | null; started_at: string };
+  needs_attention_reason: string | null; started_at: string; ai_control_enabled?:boolean };
 type Consent = { status: 'GRANTED'|'REVOKED'|'UNKNOWN'; do_not_contact: boolean; evidence: string | null;
   source: string | null; updated_at: string | null; version: number; editable: boolean;unavailable_reason?:string|null };
 type Message = { id: string; direction: 'INBOUND'|'OUTBOUND'; author_type: string; body: string;
@@ -112,6 +112,10 @@ export function LeadConversations({ leadId, lifecycle, role, actorId, locale, ap
   const [sendKey, setSendKey] = useState(() => crypto.randomUUID());
   const [submitted, setSubmitted] = useState(false);
   const [takeoverReason, setTakeoverReason] = useState('');
+  const [returnReason, setReturnReason] = useState('');
+  const aiReturn={ar:{action:'إعادة التحكم إلى AI',reason:'سبب إعادة التحكم إلى AI'},
+    en:{action:'Return control to AI',reason:'Reason to return control to AI'},
+    fr:{action:'Rendre le contrôle à l’IA',reason:'Motif du retour à l’IA'}}[locale];
   const [reviewNote, setReviewNote] = useState('');
   const [reviewConfirmed, setReviewConfirmed] = useState(false);
   const [attentionReviews, setAttentionReviews] = useState<AttentionReview[]>([]);
@@ -194,7 +198,7 @@ export function LeadConversations({ leadId, lifecycle, role, actorId, locale, ap
     setDraft(''); setSendMode('TEXT'); setTemplates([]); setTemplateAfter(null); setTemplateId('');
     setUploadFile(null); setUploadedAttachment(null); setUploadKey(crypto.randomUUID());
     setTemplateParameters([]);setHeaderParameter('');setUrlParameter('');
-    setAttentionReviews([]); setReviewBefore(null); setReviewNote(''); setReviewConfirmed(false);
+    setAttentionReviews([]); setReviewBefore(null); setReviewNote(''); setReviewConfirmed(false); setReturnReason('');
     setSendKey(crypto.randomUUID()); setSubmitted(false); setError('');
     await Promise.all([loadMessages(id), loadTemplates(id),
       role === 'AGENT' ? Promise.resolve() : loadAttentionReviews(id)]);
@@ -285,6 +289,16 @@ export function LeadConversations({ leadId, lifecycle, role, actorId, locale, ap
       setTakeoverReason(''); await load();
     } catch (failure) { setError(String(failure)); } finally { setBusy(false); }
   }
+  async function returnToAI() {
+    if(!selected||returnReason.trim().length<3)return;
+    setBusy(true);setError('');
+    try{
+      await api(`/api/conversations/${selected.id}/return-to-ai`,{method:'POST',body:JSON.stringify({
+        version:selected.version,reason:returnReason.trim(),
+      })});
+      setReturnReason('');await load();
+    }catch(failure){setError(String(failure));}finally{setBusy(false);}
+  }
   async function saveConsent() {
     if (!consent) return;
     setBusy(true); setError('');
@@ -335,6 +349,11 @@ export function LeadConversations({ leadId, lifecycle, role, actorId, locale, ap
         <input value={takeoverReason} minLength={3} maxLength={500} onChange={(event) => setTakeoverReason(event.target.value)} />
       </label><button className="secondary" disabled={busy || takeoverReason.trim().length < 3}
         onClick={() => void takeover()}>{t.takeover}</button></div>}
+      {selected?.ai_control_enabled&&selected.state==='HUMAN_ACTIVE'&&selected.controller_type==='HUMAN'&&lifecycle==='OPEN'
+        &&(role!=='AGENT'||selected.controller_user_id===actorId)&&<div className="actions" data-conversation-ai-return>
+        <label>{aiReturn.reason}<input value={returnReason} minLength={3} maxLength={500} onChange={event=>setReturnReason(event.target.value)} /></label>
+        <button className="secondary" disabled={busy||returnReason.trim().length<3} onClick={()=>void returnToAI()}>{aiReturn.action}</button>
+      </div>}
       {!messages.length && <p>{t.noMessages}</p>}
       <ConversationSummarySource key={selectedId} conversationId={selectedId} locale={locale} api={api} humanActive={selected?.controller_type==='HUMAN' && selected?.state==='HUMAN_ACTIVE'} revision={messages.map(m=>m.id+':'+m.delivery_state).join(',')} />
       <ConversationCampaignKnowledge key={'knowledge-'+selectedId} conversationId={selectedId} locale={locale} api={api} humanActive={selected?.controller_type==='HUMAN' && selected?.state==='HUMAN_ACTIVE'} />
