@@ -2,12 +2,13 @@ import type postgres from 'postgres';
 import type {Principal} from './security.js';
 import {leadPredicate,type LeadFilter,type PreparedLeadFilter} from './lead-query.js';
 
-export const analyticsMetrics=['ALL','OPEN','CLOSED','ARCHIVED','ATTENTION','UNASSIGNED','NO_FOLLOW_UP','OVERDUE_FOLLOW_UP','PLATFORM_CONTACTED','AI_CONTACTED','HUMAN_CONTACTED','CUSTOMER_RESPONDED','PAID','ENROLLED','CONVERTED','AI_ANSWERED','HUMAN_ANSWERED'] as const;
+export const analyticsMetrics=['ALL','OPEN','CLOSED','ARCHIVED','ATTENTION','UNASSIGNED','NO_FOLLOW_UP','OVERDUE_FOLLOW_UP','PLATFORM_CONTACTED','AI_CONTACTED','HUMAN_CONTACTED','CUSTOMER_RESPONDED','NO_CUSTOMER_RESPONSE','PAID','ENROLLED','CONVERTED','AI_ANSWERED','HUMAN_ANSWERED'] as const;
 export type AnalyticsMetric=typeof analyticsMetrics[number];
 export function analyticsMetricPredicate(tx:postgres.TransactionSql,metric:AnalyticsMetric){
  const sql:Record<AnalyticsMetric,string>={ALL:'true',OPEN:"f.lifecycle='OPEN'",CLOSED:"f.lifecycle='CLOSED'",ARCHIVED:"f.lifecycle='ARCHIVED'",ATTENTION:'f.attention',UNASSIGNED:'f.assigned_agent_id IS NULL',
   NO_FOLLOW_UP:'f.open_tasks=0',OVERDUE_FOLLOW_UP:'f.overdue_tasks>0',PLATFORM_CONTACTED:'f.first_platform IS NOT NULL',AI_CONTACTED:'f.first_ai IS NOT NULL',HUMAN_CONTACTED:'f.first_human IS NOT NULL',
-  CUSTOMER_RESPONDED:'f.first_customer_response IS NOT NULL',PAID:'f.paid',ENROLLED:'f.enrolled',CONVERTED:'f.converted',AI_ANSWERED:'f.ai_answered',HUMAN_ANSWERED:'f.human_answered'};
+  CUSTOMER_RESPONDED:'f.first_customer_response IS NOT NULL',NO_CUSTOMER_RESPONSE:'f.first_platform IS NOT NULL AND f.first_customer_response IS NULL',
+  PAID:'f.paid',ENROLLED:'f.enrolled',CONVERTED:'f.converted',AI_ANSWERED:'f.ai_answered',HUMAN_ANSWERED:'f.human_answered'};
  return tx.unsafe(sql[metric]);
 }
 

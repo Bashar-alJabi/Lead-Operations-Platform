@@ -4,6 +4,7 @@ import {ImportContactReviewWorkspace} from './ImportContactReviewWorkspace.js';
 import {ExportWorkspace} from './ExportWorkspace.js';
 import {BulkFollowupsWorkspace} from './BulkFollowupsWorkspace.js';
 import {AnalyticsWorkspace} from './AnalyticsWorkspace.js';
+import {AIOperationsFacts} from './AIOperationsFacts.js';
 import {AuditWorkspace} from './AuditWorkspace.js';
 import {BulkFieldsWorkspace} from './BulkFieldsWorkspace.js';
 import React, { useEffect, useRef, useState } from 'react';
@@ -46,7 +47,7 @@ type ManagedUser = { id: string; branch_id: string | null; role: Role; name: str
 type EmailConnection = { configured: boolean; id?: string; name?: string; status?: string; hasCredential?: boolean; settings?: { host: string; port: number; secure: boolean; username: string; fromAddress: string } };
 type DeliveryJob = { id: string; kind: string; status: string; attempts: number; max_attempts: number; last_error_code: string | null; email: string; name: string; created_at: string };
 type Locale = 'ar' | 'fr' | 'en';
-type Page = 'leads' | 'contacts' | 'contactReviews' | 'fields' | 'campaigns' | 'branches' | 'users' | 'profile' | 'emailSetup' | 'identityEmail' | 'followups' | 'messagingSetup' | 'metaSources' | 'genericSources' | 'paymentSetup' | 'aiSetup' | 'googleSetup' | 'notifications' | 'automations' | 'analytics' | 'audit';
+type Page = 'leads' | 'contacts' | 'contactReviews' | 'fields' | 'campaigns' | 'branches' | 'users' | 'profile' | 'emailSetup' | 'identityEmail' | 'followups' | 'messagingSetup' | 'metaSources' | 'genericSources' | 'paymentSetup' | 'aiSetup' | 'googleSetup' | 'notifications' | 'automations' | 'analytics' | 'operationsAssistant' | 'audit';
 type AuthMode = 'login' | 'forgot' | 'reset' | 'invite';
 const linkParameters = new URLSearchParams(window.location.hash.slice(1));
 const initialLinkMode: AuthMode = linkParameters.has('invite') ? 'invite' : linkParameters.has('reset') ? 'reset' : 'login';
@@ -95,9 +96,9 @@ const contactLabels = {
   en: { contacts: 'Contacts', contactReviews: 'Match reviews', reviewSaved: 'Saved for review; no lead was created until a contact is selected.' },
 } as const;
 const fieldLabels = { ar: { fields: 'الحقول الديناميكية' }, fr: { fields: 'Champs dynamiques' }, en: { fields: 'Dynamic fields' } } as const;
-const workflowLabels = { ar: { followups: 'المتابعات', messagingSetup: 'إعداد الرسائل',metaSources:'مصادر Meta',genericSources:'مصادر Webhook',paymentSetup:'إعداد الدفع',aiSetup:'إعداد AI',googleSetup:'اتصالات Google Sheets',analytics:'التحليلات',automations:'الأتمتة',notifications:'الإشعارات',audit:'سجل التدقيق' },
-  fr: { followups: 'Suivis', messagingSetup: 'Messagerie',metaSources:'Sources Meta',genericSources:'Sources webhook',paymentSetup:'Configuration du paiement',aiSetup:'Configuration IA',googleSetup:'Connexions Google Sheets',analytics:'Analyses',automations:'Automatisations',notifications:'Notifications',audit:'Journal d’audit' },
-  en: { followups: 'Follow-ups', messagingSetup: 'Messaging setup',metaSources:'Meta sources',genericSources:'Webhook sources',paymentSetup:'Payment setup',aiSetup:'AI setup',googleSetup:'Google Sheets connections',notifications:'Notifications',analytics:'Analytics',automations:'Automations',audit:'Audit log' } } as const;
+const workflowLabels = { ar: { followups: 'المتابعات', messagingSetup: 'إعداد الرسائل',metaSources:'مصادر Meta',genericSources:'مصادر Webhook',paymentSetup:'إعداد الدفع',aiSetup:'إعداد AI',googleSetup:'اتصالات Google Sheets',analytics:'التحليلات',operationsAssistant:'مساعد العمليات',automations:'الأتمتة',notifications:'الإشعارات',audit:'سجل التدقيق' },
+  fr: { followups: 'Suivis', messagingSetup: 'Messagerie',metaSources:'Sources Meta',genericSources:'Sources webhook',paymentSetup:'Configuration du paiement',aiSetup:'Configuration IA',googleSetup:'Connexions Google Sheets',analytics:'Analyses',operationsAssistant:'Assistant opérationnel',automations:'Automatisations',notifications:'Notifications',audit:'Journal d’audit' },
+  en: { followups: 'Follow-ups', messagingSetup: 'Messaging setup',metaSources:'Meta sources',genericSources:'Webhook sources',paymentSetup:'Payment setup',aiSetup:'AI setup',googleSetup:'Google Sheets connections',notifications:'Notifications',analytics:'Analytics',operationsAssistant:'Operations Assistant',automations:'Automations',audit:'Audit log' } } as const;
 type LabelKey = keyof typeof labels.en | keyof typeof profileLabels.en | keyof typeof managementLabels.en |
   keyof typeof identityLabels.en | keyof typeof deliveryLabels.en | keyof typeof contactLabels.en |
   keyof typeof fieldLabels.en | keyof typeof workflowLabels.en;
@@ -348,8 +349,8 @@ function App() {
     }
   };
   return <div className="app-shell"><aside className="sidebar"><div className="brand">{t.app}</div><div className="user-block"><strong>{user.name}</strong><span>{user.role.replace('_', ' ')}</span></div>
-    <nav>{(['leads','contacts','contactReviews','followups','campaigns','fields','branches','users','emailSetup','identityEmail','messagingSetup','metaSources','genericSources','paymentSetup','aiSetup','googleSetup','analytics','automations','notifications','audit','profile'] as Page[]).filter((item) =>
-      item === 'emailSetup' || item === 'identityEmail' || item === 'contactReviews' || item === 'messagingSetup' || item === 'metaSources' || item === 'paymentSetup' || item === 'aiSetup' || item === 'googleSetup' || item === 'automations' ? canManage : canManage || item === 'leads' || item === 'contacts' || item === 'profile' || item === 'followups' || item === 'notifications' || item === 'analytics').map((item) =>
+    <nav>{(['leads','contacts','contactReviews','followups','campaigns','fields','branches','users','emailSetup','identityEmail','messagingSetup','metaSources','genericSources','paymentSetup','aiSetup','googleSetup','analytics','operationsAssistant','automations','notifications','audit','profile'] as Page[]).filter((item) =>
+      item === 'emailSetup' || item === 'identityEmail' || item === 'contactReviews' || item === 'messagingSetup' || item === 'metaSources' || item === 'paymentSetup' || item === 'aiSetup' || item === 'googleSetup' || item === 'automations' ? canManage : canManage || item === 'leads' || item === 'contacts' || item === 'profile' || item === 'followups' || item === 'notifications' || item === 'analytics' || item==='operationsAssistant').map((item) =>
       <button key={item} aria-label={t[item]} className={page === item ? 'selected' : ''} onClick={() => { setPage(item); setSelectedLead(null); setSelectedCampaign(null); setStaffDestination(null); setAgentProfile(null); setResetTarget(null); setScopeTarget(null); setShowForm(false); setForm({}); setNotice(''); }}>{t[item]}{item==='notifications'&&hasUnreadNotifications&&<span role="status" aria-label={locale==='ar'?'إشعارات غير مقروءة':locale==='fr'?'Notifications non lues':'Unread notifications'} style={{marginInlineStart:'.5rem'}}>●</span>}</button>)}</nav>
     <div className="sidebar-bottom">{language}<button onClick={() => { void api('/api/auth/logout', { method: 'POST' }).then(endSession).catch(failure => setError(String(failure))); }}>{t.logout}</button></div>
   </aside><main className="content"><header><div><small>Lead Operations</small><h1>{selectedLead ? t.details : t[page]}</h1></div><button className="secondary" onClick={() => void (page === 'identityEmail' ? refreshDeliveryJobs() : page === 'contacts' || page === 'contactReviews' || page === 'fields' ? setWorkspaceRefresh((value) => value + 1) : refresh())} disabled={busy}>{t.retry}</button></header>
@@ -392,6 +393,8 @@ function App() {
       : page === 'aiSetup' && canManage ? <AISetup locale={locale} role={user.role as 'SUPER_ADMIN'|'MANAGER'} branches={branches} api={api} />
       : page === 'googleSetup' && canManage ? <GoogleSetup key={user.id} locale={locale} user={{...user,role:user.role as 'SUPER_ADMIN'|'MANAGER'}} branches={branches} api={api} initialId={initialGoogleId} onImport={id=>{setInitialImportId(id);setSelectedLead(null);setPage('leads');}}/>
       : page === 'analytics' ? <AnalyticsWorkspace key={user.id} locale={locale} api={api} user={user} branches={branches} onOpenLead={id=>{setPage('leads');setSelectedLead(id);}}/>
+      : page === 'operationsAssistant' ? <AIOperationsFacts key={currentDetailScope} locale={locale} api={api} branches={branches}
+        onOpenLead={id=>{setPage('leads');setSelectedLead(id);}}/>
       : page === 'audit' && canManage ? <AuditWorkspace key={user.id+':'+user.role+':'+user.branchId} locale={locale} api={api} organizationAccess={isAdmin} branches={branches}/>
       : page === 'automations' && canManage ? <AutomationWorkspace key={user.id} locale={locale} api={api} user={{...user,role:user.role as 'SUPER_ADMIN'|'MANAGER'}} branches={branches} onOpenLead={id=>{setPage('leads');setSelectedLead(id);}}/>
       : page === 'notifications' ? <NotificationCenter key={user.id+':'+user.role+':'+user.branchId} locale={locale} api={api} user={user} branches={branches} onOpenLead={id=>{setPage('leads');setSelectedLead(id);}} onOpenIntegration={kind=>setPage(integrationPages[kind])} onChanged={()=>setNotificationRevision(n=>n+1)}/>

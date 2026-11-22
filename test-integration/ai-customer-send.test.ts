@@ -115,6 +115,11 @@ test('Authenticated AI replies preserve native content/action/outbox proof, curr
   const aiFacts=aiFactsResponse.json();assert.equal(aiFacts.leads.total,'1');assert.equal(aiFacts.communication.aiAttempts,'1');
   assert.equal(aiFacts.communication.humanAttempts,'0');assert.equal(aiFacts.communication.aiContacted,'1');assert.equal(aiFacts.communication.humanContacted,'0');
   assert.equal((await api('GET','/api/analytics/agents?q='+lead,undefined,'agent')).json().items.length,0);
+  const operationFacts=await api('POST','/api/ai/operations/facts',{question:'How many leads did AI contact?'},'agent');
+  assert.equal(operationFacts.statusCode,200,operationFacts.body);
+  assert.deepEqual(operationFacts.json().items.map((item:{id:string})=>item.id),[lead]);
+  assert.equal(operationFacts.json().count,'1');
+  assert.ok(!operationFacts.body.includes(published.sections.prices));
 
   const history = (await api('GET', root, undefined, 'agent')).json().items.find((r: any) => r.id === first.id);
   assert.deepEqual(history.toolsExecuted, ['sendConversationMessage']); assert.equal(history.action.deliveryState, 'SENT'); assert.equal(history.action.messageId, firstMessage.id); assert.equal(history.context, undefined);

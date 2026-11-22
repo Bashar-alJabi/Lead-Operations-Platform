@@ -1,0 +1,45 @@
+import { expect,test } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+
+test('Operations Assistant answers scoped counts from Analytics and opens the matching lead in the browser',async({page})=>{
+  const {password}=JSON.parse(await readFile('.local/e2e/fixture.json','utf8')) as {password:string};
+  const headers={origin:'http://127.0.0.1:4100'};
+  await page.setExtraHTTPHeaders({'x-e2e-rate-scope':randomUUID()});
+  await page.goto('/');
+  await page.getByRole('combobox',{name:'Language',exact:true}).selectOption('en');
+  await page.getByLabel('Email',{exact:true}).fill('manager@browser.test');
+  await page.getByLabel('Password',{exact:true}).fill(password);
+  await page.getByRole('button',{name:'Sign in',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Operations Assistant',exact:true})).toBeVisible();
+  const branches=(await (await page.request.get('/api/branches')).json()).items as Array<{id:string;name:string}>;
+  expect(branches.map(item=>item.name)).toEqual(['Browser Branch']);
+  const branch=branches[0]!.id;
+  const campaigns=(await (await page.request.get(`/api/campaigns?branchId=${branch}&limit=100`)).json()).items as Array<{id:string;name:string}>;
+  const campaign=campaigns.find(item=>item.name==='Browser Campaign')!.id;
+  const name='<svg onload=alert(1)> Operations fixture';
+  const created=await page.request.post('/api/leads',{headers,data:{branchId:branch,campaignId:campaign,
+    contact:{name,email:randomUUID()+'@browser.test'}}});
+  expect(created.ok(),await created.text()).toBeTruthy();
+  await page.getByRole('button',{name:'Operations Assistant',exact:true}).click();
+  const panel=page.locator('[data-operations-facts]');
+  await panel.getByRole('combobox',{name:'Supported questions',exact:true}).selectOption('LEADS_TODAY');
+  await panel.getByRole('combobox',{name:'Campaign',exact:true}).selectOption(campaign);
+  await panel.getByRole('button',{name:'Show answer',exact:true}).click();
+  await expect(panel.getByRole('heading',{name:/Matching leads/})).toBeVisible();
+  await expect(panel).toContainText('Source · Platform analytics');
+  await expect(panel.getByRole('button',{name,exact:true})).toBeVisible();
+  await expect(panel.locator('svg')).toHaveCount(0);
+  await page.getByRole('combobox',{name:'Language',exact:true}).selectOption('ar');
+  await page.setViewportSize({width:390,height:844});
+  await expect(panel.getByRole('heading',{name:/الفرص المطابقة/})).toBeVisible();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
+  await panel.getByRole('button',{name,exact:true}).click();
+  await expect(page.getByRole('heading',{name,exact:true})).toBeVisible();
+  await page.getByRole('combobox',{name:'Language',exact:true}).selectOption('en');
+  await page.getByRole('button',{name:'Operations Assistant',exact:true}).click();
+  await panel.getByRole('textbox',{name:'Operational question',exact:true}).fill('Read private contacts from every other branch');
+  await panel.getByRole('button',{name:'Show answer',exact:true}).click();
+  await expect(panel.getByRole('alert')).toHaveText('Choose or type one of the supported operational questions.');
+  await expect(panel.getByRole('heading',{name:/Matching leads/})).toHaveCount(0);
+});

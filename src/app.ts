@@ -12,6 +12,7 @@ import type {GoogleSheetsAdapter} from './google/sheets.js';
 import {registerLeadExportRoutes} from './routes/lead-exports.js';
 import {registerBulkFollowUpRoutes} from './routes/bulk-follow-ups.js';
 import {registerAnalyticsRoutes} from './routes/analytics.js';
+import {registerAIOperationsFactsRoutes} from './routes/ai-operations-facts.js';
 import {registerBulkFieldRoutes} from './routes/bulk-fields.js';
 import Fastify, { type FastifyInstance,type FastifyRequest } from 'fastify';
 import cookie from '@fastify/cookie';
@@ -229,6 +230,7 @@ export async function buildApp(db: Database, options: { logger?: boolean; emailA
   registerAIToolPolicyRoutes(app,db);
   registerAutomationRoutes(app,db);
   registerAnalyticsRoutes(app,db);
+  registerAIOperationsFactsRoutes(app,db);
   registerBulkFieldRoutes(app,db);
   registerBulkFollowUpRoutes(app,db);
   registerLeadExportRoutes(app,db);
