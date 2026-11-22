@@ -67,13 +67,17 @@ export function registerLeadWorkflowRoutes(app: FastifyInstance, db: Database): 
     return db.begin(async tx => {
       const lead=await lockedLead(tx,actor,request.params.id,false);
       if (!await currentPaymentSession(tx,actor,request)) throw new HttpError(403,'LEAD_ACCESS_REVOKED');
-      const rows=await tx`SELECT id,state,stop_reason AS reason,anchored_at AS "anchoredAt",due_at AS "dueAt",
-        changed_at AS "changedAt",anchored_at::text AS cursor_at
-        FROM ai_followup_schedule WHERE lead_id=${lead.id} AND organization_id=${actor.organizationId}
-          AND branch_id=${lead.branch_id} AND campaign_id=${lead.campaign_id}
+      const rows=await tx`SELECT s.id,CASE WHEN m.delivery_state IN ('SENT','DELIVERED','READ','UNKNOWN') THEN m.delivery_state
+          WHEN s.state='STOPPED' THEN s.state WHEN a.blocked_reason IS NOT NULL THEN 'BLOCKED' ELSE COALESCE(m.delivery_state,s.state) END AS state,
+        CASE WHEN m.delivery_state IN ('SENT','DELIVERED','READ') THEN NULL ELSE COALESCE(s.stop_reason,a.blocked_reason,m.last_error_code) END AS reason,
+        s.anchored_at AS "anchoredAt",s.due_at AS "dueAt",s.changed_at AS "changedAt",s.anchored_at::text AS cursor_at
+        FROM ai_followup_schedule s LEFT JOIN ai_followup_send_action a ON a.schedule_id=s.id
+          LEFT JOIN conversation_message m ON m.id=a.message_id
+        WHERE s.lead_id=${lead.id} AND s.organization_id=${actor.organizationId}
+          AND s.branch_id=${lead.branch_id} AND s.campaign_id=${lead.campaign_id}
           AND (${cursor?.timestamp??null}::text::timestamptz IS NULL OR
-            (anchored_at,id)<(${cursor?.timestamp??null}::text::timestamptz,${cursor?.id??null}::uuid))
-        ORDER BY anchored_at DESC,id DESC LIMIT ${limit+1}`;
+            (s.anchored_at,s.id)<(${cursor?.timestamp??null}::text::timestamptz,${cursor?.id??null}::uuid))
+        ORDER BY s.anchored_at DESC,s.id DESC LIMIT ${limit+1}`;
       const items=rows.slice(0,limit), last=items.at(-1);
       return { items,nextCursor:rows.length>limit && last ? encodeCursor({timestamp:last.cursor_at,id:last.id}) : null };
     });

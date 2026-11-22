@@ -130,7 +130,7 @@ async function prepare(db: Database, claimed: Claimed, media?: LoadedMedia, medi
   { deferredUntil: Date | null }> {
   const message = (await db`SELECT m.conversation_id, m.connection_id, m.sender_id, m.author_type,
       m.author_user_id, m.body, m.delivery_state, m.message_kind, m.template_id,
-      m.template_snapshot,m.attachment_id,m.ai_send_action_id,m.ai_initial_action_id, u.organization_id, u.branch_id, u.role,
+      m.template_snapshot,m.attachment_id,m.ai_send_action_id,m.ai_initial_action_id,m.ai_followup_action_id, u.organization_id, u.branch_id, u.role,
       u.name, u.email, u.active
     FROM conversation_message m LEFT JOIN user_account u ON u.id = m.author_user_id
     WHERE m.id = ${claimed.messageId}`)[0];
@@ -138,8 +138,10 @@ async function prepare(db: Database, claimed: Claimed, media?: LoadedMedia, medi
   if (message.author_type === 'AI' && !aiTestTransport) return { blocked: 'AI_LIVE_DATA_TRANSFER_DISABLED' };
   if (message.author_type !== 'AI' && (message.author_type !== 'HUMAN' || !message.active || !message.author_user_id))
     return { blocked: 'AUTHOR_NO_LONGER_AUTHORIZED' };
-  if (message.author_type === 'AI' && !message.ai_send_action_id && !message.ai_initial_action_id) return { blocked: 'AI_SEND_ACTION_REQUIRED' };
-  const authority: OutboundPolicyAuthority = message.author_type === 'AI' ? message.ai_initial_action_id ? {kind:'AI_INITIAL_ACTION',actionId:message.ai_initial_action_id} : { kind: 'AI_ACTION', actionId: message.ai_send_action_id }
+  if (message.author_type === 'AI' && !message.ai_send_action_id && !message.ai_initial_action_id && !message.ai_followup_action_id) return { blocked: 'AI_SEND_ACTION_REQUIRED' };
+  const authority: OutboundPolicyAuthority = message.author_type === 'AI'
+    ? message.ai_followup_action_id ? {kind:'AI_FOLLOWUP_ACTION',actionId:message.ai_followup_action_id}
+      : message.ai_initial_action_id ? {kind:'AI_INITIAL_ACTION',actionId:message.ai_initial_action_id} : { kind: 'AI_ACTION', actionId: message.ai_send_action_id }
     : { kind: 'HUMAN', principal: { id: message.author_user_id, organizationId: message.organization_id,
       branchId: message.branch_id, role: message.role, name: message.name, email: message.email } satisfies Principal };
   try {

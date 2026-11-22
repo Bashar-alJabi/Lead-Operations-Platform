@@ -52,6 +52,8 @@ import { processOneAICustomerProposal } from '../src/ai/customer-worker.js';
 import { processOneAIQualificationAction } from '../src/ai/customer-qualification.js';
 import { processOneAICustomerSend } from '../src/ai/customer-send.js';
 import {processOneAIInitialContact} from '../src/ai/initial-contact.js';
+import {processOneAIFollowupSchedule} from '../src/ai/followup-schedule.js';
+import {processOneAIFollowupSend} from '../src/ai/followup-send.js';
 import {processOneGoogleCapture} from '../src/google/capture.js';
 import { stripeCurrencyPrecision,PaymentCheckoutError,type CheckoutSnapshot,type PaymentCheckoutAdapter } from '../src/payments/checkout-provider.js';
 import { paypalPaymentEvents } from '../src/payments/webhook-profile.js';
@@ -607,6 +609,11 @@ app.post<{Body:{dispatch?:boolean}}>('/__test__/ai-customer-send',async(request)
 app.post('/__test__/ai-initial-process',async request=>{
  if(typeof request.headers.authorization!=='string'||!safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
  return {processed:await processOneAIInitialContact(db)};
+});
+app.post('/__test__/ai-followup-process',async request=>{
+ if(typeof request.headers.authorization!=='string'||!safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
+ const due=await processOneAIFollowupSchedule(db);
+ return {due,queued:await processOneAIFollowupSend(db)};
 });
 app.post<{ Body:{ conversationId:string;enable?:boolean;process?:boolean;messaging?:boolean } }>('/__test__/ai-customer-proposal',{ schema:{ body:{ type:'object',additionalProperties:false,required:['conversationId'],properties:{ conversationId:{ type:'string',format:'uuid' },enable:{ type:'boolean' },process:{ type:'boolean' },messaging:{type:'boolean'} } } } },async(request)=>{
   if(typeof request.headers.authorization!=='string' || !safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');

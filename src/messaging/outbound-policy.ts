@@ -51,6 +51,20 @@ export async function lockInitialOutboundScope(tx:postgres.TransactionSql,id:str
   return loadOutboundScope(tx,conversationId,null,context.scope as ApprovedScope);
 }
 
+export async function lockFollowupOutboundScope(tx:postgres.TransactionSql,id:string,conversationId:string,dispatch:boolean){
+  const [scheduled]=dispatch ? await tx`SELECT s.id,s.branch_id FROM ai_followup_send_action a
+    JOIN ai_followup_schedule s ON s.id=a.schedule_id WHERE a.id=${id} AND a.message_id IS NOT NULL AND s.conversation_id=${conversationId}`
+    : await tx`SELECT id,branch_id FROM ai_followup_schedule WHERE id=${id} AND conversation_id=${conversationId}`;
+  if (!scheduled) throw new HttpError(409,'AI_FOLLOWUP_CONTEXT_CHANGED');
+  await tx`SELECT id FROM branch WHERE id=${scheduled.branch_id} FOR SHARE`;
+  const [source]=await tx`SELECT ai_followup_send_context(${scheduled.id}) AS context`;
+  if (!source?.context) throw new HttpError(409,'AI_FOLLOWUP_CONTEXT_CHANGED');
+  const locked=await loadOutboundScope(tx,conversationId,null,source.context.scope as ApprovedScope);
+  const [current]=await tx`SELECT ai_followup_send_context(${scheduled.id}) AS context`;
+  if (!current?.context) throw new HttpError(409,'AI_FOLLOWUP_CONTEXT_CHANGED');
+  return locked;
+}
+
 export type LockedOutboundScope = Awaited<ReturnType<typeof lockOutboundScope>>;
 
 export async function checkCurrentOutbound(tx: postgres.TransactionSql, locked: LockedOutboundScope,
