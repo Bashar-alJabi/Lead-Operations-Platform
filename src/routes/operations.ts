@@ -11,10 +11,12 @@ import { registerCampaignRoutes } from './campaigns.js';
 import { registerBranchTimezoneRoutes } from './branch-timezone.js';
 import {leadPredicate,prepareLeadFilter,operationalFilterProperties,type LeadFilter} from '../lead-query.js';
 import {leadActivityBoundary} from '../lead-activity.js';
+import {readCampaignTableFields} from '../lead-table-fields.js';
 
 const idParam = { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } as const;
 const pageQuery={type:'object',additionalProperties:false,properties:{...operationalFilterProperties,
- limit:{type:'integer',minimum:1,maximum:100},cursor:{type:'string',maxLength:256},sort:{enum:['CREATED_DESC','CREATED_ASC']}}} as const;
+ limit:{type:'integer',minimum:1,maximum:100},cursor:{type:'string',maxLength:256},sort:{enum:['CREATED_DESC','CREATED_ASC']},
+ tableFields:{type:'boolean'}}} as const;
 
 export function registerOperationsRoutes(app: FastifyInstance, db: Database): void {
   registerCampaignRoutes(app, db);
@@ -115,9 +117,10 @@ export function registerOperationsRoutes(app: FastifyInstance, db: Database): vo
     reply.code(201); return result;
   });
 
-  app.get<{Querystring:LeadFilter&{limit?:number;cursor?:string;sort?:'CREATED_DESC'|'CREATED_ASC'}}>('/api/leads',{schema:{querystring:pageQuery}},async request=>{
+  app.get<{Querystring:LeadFilter&{limit?:number;cursor?:string;sort?:'CREATED_DESC'|'CREATED_ASC';tableFields?:boolean}}>('/api/leads',{schema:{querystring:pageQuery}},async request=>{
    const actor=await principalFromRequest(request,db),q=request.query,cursor=decodeCursor(q.cursor),limit=q.limit??30,ascending=q.sort==='CREATED_ASC';
    return db.begin(async tx=>{
+    if(q.tableFields && q.campaignId) await tx`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ`;
     if(!await currentPaymentSession(tx,actor,request))throw new HttpError(403,'LEAD_QUERY_ACCESS_REVOKED');const field=await prepareLeadFilter(tx,actor,q);
     const rows=await tx`SELECT l.id,l.branch_id,l.campaign_id,l.contact_id,l.assigned_agent_id,l.lifecycle,l.version,l.source_kind,l.needs_attention_reason,l.created_at,l.created_at::text AS cursor_at,
      automation_review_pending(l.id,l.branch_id,l.campaign_id) AS automation_review_pending,
@@ -128,7 +131,11 @@ export function registerOperationsRoutes(app: FastifyInstance, db: Database): vo
       (${cursor?.timestamp??null}::text::timestamptz IS NULL OR ${ascending} AND (l.created_at,l.id)>(${cursor?.timestamp??null}::text::timestamptz,${cursor?.id??null}::uuid)
        OR NOT ${ascending} AND (l.created_at,l.id)<(${cursor?.timestamp??null}::text::timestamptz,${cursor?.id??null}::uuid))
      ORDER BY l.created_at ${tx.unsafe(ascending?'ASC':'DESC')},l.id ${tx.unsafe(ascending?'ASC':'DESC')} LIMIT ${limit+1}`;
-    const items=rows.slice(0,limit),last=items.at(-1);return {items,nextCursor:rows.length>limit&&last?encodeCursor({timestamp:last.cursor_at,id:last.id}):null};
+    const items=rows.slice(0,limit),last=items.at(-1);
+    const nextCursor=rows.length>limit&&last?encodeCursor({timestamp:last.cursor_at,id:last.id}):null;
+    if(!q.tableFields || !q.campaignId) return {items,nextCursor};
+    const table=await readCampaignTableFields(tx,actor,q.campaignId,items.map(item=>item.id as string));
+    return {tableFields:table.fields,items:items.map(item=>({...item,tableValues:table.values.get(item.id)??{}})),nextCursor};
    });
   });
 

@@ -16,7 +16,7 @@ const labels = {
   en: { title: 'Campaign fields', save: 'Save value', history: 'History', noData: 'No fields for this campaign.', empty: 'No value', source: 'Source', old: 'Previous value', next: 'New value', required: 'Required at', readOnly: 'Read only' },
 } as const;
 
-function formatValue(value: unknown): string {
+export function formatValue(value: unknown): string {
   if (value === null || value === undefined) return '—';
   if (Array.isArray(value)) return value.join(', ');
   if (typeof value === 'object') return JSON.stringify(value);

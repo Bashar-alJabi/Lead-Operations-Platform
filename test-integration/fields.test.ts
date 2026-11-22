@@ -108,6 +108,23 @@ test('dynamic field definitions, bindings, values, history, and role scope', asy
   const valueRace = await Promise.all([1, 2].map(() => send('PUT', `/api/leads/${leadId}/fields/${selectId}`,
     { value: 'high', version: nextValue.json().version }, agent)));
   assert.deepEqual(valueRace.map((response) => response.statusCode).sort(), [200, 409]);
+  const storedSecret = 'Synthetic manager-only value';
+  assert.equal((await send('PUT', `/api/leads/${leadId}/fields/${hiddenId}`, {value:storedSecret}, managerA)).statusCode, 200);
+  const table = `/api/leads?campaignId=${campaign}&tableFields=true&limit=1`;
+  const ownTable = await send('GET', table, undefined, agent);
+  assert.equal(ownTable.statusCode, 200, ownTable.body);
+  assert.deepEqual(ownTable.json().tableFields.map((field:{id:string})=>field.id),[selectId,calculatedId]);
+  assert.deepEqual(ownTable.json().items[0].tableValues,{[selectId]:'high',[calculatedId]:0});
+  assert.ok(!ownTable.body.includes(storedSecret) && !ownTable.body.includes(hiddenId));
+  const managerTable = await send('GET', table, undefined, managerA);
+  assert.equal(managerTable.json().items[0].tableValues[hiddenId],storedSecret);
+  const outsideTable = await send('GET', table, undefined, managerB);
+  assert.deepEqual(outsideTable.json(),{items:[],tableFields:[],nextCursor:null});
+  await db`UPDATE campaign_field SET show_in_table=false WHERE campaign_id=${campaign} AND field_id=${selectId}`;
+  const afterPolicyChange = await send('GET', table, undefined, agent);
+  assert.deepEqual(afterPolicyChange.json().tableFields.map((field:{id:string})=>field.id),[calculatedId]);
+  assert.ok(!afterPolicyChange.body.includes(selectId));
+  await db`UPDATE campaign_field SET show_in_table=true WHERE campaign_id=${campaign} AND field_id=${selectId}`;
   const history = await send('GET', `/api/leads/${leadId}/fields/${selectId}/history?limit=1`, undefined, agent);
   assert.equal(history.statusCode, 200, history.body);
   assert.equal(history.json().items.length, 1);
