@@ -182,6 +182,13 @@ test('PostgreSQL API: bootstrap, isolation, sessions, and concurrent routing', a
   assert.equal(contactsA.statusCode, 200, contactsA.body);
   assert.equal(contactsA.json().items.length, 2);
   assert.ok(contactsA.json().nextCursor);
+  await db`UPDATE contact SET created_at=date_trunc('milliseconds',now())+interval '1 day'
+    + CASE WHEN id=${contactA} THEN interval '900 microseconds' ELSE interval '800 microseconds' END
+    WHERE id IN (${contactA},${contactB})`;
+  const firstContact=await send('GET','/api/contacts?limit=1',undefined,managerA);
+  assert.equal(firstContact.json().items[0].id,contactA);
+  const secondContact=await send('GET','/api/contacts?limit=1&cursor='+firstContact.json().nextCursor,undefined,managerA);
+  assert.equal(secondContact.json().items[0].id,contactB);
   const phoneSearch = await send('GET', `/api/contacts?q=${encodeURIComponent('+1 (555) 000')}`, undefined, managerA);
   assert.equal(phoneSearch.statusCode, 200, phoneSearch.body);
   assert.ok(phoneSearch.json().items.some((item: { id: string }) => item.id === contactA));
@@ -230,6 +237,8 @@ test('PostgreSQL API: bootstrap, isolation, sessions, and concurrent routing', a
   assert.equal(branchBOnly.statusCode, 201, branchBOnly.body);
   const branchBContactId = (await db`SELECT contact_id FROM lead WHERE id = ${branchBOnly.json().id}`)[0]!.contact_id as string;
   assert.equal((await send('GET', `/api/contacts/${branchBContactId}`, undefined, managerA)).statusCode, 404);
+  const outsideEdit=await send('PATCH',`/api/contacts/${branchBContactId}`,{name:'Outside scope',phone:'invalid',version:1},managerA);
+  assert.equal(outsideEdit.statusCode,404,outsideEdit.body);
   assert.ok(!(await send('GET', '/api/contacts', undefined, agent1)).json().items.some((item: { id: string }) => item.id === branchBContactId));
   const crossBranchReview = await send('POST', '/api/leads', { branchId: branchA, campaignId,
     contact: { name: 'Needs admin review', phone: '+15550000001', email: 'b-only@example.test' } }, managerA);
@@ -256,6 +265,58 @@ test('PostgreSQL API: bootstrap, isolation, sessions, and concurrent routing', a
   assert.equal(mixedReviewList.restrictedCandidates, true);
   assert.equal((await send('POST', `/api/contact-reviews/${mixedReviewId}/resolve`, { contactId: branchAContact }, managerA)).statusCode, 403);
   assert.equal((await send('POST', `/api/contact-reviews/${mixedReviewId}/resolve`, { contactId: branchAContact }, admin)).statusCode, 200);
+
+  const localReview=await send('POST','/api/leads',{branchId:branchA,campaignId,
+    contact:{name:'Becomes shared during review',phone:'+15550000004',email:'candidate@example.test'}},managerA);
+  assert.equal(localReview.statusCode,202,localReview.body);
+  const waitingOn = async (pattern:string) => {
+    for(let attempt=0;attempt<80;attempt++){
+      const [state]=await db`SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock'
+        AND pid<>pg_backend_pid() AND query LIKE ${pattern}) AS waiting`;
+      if(state!.waiting)return true;
+      await new Promise(resolve=>setTimeout(resolve,25));
+    }
+    return false;
+  };
+  let began!:()=>void,continueShare!:(share:boolean)=>void;
+  const holding=new Promise<void>(resolve=>{began=resolve;});
+  const share=new Promise<boolean>(resolve=>{continueShare=resolve;});
+  const concurrentShare=db.begin(async tx=>{
+    await tx`SELECT id FROM contact WHERE id=${contactB} FOR UPDATE`;
+    began();
+    if(await share)await tx`INSERT INTO lead(organization_id,branch_id,campaign_id,contact_id,source_kind)
+      SELECT organization_id,${branchB},${campaignB},id,'MANUAL' FROM contact WHERE id=${contactB}`;
+  });
+  await holding;
+  const pending=send('POST',`/api/contact-reviews/${localReview.json().reviewId}/resolve`,{contactId:branchAContact},managerA);
+  let waited=false;
+  try { waited=await waitingOn('%SELECT id FROM contact%ORDER BY id FOR UPDATE%'); }
+  finally { continueShare(waited); await concurrentShare; }
+  assert.equal(waited,true);
+  const escalated=await pending;
+  assert.equal(escalated.statusCode,403,escalated.body);
+  assert.equal(escalated.json().error,'CONTACT_REVIEW_REQUIRES_ADMIN');
+  const [unchanged]=await db`SELECT state,lead_id FROM source_submission WHERE id=${localReview.json().reviewId}`;
+  assert.deepEqual(unchanged,{state:'NEEDS_ATTENTION',lead_id:null});
+
+  const expiringManager=await login('manager-b@example.test','Test password 12345!');
+  let contactHeld!:()=>void,releaseContact!:()=>void;
+  const held=new Promise<void>(resolve=>{contactHeld=resolve;});
+  const release=new Promise<void>(resolve=>{releaseContact=resolve;});
+  const lockedForEdit=db.begin(async tx=>{
+    await tx`SELECT id FROM contact WHERE id=${branchBContactId} FOR UPDATE`;
+    contactHeld();await release;
+  });
+  await held;
+  const pendingEdit=send('PATCH',`/api/contacts/${branchBContactId}`,{name:'Revoked pending edit',version:1},expiringManager);
+  try{
+    assert.equal(await waitingOn('%FROM contact WHERE id%FOR UPDATE%'),true);
+    assert.equal((await send('POST','/api/auth/logout',undefined,expiringManager)).statusCode,200);
+  }finally{releaseContact();await lockedForEdit;}
+  const blockedEdit=await pendingEdit;
+  assert.equal(blockedEdit.statusCode,403,blockedEdit.body);
+  assert.equal(blockedEdit.json().error,'CONTACT_ACCESS_REVOKED');
+  assert.equal((await db`SELECT count(*)::int AS n FROM contact_history WHERE contact_id=${branchBContactId}`)[0]!.n,0);
 
   const disable = await send('PATCH', `/api/users/${agentA1}/status`, { active: false }, managerA);
   assert.equal(disable.statusCode, 200, disable.body);

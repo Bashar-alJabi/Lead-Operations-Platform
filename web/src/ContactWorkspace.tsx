@@ -17,6 +17,7 @@ export function ContactWorkspace({ mode, locale, canManage, api, onOpenLead }: {
   mode: 'contacts' | 'reviews'; locale: Locale; canManage: boolean; api: Api; onOpenLead: (id: string) => void;
 }) {
   const t = strings[locale];
+  const readOnly={ar:'جهة الاتصال هذه متاحة للقراءة فقط.',fr:'Ce contact est en lecture seule.',en:'This contact is read only.'}[locale];
   const [items, setItems] = useState<Contact[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -43,7 +44,10 @@ export function ContactWorkspace({ mode, locale, canManage, api, onOpenLead }: {
         setReviews((current) => next ? [...current, ...result.items] : result.items);
         setCursor(result.nextCursor);
       }
-    } catch (failure) { setError(String(failure)); } finally { setBusy(false); }
+    } catch (failure) {
+      setItems([]); setReviews([]); setCursor(null); setChoices({});
+      setError(String(failure));
+    } finally { setBusy(false); }
   }
   useEffect(() => { void load(); }, [mode, query]);
 
@@ -53,7 +57,10 @@ export function ContactWorkspace({ mode, locale, canManage, api, onOpenLead }: {
       const result = await api<ContactDetail>(`/api/contacts/${id}`);
       setDetail(result);
       setForm({ name: result.contact.name, phone: result.contact.phone ?? '', email: result.contact.email ?? '' });
-    } catch (failure) { setError(String(failure)); } finally { setBusy(false); }
+    } catch (failure) {
+      setDetail(null); setForm({name:'',phone:'',email:''});
+      setError(String(failure));
+    } finally { setBusy(false); }
   }
 
   async function saveContact() {
@@ -61,9 +68,16 @@ export function ContactWorkspace({ mode, locale, canManage, api, onOpenLead }: {
     setBusy(true); setError('');
     try {
       await api(`/api/contacts/${detail.contact.id}`, { method: 'PATCH', body: JSON.stringify({ ...form, version: detail.contact.version }) });
-      await openContact(detail.contact.id);
       await load();
-    } catch (failure) { setError(String(failure)); } finally { setBusy(false); }
+      await openContact(detail.contact.id);
+    } catch (failure) {
+      const code=failure instanceof Error?failure.message:'';
+      if(['CONTACT_SHARED_ACROSS_BRANCHES','CONTACT_NOT_FOUND','CONTACT_ACCESS_REVOKED','AUTH_REQUIRED'].includes(code)){
+        await load();
+        await openContact(detail.contact.id);
+      }
+      setError(code==='CONTACT_VERSION_CONFLICT'?t.versionConflict:code==='CONTACT_SHARED_ACROSS_BRANCHES'?readOnly:String(failure));
+    } finally { setBusy(false); }
   }
 
   async function loadMoreLeads() {
@@ -91,6 +105,7 @@ export function ContactWorkspace({ mode, locale, canManage, api, onOpenLead }: {
     {mode === 'contacts' ? <>
       {detail ? <><button className="link" onClick={() => setDetail(null)}>{t.back}</button><h2>{detail.contact.name || detail.contact.phone || detail.contact.email || detail.contact.id}</h2>
         <div className="facts"><div><small>{t.phone}</small><strong>{detail.contact.phone || '—'}</strong></div><div><small>{t.email}</small><strong>{detail.contact.email || '—'}</strong></div></div>
+        {canManage&&!detail.contact.editable&&error!==readOnly&&<p>{readOnly}</p>}
         {canManage && detail.contact.editable && <form className="contact-form" onSubmit={(event) => { event.preventDefault(); void saveContact(); }}>
           <label>{t.name}<input maxLength={200} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
           <label>{t.phone}<input type="tel" maxLength={50} value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} /></label>

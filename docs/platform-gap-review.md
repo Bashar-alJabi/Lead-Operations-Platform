@@ -10,7 +10,7 @@
 |---|---|---|
 | الحسابات و Roles — README،02،06 §§5–6 | bootstrap أحادية وتسجيل الدخول والخروج والدعوات والاستعادة وإبطال الجلسة وتعطيل الحساب. أثبتت Edge بدء Super Admin استعادة حساب موظف وإسناد دوره وفرعه في 233 مع إعادة تسجيل الدخول. | قبول باقي رحلات الحساب والمتطلبات الحية لـSMTP. |
 | Branches/Users/Agents —00–03،06 §§6/9/20 | الإنشاء والقوائم والدعوات وتعطيل الحسابات وساعات العمل والعضوية. تثبت 230 تعديل المنطقة الزمنية، وتثبت 231 تعديل ملف Agent والسعة وعبء الفرص. يضيف 233 تعديل الدور والفرع عبر Super Admin، وإبطال الجلسات والعضويات السابقة مع Audit. | قبول مسارات تعطيل الحساب وإعادة توزيع الفرص والمحادثات بين الوحدات. |
-| Contacts —00–03،06 §7 | normalization/matching/concurrency و ambiguous/cross-branch review و CRUD/history؛Meta optional Contact intake | تغطية Browser مستقلةلمراجعة/تعديل/مشاركة Contacts وبقية external identity cases؛لا Lead merging من Contact matching |
+| Contacts —00–03،06 §7 | normalization/matching/concurrency وambiguous/cross-branch review والتحرير والتاريخ. أثبتت Edge مراجعة مشاركة الجهة بين فرعين، وحسم Super Admin وتحريره، وعرض كل مدير لفرص فرعه فقط. اختبرت PostgreSQL إبطال الجلسة وانتقال المرشح إلى حالة مشتركة أثناء انتظار القفل. | حالات الهوية الخارجية الإضافية وقبول المسارات بين الوحدات. |
 | Leads/History —00–03،06 §7 | manual/Source intake وOPEN/CLOSED/ARCHIVED وnotes/assignment/activity/Follow-up. تجمع 221 الإسناد اليدوي الفردي والجماعي. يضيف 232 نقل الفرص الأساسية بين الفروع عبر Super Admin مع الوجهة والإسناد والنسخة والتاريخ وAudit. | نقل الفرص ذات المحادثات المثبّتة أو السجلات المالية أو المراجعة البشرية المفتوحة، وقبول دورة Lead بين الوحدات. |
 | Campaigns —00–03/05،06 §8 | إنشاء وتعديل وتفعيل وجاهزية وإسناد وكلاء وإعدادات المصدر والرسائل والدفع وAI. تدعم 169 تعريف Conversion المالي المستقل و226 تعريفه من الحقل أو Status. أثبت 229 التفعيل واستقبال Lead الموقّعة عند جاهزية الربط. | قبول مسارات الأدوار ورحلات الوحدات المترابطة. |
 | Dynamic/Calculated Fields —00–03،06 §8 | تعريفات وربط وصلاحيات وتاريخ الحقول، حسابات التواصل، تعيين المصادر والتأهيل وتحديثات Bulk وشروط Automation. يعرض الجدول قيم الحقول المخزنة والمحسوبة للحملة المحددة، ويستعيد اختيار الأعمدة من Saved Views ضمن الصلاحية الحالية. يضيف 241 ترشيح القيم المحسوبة من حساب PostgreSQL المشترك. | قواعد الحقول المتبقية بحسب مرحلة التشغيل والقبول المتكامل لمساراتها. |
@@ -38,7 +38,7 @@
 
 ## الاعتماديات والأولوية التنفيذية التالية
 
-**أحدث نتائج الانحدار الشامل — 2026-11-23** اجتاز `58c7562` **210/210 PostgreSQL Integration و102/102 Edge Browser E2E**. اجتاز `ce5b89f` **211/211 PostgreSQL Integration و103/103 Edge Browser E2E**. تُسجل إعادة البوابتين بعد تصحيح عزل اختبارات 240 في [التقدم](codex-progress.md).
+**أحدث نتائج الانحدار الشامل — 2026-11-23** اجتاز `ce5b89f` **211/211 PostgreSQL Integration و103/103 Edge Browser E2E**. اجتاز `bbbe44a` **105/105 Edge Browser E2E** بعد تصحيح اختبار الاتصال الأول. تستمر PostgreSQL الشاملة للبناء نفسه. [التقدم](codex-progress.md)
 
 1. **Import CSV/Excel checkpoint محفوظة:** `95dbce3` مرفوعة،Native183–184 و193Unit/142PG/68Browser و001–184/build/typecheck مثبتة. لاتعدتنفيذها؛هيbaseline للملفات معSheets/API/load/acceptance gaps باقية. [العقد](lead-import-execution.md). التاليGoogleSheets،دونoptionalparser/provider/AI refinements.
 2. **Google Sheets:** baseline Import190–192 محفوظةفي5d063a8،Export preparation194 في3a6271b،delivery/verification195 في3ca5157. لا إعادةتنفيذ أوoptionalrefinements؛انتقلالآنلمتطلباتEmail/Notifications الأساسية.
