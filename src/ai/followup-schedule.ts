@@ -14,3 +14,15 @@ export async function processOneAIFollowupSchedule(db: Database): Promise<boolea
     return updated.length>0;
   });
 }
+
+export async function processOneAIFollowupFinalization(db: Database): Promise<boolean> {
+  return db.begin(async tx => {
+    const [candidate]=await tx`SELECT f.schedule_id FROM ai_followup_final_action f
+      JOIN ai_followup_schedule s ON s.id=f.schedule_id JOIN branch b ON b.id=s.branch_id
+      WHERE f.state='PENDING' ORDER BY f.updated_at,f.schedule_id LIMIT 1 FOR UPDATE OF b SKIP LOCKED`;
+    if (!candidate) return false;
+    const updated=await tx`UPDATE ai_followup_final_action SET state='COMPLETE'
+      WHERE schedule_id=${candidate.schedule_id} AND state='PENDING' RETURNING schedule_id`;
+    return updated.length>0;
+  });
+}

@@ -11,7 +11,8 @@ export function registerAIFollowupPolicyRoutes(app: FastifyInstance, db: Databas
     const actor = await principalFromRequest(request, db);
     return db.begin(async tx => { const { c } = await knowledgeCampaign(tx, actor, request.params.id, request);
       const current = (await tx`SELECT version,definition,actor_id,reason,updated_at FROM ai_followup_policy WHERE campaign_id=${c.id} FOR SHARE`)[0] ?? { version: 0, definition: emptyAIFollowupPolicy() };
-      return { ...current, mandatoryStops: aiFollowupMandatoryStops, messagingPolicy: c.messaging_policy, runtimeImplemented: false }; });
+      return { ...current, mandatoryStops: aiFollowupMandatoryStops, messagingPolicy: c.messaging_policy,
+        runtimeImplemented: true, liveTransferEnabled: false }; });
   });
   app.put<{ Params: { id: string }; Body: { version: number; definition: AIFollowupPolicy; reason: string } }>(root, {
     bodyLimit: 16384, schema: { params, body: { type: 'object', additionalProperties: false, required: ['version', 'definition', 'reason'], properties: {
@@ -26,7 +27,7 @@ export function registerAIFollowupPolicyRoutes(app: FastifyInstance, db: Databas
       if ((old?.version ?? 0) !== request.body.version) throw new HttpError(409, 'AI_FOLLOWUP_VERSION_CONFLICT');
       if (old) await tx`UPDATE ai_followup_policy SET version=version+1,definition=${tx.json(definition)},actor_id=${actor.id},session_id=${sessionId},reason=${reason} WHERE campaign_id=${c.id}`;
       else await tx`INSERT INTO ai_followup_policy(campaign_id,version,definition,actor_id,session_id,reason) VALUES (${c.id},1,${tx.json(definition)},${actor.id},${sessionId},${reason})`;
-      return { version: request.body.version + 1, runtimeImplemented: false };
+      return { version: request.body.version + 1, runtimeImplemented: true, liveTransferEnabled: false };
     });
   });
   app.post<{ Params: { id: string }; Body: { version: number; definition: AIFollowupPolicy; anchorAt: string; attemptsSent: number; hasInboundReply: boolean; leadLifecycle: 'OPEN' | 'CLOSED' | 'ARCHIVED'; controllerType: 'AI' | 'HUMAN' | 'NONE'; conversationState: string } }>(root + '/preview', {

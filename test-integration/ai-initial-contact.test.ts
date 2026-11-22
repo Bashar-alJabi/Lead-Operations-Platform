@@ -10,7 +10,7 @@ import {emptyKnowledge} from '../src/ai/knowledge.js';
 import {emptyAIOperationalConfig} from '../src/ai/operational-config.js';
 import {emptyAIBehaviorPolicy} from '../src/ai/behavior-policy.js';
 import {processOneAIInitialContact,applyInitialContact} from '../src/ai/initial-contact.js';
-import {processOneAIFollowupSchedule} from '../src/ai/followup-schedule.js';
+import {processOneAIFollowupSchedule,processOneAIFollowupFinalization} from '../src/ai/followup-schedule.js';
 import {processOneAIFollowupSend} from '../src/ai/followup-send.js';
 import {processOneMessagingJob} from '../src/messaging/send-worker.js';
 import {metaWhatsAppSendAdapter} from '../src/messaging/providers.js';
@@ -165,6 +165,11 @@ test('Initial contact config to actual trusted intake, durable worker, central p
    VALUES(${followup!.id},${followup!.job_id},1,'PREPARED')`,/AI_SEND_CURRENT_DISPATCH_LEASE_REQUIRED/);
  assert.equal(await dispatch(),true);assert.equal(sends,4);
  assert.equal((await api('GET',sourceSchedule)).json().items[0].state,'SENT');
+ assert.equal((await api('GET',sourceSchedule)).json().items[0].finalState,'PENDING');
+ const finalized=await Promise.all(Array.from({length:4},()=>processOneAIFollowupFinalization(db)));
+ assert.equal(finalized.filter(Boolean).length,1);
+ assert.equal((await api('GET',sourceSchedule)).json().items[0].finalState,'COMPLETE');
+ assert.equal((await db`SELECT lifecycle FROM lead WHERE id=${processed.lead_id}`)[0]!.lifecycle,'OPEN');
 
  const late=await intake();await processOneAIInitialContact(db);assert.equal(await dispatch(),true);assert.equal(sends,5);
  const [lateAction]=await db`SELECT conversation_id FROM ai_initial_send_action WHERE admission_id=${late.admission}`;
@@ -182,5 +187,50 @@ test('Initial contact config to actual trusted intake, durable worker, central p
  const blocked=(await api('GET','/api/leads/'+optOut.lead+'/ai-followups')).json().items[0];
  assert.equal(blocked.state,'BLOCKED');assert.equal(blocked.reason,'DO_NOT_CONTACT');
  assert.equal(await dispatch(),false);assert.equal(sends,6);
+
+ const recurringPolicy={enabled:true,initialDelaySeconds:0,delaysSeconds:[1,1],stopOnReply:true,finalAction:'HANDOFF'};
+ assert.equal((await api('PUT','/api/ai/campaigns/'+campaign+'/followup-policy',{version:1,definition:recurringPolicy,
+  reason:'Two follow-up delays followed by human escalation'})).statusCode,200);
+ const sequence=await intake();await processOneAIInitialContact(db);assert.equal(await dispatch(),true);assert.equal(sends,7);
+ const sequencePath='/api/leads/'+sequence.lead+'/ai-followups';
+ const firstStep=(await api('GET',sequencePath)).json().items[0];assert.equal(firstStep.ordinal,1);
+ for(const attemptNo of [1,2]){
+  await delay(1100);assert.equal(await processOneAIFollowupSchedule(db),true);assert.equal(await processOneAIFollowupSend(db),true);
+  assert.equal((await api('GET',sequencePath)).json().items[0].state,'QUEUED');
+  assert.equal(await dispatch(),true);assert.equal(sends,7+attemptNo);
+ }
+ const [lastStep,priorStep]=(await api('GET',sequencePath)).json().items;
+ assert.equal(lastStep.ordinal,2);assert.equal(lastStep.state,'SENT');assert.equal(lastStep.finalState,'PENDING');
+ assert.equal(priorStep.id,firstStep.id);assert.equal(priorStep.state,'SENT');
+ assert.equal(await processOneAIFollowupFinalization(db),true);
+ assert.equal((await api('GET',sequencePath)).json().items[0].finalState,'HANDOFF');
+ const [seqCv]=await db`SELECT cv.state,cv.controller_type FROM conversation cv WHERE cv.lead_id=${sequence.lead}`;
+ assert.deepEqual(seqCv,{state:'WAITING_FOR_HUMAN',controller_type:'NONE'});
+ assert.equal((await db`SELECT assigned_agent_id FROM lead WHERE id=${sequence.lead}`)[0]!.assigned_agent_id,null);
+ assert.equal(await processOneAIFollowupSchedule(db),false);
+
+ assert.equal((await api('PUT','/api/ai/campaigns/'+campaign+'/followup-policy',{version:2,
+  definition:{...recurringPolicy,delaysSeconds:[1]},reason:'Verify a late signed reply before finalization'})).statusCode,200);
+ const answered=await intake();await processOneAIInitialContact(db);assert.equal(await dispatch(),true);assert.equal(sends,10);
+ await delay(1100);assert.equal(await processOneAIFollowupSchedule(db),true);assert.equal(await processOneAIFollowupSend(db),true);
+ assert.equal(await dispatch(),true);assert.equal(sends,11);
+ const answeredPath='/api/leads/'+answered.lead+'/ai-followups';
+ assert.equal((await api('GET',answeredPath)).json().items[0].finalState,'PENDING');
+ const answeredBody=JSON.stringify({object:'whatsapp_business_account',entry:[{id:'123456789',changes:[{field:'messages',value:{
+  messaging_product:'whatsapp',metadata:{phone_number_id:'15550001111'},messages:[{id:'late-reply-'+randomUUID(),
+   from:answered.phone.slice(1),timestamp:String(Math.floor(Date.now()/1000)),type:'text',text:{body:'I can respond now'}}]}}]}]});
+ assert.equal((await app.inject({method:'POST',url:'/api/webhooks/messaging/meta/'+mc,payload:answeredBody,headers:{
+  'content-type':'application/json','x-hub-signature-256':'sha256='+createHmac('sha256','synthetic-initial-hmac').update(answeredBody).digest('hex')}})).statusCode,200);
+ assert.equal(await processOneInboundEvent(db),true);assert.equal(await processOneAIFollowupFinalization(db),true);
+ const [answeredAction]=(await api('GET',answeredPath)).json().items;
+ assert.equal(answeredAction.finalState,'STOPPED');assert.equal(answeredAction.finalReason,'CUSTOMER_REPLIED');
+ assert.equal((await db`SELECT controller_type FROM conversation WHERE lead_id=${answered.lead}`)[0]!.controller_type,'AI');
+
+ const interrupted=await intake();await processOneAIInitialContact(db);assert.equal(await dispatch(),true);assert.equal(sends,12);
+ await delay(1100);assert.equal(await processOneAIFollowupSchedule(db),true);assert.equal(await processOneAIFollowupSend(db),true);
+ mode='UNKNOWN';assert.equal(await dispatch(),true);assert.equal(sends,13);
+ const interruption=(await api('GET','/api/leads/'+interrupted.lead+'/ai-followups')).json().items;
+ assert.equal(interruption.length,1);assert.equal(interruption[0].state,'UNKNOWN');assert.equal(interruption[0].finalState,null);
+ assert.equal(await dispatch(),false);assert.equal(await processOneAIFollowupFinalization(db),false);
  assert.equal((await db`SELECT count(*)::int AS n FROM audit_log WHERE target_id=${first.lead} AND action IN ('AI_FOLLOWUP_WAITING','AI_FOLLOWUP_READY','AI_FOLLOWUP_STOPPED')`)[0]!.n,3);
 });
