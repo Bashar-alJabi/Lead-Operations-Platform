@@ -79,5 +79,20 @@ test('First AI contact uses managed approved template UI, fresh real intake, tru
  await scheduled.getByRole('button',{name:'Review AI follow-ups',exact:true}).click();
  await expect(scheduled.getByRole('listitem')).toContainText('Follow-up cycle completed');
  await panel.getByRole('button',{name:'Review intake origin',exact:true}).click();
+ const delayedLead=await create(name);
+ expect((await page.request.post('/__test__/ai-initial-process',{headers:fixtureHeaders})).ok()).toBeTruthy();
+ expect((await page.request.post('/__test__/ai-customer-send',{headers:fixtureHeaders,data:{dispatch:true}})).ok()).toBeTruthy();
+ const policyPath='/api/messaging/campaigns/'+cid+'/policy',policy=(await (await page.request.get(policyPath)).json());
+ expect((await page.request.put(policyPath,{headers,data:{version:policy.version,sendingWindow:null,maxAttempts:null,minIntervalSeconds:180}})).ok()).toBeTruthy();
+ await expect.poll(async()=>{
+  const action=await page.request.post('/__test__/ai-followup-process',{headers:fixtureHeaders});
+  return action.ok() && (await action.json()).queued;
+ }).toBe(true);
+ await page.getByRole('button',{name:'Leads',exact:true}).click();await page.getByRole('button',{name:'Retry',exact:true}).click();
+ await page.locator('[data-lead-row="'+delayedLead+'"]').getByRole('button',{name:'Details',exact:true}).click();
+ await scheduled.getByRole('button',{name:'Review AI follow-ups',exact:true}).click();
+ await expect(scheduled.getByRole('listitem')).toContainText('Next policy check');
+ await expect(scheduled.getByRole('listitem')).toContainText('Waiting for the minimum sending interval');
+ await panel.getByRole('button',{name:'Review intake origin',exact:true}).click();
  await page.getByRole('combobox',{name:'Language'}).selectOption('fr');await expect(panel).toContainText('La mise en file ne prouve pas');await page.getByRole('combobox',{name:'Language'}).selectOption('ar');await page.setViewportSize({width:390,height:844});await expect(panel).toContainText('الإدراج في قائمة الإرسال');await panel.screenshot({path:'.local/e2e/ai-initial-contact-ar.png'});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);expect(errors).toEqual([]);
 });

@@ -226,9 +226,36 @@ test('Initial contact config to actual trusted intake, durable worker, central p
  assert.equal(answeredAction.finalState,'STOPPED');assert.equal(answeredAction.finalReason,'CUSTOMER_REPLIED');
  assert.equal((await db`SELECT controller_type FROM conversation WHERE lead_id=${answered.lead}`)[0]!.controller_type,'AI');
 
- const interrupted=await intake();await processOneAIInitialContact(db);assert.equal(await dispatch(),true);assert.equal(sends,12);
+ const deferred=await intake();await processOneAIInitialContact(db);assert.equal(await dispatch(),true);assert.equal(sends,12);
+ const messagingPolicy='/api/messaging/campaigns/'+campaign+'/policy';
+ const policyVersion=async()=>(await api('GET',messagingPolicy)).json().version as number;
+ const hour=(new Date().getUTCHours()+4)%24;
+ const window={start:String(hour).padStart(2,'0')+':00',end:String((hour+1)%24).padStart(2,'0')+':00'};
+ assert.equal((await api('PUT',messagingPolicy,{version:await policyVersion(),sendingWindow:window,maxAttempts:null,minIntervalSeconds:null})).statusCode,200);
  await delay(1100);assert.equal(await processOneAIFollowupSchedule(db),true);assert.equal(await processOneAIFollowupSend(db),true);
- mode='UNKNOWN';assert.equal(await dispatch(),true);assert.equal(sends,13);
+ const deferredPath='/api/leads/'+deferred.lead+'/ai-followups';
+ const saved=(await api('GET',deferredPath)).json().items[0];
+ assert.equal(saved.reason,'OUTSIDE_SENDING_WINDOW');assert.ok(Date.parse(saved.nextCheckAt)>Date.now()+60000);
+ const [job]=await db`SELECT ob.job_id FROM ai_followup_schedule s JOIN ai_followup_send_action a ON a.schedule_id=s.id
+  JOIN outbound_delivery_job ob ON ob.message_id=a.message_id WHERE s.lead_id=${deferred.lead}`;
+ assert.equal(await dispatch(),false);
+ // An early claim must revalidate the current policy instead of consuming a provider attempt.
+ async function advanceTestQueue(){await db`UPDATE background_job SET run_after=clock_timestamp() WHERE id=${job!.job_id}`;}
+ await advanceTestQueue();assert.equal(await dispatch(),true);assert.equal(sends,12);
+ assert.equal((await api('GET',deferredPath)).json().items[0].reason,'OUTSIDE_SENDING_WINDOW');
+ assert.equal((await api('PUT',messagingPolicy,{version:await policyVersion(),sendingWindow:null,maxAttempts:null,minIntervalSeconds:180})).statusCode,200);
+ await advanceTestQueue();assert.equal(await dispatch(),true);assert.equal(sends,12);
+ assert.equal((await api('GET',deferredPath)).json().items[0].reason,'FREQUENCY_LIMIT');
+ assert.equal((await db`SELECT attempts FROM background_job WHERE id=${job!.job_id}`)[0]!.attempts,0);
+ assert.equal((await db`SELECT count(*)::int AS n FROM outbound_send_attempt WHERE job_id=${job!.job_id}`)[0]!.n,0);
+ assert.equal((await api('PUT',messagingPolicy,{version:await policyVersion(),sendingWindow:null,maxAttempts:null,minIntervalSeconds:null})).statusCode,200);
+ await advanceTestQueue();assert.equal(await dispatch(),true);assert.equal(sends,13);
+ assert.equal((await api('GET',deferredPath)).json().items[0].state,'SENT');
+ assert.equal(await processOneAIFollowupFinalization(db),true);
+
+ const interrupted=await intake();await processOneAIInitialContact(db);assert.equal(await dispatch(),true);assert.equal(sends,14);
+ await delay(1100);assert.equal(await processOneAIFollowupSchedule(db),true);assert.equal(await processOneAIFollowupSend(db),true);
+ mode='UNKNOWN';assert.equal(await dispatch(),true);assert.equal(sends,15);
  const interruption=(await api('GET','/api/leads/'+interrupted.lead+'/ai-followups')).json().items;
  assert.equal(interruption.length,1);assert.equal(interruption[0].state,'UNKNOWN');assert.equal(interruption[0].finalState,null);
  assert.equal(await dispatch(),false);assert.equal(await processOneAIFollowupFinalization(db),false);

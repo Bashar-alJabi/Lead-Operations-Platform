@@ -25,9 +25,10 @@ export async function processOneAIFollowupSend(db:Database):Promise<boolean> {
     const locked=await lockOutboundAuthority(tx,authority,candidate.conversation_id);
     const definition=current.context.definition as TemplateDefinition;
     const decision=await checkOutboundAuthorityPolicy(tx,locked,undefined,definition.templateId);
+    const deferUntil=!decision.allowed && 'retryAt' in decision ? decision.retryAt ?? null : null;
     const actionId=randomUUID(),messageId=randomUUID();
     let content:Awaited<ReturnType<typeof approvedBodyTemplate>>|null=null, blocked:string|null=null;
-    if(!decision.allowed) blocked=decision.reason;
+    if(!decision.allowed && !deferUntil) blocked=decision.reason;
     else {
       try {
         content=await approvedBodyTemplate(tx,candidate.connection_id,candidate.campaign_id,definition.templateId,
@@ -46,8 +47,9 @@ export async function processOneAIFollowupSend(db:Database):Promise<boolean> {
       message_kind,template_id,template_snapshot,delivery_state,idempotency_key,ai_followup_action_id)
       VALUES(${messageId},${candidate.conversation_id},${candidate.connection_id},${candidate.sender_id},'OUTBOUND','AI',${content.body},
        'TEMPLATE',${definition.templateId},${tx.json(content.snapshot)},'QUEUED',${actionId},${actionId})`;
-    const [job]=await tx`INSERT INTO background_job(queue,kind,payload,idempotency_key)
-      VALUES('messaging','SEND_MESSAGE',${tx.json({messageId})},${messageId}) RETURNING id`;
+    const [job]=await tx`INSERT INTO background_job(queue,kind,payload,idempotency_key,run_after,last_error_code)
+      VALUES('messaging','SEND_MESSAGE',${tx.json({messageId})},${messageId},
+        COALESCE(${deferUntil}::timestamptz,clock_timestamp()),${deferUntil && !decision.allowed ? decision.reason : null}) RETURNING id`;
     await tx`INSERT INTO outbound_delivery_job(message_id,job_id) VALUES(${messageId},${job!.id})`;
     await tx`UPDATE conversation SET last_message_at=clock_timestamp() WHERE id=${candidate.conversation_id}`;
     return true;

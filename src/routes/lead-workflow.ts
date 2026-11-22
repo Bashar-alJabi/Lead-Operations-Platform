@@ -70,10 +70,12 @@ export function registerLeadWorkflowRoutes(app: FastifyInstance, db: Database): 
       const rows=await tx`SELECT s.id,s.ordinal,f.state AS "finalState",f.reason AS "finalReason",
           CASE WHEN m.delivery_state IN ('SENT','DELIVERED','READ','UNKNOWN') THEN m.delivery_state
           WHEN s.state='STOPPED' THEN s.state WHEN a.blocked_reason IS NOT NULL THEN 'BLOCKED' ELSE COALESCE(m.delivery_state,s.state) END AS state,
-        CASE WHEN m.delivery_state IN ('SENT','DELIVERED','READ') THEN NULL ELSE COALESCE(s.stop_reason,a.blocked_reason,m.last_error_code) END AS reason,
+        CASE WHEN m.delivery_state IN ('SENT','DELIVERED','READ') THEN NULL ELSE COALESCE(s.stop_reason,a.blocked_reason,m.last_error_code,j.last_error_code) END AS reason,
+        CASE WHEN m.delivery_state='QUEUED' AND j.run_after>clock_timestamp() THEN j.run_after END AS "nextCheckAt",
         s.anchored_at AS "anchoredAt",s.due_at AS "dueAt",s.changed_at AS "changedAt",s.anchored_at::text AS cursor_at
         FROM ai_followup_schedule s LEFT JOIN ai_followup_send_action a ON a.schedule_id=s.id
           LEFT JOIN conversation_message m ON m.id=a.message_id
+          LEFT JOIN outbound_delivery_job ob ON ob.message_id=m.id LEFT JOIN background_job j ON j.id=ob.job_id
           LEFT JOIN ai_followup_final_action f ON f.schedule_id=s.id
         WHERE s.lead_id=${lead.id} AND s.organization_id=${actor.organizationId}
           AND s.branch_id=${lead.branch_id} AND s.campaign_id=${lead.campaign_id}

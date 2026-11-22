@@ -23,5 +23,6 @@ export function checkOutboundAuthorityPolicy(tx: postgres.TransactionSql, locked
   excludeMessageId?: string, templateId?: string | null, mediaKind?: string) {
   const { authority } = locked;
   return checkCurrentOutbound(tx, locked, authority.kind === 'HUMAN' ? authority.principal : null,
-    authority.kind === 'HUMAN' ? 'HUMAN' : 'AI', excludeMessageId, templateId, mediaKind);
+    authority.kind === 'HUMAN' ? 'HUMAN' : 'AI', excludeMessageId, templateId, mediaKind,
+    authority.kind==='AI_FOLLOWUP_SCHEDULE'||authority.kind==='AI_FOLLOWUP_ACTION');
 }

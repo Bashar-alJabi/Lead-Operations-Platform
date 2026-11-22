@@ -52,11 +52,12 @@ export async function lockInitialOutboundScope(tx:postgres.TransactionSql,id:str
 }
 
 export async function lockFollowupOutboundScope(tx:postgres.TransactionSql,id:string,conversationId:string,dispatch:boolean){
-  const [scheduled]=dispatch ? await tx`SELECT s.id,s.branch_id FROM ai_followup_send_action a
+  const [scheduled]=dispatch ? await tx`SELECT s.id,s.branch_id,s.campaign_id FROM ai_followup_send_action a
     JOIN ai_followup_schedule s ON s.id=a.schedule_id WHERE a.id=${id} AND a.message_id IS NOT NULL AND s.conversation_id=${conversationId}`
-    : await tx`SELECT id,branch_id FROM ai_followup_schedule WHERE id=${id} AND conversation_id=${conversationId}`;
+    : await tx`SELECT id,branch_id,campaign_id FROM ai_followup_schedule WHERE id=${id} AND conversation_id=${conversationId}`;
   if (!scheduled) throw new HttpError(409,'AI_FOLLOWUP_CONTEXT_CHANGED');
   await tx`SELECT id FROM branch WHERE id=${scheduled.branch_id} FOR SHARE`;
+  await tx`SELECT id FROM campaign WHERE id=${scheduled.campaign_id} FOR SHARE`;
   const [source]=await tx`SELECT ai_followup_send_context(${scheduled.id}) AS context`;
   if (!source?.context) throw new HttpError(409,'AI_FOLLOWUP_CONTEXT_CHANGED');
   const locked=await loadOutboundScope(tx,conversationId,null,source.context.scope as ApprovedScope);
@@ -68,7 +69,8 @@ export async function lockFollowupOutboundScope(tx:postgres.TransactionSql,id:st
 export type LockedOutboundScope = Awaited<ReturnType<typeof lockOutboundScope>>;
 
 export async function checkCurrentOutbound(tx: postgres.TransactionSql, locked: LockedOutboundScope,
-  actor: Pick<Principal, 'id'> | null, author: SendAuthor, excludeMessageId?: string, templateId?: string | null, mediaKind?: string) {
+  actor: Pick<Principal, 'id'> | null, author: SendAuthor, excludeMessageId?: string, templateId?: string | null, mediaKind?: string,
+  deferTemporalPolicy = false) {
   const { scope, conversation } = locked;
   if (!scope.contact_id) return { allowed: false as const, reason: 'CONTACT_REQUIRED' };
   if (!scope.branch_active || scope.campaign_status !== 'ACTIVE' || scope.messaging_config?.enabled !== true)
@@ -109,6 +111,7 @@ export async function checkCurrentOutbound(tx: postgres.TransactionSql, locked: 
   const inboundAge = latestInbound ? now.getTime() - latestInbound.getTime() : null;
   const withinMetaServiceWindow = inboundAge !== null && inboundAge >= 0 && inboundAge < 24 * 60 * 60 * 1000;
   const policy = scope.messaging_policy || {};
+  const sendingWindow = policy.sendingWindow ?? (scope.messaging_window?.start ? scope.messaging_window : null);
   const proactive = author !== 'HUMAN';
   const attempt = proactive ? (await tx`SELECT count(*)::integer AS attempts, max(m.created_at) AS last_sent_at
     FROM conversation_message m JOIN conversation c ON c.id = m.conversation_id
@@ -122,12 +125,25 @@ export async function checkCurrentOutbound(tx: postgres.TransactionSql, locked: 
     sender: { ...resolved.sender, requiresTemplate: resolved.sender.requiresTemplate ||
       (connection.provider === 'META_WHATSAPP_CLOUD' && !withinMetaServiceWindow) },
     templateId,
-    timezone: scope.timezone, sendingWindow: policy.sendingWindow ??
-      (scope.messaging_window?.start ? scope.messaging_window : null),
+    timezone: scope.timezone, sendingWindow,
     attempts: attempt?.attempts ?? 0, maxAttempts: proactive ? policy.maxAttempts : null,
     lastSentAt: attempt?.last_sent_at ?? null,
     minIntervalSeconds: proactive ? policy.minIntervalSeconds : null, now });
-  if (!decision.allowed) return { allowed: false as const, reason: decision.reason ?? 'MESSAGE_BLOCKED' };
+  if (!decision.allowed) {
+    const reason=decision.reason??'MESSAGE_BLOCKED';
+    if (deferTemporalPolicy && reason==='FREQUENCY_LIMIT' && attempt?.last_sent_at && policy.minIntervalSeconds) {
+      return {allowed:false as const,reason,retryAt:new Date((attempt.last_sent_at as Date).getTime()+policy.minIntervalSeconds*1000)};
+    }
+    if (deferTemporalPolicy && reason==='OUTSIDE_SENDING_WINDOW' && sendingWindow && sendingWindow.start!==sendingWindow.end
+      && /^([01]\d|2[0-3]):[0-5]\d$/.test(sendingWindow.start) && /^([01]\d|2[0-3]):[0-5]\d$/.test(sendingWindow.end)) {
+      const [next]=await tx`SELECT min(opens_at) AS instant FROM (
+        SELECT ((((${now}::timestamptz AT TIME ZONE ${scope.timezone})::date+offset_days.day)+${sendingWindow.start}::time)
+          AT TIME ZONE ${scope.timezone}) AS opens_at FROM generate_series(0,2) AS offset_days(day)
+      ) candidates WHERE opens_at>${now}::timestamptz`;
+      if (next?.instant) return {allowed:false as const,reason,retryAt:next.instant as Date};
+    }
+    return {allowed:false as const,reason};
+  }
   return { allowed: true as const, sender: resolved.sender, provider: connection.provider as string,
     recipient: conversation.participant_ref as string };
 }

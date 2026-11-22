@@ -127,7 +127,7 @@ type Prepared = { kind: 'TEXT'; input: SendTextInput; connectionId: string }
   | { kind: 'ATTACHMENT'; input: UploadMediaInput; connectionId: string };
 type LoadedMedia = Pick<UploadMediaInput, 'bytes'|'mime'|'mediaKind'|'filename'> & { attachmentId:string;sha256:string;sizeBytes:number };
 async function prepare(db: Database, claimed: Claimed, media?: LoadedMedia, mediaDispatch = false, aiTestTransport = false): Promise<Prepared | { blocked: string } |
-  { deferredUntil: Date | null }> {
+  { deferredUntil: Date | null; reason?:string }> {
   const message = (await db`SELECT m.conversation_id, m.connection_id, m.sender_id, m.author_type,
       m.author_user_id, m.body, m.delivery_state, m.message_kind, m.template_id,
       m.template_snapshot,m.attachment_id,m.ai_send_action_id,m.ai_initial_action_id,m.ai_followup_action_id, u.organization_id, u.branch_id, u.role,
@@ -163,7 +163,11 @@ async function prepare(db: Database, claimed: Claimed, media?: LoadedMedia, medi
       const locked = aiLocked ?? await lockOutboundAuthority(tx, authority, message.conversation_id);
       const decision = await checkOutboundAuthorityPolicy(tx, locked,
         claimed.messageId, message.template_id, media?.mediaKind);
-      if (!decision.allowed) return { blocked: decision.reason };
+      if (!decision.allowed) {
+        if (authority.kind==='AI_FOLLOWUP_ACTION' && 'retryAt' in decision && decision.retryAt)
+          return {deferredUntil:decision.retryAt,reason:decision.reason};
+        return { blocked: decision.reason };
+      }
       if (decision.provider !== 'META_WHATSAPP_CLOUD') return { blocked: 'PROVIDER_SEND_NOT_SUPPORTED' };
       const template = message.message_kind === 'TEMPLATE'
         ? await approvedBodyTemplate(tx, message.connection_id,
@@ -217,10 +221,11 @@ async function prepare(db: Database, claimed: Claimed, media?: LoadedMedia, medi
   }
 }
 
-async function deferClaim(db: Database, claimed: Claimed, until: Date | null): Promise<void> {
+async function deferClaim(db: Database, claimed: Claimed, until: Date | null, reason?:string): Promise<void> {
   await db.begin(async (tx) => {
     await tx`UPDATE background_job SET status = 'QUEUED', attempts = attempts - 1,
       run_after = GREATEST(now(), ${until}::timestamptz), locked_until = NULL,
+      last_error_code = COALESCE(${reason??null},last_error_code),
       updated_at = now() WHERE id = ${claimed.jobId} AND status = 'RUNNING'
         AND attempts = ${claimed.attemptNo}`;
     await tx`DELETE FROM sender_outbound_lease WHERE sender_id = ${claimed.senderId}
@@ -337,7 +342,7 @@ export async function processOneMessagingJob(db: Database,
   }
   const prepared = await prepare(db, claimed, media, false, aiTestTransport);
   if ('deferredUntil' in prepared) {
-    await deferClaim(db, claimed, prepared.deferredUntil);
+    await deferClaim(db, claimed, prepared.deferredUntil, prepared.reason);
     return true;
   }
   if ('blocked' in prepared) {
@@ -362,7 +367,7 @@ export async function processOneMessagingJob(db: Database,
     }
     // Uploading a private provider asset is retryable. Re-check all rules immediately before customer dispatch.
     const dispatch = await prepare(db, claimed, media, true, aiTestTransport);
-    if ('deferredUntil' in dispatch) { await deferClaim(db, claimed, dispatch.deferredUntil); return true; }
+    if ('deferredUntil' in dispatch) { await deferClaim(db, claimed, dispatch.deferredUntil, dispatch.reason); return true; }
     if ('blocked' in dispatch) { await finishWithoutSend(db, claimed, dispatch.blocked); return true; }
     if (dispatch.kind==='TEXT' || dispatch.kind !== prepared.kind || dispatch.input.externalSenderId !== prepared.input.externalSenderId) {
       await finishWithoutSend(db, claimed, 'ATTACHMENT_SENDER_CHANGED'); return true;
