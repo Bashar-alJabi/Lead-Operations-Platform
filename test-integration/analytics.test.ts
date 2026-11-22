@@ -214,13 +214,19 @@ test('Analytics fails closed on revoked sessions and Audit failure, rejects unsu
 
 test('Analytics aggregates a larger cohort on the server while lead and grouping responses remain bounded',async t=>{
  const {db,org,branch,campaigns,api,overview}=await fixture(t);
+ const config=await api('PUT',`/api/ai/campaigns/${campaigns[0]}/qualification`,{version:0,reason:'Configure required test qualification',definition:{
+  enabled:true,questions:[{id:randomUUID(),required:true,prompt:'Synthetic eligibility',fieldId:null}],
+  completion:{mode:'ALL_REQUIRED',match:'ALL',conditions:[]},handoff:{onCompletion:false,match:'ALL',conditions:[]}}});
+ assert.equal(config.statusCode,200,config.body);
  await db`INSERT INTO lead(organization_id,branch_id,campaign_id,source_kind)
   SELECT ${org},${branch},${campaigns[0]!},'GENERIC_SOURCE' FROM generate_series(1,5000)`;
  await db`ANALYZE lead`;
  const r=await overview('sourceKind=GENERIC_SOURCE');assert.equal(r.leads.total,'5000');assert.equal(r.leads.unassigned,'5000');
- const page=await api('GET','/api/analytics/leads?sourceKind=GENERIC_SOURCE&limit=50');assert.equal(page.statusCode,200,page.body);
+ assert.equal(r.leads.qualificationIncomplete,'5000');assert.equal(r.leads.qualificationComplete,'0');
+ const drill='/api/analytics/leads?sourceKind=GENERIC_SOURCE&metric=QUALIFICATION_INCOMPLETE&limit=50';
+ const page=await api('GET',drill);assert.equal(page.statusCode,200,page.body);
  assert.equal(page.json().items.length,50);assert.ok(page.json().nextCursor);assert.ok(Buffer.byteLength(page.body)<60000);
- const next=await api('GET','/api/analytics/leads?sourceKind=GENERIC_SOURCE&limit=50&cursor='+encodeURIComponent(page.json().nextCursor));assert.equal(next.statusCode,200,next.body);
+ const next=await api('GET',drill+'&cursor='+encodeURIComponent(page.json().nextCursor));assert.equal(next.statusCode,200,next.body);
  assert.ok(next.json().items.every((l:any)=>!page.json().items.some((p:any)=>p.id===l.id)));
  assert.equal((await overview('sourceKind=GENERIC_SOURCE','agent')).leads.total,'0');
  const groups=await api('GET','/api/analytics/groups?sourceKind=GENERIC_SOURCE&limit=1');assert.equal(groups.statusCode,200,groups.body);assert.equal(groups.json().items.length,1);assert.equal(groups.json().items[0].leads,'5000');

@@ -21,11 +21,13 @@ export function registerAnalyticsRoutes(app:FastifyInstance,db:Database){
  app.get<{Querystring:LeadFilter}>('/api/analytics/overview',{schema:{querystring:querySchema}},async request=>{
   const actor=await principalFromRequest(request,db);return db.begin(async tx=>{
    const {q,field}=await access(tx,actor,request.query,request);
-   const row=(await tx`${analyticsCtes(tx,actor,q,field)} SELECT statement_timestamp() AS as_of,
+   const row=(await tx`${analyticsCtes(tx,actor,q,field,true)} SELECT statement_timestamp() AS as_of,
     jsonb_build_object('total',count(*)::text,'open',(count(*) FILTER(WHERE lifecycle='OPEN'))::text,'closed',(count(*) FILTER(WHERE lifecycle='CLOSED'))::text,
      'archived',(count(*) FILTER(WHERE lifecycle='ARCHIVED'))::text,'unassigned',(count(*) FILTER(WHERE assigned_agent_id IS NULL))::text,
      'attention',(count(*) FILTER(WHERE attention))::text,'noFollowUp',(count(*) FILTER(WHERE open_tasks=0))::text,'overdueFollowUp',(count(*) FILTER(WHERE overdue_tasks>0))::text,
-     'paid',(count(*) FILTER(WHERE paid))::text,'enrolled',(count(*) FILTER(WHERE enrolled))::text,'aiAnswered',(count(*) FILTER(WHERE ai_answered))::text,'humanAnswered',(count(*) FILTER(WHERE human_answered))::text) AS leads,
+     'paid',(count(*) FILTER(WHERE paid))::text,'enrolled',(count(*) FILTER(WHERE enrolled))::text,'aiAnswered',(count(*) FILTER(WHERE ai_answered))::text,'humanAnswered',(count(*) FILTER(WHERE human_answered))::text,
+     'qualificationComplete',(count(*) FILTER(WHERE qualification_complete IS TRUE))::text,
+     'qualificationIncomplete',(count(*) FILTER(WHERE qualification_complete IS FALSE))::text) AS leads,
     jsonb_build_object('platformContacted',(count(*) FILTER(WHERE first_platform IS NOT NULL))::text,'aiContacted',(count(*) FILTER(WHERE first_ai IS NOT NULL))::text,
      'humanContacted',(count(*) FILTER(WHERE first_human IS NOT NULL))::text,'customerResponded',(count(*) FILTER(WHERE first_customer_response IS NOT NULL))::text,
      'aiAttempts',coalesce(sum(ai_attempts),0)::text,'humanAttempts',coalesce(sum(human_attempts),0)::text,
@@ -49,7 +51,9 @@ export function registerAnalyticsRoutes(app:FastifyInstance,db:Database){
   metric:{enum:analyticsMetrics},limit:{type:'integer',minimum:1,maximum:50},cursor:{type:'string',maxLength:256}}}}},async request=>{
   const actor=await principalFromRequest(request,db),metric=request.query.metric??'ALL',cursor=decodeCursor(request.query.cursor),limit=request.query.limit??20;
   return db.begin(async tx=>{
-   const {q,field}=await access(tx,actor,request.query,request);const rows=await tx`${analyticsCtes(tx,actor,q,field)}
+   const {q,field}=await access(tx,actor,request.query,request);
+   const includeQualification=metric==='QUALIFICATION_COMPLETE'||metric==='QUALIFICATION_INCOMPLETE';
+   const rows=await tx`${analyticsCtes(tx,actor,q,field,includeQualification)}
     SELECT f.id,f.campaign_id,f.campaign_name,f.branch_name,f.lifecycle,f.created_at,f.created_at::text AS cursor_at,c.name AS contact_name,
      f.first_platform,f.first_ai,f.first_human,f.first_inbound,f.first_customer_response,f.ai_attempts::text,f.human_attempts::text,f.ai_response_seconds::text,f.human_response_seconds::text
     FROM facts f LEFT JOIN contact c ON c.id=f.contact_id WHERE ${analyticsMetricPredicate(tx,metric)} AND

@@ -2,23 +2,24 @@ import type postgres from 'postgres';
 import type {Principal} from './security.js';
 import {leadPredicate,type LeadFilter,type PreparedLeadFilter} from './lead-query.js';
 
-export const analyticsMetrics=['ALL','OPEN','CLOSED','ARCHIVED','ATTENTION','UNASSIGNED','NO_FOLLOW_UP','OVERDUE_FOLLOW_UP','PLATFORM_CONTACTED','AI_CONTACTED','HUMAN_CONTACTED','CUSTOMER_RESPONDED','NO_CUSTOMER_RESPONSE','PAID','ENROLLED','CONVERTED','AI_ANSWERED','HUMAN_ANSWERED'] as const;
+export const analyticsMetrics=['ALL','OPEN','CLOSED','ARCHIVED','ATTENTION','UNASSIGNED','NO_FOLLOW_UP','OVERDUE_FOLLOW_UP','PLATFORM_CONTACTED','AI_CONTACTED','HUMAN_CONTACTED','CUSTOMER_RESPONDED','NO_CUSTOMER_RESPONSE','PAID','ENROLLED','CONVERTED','AI_ANSWERED','HUMAN_ANSWERED','QUALIFICATION_COMPLETE','QUALIFICATION_INCOMPLETE'] as const;
 export type AnalyticsMetric=typeof analyticsMetrics[number];
 export function analyticsMetricPredicate(tx:postgres.TransactionSql,metric:AnalyticsMetric){
  const sql:Record<AnalyticsMetric,string>={ALL:'true',OPEN:"f.lifecycle='OPEN'",CLOSED:"f.lifecycle='CLOSED'",ARCHIVED:"f.lifecycle='ARCHIVED'",ATTENTION:'f.attention',UNASSIGNED:'f.assigned_agent_id IS NULL',
   NO_FOLLOW_UP:'f.open_tasks=0',OVERDUE_FOLLOW_UP:'f.overdue_tasks>0',PLATFORM_CONTACTED:'f.first_platform IS NOT NULL',AI_CONTACTED:'f.first_ai IS NOT NULL',HUMAN_CONTACTED:'f.first_human IS NOT NULL',
   CUSTOMER_RESPONDED:'f.first_customer_response IS NOT NULL',NO_CUSTOMER_RESPONSE:'f.first_platform IS NOT NULL AND f.first_customer_response IS NULL',
-  PAID:'f.paid',ENROLLED:'f.enrolled',CONVERTED:'f.converted',AI_ANSWERED:'f.ai_answered',HUMAN_ANSWERED:'f.human_answered'};
+  PAID:'f.paid',ENROLLED:'f.enrolled',CONVERTED:'f.converted',AI_ANSWERED:'f.ai_answered',HUMAN_ANSWERED:'f.human_answered',
+  QUALIFICATION_COMPLETE:'f.qualification_complete IS TRUE',QUALIFICATION_INCOMPLETE:'f.qualification_complete IS FALSE'};
  return tx.unsafe(sql[metric]);
 }
 
 // All aggregates and drilldowns start with the same authorized Lead cohort. No message bodies,
 // credentials, arbitrary formulas or LLM-generated facts are read here.
-export function analyticsCtes(tx:postgres.TransactionSql,actor:Principal,q:LeadFilter,field:PreparedLeadFilter){
+export function analyticsCtes(tx:postgres.TransactionSql,actor:Principal,q:LeadFilter,field:PreparedLeadFilter,includeQualificationOutcome=false){
  const humanActor=actor.role==='AGENT'?actor.id:q.assignedAgentId??null,mode=q.paymentMode??'LIVE';
  return tx`WITH selected AS MATERIALIZED (
   SELECT l.id,l.organization_id,l.branch_id,l.campaign_id,l.contact_id,l.assigned_agent_id,l.lifecycle,l.source_kind,l.created_at,l.needs_attention_reason,
-   ca.name AS campaign_name,ca.version AS campaign_version,ca.conversion_config->>'type' AS configured_conversion,b.name AS branch_name
+   ca.name AS campaign_name,ca.version AS campaign_version,ca.conversion_config->>'type' AS configured_conversion,b.name AS branch_name,b.active AS branch_active
   FROM lead l LEFT JOIN contact c ON c.id=l.contact_id JOIN campaign ca ON ca.id=l.campaign_id JOIN branch b ON b.id=l.branch_id
   WHERE ${leadPredicate(tx,actor,q,field)}
  ), cvs AS MATERIALIZED (SELECT cv.id,cv.lead_id,cv.state,cv.controller_type,cv.needs_attention_reason FROM conversation cv JOIN selected s ON s.id=cv.lead_id),
@@ -55,8 +56,22 @@ export function analyticsCtes(tx:postgres.TransactionSql,actor:Principal,q:LeadF
   SELECT a.lead_id,bool_or(a.source='AI') AS ai_answered,bool_or(a.source='HUMAN') AS human_answered FROM lead_qualification_answer a JOIN selected s ON s.id=a.lead_id AND s.campaign_id=a.campaign_id
    LEFT JOIN campaign_field cf ON cf.campaign_id=s.campaign_id AND cf.field_id=a.field_id LEFT JOIN field_definition fd ON fd.id=a.field_id
   WHERE a.field_id IS NULL OR cf.active AND fd.active AND fd.organization_id=s.organization_id AND (fd.branch_id IS NULL OR fd.branch_id=s.branch_id)
-   AND (fd.campaign_id IS NULL OR fd.campaign_id=s.campaign_id) AND (${actor.role==='SUPER_ADMIN'} OR ${actor.role==='MANAGER'} AND cf.visible_to_manager
-    OR ${actor.role==='AGENT'} AND cf.visible_to_agent) GROUP BY a.lead_id
+   AND (fd.campaign_id IS NULL OR fd.campaign_id=s.campaign_id) AND (${actor.role==='SUPER_ADMIN'} OR (cf.show_in_details OR cf.show_in_table)
+    AND CASE WHEN ${actor.role==='MANAGER'} THEN cf.visible_to_manager ELSE cf.visible_to_agent END) GROUP BY a.lead_id
+ ), visible_qualification_campaigns AS MATERIALIZED (
+  SELECT cfg.campaign_id FROM (SELECT DISTINCT organization_id,branch_id,campaign_id FROM selected WHERE branch_active) scope
+   JOIN ai_qualification_config cfg ON cfg.campaign_id=scope.campaign_id
+  WHERE ${includeQualificationOutcome} AND cfg.definition->>'enabled'='true'
+   AND NOT EXISTS (
+    SELECT 1 FROM jsonb_array_elements(cfg.definition->'questions') question
+    WHERE question->>'fieldId' IS NOT NULL AND NOT EXISTS (
+     SELECT 1 FROM campaign_field cf JOIN field_definition fd ON fd.id=cf.field_id
+     WHERE cf.campaign_id=cfg.campaign_id AND fd.id=(question->>'fieldId')::uuid AND fd.organization_id=scope.organization_id
+      AND (fd.branch_id IS NULL OR fd.branch_id=scope.branch_id) AND (fd.campaign_id IS NULL OR fd.campaign_id=scope.campaign_id)
+      AND (${actor.role==='SUPER_ADMIN'} OR (cf.show_in_details OR cf.show_in_table)
+       AND CASE WHEN ${actor.role==='MANAGER'} THEN cf.visible_to_manager ELSE cf.visible_to_agent END)
+    )
+   )
  ), facts AS MATERIALIZED (
   SELECT s.*,c.first_platform,c.first_ai,c.first_human,c.first_inbound,c.first_customer_response,coalesce(c.ai_attempts,0) AS ai_attempts,coalesce(c.human_attempts,0) AS human_attempts,
    c.ai_response_seconds,c.human_response_seconds,coalesce(t.open_tasks,0) AS open_tasks,coalesce(t.overdue_tasks,0) AS overdue_tasks,
@@ -64,6 +79,8 @@ export function analyticsCtes(tx:postgres.TransactionSql,actor:Principal,q:LeadF
    coalesce(t.human_tasks,0) AS human_tasks,coalesce(t.automation_tasks,0) AS automation_tasks,
    coalesce(p.paid,false) AS paid,EXISTS(SELECT 1 FROM enrollments e WHERE e.lead_id=s.id) AS enrolled,
    coalesce(q.ai_answered,false) AS ai_answered,coalesce(q.human_answered,false) AS human_answered,
+   CASE WHEN s.branch_active AND qc.campaign_id IS NOT NULL
+    THEN (ai_current_qualification_outcome(s.id)->>'complete')::boolean END AS qualification_complete,
    s.needs_attention_reason IS NOT NULL OR automation_review_pending(s.id,s.branch_id,s.campaign_id)
     OR EXISTS(SELECT 1 FROM cvs cv WHERE cv.lead_id=s.id AND cv.needs_attention_reason IS NOT NULL) AS attention,
    CASE WHEN d.field_id IS NOT NULL OR s.configured_conversion IN ('PAYMENT_CONFIRMED','ENROLLMENT_CONFIRMED')
@@ -74,6 +91,7 @@ export function analyticsCtes(tx:postgres.TransactionSql,actor:Principal,q:LeadF
    d.field_id IS NOT NULL OR coalesce(s.configured_conversion IN ('PAYMENT_CONFIRMED','ENROLLMENT_CONFIRMED'),false) AS conversion_defined
   FROM selected s LEFT JOIN communication c ON c.lead_id=s.id LEFT JOIN tasks t ON t.lead_id=s.id
    LEFT JOIN payment_leads p ON p.lead_id=s.id LEFT JOIN qualification q ON q.lead_id=s.id
+   LEFT JOIN visible_qualification_campaigns qc ON qc.campaign_id=s.campaign_id
    LEFT JOIN conversion_fields d ON d.campaign_id=s.campaign_id
    LEFT JOIN lead_field_value fv ON fv.lead_id=s.id AND fv.field_id=d.field_id
  )`;

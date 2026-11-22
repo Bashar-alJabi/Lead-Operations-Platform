@@ -43,6 +43,20 @@ test('Actual Human qualification uses current authorized Fields, typed idempoten
   const input = (value: postgres.JSONValue, answerVersion = 0, fieldValueVersion: number | null = 0, definitionVersion = 1) => ({ requestId: randomUUID(), definitionVersion, answerVersion, fieldValueVersion, value });
   const put = (question: string, body: object, actor = 'agent') => api('PUT', root + '/answers/' + question, body, actor);
   const read = () => api('GET', root);
+  async function assertQualificationAnalytics(complete: boolean | null, actor = 'agent') {
+    const query = `campaignId=${campaign}`;
+    const overview = await api('GET', '/api/analytics/overview?' + query, undefined, actor);
+    assert.equal(overview.statusCode, 200, overview.body);
+    const { leads } = overview.json();
+    assert.equal(leads.qualificationComplete, complete === true ? '1' : '0');
+    assert.equal(leads.qualificationIncomplete, complete === false ? '1' : '0');
+    for (const [metric, matches] of [['QUALIFICATION_COMPLETE', complete === true], ['QUALIFICATION_INCOMPLETE', complete === false]] as const) {
+      const detail = await api('GET', `/api/analytics/leads?${query}&metric=${metric}`, undefined, actor);
+      assert.equal(detail.statusCode, 200, detail.body);
+      assert.deepEqual(detail.json().items.map((item: { id: string }) => item.id), matches ? [lead] : []);
+      assert.ok(!detail.body.includes('Interest?') && !detail.body.includes('img literal'));
+    }
+  }
   const claimedLead = { id: lead, campaign_id: campaign as string, branch_id: branch as string, lifecycle: 'OPEN' };
   const human: Principal = { id: users.agent!.id, organizationId: org, branchId: branch, role: 'AGENT', name: 'agent', email: 'agent@actualqualification.test' };
   // The application service must enforce source authority even when bypassing the HTTP handler.
@@ -51,6 +65,7 @@ test('Actual Human qualification uses current authorized Fields, typed idempoten
   await assert.rejects(db.begin(tx => collectHumanQualificationAnswer(tx, { ...human, id: users.second!.id }, claimedLead, users.second!.session, q, input(false))), /QUALIFICATION_ACCESS_REVOKED/);
   await assert.rejects(db.begin(tx => collectHumanQualificationAnswer(tx, human, { ...claimedLead, branch_id: branchB }, users.agent!.session, q, input(false))), /QUALIFICATION_ACCESS_REVOKED/);
   assert.equal((await read()).json().result.complete, false);
+  await assertQualificationAnalytics(false);
   for (const actor of ['second', 'other', 'foreign']) {
     assert.equal((await api('GET', root, undefined, actor)).statusCode, 404);
     assert.equal((await put(q, input(false), actor)).statusCode, 404);
@@ -68,6 +83,8 @@ test('Actual Human qualification uses current authorized Fields, typed idempoten
   assert.equal((await put(q, { ...first, value: true })).statusCode, 409);
   const collected = input(' Available <img literal> ', 0, null), freeResponse = await put(free, collected);
   assert.equal(freeResponse.statusCode, 200, freeResponse.body); assert.equal(freeResponse.json().result.complete, true); assert.equal(freeResponse.json().result.handoff, true);
+  await assertQualificationAnalytics(true);
+  for (const actor of ['second', 'other', 'foreign']) await assertQualificationAnalytics(null, actor);
   assert.equal(freeResponse.json().questions.find((item: { id: string }) => item.id === q).value, false);
   assert.equal((await db`SELECT source FROM lead_field_value WHERE lead_id=${lead} AND field_id=${field}`)[0]!.source, 'MANUAL');
   assert.equal((await db`SELECT source FROM lead_qualification_answer WHERE lead_id=${lead} AND question_id=${free}`)[0]!.source, 'HUMAN');
@@ -106,9 +123,12 @@ test('Actual Human qualification uses current authorized Fields, typed idempoten
   assert.deepEqual((await api('GET', root + '/answers/' + q + '/history')).json().items, []);
   assert.equal((await put(q, input(true, 2, 3))).statusCode, 404);
   assert.equal((await api('GET', root, undefined, 'manager')).json().result.complete, true);
+  await assertQualificationAnalytics(null);
+  await assertQualificationAnalytics(true, 'manager');
   await db`UPDATE campaign_field SET visible_to_agent=true,editable_by_agent=true WHERE campaign_id=${campaign} AND field_id=${field}`;
   await db`UPDATE field_definition SET field_type='NUMBER',version=version+1 WHERE id=${field}`;
   assert.equal((await read()).json().result, null);
+  await assertQualificationAnalytics(null);
   assert.equal((await read()).json().questions.find((item: { id: string }) => item.id === q).editable, true, 'Current invalid value can be corrected by an authorized Human');
   assert.equal((await put(q, input('invalid number', 2, 3))).statusCode, 400);
   await db`UPDATE field_definition SET field_type='BOOLEAN',version=version+1 WHERE id=${field}`;
@@ -127,6 +147,7 @@ test('Actual Human qualification uses current authorized Fields, typed idempoten
   const next = { ...definition, questions: [definition.questions[0]!, { ...definition.questions[1]!, prompt: 'Changed meaning?' }] };
   assert.equal((await api('PUT', config, { version: 1, definition: next, reason: 'Change question meaning' }, 'manager')).statusCode, 200);
   assert.equal((await read()).json().result.complete, false);
+  await assertQualificationAnalytics(false);
   assert.equal((await read()).json().questions.find((item: { id: string }) => item.id === free).value, null);
   assert.equal((await put(free, input('new', 1, null))).statusCode, 409);
   assert.equal((await put(free, collected)).json().duplicate, true, 'Durable retry after configuration change does not mutate current answers');
@@ -137,6 +158,7 @@ test('Actual Human qualification uses current authorized Fields, typed idempoten
   assert.equal((await read()).json().result.complete, true);
   assert.equal((await read()).json().questions.find((item: { id: string }) => item.id === free).collectedDefinitionVersion, 2);
   assert.equal((await api('PUT', config, { version: 3, definition: { ...reordered, enabled: false }, reason: 'Disable preserves collected answers' }, 'manager')).statusCode, 200);
+  await assertQualificationAnalytics(null);
   assert.equal((await read()).json().questions.find((item: { id: string }) => item.id === free).value, 'new current');
   assert.equal((await put(free, input('new', 2, null, 4))).statusCode, 409);
   assert.equal((await api('GET', root + '/answers/' + free + '/history')).json().items.length, 2);
@@ -144,6 +166,7 @@ test('Actual Human qualification uses current authorized Fields, typed idempoten
   assert.equal((await read()).json().result.complete, true);
   await db`UPDATE user_session SET expires_at=clock_timestamp()-interval '1 second' WHERE id=${users.agent!.session}`;
   assert.equal((await read()).statusCode, 401); await assert.rejects(nativeReceipt(free, 'native', 'agent', 2), /CURRENT_ACCESS_REQUIRED/);
+  assert.equal((await api('GET', '/api/analytics/overview')).statusCode, 401);
   await db`UPDATE user_session SET expires_at=clock_timestamp()+interval '1 hour' WHERE id=${users.agent!.session}`;
   await db`UPDATE user_session SET revoked_at=clock_timestamp() WHERE id=${users.agent!.session}`;
   assert.equal((await read()).statusCode, 401); await assert.rejects(nativeReceipt(free, 'native', 'agent', 2), /CURRENT_ACCESS_REQUIRED/);

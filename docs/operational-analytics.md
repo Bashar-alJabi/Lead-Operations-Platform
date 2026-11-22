@@ -41,7 +41,11 @@ Field filter يمر عبر نوع Field وvalidation وactive/filterable binding
 
 Human attempts/response وauthor performance تستخدم `author_user_id` الحقيقي. Agent يرى attribution لنفسه فقط ضمن Leads المسموح بها حاليًا. عند اختيار Agent في تقرير الإدارة يُرشح current lead ownership ويُقيد Human attribution لذلك الكاتب؛AI metrics تبقى منفصلة. جدول Human authors يجمع الرسائل حسب كاتبها الفعلي، ولا ينسب رسائل موظف سابق أوسرعة AI إلى المالك الحالي. لا تُفعّل هذه الشريحة Performance routing قبل sample/scoring policy واختباراتها.
 
-أعداد AI/Human-collected answers تعني وجود إجابات ظاهرة بحسب المصدر وField permissions فقط. لا تدعي qualification completion أوconversion. Aggregate completion/source attribution الدقيقة وفق policy المنشورة وصلاحيات الأسئلة تبقى متطلبًا مستقلًا يحتاج أدلة، ولا يُستبدل بمجرد وجود answer.
+## اكتمال التأهيل
+
+تحسب Analytics عدد الفرص المكتملة وغير المكتملة من `ai_current_qualification_outcome`. يستخدم PostgreSQL تعريف الحملة الحالي والقيم المهيكلة الحالية وإجابات الأسئلة المطابقة لتعريفها. يدخل في الحساب ما يستطيع الدور الحالي تقييمه بالكامل ضمن المجموعة المرشحة. تستبعد الحملة ذات التأهيل المعطل، والفرع المعطل، والنتيجة التي يحجبها حقل أو يمنعها تعريف غير صالح. تتحقق صلاحية الحقول لكل حملة قبل احتساب مستوى الفرصة.
+
+تستخدم بطاقتا الاكتمال وعدم الاكتمال نفس الشرط في التفاصيل محدودة الصفحات. يعيد التقرير أعدادًا ومعرّفات فرص مخوّلة، ويحفظ `ANALYTICS_READ` دون محتوى الإجابات أو قيمها. لا تستدعي صفحات التجميع العام أو أداء الموظفين حساب النتيجة إذا لم تطلبه. تبقى مؤشرات الإجابات المجمعة منفصلة بحسب المصدر، ويظل تعريف Conversion مستقلًا عن نتيجة التأهيل.
 
 ## Backend/UI والتشغيل
 
