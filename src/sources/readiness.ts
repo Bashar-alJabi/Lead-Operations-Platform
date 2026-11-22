@@ -51,7 +51,6 @@ export async function sourceCampaignIssues(db:Database,campaign:Record<string,an
     after=rows.length===100 ? rows.at(-1)!.id as string : null;
   } while (after);
   if (!active) issues.add('SOURCE_BINDING_NOT_READY');
-  if (campaign.source_kind==='GENERIC_SOURCE') issues.add('SOURCE_WEBHOOK_INTAKE_NOT_READY');
   return [...issues];
 }
 export async function sourceConnectionRuntime(db:Database,connectionId:string) {

@@ -1,7 +1,7 @@
 import type { Database } from '../db.js';
 import { HttpError } from '../security.js';
 import { resolveSourceContext,type BindingContext } from './bindings.js';
-import { sourceCatalogHash,mappingTargetHash,sourceRuntimeTargets,previewSourceMapping,type MappingEntry,type MappingTarget } from './field-mapping.js';
+import { sourceCatalogHash,mappingTargetHash,sourceRuntimeTargets,previewSourceMapping,type MappingEntry,type MappingTarget,type SourceValue } from './field-mapping.js';
 import { validateRetrievedLead } from './meta-lead.js';
 import { SourceProviderError,type SourceQuestion } from './meta-provider.js';
 
@@ -30,10 +30,69 @@ export function sourceSubmissionData(connectionId:string,externalEventId:string,
 export type Evaluation={ state:'VALIDATED'|'NEEDS_ATTENTION';errorCode:string|null;codes:string[];resourceId:string|null;campaignId:string|null;
   branchId:string|null;bindingId:string|null;bindingVersion:number|null;mappingVersion:number|null;connectionVersion:number;resourceVersion:number|null;
   mappedFields:number;mappedContactFields:number;prepared?:{ contact:Partial<Record<'name'|'phone'|'email',string>>;fields:{ fieldId:string;value:unknown }[];campaign:Record<string,any> } };
+type Failure=(code:string,codes?:string[])=>Evaluation;
+
+async function mappedEvaluation(db:Database,submission:Record<string,any>,campaign:Record<string,any>,mapping:Record<string,any>,
+  questions:SourceQuestion[],values:SourceValue[],result:Evaluation,fail:Failure):Promise<Evaluation> {
+  const entries=mapping.entries as MappingEntry[];const ids=entries.filter((e)=>e.kind==='LEAD_FIELD').map((e)=>e.fieldId!);
+  const targets=await sourceRuntimeTargets(db,submission.organization_id,campaign.id,ids,true);const byId=new Map(targets.map((t)=>[t.id,t]));
+  if ((mapping.target_snapshot as MappingTarget[]).some((t)=>!byId.has(t.id) || mappingTargetHash(t)!==mappingTargetHash(byId.get(t.id)!)))
+    return fail('SOURCE_MAPPING_TARGET_CHANGED');
+  const required=await db`SELECT cf.field_id FROM campaign_field cf JOIN field_definition fd ON fd.id=cf.field_id
+    WHERE cf.campaign_id=${campaign.id} AND cf.active AND fd.active AND cf.required_stage='LEAD_CREATION' FOR SHARE OF cf,fd`;
+  if (required.some((r)=>!ids.includes(r.field_id))) return fail('SOURCE_MAPPING_REQUIRED_FIELD_UNMAPPED');
+  try {
+    const preview=previewSourceMapping(entries,questions,targets,values,required.map((r)=>r.field_id as string));
+    if (!preview.valid) return fail('SOURCE_MAPPING_VALUE_INVALID',preview.errors.map((e)=>e.code));
+    result.mappedFields=preview.fields.length;result.mappedContactFields=Object.keys(preview.contact).length;
+    return { ...result,state:'VALIDATED',errorCode:null,codes:preview.warnings,prepared:{ contact:preview.contact,fields:preview.fields,campaign } };
+  } catch (error) { if (error instanceof HttpError) return fail(error.code);throw error; }
+}
+
+async function evaluateGenericSource(db:Database,connection:Record<string,any>,submission:Record<string,any>,intake:boolean,
+  result:Evaluation,fail:Failure):Promise<Evaluation> {
+  const [receipt]=await db`SELECT r.resource_id,r.binding_id,p.resource_version,p.binding_version,p.mapping_version,p.connection_version,
+    p.state,p.actor_user_id
+    FROM generic_source_intake_receipt r JOIN source_processing p ON p.submission_id=r.submission_id
+    WHERE r.submission_id=${submission.id} AND r.connection_id=${connection.id}`;
+  if (!receipt) throw new HttpError(409,'GENERIC_SOURCE_INTAKE_RECEIPT_REQUIRED');
+  Object.assign(result,{branchId:submission.branch_id,campaignId:submission.campaign_id,resourceId:receipt.resource_id,
+    resourceVersion:receipt.resource_version,bindingId:receipt.binding_id,bindingVersion:receipt.binding_version,
+    mappingVersion:receipt.mapping_version,connectionVersion:receipt.connection_version});
+  if (intake) await db`SELECT id FROM branch WHERE id=${submission.branch_id} FOR NO KEY UPDATE`;
+  const [campaign]=await db`SELECT c.*,b.active AS branch_active,b.timezone FROM campaign c JOIN branch b ON b.id=c.branch_id
+    WHERE (c.id,c.branch_id,c.organization_id)=(${submission.campaign_id},${submission.branch_id},${submission.organization_id})
+    FOR SHARE OF b FOR UPDATE OF c`;
+  if (!campaign || campaign.source_kind!=='GENERIC_SOURCE') return fail('SOURCE_CAMPAIGN_KIND_MISMATCH');
+  if (!campaign.branch_active) return fail('SOURCE_BRANCH_INACTIVE');
+  if (campaign.status!=='ACTIVE') return fail('SOURCE_CAMPAIGN_INACTIVE');
+  if (connection.status!=='CONNECTED') return fail('SOURCE_CONNECTION_NOT_AVAILABLE');
+  const [context]=await db`SELECT * FROM generic_source_intake_context(${connection.id})
+    WHERE campaign_id=${campaign.id} AND binding_id=${receipt.binding_id} AND resource_id=${receipt.resource_id}`;
+  if (!context) return fail('SOURCE_WEBHOOK_INTAKE_NOT_READY');
+  const changed=context.connection_version!==receipt.connection_version || context.schema_version!==receipt.resource_version
+    || context.mapping_version!==receipt.mapping_version || context.binding_version!==receipt.binding_version;
+  if (changed) {
+    const approved = !intake && receipt.state==='PENDING' && receipt.actor_user_id && (await db`SELECT 1 FROM user_account u
+      WHERE u.id=${receipt.actor_user_id} AND u.active AND u.organization_id=${submission.organization_id}
+      AND (u.role='SUPER_ADMIN' OR (u.role='MANAGER' AND u.branch_id=${submission.branch_id})) FOR SHARE`).length;
+    if (!approved) return fail('SOURCE_CONFIGURATION_CHANGED');
+  }
+  const [mapping]=await db`SELECT * FROM source_mapping_revision WHERE binding_id=${context.binding_id} AND version=${context.mapping_version}`;
+  if (!mapping || !sourceCatalogHash(context.questions).equals(mapping.catalog_hash)) return fail('SOURCE_MAPPING_CATALOG_CHANGED');
+  const values=submission.raw_payload.fields as SourceValue[];
+  const schema=new Set((context.questions as SourceQuestion[]).map(question=>question.key));
+  if (values.some(value=>!schema.has(value.key))) return fail('SOURCE_MAPPING_CATALOG_CHANGED');
+  Object.assign(result,{resourceVersion:context.schema_version,bindingVersion:context.binding_version,
+    mappingVersion:context.mapping_version,connectionVersion:context.connection_version});
+  return mappedEvaluation(db,submission,campaign,mapping,context.questions,values,result,fail);
+}
+
 export async function evaluateSource(db:Database,connection:Record<string,any>,submission:Record<string,any>,intake=false):Promise<Evaluation> {
   const result:Evaluation={ state:'NEEDS_ATTENTION',errorCode:null,codes:[],resourceId:null,campaignId:null,branchId:null,bindingId:null,
     bindingVersion:null,mappingVersion:null,connectionVersion:connection.version,resourceVersion:null,mappedFields:0,mappedContactFields:0 };
   const fail=(code:string,codes=[code]):Evaluation=>({ ...result,errorCode:code,codes:[...new Set(codes)] });
+  if (submission.source_kind==='GENERIC_SOURCE') return evaluateGenericSource(db,connection,submission,intake,result,fail);
   let source:ReturnType<typeof sourceSubmissionData>;
   try { source=sourceSubmissionData(connection.id,submission.external_event_id,submission.raw_payload); }
   catch (error) { if (error instanceof SourceProviderError || error instanceof HttpError) return fail(error.code);throw error; }
@@ -64,25 +123,14 @@ export async function evaluateSource(db:Database,connection:Record<string,any>,s
   const [mapping]=await db`SELECT * FROM source_mapping_revision WHERE binding_id=${binding.id} AND status='PUBLISHED' ORDER BY version DESC LIMIT 1`;
   if (!mapping) return fail('SOURCE_MAPPING_NOT_PUBLISHED');result.mappingVersion=mapping.version;
   if (mapping.connection_version!==connection.version || !sourceCatalogHash(form.questions).equals(mapping.catalog_hash)) return fail('SOURCE_MAPPING_CATALOG_CHANGED');
-  const entries=mapping.entries as MappingEntry[];const ids=entries.filter((e)=>e.kind==='LEAD_FIELD').map((e)=>e.fieldId!);
-  const targets=await sourceRuntimeTargets(db,submission.organization_id,campaign.id,ids,true);const byId=new Map(targets.map((t)=>[t.id,t]));
-  if ((mapping.target_snapshot as MappingTarget[]).some((t)=>!byId.has(t.id) || mappingTargetHash(t)!==mappingTargetHash(byId.get(t.id)!)))
-    return fail('SOURCE_MAPPING_TARGET_CHANGED');
-  const required=await db`SELECT cf.field_id FROM campaign_field cf JOIN field_definition fd ON fd.id=cf.field_id
-    WHERE cf.campaign_id=${campaign.id} AND cf.active AND fd.active AND cf.required_stage='LEAD_CREATION' FOR SHARE OF cf,fd`;
-  if (required.some((r)=>!ids.includes(r.field_id))) return fail('SOURCE_MAPPING_REQUIRED_FIELD_UNMAPPED');
-  try {
-    const preview=previewSourceMapping(entries,form.questions as SourceQuestion[],targets,source.values,required.map((r)=>r.field_id as string));
-    if (!preview.valid) return fail('SOURCE_MAPPING_VALUE_INVALID',preview.errors.map((e)=>e.code));
-    result.mappedFields=preview.fields.length;result.mappedContactFields=Object.keys(preview.contact).length;
-    return { ...result,state:'VALIDATED',errorCode:null,codes:preview.warnings,prepared:{ contact:preview.contact,fields:preview.fields,campaign } };
-  } catch (error) { if (error instanceof HttpError) return fail(error.code);throw error; }
+  return mappedEvaluation(db,submission,campaign,mapping,form.questions,source.values,result,fail);
 }
 // Connection first, then submission/processing/campaign/definitions. All effects commit together or remain PENDING on DB failure.
 export async function processOneSourceEvaluation(db:Database):Promise<boolean> {
   return db.begin(async(tx)=> {
     const sql=tx as unknown as Database;
-    const [connection]=await tx`SELECT c.* FROM integration_connection c WHERE c.kind='META' AND c.provider='META_LEAD_ADS'
+    const [connection]=await tx`SELECT c.* FROM integration_connection c WHERE
+      ((c.kind,c.provider) IN (('META','META_LEAD_ADS'),('GENERIC_SOURCE','SIGNED_WEBHOOK')))
       AND EXISTS (SELECT 1 FROM source_processing p WHERE p.connection_id=c.id AND p.state='PENDING')
       ORDER BY (SELECT min(p.updated_at) FROM source_processing p WHERE p.connection_id=c.id AND p.state='PENDING'),c.id
       FOR UPDATE OF c SKIP LOCKED LIMIT 1`;
@@ -97,7 +145,7 @@ export async function processOneSourceEvaluation(db:Database):Promise<boolean> {
       campaign_id=${outcome.campaignId},branch_id=${outcome.branchId},resource_id=${outcome.resourceId},binding_id=${outcome.bindingId},
       binding_version=${outcome.bindingVersion},mapping_version=${outcome.mappingVersion},connection_version=${outcome.connectionVersion},resource_version=${outcome.resourceVersion},
       error_code=${outcome.errorCode},codes=${tx.json(outcome.codes)},mapped_fields=${outcome.mappedFields},mapped_contact_fields=${outcome.mappedContactFields},
-      actor_user_id=NULL,reason='SOURCE_EVALUATED',updated_at=now() WHERE submission_id=${submission!.id}`;
+      actor_user_id=NULL,generic_reprocess_session_id=NULL,reason='SOURCE_EVALUATED',updated_at=now() WHERE submission_id=${submission!.id}`;
     await tx`UPDATE source_submission SET state='NEEDS_ATTENTION',failure_code=${outcome.errorCode ?? 'SOURCE_LEAD_CREATION_PENDING'} WHERE id=${submission!.id}`;
     await tx`INSERT INTO audit_log (organization_id,branch_id,action,target_type,target_id,detail)
       VALUES (${submission!.organization_id},${outcome.branchId ?? connection.branch_id},'SOURCE_EVALUATED','SOURCE_SUBMISSION',${submission!.id},

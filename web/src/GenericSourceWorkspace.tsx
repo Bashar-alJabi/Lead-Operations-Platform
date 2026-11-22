@@ -26,6 +26,7 @@ const words = {
     protocol:'توقيع طلب الاختبار', signature:'أرسل JSON بطريقة POST. طابع الوقت بالثواني منذ Unix. وقّع النص أدناه بمفتاح HMAC-SHA256 الناتج عن فك ترميز السر من hex. أرسل ناتج التوقيع بصيغة hex صغيرة.',
     schemaTitle:'حقول Webhook', keys:'مفاتيح الحقول', keysRule:'اكتب مفتاحًا في كل سطر بحروف إنجليزية صغيرة وأرقام وشرطة سفلية. يجب أن يبدأ المفتاح بحرف.',
     saveSchema:'حفظ مخطط الحقول', schemaNeeded:'تحقق من توقيع الإصدار الحالي قبل حفظ الحقول.', schemaOld:'احفظ المخطط مع الإصدار الحالي، ثم انشر التعيين من إعدادات الحملة.',
+    intake:'رابط استقبال Leads', intakeGuide:'أرسل مفاتيح المخطط وقيمًا نصية أو قوائم نصية. استخدم بادئة التوقيع التالية بدل بادئة الاختبار. يتطلب الاستقبال حملة نشطة وتعيينًا منشورًا.',
   },
   en: { title:'Webhook connections', branch:'Branch', name:'Connection name', reason:'Change reason', create:'Create webhook connection',
     refresh:'Refresh connections', none:'No connections in this scope.', more:'Older connections', open:'Open connection', choose:'Choose a branch',
@@ -37,6 +38,7 @@ const words = {
     protocol:'Signing a test request', signature:'Send a JSON POST. Use Unix time in seconds. Sign the text below with HMAC-SHA256 using the hex-decoded secret as the key. Send the signature as lowercase hex.',
     schemaTitle:'Webhook fields', keys:'Field keys', keysRule:'Enter one key per line. Start each key with a lowercase letter and use lowercase letters, numbers and underscores.',
     saveSchema:'Save field schema', schemaNeeded:'Verify a signature with the current secret before saving fields.', schemaOld:'Save the schema for the current version, then publish the mapping in Campaign setup.',
+    intake:'Lead event URL', intakeGuide:'Send schema keys with strings or arrays of strings. Use the signing prefix below in place of the test prefix. Admission requires an active campaign and published mapping.',
   },
   fr: { title:'Connexions webhook', branch:'Agence', name:'Nom de la connexion', reason:'Motif du changement', create:'Créer une connexion webhook',
     refresh:'Actualiser les connexions', none:'Aucune connexion dans ce périmètre.', more:'Connexions précédentes', open:'Ouvrir la connexion', choose:'Choisir une agence',
@@ -49,6 +51,7 @@ const words = {
     protocol:'Signer une requête de test', signature:'Envoyez un POST JSON. Utilisez le temps Unix en secondes. Signez le texte ci-dessous avec HMAC-SHA256 en utilisant le secret décodé depuis l’hexadécimal. Envoyez la signature en hexadécimal minuscule.',
     schemaTitle:'Champs du webhook', keys:'Clés des champs', keysRule:'Saisissez une clé par ligne. Commencez par une lettre minuscule et utilisez des minuscules, des chiffres et des traits de soulignement.',
     saveSchema:'Enregistrer le schéma', schemaNeeded:'Vérifiez une signature du secret actuel avant d’enregistrer les champs.', schemaOld:'Enregistrez le schéma pour la version actuelle, puis publiez le mapping dans la campagne.',
+    intake:'URL des événements prospect', intakeGuide:'Envoyez les clés du schéma avec des chaînes ou des listes de chaînes. Utilisez le préfixe ci-dessous à la place du préfixe de test. Une campagne active et un mapping publié sont requis.',
   },
 };
 
@@ -180,6 +183,13 @@ export function GenericSourceWorkspace({api,locale,branches}: {api:Api;locale:ke
         <p dir="ltr"><code>lead-operations.generic-source:test:v1<br />{selected.id}<br />{'<timestamp>'}<br />{'<raw JSON body>'}</code></p>
         <p dir="ltr"><code>{'x-source-timestamp: <timestamp>'}<br />{'x-source-signature: v1=<signature>'}</code></p>
       </details>
+      {schema?.schema&&<details>
+        <summary>{t.intake}</summary>
+        <label>{t.intake}<input readOnly value={new URL(`/api/webhooks/sources/generic/${selected.id}/leads`,location.origin).href} /></label>
+        <p>{t.intakeGuide} <code dir="ltr">lead-operations.generic-source:intake:v1</code></p>
+        <pre dir="ltr" style={{overflow:'auto'}}>{JSON.stringify({eventId:'<uuid>',
+          fields:Object.fromEntries(schema.schema.questions.map(question=>[question.key,'<text>']))},null,2)}</pre>
+      </details>}
       {issued?.id===selected.id&&issued.signingSecret&&<section data-generic-source-secret>
         <p>{t.once}</p>
         <label>{t.secret}<input readOnly value={issued.signingSecret} autoComplete="off" /></label>

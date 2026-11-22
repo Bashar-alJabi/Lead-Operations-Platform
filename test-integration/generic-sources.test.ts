@@ -4,6 +4,8 @@ import { test } from 'node:test';
 import { buildApp } from '../src/app.js';
 import { createDatabase } from '../src/db.js';
 import { sha256 } from '../src/security.js';
+import { processOneSourceEvaluation } from '../src/sources/evaluation.js';
+import { processOneSourceIntake } from '../src/sources/intake.js';
 
 const url=process.env.TEST_DATABASE_URL;
 if(!url||new URL(url).pathname!=='/lead_operations_test')throw new Error('Isolated TEST_DATABASE_URL required');
@@ -113,7 +115,7 @@ test('Generic Webhook setup isolates real sessions and preserves one current sig
   assert.equal((await api('POST',rotate,{version:3,reason:'Expired scope'})).statusCode,401);
 });
 
-test('Generic Webhook uses current branch schema, shared mapping publication and versioned field visibility', async t=>{
+test('Generic Webhook creates one scoped lead through shared mapping and intake, with bounded admission and authorized recovery', async t=>{
   process.env.APP_ORIGIN='http://127.0.0.1:5173';
   process.env.CREDENTIAL_ENCRYPTION_KEY=randomBytes(32).toString('hex');
   const db=createDatabase(url),app=await buildApp(db,{logger:false,globalRateLimitMax:10000});
@@ -177,7 +179,8 @@ test('Generic Webhook uses current branch schema, shared mapping publication and
     /SOURCE_BINDING_SESSION_REQUIRED/);
   const mapping=root+'/bindings/'+binding+'/mapping';
   const versions={bindingVersion:1,connectionVersion:1,resourceVersion:1};
-  const entries=[{sourceKey:'name',kind:'CONTACT_NAME',transform:'TEXT',optionMap:[]}];
+  const entries=[{sourceKey:'name',kind:'CONTACT_NAME',transform:'TEXT',optionMap:[]},
+    {sourceKey:'email',kind:'CONTACT_EMAIL',transform:'TEXT',optionMap:[]}];
   const preview=await request('POST',mapping+'/preview',{...versions,entries,values:[{key:'name',values:['Synthetic preview']}]});
   assert.equal(preview.statusCode,200,preview.body);
   assert.equal(preview.json().contact.name,'Synthetic preview');
@@ -185,11 +188,64 @@ test('Generic Webhook uses current branch schema, shared mapping publication and
   assert.equal(publish.statusCode,200,publish.body);
   assert.equal((await request('GET',mapping)).json().configured,true);
   assert.equal((await request('GET',mapping,undefined,otherCookie)).statusCode,404);
-  assert.equal((await request('GET','/api/campaigns/'+campaign!.id+'/readiness')).json().ready,false);
+  const campaignPath='/api/campaigns/'+campaign!.id;
+  assert.equal((await request('GET',campaignPath+'/readiness')).json().ready,true);
+  async function postEvent(payload:string,purpose='intake') {
+    const timestamp=Math.floor(Date.now()/1000);
+    const signature=createHmac('sha256',Buffer.from(signingSecret,'hex'))
+      .update(`lead-operations.generic-source:${purpose}:v1\n${id}\n${timestamp}\n`).update(payload).digest('hex');
+    return app.inject({method:'POST',url:'/api/webhooks/sources/generic/'+id+'/leads',payload,
+      headers:{'content-type':'application/json','x-source-timestamp':String(timestamp),'x-source-signature':'v1='+signature}});
+  }
+  const eventId=randomUUID(),first=JSON.stringify({eventId,fields:{name:'Synthetic Webhook Lead',email:'lead@webhook.test'}});
+  assert.equal((await postEvent(first)).statusCode,409);
+  const activate=await request('POST',campaignPath+'/activate');
+  assert.equal(activate.statusCode,200,activate.body);
+  assert.equal((await postEvent(first,'test')).statusCode,401);
+  assert.equal((await postEvent(JSON.stringify({eventId,fields:{name:'Invalid',payment:'claimed'}}))).statusCode,400);
+  const burst=await Promise.all(Array.from({length:6},()=>postEvent(first)));
+  assert.deepEqual(burst.map(response=>response.statusCode).sort(),[200,200,200,200,200,202],burst.map(response=>response.body).join('\n'));
+  const submission=burst[0]!.json().id as string;
+  assert.equal((await postEvent(first+' ')).statusCode,409);
+  assert.equal((await db`SELECT count(*)::int AS n FROM lead`)[0]!.n,0);
+  assert.equal(await processOneSourceEvaluation(db),true);
+  assert.equal(await processOneSourceIntake(db),true);
+  assert.equal(await processOneSourceIntake(db),false);
+  const [lead]=await db`SELECT l.id,l.campaign_id,l.source_kind,c.email FROM lead l JOIN contact c ON c.id=l.contact_id`;
+  assert.equal(lead!.campaign_id,campaign!.id);
+  assert.equal(lead!.source_kind,'GENERIC_SOURCE');
+  assert.equal(lead!.email,'lead@webhook.test');
+  const origin=await request('GET','/api/leads/'+lead!.id+'/intake-origin');
+  assert.equal(origin.json().origin.sourceKind,'GENERIC_SOURCE');
+  assert.equal((await request('GET','/api/sources/submissions/'+submission+'/history')).json().items[0].state,'PROCESSED');
+  assert.equal((await request('GET','/api/sources/submissions/'+submission+'/history',undefined,otherCookie)).statusCode,404);
+  assert.equal((await db`SELECT count(*)::int AS n FROM payment_record`)[0]!.n,0);
+  await assert.rejects(db`UPDATE source_submission SET raw_payload='{}'::jsonb WHERE id=${submission}`,/SOURCE_SUBMISSION_IMMUTABLE/);
+  await assert.rejects(db`DELETE FROM generic_source_intake_receipt WHERE submission_id=${submission}`,/GENERIC_SOURCE_INTAKE_RECEIPT_IMMUTABLE/);
+  const invalid=await postEvent(JSON.stringify({eventId:randomUUID(),fields:{name:'Invalid data',email:'not-an-email'}}));
+  assert.equal(invalid.statusCode,202,invalid.body);
+  assert.equal(await processOneSourceEvaluation(db),true);
+  assert.equal(await processOneSourceIntake(db),false);
+  const review=await request('GET','/api/sources/submissions?campaignId='+campaign!.id+'&state=NEEDS_ATTENTION');
+  assert.deepEqual(review.json().items.map((item:{error_code:string;external_event_id:string})=>item.error_code),['SOURCE_MAPPING_VALUE_INVALID']);
+  const next=await postEvent(JSON.stringify({eventId:randomUUID(),fields:{name:'Synthetic delayed lead',email:'delayed@webhook.test'}}));
+  assert.equal(next.statusCode,202,next.body);
+  const delayed=next.json().id as string;
   assert.equal((await request('PUT',schemaPath,{...input,version:1,reason:'Reauthorize the current schema'})).statusCode,200);
   assert.equal((await request('GET',mapping)).json().configured,false);
   assert.equal((await request('PUT',mapping,{...versions,entries,version:1,status:'PUBLISHED',reason:'Stale schema'})).json().error,
     'SOURCE_MAPPING_CONFIGURATION_CHANGED');
   assert.equal((await request('GET',mapping+'/history')).json().items[0].reason,'Approve source mapping');
-  assert.equal((await db`SELECT count(*)::int AS n FROM lead`)[0]!.n,0);
+  assert.equal(await processOneSourceEvaluation(db),true);
+  const [stale]=await db`SELECT version,state FROM source_processing WHERE submission_id=${delayed}`;
+  assert.equal(stale!.state,'NEEDS_ATTENTION');
+  const republish=await request('PUT',mapping,{...versions,resourceVersion:2,entries,version:1,status:'PUBLISHED',reason:'Approve refreshed schema'});
+  assert.equal(republish.statusCode,200,republish.body);
+  await assert.rejects(db`UPDATE source_processing SET version=version+1,state='PENDING',actor_user_id=${manager!.id} WHERE submission_id=${delayed}`,
+    /SOURCE_REPROCESS_SESSION_REQUIRED/);
+  const retry=await request('POST','/api/sources/submissions/'+delayed+'/reprocess',{version:stale!.version,reason:'Use the approved schema revision'});
+  assert.equal(retry.statusCode,200,retry.body);
+  assert.equal(await processOneSourceEvaluation(db),true);
+  assert.equal(await processOneSourceIntake(db),true);
+  assert.equal((await db`SELECT count(*)::int AS n FROM lead`)[0]!.n,2);
 });

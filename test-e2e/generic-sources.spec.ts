@@ -1,10 +1,10 @@
-import { expect,test } from '@playwright/test';
-import { randomUUID } from 'node:crypto';
+import { expect,request as requestContext,test } from '@playwright/test';
+import { createHmac, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { campaignRow } from './campaign-table.js';
 
-test('A manager verifies a Webhook, publishes scoped field mapping, rotates its secret and retains test history',async({page})=>{
-  const {password}=JSON.parse(await readFile('.local/e2e/fixture.json','utf8')) as {password:string};
+test('A manager verifies a Webhook, publishes mapping, receives a lead once and rotates its secret',async({page})=>{
+  const {password,testToken}=JSON.parse(await readFile('.local/e2e/fixture.json','utf8')) as {password:string;testToken:string};
   await page.setExtraHTTPHeaders({'x-e2e-rate-scope':randomUUID()});
   await page.goto('/');
   await page.getByRole('combobox',{name:'Language',exact:true}).selectOption('en');
@@ -22,7 +22,10 @@ test('A manager verifies a Webhook, publishes scoped field mapping, rotates its 
   const secret=detail.getByRole('textbox',{name:'Signing secret',exact:true});
   await expect(secret).toHaveValue(/^[0-9a-f]{64}$/);
   const firstSecret=await secret.inputValue();
-  await expect(detail.getByRole('textbox',{name:'Signature test URL',exact:true})).toHaveValue(/\/api\/webhooks\/sources\/generic\/[0-9a-f-]+\/test$/);
+  const testUrl=detail.getByRole('textbox',{name:'Signature test URL',exact:true});
+  await expect(testUrl).toHaveValue(/\/api\/webhooks\/sources\/generic\/[0-9a-f-]+\/test$/);
+  const path=new URL(await testUrl.inputValue()).pathname;
+  const connectionId=path.split('/').at(-2)!;
   await expect(detail).toContainText('Waiting for a signed test');
   await detail.getByRole('button',{name:'Send signed test',exact:true}).click();
   const receipts=detail.locator('[data-generic-source-test]');
@@ -61,7 +64,46 @@ test('A manager verifies a Webhook, publishes scoped field mapping, rotates its 
   await mapping.getByRole('textbox',{name:'Mapping change reason',exact:true}).fill('Approve synthetic field mapping');
   await mapping.getByRole('button',{name:'Publish mapping',exact:true}).click();
   await expect(mapping).toContainText('Published v1');
-  await expect(page.getByRole('button',{name:'Activate',exact:true})).toBeDisabled();
+  await page.getByRole('button',{name:'Activate',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Deactivate',exact:true})).toBeVisible();
+  const eventId=randomUUID(),name='<img src=x onerror=alert(1)> Synthetic webhook prospect';
+  const event=JSON.stringify({eventId,fields:{name,email:eventId+'@browser.test'}});
+  const signedAt=String(Math.floor(Date.now()/1000));
+  const signature=createHmac('sha256',Buffer.from(firstSecret,'hex'))
+    .update(`lead-operations.generic-source:intake:v1\n${connectionId}\n${signedAt}\n`).update(event).digest('hex');
+  const request={ data:event,headers:{'content-type':'application/json','x-source-timestamp':signedAt,'x-source-signature':'v1='+signature} };
+  const endpoint=path.replace(/\/test$/,'/leads');
+  const sender=await requestContext.newContext({baseURL:'http://127.0.0.1:4100'});
+  let submissionId:string;
+  try {
+    const intake=await sender.post(endpoint,request);
+    expect(intake.status(),await intake.text()).toBe(202);
+    submissionId=(await intake.json()).id;
+    expect(await (await sender.post(endpoint,request)).json()).toEqual({id:submissionId,duplicate:true});
+  } finally { await sender.dispose(); }
+  const review=sources.locator('.source-submissions');
+  const submission=review.locator(`[data-submission-id="${submissionId}"]`);
+  await review.getByRole('button',{name:'Refresh source submissions',exact:true}).click();
+  await expect(submission).toContainText('PENDING');
+  for (const step of ['evaluateSource','intakeSource']) {
+    const ran=await page.request.post('/__test__/control',{data:{[step]:true},
+      headers:{origin:'http://127.0.0.1:4100',authorization:'Bearer '+testToken}});
+    expect(ran.ok(),await ran.text()).toBeTruthy();
+  }
+  await review.getByRole('button',{name:'Refresh source submissions',exact:true}).click();
+  await expect(submission).toContainText('PROCESSED');
+  await expect(submission).not.toContainText(name);
+  const campaignId=(await campaign.json()).id as string;
+  const result=await page.request.get('/api/sources/submissions?campaignId='+campaignId);
+  const leadId=(await result.json()).items.find((item:{submission_id:string})=>item.submission_id===submissionId).lead_id;
+  await page.getByRole('button',{name:'Leads',exact:true}).click();
+  const search=page.locator('.lead-search-form');
+  await search.getByRole('textbox',{name:'Name, phone, email or lead ID',exact:true}).fill(leadId);
+  await search.getByRole('button',{name:'Apply filters',exact:true}).click();
+  const lead=page.locator(`[data-lead-row="${leadId}"]`);
+  await expect(lead).toContainText(name);
+  await expect(lead).toContainText(campaignName);
+  await expect(lead.locator('img')).toHaveCount(0);
 
   await page.getByRole('button',{name:'Webhook sources',exact:true}).click();
   await workspace.getByRole('listitem').filter({hasText:'Synthetic signed webhook'}).getByRole('button',{name:'Open connection',exact:true}).click();

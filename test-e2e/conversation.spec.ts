@@ -34,6 +34,28 @@ async function openFixtureLead(page: Page, id: string, ...expectedText: string[]
   for (const value of expectedText) await expect(row).toContainText(value);
   await row.getByRole('button', { name: 'Details', exact: true }).click();
 }
+async function selectPaymentCampaign(page:Page,id:string) {
+  const methods=page.locator('.payment-methods');
+  const list=methods.getByLabel('Allowed payment Campaigns',{exact:true});
+  const option=list.locator(`option[value="${id}"]`);
+  const more=methods.getByRole('button',{name:'More payment Campaigns',exact:true});
+  await expect.poll(()=>list.locator('option').count()).toBeGreaterThan(0);
+  while (!(await option.count()) && await more.isVisible()) {
+    const [response]=await Promise.all([
+      page.waitForResponse(result=>{
+        const url=new URL(result.url());
+        return result.request().method()==='GET' && url.pathname==='/api/payments/method-options'
+          && url.searchParams.get('kind')==='CAMPAIGN' && url.searchParams.has('cursor');
+      }),
+      more.click(),
+    ]);
+    expect(response.ok()).toBeTruthy();
+    const result=await response.json();
+    if (!result.nextCursor) break;
+    await expect(list.locator(`option[value="${result.items.at(-1).id}"]`)).toHaveCount(1);
+  }
+  await list.selectOption([id]);
+}
 async function openLead(page:Page) {
   await openFixtureLead(page,fixture.leadId,'Browser Customer');
   const panel=page.getByRole('heading',{ name:'Customer conversations',exact:true }).locator('..');
@@ -907,7 +929,7 @@ test('Branch Payment Methods support explicit shared accounts, scoped Agent/Camp
     await methods.getByLabel('Method provider connection',{ exact:true }).selectOption(connection.id);await methods.getByLabel('Method currencies',{ exact:true }).fill('USD, EUR');
     await methods.getByLabel('Method enabled',{ exact:true }).check();await methods.getByLabel('Agent availability',{ exact:true }).selectOption('SELECTED');
     await methods.getByLabel('Allowed payment Agents',{ exact:true }).selectOption([lead.assigned_agent_id]);
-    await methods.getByLabel('Campaign availability',{ exact:true }).selectOption('SELECTED');await methods.getByLabel('Allowed payment Campaigns',{ exact:true }).selectOption([lead.campaign_id]);
+    await methods.getByLabel('Campaign availability',{ exact:true }).selectOption('SELECTED');await selectPaymentCampaign(page,lead.campaign_id);
     await methods.getByLabel('Payment method change reason',{ exact:true }).fill('Explicit shared account assigned to branch method');
     await methods.getByRole('button',{ name:'Save payment method',exact:true }).click();const row=methods.getByRole('row').filter({ hasText:name });
     await expect(row).toContainText('PAYMENT_WEBHOOK_VERIFICATION_REQUIRED');await expect(row.locator('img')).toHaveCount(0);await expect(methods).toContainText('Version: 1');

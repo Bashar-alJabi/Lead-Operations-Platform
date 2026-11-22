@@ -16,11 +16,13 @@ const labels={
   en:{ title:'Campaign source bindings',intro:'Every specified external criterion must match the event; an empty criterion accepts any value. Bindings that could match the same event cannot both be active, including across branches. Activating a binding alone does not configure lead intake.',connection:'Campaign source connection',page:'Campaign source Page',form:'Campaign source Form',campaign:'External Campaign ID (optional)',adset:'External Ad Set ID (optional)',ad:'External Ad ID (optional)',active:'Enable source selection',reason:'Binding change reason',add:'Bind another Form',save:'Save source binding',cancel:'Cancel binding edit',edit:'Edit binding',disable:'Disable binding',history:'Binding history',more:'More',refresh:'Refresh bindings',empty:'No campaign source binding.',shared:'Shared source authorized for this branch',questions:'Source questions',note:'A valid published mapping is required. Webhook intake remains unconfigured; the campaign cannot receive leads.' },
 } as const;
 const webhookLabels={
-  ar:{ form:'مخطط Webhook',add:'ربط مخطط Webhook',note:'اربط مخططًا من اتصال الفرع وانشر تعيين الحقول. استقبال أحداث Lead التشغيلية قيد التجهيز.' },
-  fr:{ form:'Schéma du webhook',add:'Relier un schéma webhook',note:'Reliez le schéma d’une connexion de cette agence et publiez le mapping. La réception des prospects est en préparation.' },
-  en:{ form:'Webhook schema',add:'Bind Webhook schema',note:'Bind a schema from this branch and publish field mapping. Lead event intake is being prepared.' },
+  ar:{ form:'مخطط Webhook',add:'ربط مخطط Webhook',note:'اربط مخططًا من اتصال الفرع، وانشر تعيين الحقول ثم فعّل الحملة لاستقبال أحداث Lead الموقّعة.' },
+  fr:{ form:'Schéma du webhook',add:'Relier un schéma webhook',note:'Reliez le schéma, publiez le mapping et activez la campagne pour recevoir les prospects signés.' },
+  en:{ form:'Webhook schema',add:'Bind Webhook schema',note:'Bind a schema, publish field mapping and activate the campaign to receive signed lead events.' },
 };
-export function CampaignSources({ campaignId,locale,api,webhook=false }: { campaignId:string;locale:Locale;api:Api;webhook?:boolean }) {
+export function CampaignSources({ campaignId,locale,api,webhook=false,onReadinessChanged }: {
+  campaignId:string;locale:Locale;api:Api;webhook?:boolean;onReadinessChanged:()=>Promise<void>;
+}) {
   const t=labels[locale];const root='/api/sources/campaigns/'+campaignId;
   const schemaText=webhookLabels[locale];
   const [bindings,setBindings]=useState<Binding[]>([]);const [after,setAfter]=useState<string|null>(null);
@@ -43,6 +45,9 @@ export function CampaignSources({ campaignId,locale,api,webhook=false }: { campa
   async function loadConnections(next?:string) {
     const result=await api<{ items:Connection[];nextAfter:string|null }>(root+'/connections'+(next ? '?after='+next : ''));
     setConnections((old)=>next ? [...old,...result.items] : result.items);setConnectionAfter(result.nextAfter);
+  }
+  async function refreshConfiguration() {
+    await Promise.all([load(),onReadinessChanged()]);
   }
   async function resources(id:string,kind:'PAGE'|'FORM'|'WEBHOOK_SCHEMA',parent?:string,next?:string) {
     const query=new URLSearchParams({ kind,...(parent ? { pageId:parent } : {}),...(next ? { after:next } : {}) });
@@ -70,13 +75,13 @@ export function CampaignSources({ campaignId,locale,api,webhook=false }: { campa
     const body={ externalCampaignId:fields.campaign || null,externalAdSetId:fields.adset || null,externalAdId:fields.ad || null,active:fields.active,reason:fields.reason,
       connectionVersion:editing?.current_connection_version ?? conn!.version,...(editing ? { version:editing.version } : { connectionId,formId,requestId }) };
     await api(root+'/bindings'+(editing ? '/'+editing.id : ''),{ method:editing ? 'PUT' : 'POST',body:JSON.stringify(body) });
-    setShowEditor(false);setEditing(null);await load();if (historyId) await loadHistory(historyId);
+    setShowEditor(false);setEditing(null);await refreshConfiguration();if (historyId) await loadHistory(historyId);
   }
   async function disable(binding:Binding) {
     await api(root+'/bindings/'+binding.id,{ method:'PUT',body:JSON.stringify({ externalCampaignId:binding.external_campaign_id,
       externalAdSetId:binding.external_adset_id,externalAdId:binding.external_ad_id,active:false,reason:fields.reason,
       connectionVersion:binding.current_connection_version,version:binding.version }) });
-    await load();if (historyId===binding.id) await loadHistory(binding.id);
+    await refreshConfiguration();if (historyId===binding.id) await loadHistory(binding.id);
   }
   const input=(key:'campaign'|'adset'|'ad',label:string)=><label>{label}<input aria-label={label} maxLength={30} pattern="[0-9]{1,30}"
     value={fields[key]} onChange={(event)=>setFields({ ...fields,[key]:event.target.value })}/></label>;
@@ -116,7 +121,7 @@ export function CampaignSources({ campaignId,locale,api,webhook=false }: { campa
     {historyId && <section className="panel"><h4>{t.history}</h4><ul>{history.map((h)=><li key={h.version}>v{h.version} · {h.snapshot.active ? 'ACTIVE' : 'INACTIVE'} · {h.created_at} · {h.reason}
       {!webhook&&<p>Campaign: {h.snapshot.externalCampaignId ?? '—'} · Ad Set: {h.snapshot.externalAdSetId ?? '—'} · Ad: {h.snapshot.externalAdId ?? '—'}</p>}</li>)}</ul>
       {before && <button disabled={busy} onClick={()=>void run(()=>loadHistory(historyId,before))}>{t.more}</button>}</section>}
-    {mappingId && <SourceFieldMapping key={mappingId} campaignId={campaignId} bindingId={mappingId} locale={locale} api={api} onChanged={load}/>}
-    {!webhook&&<SourceSubmissions key={campaignId} campaignId={campaignId} locale={locale} api={api}/>}
+    {mappingId && <SourceFieldMapping key={mappingId} campaignId={campaignId} bindingId={mappingId} locale={locale} api={api} onChanged={refreshConfiguration}/>}
+    <SourceSubmissions key={campaignId} campaignId={campaignId} locale={locale} api={api}/>
   </section>;
 }

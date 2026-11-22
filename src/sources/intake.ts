@@ -62,7 +62,7 @@ export async function intakeSource(tx:postgres.TransactionSql,connection:Record<
   let leadId:string|null=null;
   if (!failure) {
     const [lead]=await tx`INSERT INTO lead (organization_id,branch_id,campaign_id,contact_id,source_kind)
-      VALUES (${submission.organization_id},${outcome.branchId},${outcome.campaignId},${contactId},'META') RETURNING id`;
+      VALUES (${submission.organization_id},${outcome.branchId},${outcome.campaignId},${contactId},${submission.source_kind}) RETURNING id`;
     leadId=lead!.id;
     for (const field of prepared!.fields) {
       const value=field.value as postgres.JSONValue;
@@ -94,7 +94,8 @@ async function saveIntakeResult(tx:postgres.TransactionSql,id:string,outcome:Eva
 }
 export async function processOneSourceIntake(db:Database):Promise<boolean> {
   return db.begin(async(tx)=> {
-    const [connection]=await tx`SELECT c.* FROM integration_connection c WHERE c.kind='META' AND c.provider='META_LEAD_ADS'
+    const [connection]=await tx`SELECT c.* FROM integration_connection c WHERE
+      ((c.kind,c.provider) IN (('META','META_LEAD_ADS'),('GENERIC_SOURCE','SIGNED_WEBHOOK')))
       AND EXISTS (SELECT 1 FROM source_processing p WHERE p.connection_id=c.id AND p.state='VALIDATED')
       ORDER BY (SELECT min(p.updated_at) FROM source_processing p WHERE p.connection_id=c.id AND p.state='VALIDATED'),c.id FOR UPDATE OF c SKIP LOCKED LIMIT 1`;
     if (!connection) return false;

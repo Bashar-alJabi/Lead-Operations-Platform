@@ -5,7 +5,8 @@ import type { Database } from '../db.js';
 import { openSecret, sealSecret } from '../credentials.js';
 import { decodeCursor, encodeCursor } from '../pagination.js';
 import { HttpError, lockCurrentSession, principalFromRequest, requireRole, type Principal } from '../security.js';
-import { verifyGenericSourceTestSignature } from '../sources/generic-signing.js';
+import { verifyGenericSourceSignature } from '../sources/generic-signing.js';
+import { acceptGenericSourceEvent } from '../sources/generic-intake.js';
 
 const root = '/api/sources/generic/connections';
 const uuid = { type: 'string', format: 'uuid' } as const;
@@ -55,6 +56,24 @@ function paged(rows: postgres.Row[], limit: number, idColumn: string) {
   const items = rows.slice(0,limit);
   const last = items.at(-1);
   return { items, nextCursor: last && rows.length>limit ? encodeCursor({ timestamp:last.cursor_at,id:last[idColumn] }) : null };
+}
+
+async function signedGenericConnection(tx:postgres.TransactionSql,request:FastifyRequest<{Params:{id:string};Body:Buffer}>,purpose:'test'|'intake') {
+  if (!Buffer.isBuffer(request.body)) throw new HttpError(400,'GENERIC_SOURCE_EVENT_INVALID');
+  const [c]=await tx`SELECT c.id,c.version,s.ciphertext,s.nonce,s.auth_tag,s.key_version,
+    extract(epoch FROM clock_timestamp())::text AS now_seconds
+    FROM integration_connection c JOIN branch b ON (b.id,b.organization_id)=(c.branch_id,c.organization_id)
+    JOIN connection_secret s ON s.connection_id=c.id WHERE c.id=${request.params.id}
+    AND c.kind='GENERIC_SOURCE' AND c.provider='SIGNED_WEBHOOK' AND c.status IN ('NOT_CONFIGURED','CONNECTED')
+    AND b.active FOR UPDATE OF c FOR SHARE OF b,s`;
+  if (!c) throw new HttpError(401,'GENERIC_SOURCE_SIGNATURE_INVALID');
+  let secret: string;
+  try { secret=openSecret(c.id,{ciphertext:c.ciphertext,nonce:c.nonce,authTag:c.auth_tag,keyVersion:c.key_version}); }
+  catch { throw new HttpError(401,'GENERIC_SOURCE_SIGNATURE_INVALID'); }
+  const signedAt=verifyGenericSourceSignature(request.body,c.id,secret,request.headers['x-source-timestamp'],
+    request.headers['x-source-signature'],Number(c.now_seconds),purpose);
+  if (signedAt===null) throw new HttpError(401,'GENERIC_SOURCE_SIGNATURE_INVALID');
+  return { c:{id:c.id as string,version:c.version as number},signedAt };
 }
 
 export function registerGenericSourceRoutes(app: FastifyInstance, db: Database) {
@@ -201,21 +220,8 @@ export function registerGenericSourceRoutes(app: FastifyInstance, db: Database) 
     webhook.post<{Params:{id:string};Body:Buffer}>('/api/webhooks/sources/generic/:id/test',{
       schema:{params},bodyLimit:1024,config:{rateLimit:{max:30,timeWindow:'1 minute'}},
     },async(request,reply)=>{
-      if (!Buffer.isBuffer(request.body)) throw new HttpError(400,'GENERIC_SOURCE_TEST_PAYLOAD_INVALID');
       const result=await db.begin(async tx=>{
-        const [c]=await tx`SELECT c.id,c.version,s.ciphertext,s.nonce,s.auth_tag,s.key_version,
-          extract(epoch FROM clock_timestamp())::text AS now_seconds
-          FROM integration_connection c JOIN branch b ON (b.id,b.organization_id)=(c.branch_id,c.organization_id)
-          JOIN connection_secret s ON s.connection_id=c.id WHERE c.id=${request.params.id}
-          AND c.kind='GENERIC_SOURCE' AND c.provider='SIGNED_WEBHOOK' AND c.status IN ('NOT_CONFIGURED','CONNECTED')
-          AND b.active FOR UPDATE OF c FOR SHARE OF b,s`;
-        if (!c) throw new HttpError(401,'GENERIC_SOURCE_SIGNATURE_INVALID');
-        let secret: string;
-        try { secret=openSecret(c.id,{ciphertext:c.ciphertext,nonce:c.nonce,authTag:c.auth_tag,keyVersion:c.key_version}); }
-        catch { throw new HttpError(401,'GENERIC_SOURCE_SIGNATURE_INVALID'); }
-        const signedAt=verifyGenericSourceTestSignature(request.body,c.id,secret,request.headers['x-source-timestamp'],
-          request.headers['x-source-signature'],Number(c.now_seconds));
-        if (signedAt===null) throw new HttpError(401,'GENERIC_SOURCE_SIGNATURE_INVALID');
+        const {c,signedAt}=await signedGenericConnection(tx,request,'test');
         let raw:unknown;
         try { raw=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(request.body)); }
         catch { throw new HttpError(400,'GENERIC_SOURCE_TEST_PAYLOAD_INVALID'); }
@@ -232,6 +238,16 @@ export function registerGenericSourceRoutes(app: FastifyInstance, db: Database) 
         await tx`INSERT INTO generic_source_test_receipt(connection_id,test_id,connection_version,signed_at,body_hash)
           VALUES(${c.id},${testId},${c.version},to_timestamp(${signedAt}),${digest})`;
         return {testId,duplicate:false};
+      });
+      reply.header('Cache-Control','no-store').code(result.duplicate?200:202);
+      return result;
+    });
+    webhook.post<{Params:{id:string};Body:Buffer}>('/api/webhooks/sources/generic/:id/leads',{
+      schema:{params},bodyLimit:65536,config:{rateLimit:{max:120,timeWindow:'1 minute'}},
+    },async(request,reply)=>{
+      const result=await db.begin(async tx=>{
+        const {c,signedAt}=await signedGenericConnection(tx,request,'intake');
+        return acceptGenericSourceEvent(tx,c,request.body,signedAt);
       });
       reply.header('Cache-Control','no-store').code(result.duplicate?200:202);
       return result;
