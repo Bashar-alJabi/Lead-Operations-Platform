@@ -9,6 +9,7 @@ import {sha256} from '../src/security.js';
 import {processOneAutomationMatch,processOneAutomationExecution} from '../src/automation.js';
 import {processOneFollowUpNotification} from '../src/follow-up-notifications.js';
 import {processOneLeadAttentionNotification} from '../src/lead-attention-notifications.js';
+import {processOneConversationAttentionNotification} from '../src/conversation-attention-notifications.js';
 import {processOneInboundEvent} from '../src/messaging/inbound-events.js';
 import {sealSecret} from '../src/credentials.js';
 const url=process.env.TEST_DATABASE_URL;
@@ -37,6 +38,76 @@ async function fixture(t:TestContext){
  async function execute(){for(let i=0;i<200&&await processOneAutomationExecution(db);i++);}
  return {db,app,org,branch,other,campaign,users,api,def,rule,create,matches,execute};
 }
+
+test('Automation requests one authorized AI handoff, retains ownership, and links its downstream event to the rule',async t=>{
+ const {db,org,branch,campaign,users,api,def,rule,create,matches,execute}=await fixture(t);
+ const request={triggerType:'CONVERSATION_STATE_CHANGED',actionType:'REQUEST_CONVERSATION_HANDOFF',delayMinutes:0,priority:'NORMAL',note:''};
+ assert.equal((await api('POST','/api/automations',{...def,...request,branchId:branch,campaignId:campaign},'agent')).statusCode,403);
+ const id=await rule(request);
+ const policy=`/api/ai/campaigns/${campaign}/tool-policy`;
+ const tools=async(version:number,allowedTools:string[])=>{
+  const r=await api('PUT',policy,{version,definition:{allowedTools},reason:'Synthetic current campaign handoff approval'});
+  assert.equal(r.statusCode,200,r.body);
+ };
+ await tools(0,['requestHumanHandoff']);
+ await db`UPDATE campaign SET ai_config='{"enabled":true}' WHERE id=${campaign}`;
+ const connection=(await db`INSERT INTO integration_connection(organization_id,branch_id,kind,provider,name)
+  VALUES(${org},${branch},'MESSAGING','META_WHATSAPP_CLOUD','Synthetic automation handoff') RETURNING id`)[0]!.id;
+ const sender=(await db`INSERT INTO messaging_sender(organization_id,connection_id,external_sender_id,display_name,capabilities)
+  VALUES(${org},${connection},'15550001235','Synthetic handoff sender','{"text":true}') RETURNING id`)[0]!.id;
+ async function fixtureConversation(){
+  const lead=await create();
+  const [cv]=await db`INSERT INTO conversation(lead_id,connection_id,sender_id,channel,participant_ref,controller_type,state)
+   VALUES(${lead},${connection},${sender},'WHATSAPP','+15554000001','AI','AI_ACTIVE') RETURNING id`;
+  await db`UPDATE conversation SET state='AI_WAITING_FOR_LEAD',version=version+1 WHERE id=${cv!.id}`;
+  return {lead,cv:cv!.id};
+ }
+ const first=await fixtureConversation();
+ await db`INSERT INTO conversation(lead_id,connection_id,sender_id,channel,participant_ref,controller_type,state)
+  VALUES(${first.lead},${connection},${sender},'SYNTHETIC_SECOND_CHANNEL','+15554000001','AI','AI_ACTIVE')`;
+ await matches();
+ await Promise.all(Array.from({length:4},()=>processOneAutomationExecution(db)));
+ await execute();
+ const [handoff]=await db`SELECT h.execution_id,h.resulting_version,h.previous_state,cv.state,cv.controller_type,l.assigned_agent_id
+  FROM automation_conversation_handoff h JOIN conversation cv ON cv.id=h.conversation_id JOIN lead l ON l.id=cv.lead_id
+  WHERE h.conversation_id=${first.cv}`;
+ assert.ok(handoff);
+ assert.equal(handoff.state,'WAITING_FOR_HUMAN');assert.equal(handoff.controller_type,'NONE');
+ assert.equal(handoff.previous_state,'AI_WAITING_FOR_LEAD');assert.equal(handoff.resulting_version,3);
+ assert.equal(handoff.assigned_agent_id,users.agent!.id);
+ assert.equal((await db`SELECT state FROM conversation WHERE lead_id=${first.lead} AND channel='SYNTHETIC_SECOND_CHANNEL'`)[0]!.state,'AI_ACTIVE');
+ const [child]=await db`SELECT s.parent_execution_id,s.causal_rule_ids FROM automation_source s JOIN automation_conversation_change c
+  ON c.id=s.conversation_change_id WHERE c.conversation_id=${first.cv} AND c.to_state='WAITING_FOR_HUMAN'`;
+ assert.equal(child!.parent_execution_id,handoff.execution_id);assert.deepEqual(child!.causal_rule_ids,[id]);
+ await matches();await execute();
+ assert.equal((await db`SELECT id FROM conversation_handoff WHERE conversation_id=${first.cv}`).length,1);
+ assert.equal((await db`SELECT id FROM audit_log WHERE action='AUTOMATION_HANDOFF_REQUESTED' AND target_id=${first.cv}`).length,1);
+ assert.equal(await processOneConversationAttentionNotification(db),true);
+ assert.equal((await db`SELECT id FROM notification_event WHERE event_type='CONVERSATION_NEEDS_ATTENTION'
+  AND conversation_id=${first.cv} AND organization_id=${org} AND branch_id=${branch}`).length,1);
+ await assert.rejects(db`INSERT INTO automation_conversation_handoff(execution_id) VALUES(${handoff.execution_id})`,/AUTOMATION_HANDOFF_PROOF_REQUIRED/);
+ await assert.rejects(db`UPDATE automation_conversation_handoff SET resulting_version=4 WHERE execution_id=${handoff.execution_id}`,/AUTOMATION_HANDOFF_IMMUTABLE/);
+
+ const taken=await fixtureConversation();
+ await matches();
+ assert.equal((await api('POST',`/api/conversations/${taken.cv}/takeover`,{version:2,reason:'Staff took current control before Automation'})).statusCode,200);
+ await execute();
+ const blocked=await fixtureConversation();
+ await matches();await tools(1,[]);await execute();
+ const states=await db`SELECT s.lead_id,e.result_code FROM automation_execution e JOIN automation_source s ON s.id=e.source_id
+  WHERE e.rule_id=${id} AND s.lead_id IN (${taken.lead},${blocked.lead}) ORDER BY e.created_at`;
+ assert.ok(states.some(row=>row.lead_id===taken.lead&&row.result_code==='AUTOMATION_HANDOFF_CONTROLLER_CHANGED'));
+ assert.ok(states.some(row=>row.lead_id===blocked.lead&&row.result_code==='AUTOMATION_HANDOFF_TOOL_NOT_APPROVED'));
+ const fallbackRule=await rule({...request,name:'Resolve unique conversation',triggerType:'LEAD_CREATED'});
+ const ambiguous=await create();
+ for(const channel of ['WHATSAPP','SYNTHETIC_SECOND_CHANNEL']) await db`INSERT INTO conversation(lead_id,connection_id,sender_id,channel,participant_ref,controller_type,state)
+  VALUES(${ambiguous},${connection},${sender},${channel},'+15554000001','AI','AI_ACTIVE')`;
+ await matches();await execute();
+ assert.equal((await db`SELECT e.result_code FROM automation_execution e JOIN automation_source s ON s.id=e.source_id
+  WHERE e.rule_id=${fallbackRule} AND s.lead_id=${ambiguous}`)[0]!.result_code,'AUTOMATION_HANDOFF_CONVERSATION_UNAVAILABLE');
+ assert.equal((await db`SELECT count(*)::int AS n FROM automation_conversation_handoff`)[0]!.n,1);
+ assert.equal((await db`SELECT count(*)::int AS n FROM conversation_message`)[0]!.n,0);
+});
 
 test('Campaign Status stays independent and approved closure shares the current required-field and Audit guards',async t=>{
  const {db,branch,campaign,users,api,def,rule,create,matches,execute}=await fixture(t);

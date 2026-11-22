@@ -11,7 +11,8 @@ const financialConditions=['ANY','TEST_CONFIRMED','TEST_UNCONFIRMED','LIVE_CONFI
 const conversationStates=['AI_ACTIVE','AI_WAITING_FOR_LEAD','AI_HANDOFF_REQUIRED','WAITING_FOR_HUMAN','HUMAN_ACTIVE','CLOSED'] as const;
 const conversationControllers=['AI','HUMAN','NONE'] as const;
 const dateBases=['LEAD_CREATED','EVENT_CAPTURED'] as const;
-const actions=['CREATE_FOLLOW_UP','SEND_IN_APP_NOTIFICATION','SET_FIELD_VALUE','ASSIGN_LEAD','REQUEST_HUMAN_ATTENTION','CLOSE_LEAD'] as const;
+const actions=['CREATE_FOLLOW_UP','SEND_IN_APP_NOTIFICATION','SET_FIELD_VALUE','ASSIGN_LEAD','REQUEST_HUMAN_ATTENTION','CLOSE_LEAD',
+ 'REQUEST_CONVERSATION_HANDOFF'] as const;
 type FieldCondition={fieldId:string;value:unknown};
 type FieldOperation='SET'|'ADD_TAGS';
 type DateCondition={basis:typeof dateBases[number];from?:string;through?:string};

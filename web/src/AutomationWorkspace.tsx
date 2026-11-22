@@ -247,10 +247,18 @@ export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{local
   ar:{action:'إسناد الفرصة',recipient:'الموظف الذي ستُسند إليه الفرصة',choose:'اختر موظفًا',unavailable:'الموظف غير متاح أو غير مؤهل للإسناد',already:'الفرصة مسندة إلى الموظف نفسه'},
   fr:{action:'Attribuer le prospect',recipient:'Agent destinataire',choose:'Choisir un agent',unavailable:'Agent indisponible ou non admissible',already:'Le prospect est déjà attribué à cet agent'},
  }[locale];
+ const handoff={
+  ar:{action:'تحويل المحادثة إلى موظف',help:'تُنقل المحادثة التي يتحكم بها AI إلى انتظار موظف إذا كانت أداة التحويل معتمدة للحملة. يبقى مالك الفرصة كما هو.',
+   unavailable:'تعذّر تحديد محادثة واحدة للتحويل',changed:'لم تعد المحادثة تحت تحكم AI',denied:'أداة تحويل المحادثة غير معتمدة للحملة'},
+  en:{action:'Hand conversation to staff',help:'An AI-controlled conversation moves to waiting for staff when the campaign has approved handoff. The lead keeps its current owner.',
+   unavailable:'No single conversation is available for handoff',changed:'The conversation is no longer controlled by AI',denied:'The campaign has not approved the handoff tool'},
+  fr:{action:'Transférer la conversation à un agent',help:'Une conversation contrôlée par l’IA passe en attente d’un agent si la campagne a approuvé le transfert. Le responsable du prospect reste le même.',
+   unavailable:'Aucune conversation unique n’est disponible pour le transfert',changed:'La conversation n’est plus contrôlée par l’IA',denied:'La campagne n’a pas approuvé l’outil de transfert'},
+ }[locale];
  const actionLabels={CREATE_FOLLOW_UP:t.follow,SEND_IN_APP_NOTIFICATION:t.notify,SET_FIELD_VALUE:fieldAction.action,ADD_TAGS:fieldAction.addTags,
   ASSIGN_LEAD:assignment.action,REQUEST_HUMAN_ATTENTION:{
    ar:'طلب مراجعة بشرية',en:'Request human review',fr:'Demander une vérification humaine',
-  }[locale],CLOSE_LEAD:{ar:'إغلاق الفرصة',en:'Close lead',fr:'Clôturer le prospect'}[locale]};
+  }[locale],CLOSE_LEAD:{ar:'إغلاق الفرصة',en:'Close lead',fr:'Clôturer le prospect'}[locale],REQUEST_CONVERSATION_HANDOFF:handoff.action};
  const causal={
   ar:{AUTOMATION_CAUSAL_REPEAT:'نُفذت القاعدة سابقًا في هذه السلسلة',AUTOMATION_CAUSAL_LIMIT:'بلغت السلسلة حد إجراءات الأتمتة'},
   en:{AUTOMATION_CAUSAL_REPEAT:'Rule already ran in this chain',AUTOMATION_CAUSAL_LIMIT:'Automation chain limit reached'},
@@ -261,6 +269,8 @@ export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{local
   ['CONVERSATION_STATE_CHANGED',conversationChanged],['FIELD_CHANGED',field.changed]];
  const status=(s:string)=>(t.states as Record<string,string>)[s]??s;
  const result=(s:string|null)=>s==='FIELD_ALREADY_MATCHES'?fieldAction.already:s==='AUTOMATION_TAG_LIMIT_REACHED'?fieldAction.limit:
+  s==='AUTOMATION_HANDOFF_CONVERSATION_UNAVAILABLE'?handoff.unavailable:s==='AUTOMATION_HANDOFF_CONTROLLER_CHANGED'?handoff.changed:
+  s==='AUTOMATION_HANDOFF_TOOL_NOT_APPROVED'?handoff.denied:
   s==='FIELD_REQUIRED'?{ar:'حقول مطلوبة للإغلاق لم تُستكمل',en:'Required closure fields are missing',fr:'Des champs requis pour la clôture sont manquants'}[locale]:
   s==='ASSIGNMENT_ALREADY_MATCHES'?assignment.already:s==='AUTOMATION_ASSIGNMENT_AGENT_UNAVAILABLE'?assignment.unavailable:
   s==='AUTOMATION_TRIGGER_FIELD_UNAVAILABLE'||s==='AUTOMATION_CONDITION_FIELD_UNAVAILABLE'||s==='AUTOMATION_ACTION_FIELD_UNAVAILABLE'
@@ -358,7 +368,8 @@ export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{local
    </>}
    {form.actionType==='CREATE_FOLLOW_UP'&&<><label>{t.delay}<input type="number" min={0} max={525600} required value={form.delayMinutes} onChange={e=>change('delayMinutes',Number(e.target.value))}/></label>
     <label>{t.priority}<select aria-label={t.priority} value={form.priority} onChange={e=>change('priority',e.target.value)}>{['LOW','NORMAL','HIGH'].map(s=><option key={s}>{s}</option>)}</select></label></>}
-   {!writesField&&!assignsLead&&form.actionType!=='CLOSE_LEAD'&&<><p>{t.timing}</p><label>{t.note}<textarea maxLength={4000} value={form.note} onChange={e=>change('note',e.target.value)}/></label></>}
+   {form.actionType==='REQUEST_CONVERSATION_HANDOFF'&&<p>{handoff.help}</p>}
+   {!writesField&&!assignsLead&&form.actionType!=='CLOSE_LEAD'&&form.actionType!=='REQUEST_CONVERSATION_HANDOFF'&&<><p>{t.timing}</p><label>{t.note}<textarea maxLength={4000} value={form.note} onChange={e=>change('note',e.target.value)}/></label></>}
    <label><input type="checkbox" checked={form.enabled} onChange={e=>change('enabled',e.target.checked)}/>{t.enabled}</label>
    <label>{t.reason}<input minLength={3} maxLength={500} required value={form.reason} onChange={e=>change('reason',e.target.value)}/></label>
    {selected&&<p>{t.version} {selected.version}</p>}<div className="actions"><button disabled={busy||missingConditionValue||invalidDate||missingTarget||missingAssignee}>{t.save}</button><button type="button" disabled={busy} onClick={()=>setEditing(false)}>{t.cancel}</button></div>
