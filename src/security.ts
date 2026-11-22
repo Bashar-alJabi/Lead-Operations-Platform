@@ -1,6 +1,7 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { Algorithm, hash, verify } from '@node-rs/argon2';
 import type { FastifyRequest } from 'fastify';
+import type postgres from 'postgres';
 import type { Database } from './db.js';
 import { sessionCookie } from './config.js';
 
@@ -38,6 +39,16 @@ export async function principalFromRequest(request: FastifyRequest, db: Database
   if (!user) throw new HttpError(401, 'AUTH_REQUIRED');
   return { id: user.id, organizationId: user.organization_id, branchId: user.branch_id,
     role: user.role, name: user.name, email: user.email };
+}
+
+export async function lockCurrentSession(tx: postgres.TransactionSql, actor: Principal, request: FastifyRequest): Promise<string | null> {
+  const token = request.cookies[sessionCookie];
+  if (!token) return null;
+  const [session] = await tx`SELECT ss.id FROM user_account u JOIN user_session ss ON ss.user_id=u.id
+    WHERE u.id=${actor.id} AND u.active AND u.organization_id=${actor.organizationId} AND u.role=${actor.role}
+      AND u.branch_id IS NOT DISTINCT FROM ${actor.branchId}::uuid AND ss.token_hash=${sha256(token)}
+      AND ss.revoked_at IS NULL AND ss.expires_at>clock_timestamp() FOR SHARE OF u,ss`;
+  return session?.id ?? null;
 }
 
 export function requireRole(principal: Principal, ...roles: Role[]): void {
