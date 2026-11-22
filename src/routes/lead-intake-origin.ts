@@ -14,12 +14,13 @@ export function registerLeadIntakeOriginRoutes(app: FastifyInstance, db: Databas
       if (!initial) throw new HttpError(404, 'LEAD_NOT_FOUND');
       await tx`SELECT id FROM branch WHERE id=${initial.branch_id} FOR SHARE`;
       if (!await currentPaymentSession(tx, actor, request)) throw new HttpError(403, 'LEAD_INTAKE_ACCESS_REVOKED');
-      const lead = (await tx`SELECT id,branch_id FROM lead WHERE id=${request.params.id} AND organization_id=${actor.organizationId}
+      const lead = (await tx`SELECT id,branch_id,campaign_id FROM lead WHERE id=${request.params.id} AND organization_id=${actor.organizationId}
         AND (${actor.role === 'SUPER_ADMIN'} OR branch_id=${actor.branchId}) AND (${actor.role !== 'AGENT'} OR assigned_agent_id=${actor.id}) FOR SHARE`)[0];
       if (!lead) throw new HttpError(404, 'LEAD_NOT_FOUND');
       if (lead.branch_id !== initial.branch_id) throw new HttpError(409, 'LEAD_INTAKE_CONTEXT_CHANGED');
       const receipt = (await tx`SELECT id,origin_kind,created_at,context->'source'->>'kind' AS source_kind,context->'routing' AS routing
-        FROM lead_intake_receipt WHERE lead_id=${lead.id}`)[0];
+        FROM lead_intake_receipt WHERE lead_id=${lead.id} AND (${actor.role==='SUPER_ADMIN'} OR
+          (context->'scope'->>'branchId'=${lead.branch_id}::text AND context->'scope'->>'campaignId'=${lead.campaign_id}::text))`)[0];
       const admission = receipt ? (await tx`SELECT id,state,blockers,created_at,context->'knowledge'->'version' AS knowledge_version,
         context->'availability'->'ownerAvailable' AS owner_available,context->'effective'->'handoff'->'initialContactWithoutAgent' AS without_agent,
         context->'sender'->>'reason' AS sender_reason FROM ai_initial_admission WHERE receipt_id=${receipt.id}`)[0] : null;

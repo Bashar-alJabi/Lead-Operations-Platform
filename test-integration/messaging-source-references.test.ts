@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { withSimulatedLeadScopeDrift } from './lead-scope-drift.js';
 import assert from 'node:assert/strict';
 import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -184,7 +185,7 @@ test('signed source references resolve proven campaign context without guessing,
   // A historical thread cannot bypass current Branch isolation after a Lead transfer.
   const transferredCampaign=(await db`INSERT INTO campaign(organization_id,branch_id,name,status)
     VALUES (${org},${otherBranch},'Transferred','ACTIVE') RETURNING id`)[0]!.id;
-  await db`UPDATE lead SET branch_id=${otherBranch},campaign_id=${transferredCampaign},assigned_agent_id=NULL WHERE id=${leads[0]!}`;
+  await withSimulatedLeadScopeDrift(db, () => db`UPDATE lead SET branch_id=${otherBranch},campaign_id=${transferredCampaign},assigned_agent_id=NULL WHERE id=${leads[0]!}`);
   const moved=await receive(referral(),first.message.id);await processOneInboundEvent(db);
   assert.equal((await eventRow(moved.id)).failure_code,'CONVERSATION_NOT_AVAILABLE');
   assert.equal((await api('GET',`/api/conversations/${a.conversation_id}/messages`)).statusCode,404);

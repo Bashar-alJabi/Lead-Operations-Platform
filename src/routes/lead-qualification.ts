@@ -55,6 +55,7 @@ export function registerLeadQualificationRoutes(app: FastifyInstance, db: Databa
         LEFT JOIN ai_qualification_config cfg ON cfg.campaign_id=${lead.campaign_id}
         WHERE h.lead_id=${lead.id} AND h.question_id=${request.params.questionId}
         AND (${request.query.before ?? null}::integer IS NULL OR h.version<${request.query.before ?? null})
+        AND (${actor.role === 'SUPER_ADMIN'} OR h.snapshot->>'campaign_id'=${lead.campaign_id}::text)
         AND (${actor.role === 'SUPER_ADMIN'} OR NOT EXISTS(SELECT 1 FROM (
           SELECT (h.snapshot->>'field_id')::uuid AS id UNION SELECT (item->>'fieldId')::uuid FROM jsonb_array_elements(cfg.definition->'questions') item WHERE item->>'id'=${request.params.questionId}
         ) mapping WHERE mapping.id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM campaign_field cf JOIN field_definition fd ON fd.id=cf.field_id

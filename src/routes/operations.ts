@@ -10,6 +10,7 @@ import { prepareManualFieldValues, storeManualFieldValues, type ManualFieldInput
 import { registerCampaignRoutes } from './campaigns.js';
 import { registerBranchTimezoneRoutes } from './branch-timezone.js';
 import {leadPredicate,prepareLeadFilter,operationalFilterProperties,type LeadFilter} from '../lead-query.js';
+import {leadActivityBoundary} from '../lead-activity.js';
 
 const idParam = { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } as const;
 const pageQuery={type:'object',additionalProperties:false,properties:{...operationalFilterProperties,
@@ -133,8 +134,14 @@ export function registerOperationsRoutes(app: FastifyInstance, db: Database): vo
 
   app.get<{ Params: { id: string } }>('/api/leads/:id', { schema: { params: idParam } }, async (request) => {
     const actor = await principalFromRequest(request, db);
-    const lead = await requireLead(db, actor, request.params.id);
-    const activities = await db`SELECT id, actor_user_id, event_type, detail, created_at FROM lead_activity WHERE lead_id = ${lead.id} ORDER BY id DESC LIMIT 100`;
-    return { lead, activities };
+    return db.begin(async tx => {
+      const lead = await requireLead(tx, actor, request.params.id, true);
+      if (!await currentPaymentSession(tx, actor, request)) throw new HttpError(403, 'LEAD_ACCESS_REVOKED');
+      const boundary = await leadActivityBoundary(tx, lead.id, actor.role==='SUPER_ADMIN');
+      const activities = await tx`SELECT id,CASE WHEN id>=COALESCE(${boundary}::bigint,0) THEN actor_user_id END AS actor_user_id,
+        event_type,CASE WHEN id>=COALESCE(${boundary}::bigint,0) OR event_type='NOTE_ADDED' THEN detail ELSE '{}'::jsonb END AS detail,
+        created_at FROM lead_activity WHERE lead_id=${lead.id} ORDER BY id DESC LIMIT 100`;
+      return { lead, activities };
+    });
   });
 }

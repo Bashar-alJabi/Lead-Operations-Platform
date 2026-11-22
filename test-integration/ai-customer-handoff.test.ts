@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { withSimulatedLeadScopeDrift } from './lead-scope-drift.js';
 import assert from 'node:assert/strict';
 import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { createDatabase } from '../src/db.js';
@@ -274,10 +275,10 @@ test('Approved customer AI Handoff owns current authority, durable atomic transi
   await db`UPDATE branch SET active=false WHERE id=${other}`;
   let move!: () => void, parentReady!: () => void;
   const parentHeld = new Promise<void>(resolve => { parentReady = resolve; }), moveNow = new Promise<void>(resolve => { move = resolve; });
-  const transfer = db.begin(async tx => {
+  const transfer = withSimulatedLeadScopeDrift(db, () => db.begin(async tx => {
     await tx`SELECT id FROM lead WHERE id=${lead} FOR UPDATE`; parentReady(); await moveNow;
     await tx`UPDATE lead SET branch_id=${other},campaign_id=${movedCampaign},assigned_agent_id=NULL,version=version+1 WHERE id=${lead}`;
-  });
+  }));
   await parentHeld;
   const staleParent = api('POST', '/api/conversations/' + cv + '/takeover', { version: current.version, reason: 'Parent moved during acceptance' }, 'admin');
   try {
@@ -290,7 +291,7 @@ test('Approved customer AI Handoff owns current authority, durable atomic transi
     assert.equal(waiting, true);
   } finally { move(); await transfer; }
   assert.equal((await staleParent).statusCode, 409); assert.equal((await db`SELECT state FROM conversation WHERE id=${cv}`)[0]!.state, 'WAITING_FOR_HUMAN');
-  await db`UPDATE lead SET branch_id=${branch},campaign_id=${campaign},assigned_agent_id=${users.agent!.id},version=version+1 WHERE id=${lead}`;
+  await withSimulatedLeadScopeDrift(db, () => db`UPDATE lead SET branch_id=${branch},campaign_id=${campaign},assigned_agent_id=${users.agent!.id},version=version+1 WHERE id=${lead}`);
   await db`UPDATE branch SET active=true WHERE id=${other}`;
   assert.equal((await api('POST', '/api/conversations/' + cv + '/takeover', { version: current.version, reason: 'Accept current human request' }, 'agent')).statusCode, 200);
   assert.equal((await api('POST', summaryRoot, { requestId: randomUUID() }, 'agent')).statusCode, 409);

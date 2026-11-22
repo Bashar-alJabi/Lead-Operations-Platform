@@ -1,0 +1,61 @@
+import { expect, test } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+
+test('Super Admin moves a lead to another branch and reviews its scoped transfer history', async ({ page }) => {
+  const {password} = JSON.parse(await readFile('.local/e2e/fixture.json','utf8')) as {password:string};
+  const headers = {origin:'http://127.0.0.1:4100'};
+  await page.setExtraHTTPHeaders({'x-e2e-rate-scope':randomUUID()});
+  await page.goto('/');
+  await page.getByRole('combobox',{name:'Language',exact:true}).selectOption('en');
+  async function signIn(email: string) {
+    await page.getByLabel('Email',{exact:true}).fill(email);
+    await page.getByLabel('Password',{exact:true}).fill(password);
+    await page.getByRole('button',{name:'Sign in',exact:true}).click();
+    await expect(page.getByRole('button',{name:'Sign out',exact:true})).toBeVisible();
+  }
+  await signIn('admin@browser.test');
+  const branches = (await (await page.request.get('/api/branches')).json()).items as Array<{id:string;name:string}>;
+  const source = branches.find(item => item.name==='Browser Branch')!;
+  const destination = branches.find(item => item.name==='Other Branch')!;
+  const originals = (await (await page.request.get(`/api/campaigns?branchId=${source.id}&limit=100`)).json()).items as Array<{id:string;name:string}>;
+  const original = originals.find(item => item.name==='Browser Campaign')!;
+  const transferCampaign = await page.request.post('/api/campaigns', {headers,data:{branchId:destination.id,name:'Transfer browser destination'}});
+  expect(transferCampaign.ok(), await transferCampaign.text()).toBeTruthy();
+  const campaign = (await transferCampaign.json()).id;
+  const activated = await page.request.post(`/api/campaigns/${campaign}/activate`, {headers});
+  expect(activated.ok(), await activated.text()).toBeTruthy();
+  const newLead = await page.request.post('/api/leads', {headers,data:{branchId:source.id,campaignId:original.id,
+    contact:{name:'Browser branch transfer lead',email:randomUUID()+'@browser.test'}}});
+  expect(newLead.ok(), await newLead.text()).toBeTruthy();
+  const lead = (await newLead.json()).id;
+  await page.reload();
+  const row = page.locator(`[data-lead-row="${lead}"]`);
+  await row.getByRole('button',{name:'Details',exact:true}).click();
+  const panel = page.locator('[data-lead-branch-transfer]');
+  await panel.getByRole('combobox',{name:'Destination branch'}).selectOption(destination.id);
+  await panel.getByRole('combobox',{name:'Destination campaign'}).selectOption(campaign);
+  const reason = '<svg onload=alert(1)> Destination workflow';
+  await panel.getByRole('textbox',{name:'Transfer reason'}).fill(reason);
+  await panel.getByRole('button',{name:'Transfer lead',exact:true}).click();
+  await expect(panel.getByRole('heading',{name:'Transfer history',exact:true})).toBeVisible();
+  await expect(panel).toContainText('Transfer browser destination');
+  await expect(panel).toContainText(reason);
+  await expect(panel.locator('svg')).toHaveCount(0);
+  expect((await (await page.request.get(`/api/leads/${lead}`)).json()).lead.branch_id).toBe(destination.id);
+  await page.getByRole('combobox',{name:'Language',exact:true}).selectOption('ar');
+  await page.setViewportSize({width:390,height:844});
+  await expect(panel.getByRole('heading',{name:'سجل النقل',exact:true})).toBeVisible();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
+  await page.getByRole('combobox',{name:'Language',exact:true}).selectOption('en');
+  await page.getByRole('button',{name:'Sign out',exact:true}).click();
+  await signIn('manager@browser.test');
+  expect((await page.request.get(`/api/leads/${lead}`)).status()).toBe(404);
+  await expect(page.getByRole('heading',{name:'Browser branch transfer lead',exact:true})).toHaveCount(0);
+  await page.getByRole('button',{name:'Sign out',exact:true}).click();
+  await signIn('other@browser.test');
+  await expect(page.getByRole('heading',{name:'Browser branch transfer lead',exact:true})).toHaveCount(0);
+  await row.getByRole('button',{name:'Details',exact:true}).click();
+  await expect(panel).toHaveCount(0);
+  expect((await page.request.get(`/api/leads/${lead}/branch-transfers`)).status()).toBe(403);
+});

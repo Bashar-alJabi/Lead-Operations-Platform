@@ -149,6 +149,8 @@ function App() {
   const [staffDestination, setStaffDestination] = useState<{id:string;name:string}|null>(null);
   const [nextUserCursor, setNextUserCursor] = useState<string | null>(null);
   const [detail, setDetail] = useState<{ lead: Lead; activities: { id: number; event_type: string; created_at: string }[] } | null>(null);
+  const [detailScope, setDetailScope] = useState('');
+  const currentDetailScope = user ? `${user.id}:${user.role}:${user.branchId ?? ''}` : '';
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [form, setForm] = useState<Record<string, string>>({});
@@ -217,9 +219,19 @@ function App() {
     }).catch((failure) => setError(String(failure)));
   }, [page, user?.id]);
   useEffect(() => {
-    if (!selectedLead) { setDetail(null); return; }
-    void api<typeof detail>(`/api/leads/${selectedLead}`).then(setDetail).catch((failure) => setError(String(failure)));
-  }, [selectedLead]);
+    setDetail(null); setDetailScope('');
+    if (!selectedLead || !currentDetailScope) return;
+    const controller = new AbortController();
+    void api<typeof detail>(`/api/leads/${selectedLead}`, { signal: controller.signal }).then(result => {
+      if (!controller.signal.aborted) { setDetail(result); setDetailScope(currentDetailScope); }
+    }).catch(failure => { if (!controller.signal.aborted) setError(String(failure)); });
+    return () => controller.abort();
+  }, [selectedLead, currentDetailScope]);
+
+  function endSession() {
+    setSelectedLead(null); setDetail(null); setDetailScope(''); setSelectedLeadIds([]); setSelectedCampaign(null);
+    setInitialImportId(null); setUser(null); setForm({}); setPage('leads');
+  }
 
   async function submit(path: string, payload: unknown, after?: () => void) {
     setBusy(true); setError('');
@@ -337,7 +349,7 @@ function App() {
     <nav>{(['leads','contacts','contactReviews','followups','campaigns','fields','branches','users','emailSetup','identityEmail','messagingSetup','metaSources','genericSources','paymentSetup','aiSetup','googleSetup','analytics','automations','notifications','audit','profile'] as Page[]).filter((item) =>
       item === 'emailSetup' || item === 'identityEmail' || item === 'contactReviews' || item === 'messagingSetup' || item === 'metaSources' || item === 'paymentSetup' || item === 'aiSetup' || item === 'googleSetup' || item === 'automations' ? canManage : canManage || item === 'leads' || item === 'contacts' || item === 'profile' || item === 'followups' || item === 'notifications' || item === 'analytics').map((item) =>
       <button key={item} aria-label={t[item]} className={page === item ? 'selected' : ''} onClick={() => { setPage(item); setSelectedLead(null); setSelectedCampaign(null); setStaffDestination(null); setAgentProfile(null); setResetTarget(null); setShowForm(false); setForm({}); setNotice(''); }}>{t[item]}{item==='notifications'&&hasUnreadNotifications&&<span role="status" aria-label={locale==='ar'?'إشعارات غير مقروءة':locale==='fr'?'Notifications non lues':'Unread notifications'} style={{marginInlineStart:'.5rem'}}>●</span>}</button>)}</nav>
-    <div className="sidebar-bottom">{language}<button onClick={() => { void api('/api/auth/logout', { method: 'POST' }).then(() => {setInitialImportId(null);setUser(null);}); }}>{t.logout}</button></div>
+    <div className="sidebar-bottom">{language}<button onClick={() => { void api('/api/auth/logout', { method: 'POST' }).then(endSession).catch(failure => setError(String(failure))); }}>{t.logout}</button></div>
   </aside><main className="content"><header><div><small>Lead Operations</small><h1>{selectedLead ? t.details : t[page]}</h1></div><button className="secondary" onClick={() => void (page === 'identityEmail' ? refreshDeliveryJobs() : page === 'contacts' || page === 'contactReviews' || page === 'fields' ? setWorkspaceRefresh((value) => value + 1) : refresh())} disabled={busy}>{t.retry}</button></header>
     {error && <div role="alert" className="error">{error}</div>}
     {notice && <div role="status" className="panel">{notice}</div>}
@@ -392,22 +404,22 @@ function App() {
       : page === 'profile' ? <><section className="panel form-panel"><h2>{t.profile}</h2><p>{t.passwordChanged}</p>
       <form onSubmit={(event) => { event.preventDefault(); setBusy(true); setError('');
         void api('/api/auth/password', { method: 'POST', body: JSON.stringify({ currentPassword: form.currentPassword, newPassword: form.newPassword }) })
-          .then(() => { setInitialImportId(null);setUser(null); setForm({}); setPage('leads'); }).catch((failure) => setError(String(failure))).finally(() => setBusy(false)); }}>
+          .then(endSession).catch((failure) => setError(String(failure))).finally(() => setBusy(false)); }}>
         {field('currentPassword', t.currentPassword, 'password')}{field('newPassword', t.newPassword, 'password')}
         <button disabled={busy}>{t.save}</button></form></section>
-      {!isAdmin && <StaffMessagingDestination key={user.id} locale={locale} api={api}/>}</> : selectedLead && detail ? <section className="panel"><button className="link" onClick={() => setSelectedLead(null)}>{t.back}</button><h2>{contactLabel(detail.lead,locale)}</h2>
+      {!isAdmin && <StaffMessagingDestination key={user.id} locale={locale} api={api}/>}</> : selectedLead && detail?.lead.id===selectedLead && detailScope===currentDetailScope ? <section className="panel"><button className="link" onClick={() => setSelectedLead(null)}>{t.back}</button><h2>{contactLabel(detail.lead,locale)}</h2>
       <div className="facts"><div><small>{t.phone}</small><strong>{detail.lead.phone || '—'}</strong></div><div><small>{t.email}</small><strong>{detail.lead.email || '—'}</strong></div>
       <div><small>{t.lifecycle}</small><strong>{detail.lead.lifecycle}</strong></div><div><small>{t.assign}</small><strong>{leadCell(detail.lead,'owner')}</strong></div></div>
       {canManage && <div className="actions">{(['OPEN','CLOSED','ARCHIVED'] as const).filter((state) => state !== detail.lead.lifecycle).map((state) =>
         <button key={state} className="secondary" onClick={() => { setBusy(true); api(`/api/leads/${selectedLead}/lifecycle`, { method: 'POST', body: JSON.stringify({ lifecycle: state }) })
-          .then(() => api<typeof detail>(`/api/leads/${selectedLead}`)).then(setDetail).catch((failure) => setError(String(failure))).finally(() => setBusy(false)); }}>{state === 'OPEN' ? t.reopen : state === 'CLOSED' ? t.close : t.archive}</button>)}</div>}
+          .then(() => api<typeof detail>(`/api/leads/${selectedLead}`)).then(result => {setDetail(result);setDetailScope(currentDetailScope);}).catch((failure) => setError(String(failure))).finally(() => setBusy(false)); }}>{state === 'OPEN' ? t.reopen : state === 'CLOSED' ? t.close : t.archive}</button>)}</div>}
       <LeadWorkflow lead={detail.lead} role={user.role} locale={locale} api={api}
-        onChanged={async () => { const current = await api<typeof detail>(`/api/leads/${selectedLead}`); setDetail(current); }} />
-      <LeadQualification key={`${selectedLead}:qualification`} leadId={selectedLead} locale={locale} api={api} onChanged={() => setFieldRefresh(n => n + 1)} />
+        onChanged={async () => { const current = await api<typeof detail>(`/api/leads/${selectedLead}`); setDetail(current); setDetailScope(currentDetailScope); }} />
+      <LeadQualification key={`${selectedLead}:${detail.lead.campaign_id}:qualification`} leadId={selectedLead} locale={locale} api={api} onChanged={() => setFieldRefresh(n => n + 1)} />
       <LeadIntakeOrigin leadId={selectedLead} revision={detail.lead.version} locale={locale} api={api} />
-      <LeadFields key={`${selectedLead}:fields:${fieldRefresh}`} leadId={selectedLead} locale={locale} api={api} />
-      <LeadPaymentMethods key={`${selectedLead}:payment-methods`} leadId={selectedLead} locale={locale} api={api} />
-      <LeadCustomerOperations key={`${selectedLead}:customer-operations`} leadId={selectedLead} lifecycle={detail.lead.lifecycle}
+      <LeadFields key={`${selectedLead}:${detail.lead.campaign_id}:fields:${fieldRefresh}`} leadId={selectedLead} locale={locale} api={api} />
+      <LeadPaymentMethods key={`${selectedLead}:${detail.lead.campaign_id}:payment-methods`} leadId={selectedLead} locale={locale} api={api} />
+      <LeadCustomerOperations key={`${selectedLead}:${detail.lead.campaign_id}:customer-operations`} leadId={selectedLead} lifecycle={detail.lead.lifecycle}
         role={user.role} actorId={user.id} locale={locale} api={api} />
     </section> : <>
       {page === 'leads' && <LeadSearch locale={locale} branches={branches} campaigns={campaigns} users={users} currentUser={user}

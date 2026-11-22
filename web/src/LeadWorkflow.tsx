@@ -2,11 +2,12 @@ import {FollowUpHistory} from './FollowUpHistory.js';
 import { useEffect, useState } from 'react';
 import {FollowUpNotificationStatus} from './FollowUpNotifications.js';
 import { LeadAutomationReview } from './LeadAutomationReview.js';
+import { LeadBranchTransfer } from './LeadBranchTransfer.js';
 
 type Api = <T>(path: string, options?: RequestInit) => Promise<T>;
 type Locale = 'ar'|'fr'|'en';
 type Role = 'SUPER_ADMIN'|'MANAGER'|'AGENT';
-type Lead = { id: string; campaign_id: string; assigned_agent_id: string | null; version: number };
+type Lead = { id: string; branch_id: string; campaign_id: string; assigned_agent_id: string | null; version: number };
 type Followup = { kind:string; id: string; owner_user_id: string | null; due_at: string; status: string; priority: string; note: string | null; version: number };
 type History = { id: number; event_type: string; detail: Record<string, unknown>; created_at: string };
 type Assignment = { id: number; old_agent_id: string | null; old_agent_name: string | null;
@@ -80,6 +81,8 @@ export function LeadWorkflow({ lead, role, locale, api, onChanged }: {
     return new Date(date.getTime() - offset).toISOString().slice(0, 16);
   };
   return <div className="lead-workflow">
+    {role === 'SUPER_ADMIN' && <LeadBranchTransfer key={`${lead.id}:${lead.branch_id}`} lead={lead} locale={locale} api={api}
+      onChanged={async () => { await onChanged(); await load(); }} />}
     <LeadAutomationReview key={`${lead.id}:${lead.version}`} leadId={lead.id} locale={locale} api={api}
       onResolved={() => void load().catch(failure => setError(String(failure)))} />
     {error && <p role="alert" className="error">{error}</p>}

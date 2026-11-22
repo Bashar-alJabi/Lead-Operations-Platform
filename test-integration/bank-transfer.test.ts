@@ -116,6 +116,13 @@ test('Bank Transfer manual approval enforces native scope/session/exact money, d
   assert.equal((await api('GET',`/api/leads/${lead}/payment-methods`,undefined,'agent')).json().items[0].preparationAvailable,true);
   const input=f.requestInput();const races=await Promise.all(Array.from({ length:4 },()=>api('POST',`/api/leads/${lead}/bank-transfers`,input,'agent')));
   assert.deepEqual(races.map((r)=>r.statusCode).sort(),[200,200,200,201]);const r=races[0]!.json();assert.ok(r.reference.startsWith('BT-'));assert.equal(r.payment_id,null);assert.equal(r.enrollment_id,null);
+  const destination=(await db`INSERT INTO campaign(organization_id,branch_id,name,status)
+    VALUES(${f.org},${f.otherBranch},'Bank transfer destination','ACTIVE') RETURNING id`)[0]!.id;
+  const leadRoot=`/api/leads/${lead}`, version=(await api('GET',leadRoot)).json().lead.version;
+  const blocked=await api('POST',leadRoot+'/branch-transfers',{version,branchId:f.otherBranch,campaignId:destination,
+    agentId:null,reason:'Reconcile the original financial scope'},'admin');
+  assert.equal(blocked.statusCode,409,blocked.body);
+  assert.equal(blocked.json().error,'LEAD_TRANSFER_PAYMENT_REVIEW');
   assert.equal((await api('POST',`/api/leads/${lead}/bank-transfers`,{ ...input,amount:'26' },'agent')).statusCode,409);
   assert.equal((await api('POST',`/api/leads/${lead}/bank-transfers`,{ ...f.requestInput(),paid:true },'agent')).statusCode,400);
   assert.equal((await api('GET',`/api/leads/${lead}/bank-transfers`,undefined,'second')).statusCode,404);

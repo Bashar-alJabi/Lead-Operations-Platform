@@ -127,7 +127,7 @@ async function reviewInput(f:Awaited<ReturnType<typeof fixture>>,id:string,indic
 
 test('Import Contact review separates operational authority from private uploads, hides shared candidates, paginates current matches and resolves concurrently with real scoped sessions without merging Leads',async t=>{
  const f=await fixture(t),{db,api}=f;
- const otherCampaign=(await db`INSERT INTO campaign(organization_id,branch_id,name) VALUES(${f.org},${f.other},'Other contact branch') RETURNING id`)[0]!.id;
+ const otherCampaign=(await db`INSERT INTO campaign(organization_id,branch_id,name,status) VALUES(${f.org},${f.other},'Other contact branch','ACTIVE') RETURNING id`)[0]!.id;
  const shared=(await db`INSERT INTO contact(organization_id,name,phone,phone_normalized) VALUES(${f.org},'Shared hidden customer','+33123455501','+33123455501') RETURNING id`)[0]!.id;
  for(const [branch,campaign] of [[f.branch,f.campaign],[f.other,otherCampaign]])await db`INSERT INTO lead(organization_id,branch_id,campaign_id,contact_id,source_kind) VALUES(${f.org},${branch},${campaign},${shared},'MANUAL')`;
  for(let i=0;i<27;i++){const id=(await db`INSERT INTO contact(organization_id,name,phone,phone_normalized) VALUES(${f.org},${'Own candidate '+i},'+33123455502','+33123455502') RETURNING id`)[0]!.id;
@@ -149,7 +149,10 @@ test('Import Contact review separates operational authority from private uploads
  assert.equal((await db`SELECT count(*)::int n FROM lead_intake_receipt WHERE origin_kind='APPROVED_IMPORT'`)[0]!.n,2);assert.equal((await db`SELECT count(*)::int n FROM lead_import_attempt WHERE resolver_id IS NOT NULL AND session_id IS NOT NULL`)[0]!.n,2);
  assert.equal((await api('GET',root)).json().items.length,0);
  // A later transfer cannot expose an old imported Lead through private receipts or a replayed Manager review.
- await db`UPDATE lead SET branch_id=${f.other},campaign_id=${otherCampaign} WHERE id=${own.json().id}`;
+ const leadRoot='/api/leads/'+own.json().id,leadVersion=(await api('GET',leadRoot,undefined,'admin')).json().lead.version;
+ const transferred=await api('POST',leadRoot+'/branch-transfers',{version:leadVersion,branchId:f.other,
+  campaignId:otherCampaign,agentId:null,reason:'Verify transfer revokes old import access'},'admin');
+ assert.equal(transferred.statusCode,200,transferred.body);
  const results=(await api('GET',a.path+'/execution/rows')).json().items;assert.equal(results.find((r:any)=>r.submission_id===ambiguous.submission_id).lead_id,null);
  assert.equal((await api('POST',root+'/'+ambiguous.submission_id+'/resolve',ownChoice)).statusCode,404);
 });

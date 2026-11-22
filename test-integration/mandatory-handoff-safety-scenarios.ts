@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { withSimulatedLeadScopeDrift } from './lead-scope-drift.js';
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type { Database } from '../src/db.js';
@@ -69,10 +70,10 @@ export async function verifyMandatoryHandoffSafety(db: Database, app: FastifyIns
   }
   // Native guards never stop a different Branch/Campaign after an in-flight transfer.
   const transferred = await pending(), target = (await db`INSERT INTO campaign(organization_id,branch_id,name,status) VALUES(${org},${other},'Safety source boundary','ACTIVE') RETURNING id`)[0]!.id;
-  await db`UPDATE lead SET branch_id=${other},campaign_id=${target},assigned_agent_id=NULL,version=version+1 WHERE id=${lead}`;
+  await withSimulatedLeadScopeDrift(db, () => db`UPDATE lead SET branch_id=${other},campaign_id=${target},assigned_agent_id=NULL,version=version+1 WHERE id=${lead}`);
   assert.equal(await processOneAIHumanHandoff(db), true); assert.equal((await rows(transferred.id))[0]!.stop_id, null);
   assert.equal((await db`SELECT state FROM conversation WHERE id=${cv}`)[0]!.state, 'AI_ACTIVE');
-  await db`UPDATE lead SET branch_id=${branch},campaign_id=${campaign},assigned_agent_id=${users.agent!.id},version=version+1 WHERE id=${lead}`;
+  await withSimulatedLeadScopeDrift(db, () => db`UPDATE lead SET branch_id=${branch},campaign_id=${campaign},assigned_agent_id=${users.agent!.id},version=version+1 WHERE id=${lead}`);
   // Ordinary approved Handoff remains the source of notifications/timers; a safety record cannot be forged from APPLIED history.
   const applied = await pending(); assert.equal(await processOneAIHumanHandoff(db), true); const appliedAction = (await rows(applied.id))[0]!;
   assert.equal(appliedAction.state, 'APPLIED'); assert.equal(appliedAction.stop_id, null);

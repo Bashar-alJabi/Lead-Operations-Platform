@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { withSimulatedLeadScopeDrift } from './lead-scope-drift.js';
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type { Database } from '../src/db.js';
@@ -68,9 +69,9 @@ export async function verifyMisunderstanding(db: Database, app: FastifyInstance,
     for (const who of ['second','other','foreign']) assert.equal((await api('GET', root, undefined, who)).statusCode, 404);
     // Scope transfer hides historical classification even from the same-Organization Super Admin.
     const transferredCampaign = (await db`INSERT INTO campaign(organization_id,branch_id,name,status) VALUES(${org},${f.other},'Observation scope transfer','ACTIVE') RETURNING id`)[0]!.id;
-    await db`UPDATE lead SET branch_id=${f.other},campaign_id=${transferredCampaign},assigned_agent_id=NULL,version=version+1 WHERE id=${lead}`;
+    await withSimulatedLeadScopeDrift(db, () => db`UPDATE lead SET branch_id=${f.other},campaign_id=${transferredCampaign},assigned_agent_id=NULL,version=version+1 WHERE id=${lead}`);
     assert.equal((await api('GET', root)).statusCode, 404); assert.deepEqual((await api('GET', root, undefined, 'admin')).json().items, []);
-    await db`UPDATE lead SET branch_id=${branch},campaign_id=${campaign},assigned_agent_id=${users.agent!.id},version=version+1 WHERE id=${lead}`;
+    await withSimulatedLeadScopeDrift(db, () => db`UPDATE lead SET branch_id=${branch},campaign_id=${campaign},assigned_agent_id=${users.agent!.id},version=version+1 WHERE id=${lead}`);
     // New controller version starts at one. Campaign handoff object overrides the whole Branch object.
     await policy('CAMPAIGN', 2); await episode(); const next = await fresh(); await run(); assert.equal((await row(next.id))!.ordinal, '1'); assert.equal((await row(next.id))!.threshold, 2);
     assert.equal((await row(next.id))!.handoff_required, false);

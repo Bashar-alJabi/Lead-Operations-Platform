@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { withSimulatedLeadScopeDrift } from './lead-scope-drift.js';
 import type {FastifyInstance} from 'fastify';
 import type {Database} from '../src/db.js';
 export async function verifyHandoffNotifications(db:Database,app:FastifyInstance,f:{org:string;branch:string;other:string;campaign:string;lead:string;cv:string;action:string;users:Record<string,{id:string;session:string;cookie:string}>}) {
@@ -52,11 +53,11 @@ export async function verifyHandoffNotifications(db:Database,app:FastifyInstance
  // Scope move during initial feed selection cannot leak a transferred Lead, even to Super Admin.
  const target=(await db`INSERT INTO campaign(organization_id,branch_id,name,status) VALUES(${org},${other},'Notification transfer','ACTIVE') RETURNING id`)[0]!.id;
  let ready!:()=>void,release!:()=>void;const locked=new Promise<void>(r=>{ready=r;}),unlock=new Promise<void>(r=>{release=r;});
- const held=db.begin(async tx=>{await tx`SELECT id FROM lead WHERE id=${lead} FOR UPDATE`;ready();await unlock;await tx`UPDATE lead SET branch_id=${other},campaign_id=${target},assigned_agent_id=NULL,version=version+1 WHERE id=${lead}`;});await locked;
+ const held=withSimulatedLeadScopeDrift(db,()=>db.begin(async tx=>{await tx`SELECT id FROM lead WHERE id=${lead} FOR UPDATE`;ready();await unlock;await tx`UPDATE lead SET branch_id=${other},campaign_id=${target},assigned_agent_id=NULL,version=version+1 WHERE id=${lead}`;}));await locked;
  const readMoving=api('GET',feed,undefined,'admin');
  try{let waiting=false;for(let i=0;i<80;i++){waiting=(await db`SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%SELECT id FROM lead WHERE id IN%' AND pid<>pg_backend_pid()) AS yes`)[0]!.yes;if(waiting)break;await new Promise(r=>setTimeout(r,25));}assert.equal(waiting,true);}finally{release();await held;}
  assert.deepEqual((await readMoving).json().items,[]);assert.equal((await api('GET',root+'/history',undefined,'admin')).statusCode,404);
- await db`UPDATE lead SET branch_id=${branch},campaign_id=${campaign},assigned_agent_id=${users.agent!.id},version=version+1 WHERE id=${lead}`;
+ await withSimulatedLeadScopeDrift(db, () => db`UPDATE lead SET branch_id=${branch},campaign_id=${campaign},assigned_agent_id=${users.agent!.id},version=version+1 WHERE id=${lead}`);
  // Current cookie must still exist after waiting for a source lock.
  let r2!:()=>void,go!:()=>void;const l2=new Promise<void>(r=>{r2=r;}),u2=new Promise<void>(r=>{go=r;});
  const blocker=db.begin(async tx=>{await tx`SELECT id FROM branch WHERE id=${branch} FOR UPDATE`;r2();await u2;});await l2;

@@ -5,6 +5,7 @@ import type postgres from 'postgres';
 import type { Database } from '../db.js';
 import { HttpError, principalFromRequest, requireLead, requireRole, type Principal } from '../security.js';
 import { decodeCursor, encodeCursor } from '../pagination.js';
+import { leadActivityBoundary } from '../lead-activity.js';
 
 const leadParam = { type: 'object', additionalProperties: false, required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } as const;
 const followupParam = { type: 'object', additionalProperties: false, required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } as const;
@@ -58,6 +59,69 @@ async function requireFollowup(tx: postgres.TransactionSql, actor: Principal, id
 }
 
 export function registerLeadWorkflowRoutes(app: FastifyInstance, db: Database): void {
+  const transferPath = '/api/leads/:id/branch-transfers';
+  app.post<{ Params: { id: string }; Body: { version: number; branchId: string; campaignId: string; agentId: string | null; reason: string } }>(transferPath, {
+    schema: { params: leadParam, body: { type: 'object', additionalProperties: false,
+      required: ['version', 'branchId', 'campaignId', 'agentId', 'reason'], properties: {
+        version: { type: 'integer', minimum: 1, maximum: 2147483646 }, branchId: leadParam.properties.id,
+        campaignId: leadParam.properties.id, agentId: { type: ['string','null'], format: 'uuid' },
+        reason: { type: 'string', minLength: 3, maxLength: 500 },
+      } } },
+  }, async request => {
+    const actor = await principalFromRequest(request, db);
+    requireRole(actor, 'SUPER_ADMIN');
+    const input = request.body, reason = input.reason.trim();
+    if (reason.length < 3 || /[\x00-\x1f\x7f]/.test(reason)) throw new HttpError(400, 'LEAD_TRANSFER_REASON_INVALID');
+    try {
+      return await db.begin(async tx => {
+        const sessionId = await currentPaymentSession(tx, actor, request);
+        if (!sessionId) throw new HttpError(403, 'LEAD_TRANSFER_ACCESS_REVOKED');
+        const [change] = await tx`INSERT INTO lead_branch_transfer(lead_id,source_version,organization_id,
+          destination_branch_id,destination_campaign_id,destination_agent_id,actor_id,session_id,reason)
+        VALUES(${request.params.id},${input.version},${actor.organizationId},${input.branchId},${input.campaignId},
+          ${input.agentId},${actor.id},${sessionId},${reason}) RETURNING source_version+1 AS version`;
+        return { version: change!.version, branchId: input.branchId, campaignId: input.campaignId, agentId: input.agentId };
+      });
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && error.code === 'P0001') {
+        switch (error.message) {
+          case 'LEAD_NOT_FOUND': throw new HttpError(404, error.message);
+          case 'LEAD_TRANSFER_ACCESS_REVOKED': throw new HttpError(403, error.message);
+          case 'LEAD_TRANSFER_DESTINATION_INVALID':
+          case 'AGENT_NOT_ELIGIBLE': throw new HttpError(400, error.message);
+          case 'LEAD_VERSION_CONFLICT':
+          case 'LEAD_TRANSFER_CONVERSATION_REVIEW':
+          case 'LEAD_TRANSFER_PAYMENT_REVIEW':
+          case 'LEAD_TRANSFER_HUMAN_REVIEW_PENDING': throw new HttpError(409, error.message);
+        }
+      }
+      throw error;
+    }
+  });
+
+  app.get<{ Params: { id: string }; Querystring: { before?: number; limit?: number } }>(transferPath, {
+    schema: { params: leadParam, querystring: historyQuery },
+  }, async (request, reply) => {
+    const actor = await principalFromRequest(request, db), limit = request.query.limit ?? 20;
+    requireRole(actor, 'SUPER_ADMIN');
+    reply.header('Cache-Control', 'no-store');
+    return db.begin(async tx => {
+      const lead = await lockedLead(tx, actor, request.params.id, false);
+      if (!await currentPaymentSession(tx, actor, request)) throw new HttpError(403, 'LEAD_TRANSFER_ACCESS_REVOKED');
+      const rows = await tx`SELECT t.source_version AS version,t.created_at AS "createdAt",t.reason,
+        source_branch.name AS "sourceBranch",source_campaign.name AS "sourceCampaign",
+        destination_branch.name AS "destinationBranch",destination_campaign.name AS "destinationCampaign"
+        FROM lead_branch_transfer t JOIN branch source_branch ON source_branch.id=t.source_branch_id
+        JOIN branch destination_branch ON destination_branch.id=t.destination_branch_id
+        JOIN campaign source_campaign ON source_campaign.id=t.source_campaign_id
+        JOIN campaign destination_campaign ON destination_campaign.id=t.destination_campaign_id
+        WHERE t.lead_id=${lead.id} AND t.organization_id=${actor.organizationId}
+          AND (${request.query.before ?? null}::integer IS NULL OR t.source_version<${request.query.before ?? null})
+        ORDER BY t.source_version DESC LIMIT ${limit+1}`;
+      return { items: rows.slice(0,limit), nextCursor: rows.length>limit ? rows[limit-1]!.version : null };
+    });
+  });
+
   app.post<{ Params: { id: string }; Body: { lifecycle: 'OPEN'|'CLOSED'|'ARCHIVED' } }>('/api/leads/:id/lifecycle', {
     schema: { params: leadParam, body: { type: 'object', additionalProperties: false, required: ['lifecycle'],
       properties: { lifecycle: { enum: ['OPEN','CLOSED','ARCHIVED'] } },
@@ -133,8 +197,11 @@ export function registerLeadWorkflowRoutes(app: FastifyInstance, db: Database): 
     return db.begin(async tx => {
       const lead = await lockedLead(tx, actor, request.params.id, false);
       if (!await currentPaymentSession(tx, actor, request)) throw new HttpError(403, 'LEAD_ACTIVITY_ACCESS_REVOKED');
-      const rows = await tx`SELECT a.id,a.actor_user_id,a.event_type,a.detail
-          || CASE WHEN r.execution_id IS NOT NULL THEN jsonb_build_object('text',r.resolution_note) ELSE '{}'::jsonb END AS detail,
+      const boundary = await leadActivityBoundary(tx, lead.id, actor.role==='SUPER_ADMIN');
+      const rows = await tx`SELECT a.id,CASE WHEN a.id>=COALESCE(${boundary}::bigint,0) THEN a.actor_user_id END AS actor_user_id,
+          a.event_type,CASE WHEN a.id>=COALESCE(${boundary}::bigint,0) OR a.event_type='NOTE_ADDED' THEN a.detail ELSE '{}'::jsonb END
+          || CASE WHEN r.execution_id IS NOT NULL AND a.id>=COALESCE(${boundary}::bigint,0)
+            THEN jsonb_build_object('text',r.resolution_note) ELSE '{}'::jsonb END AS detail,
           a.created_at
         FROM lead_activity a LEFT JOIN automation_human_review r ON r.execution_id=(
           CASE WHEN a.event_type='AUTOMATION_HUMAN_REVIEW_RESOLVED' THEN a.detail->>'executionId' END
@@ -150,16 +217,25 @@ export function registerLeadWorkflowRoutes(app: FastifyInstance, db: Database): 
     schema: { params: leadParam, querystring: historyQuery },
   }, async (request) => {
     const actor = await principalFromRequest(request, db);
-    const lead = await requireLead(db, actor, request.params.id);
     const limit = request.query.limit ?? 30;
-    const rows = await db`SELECT h.id, h.old_branch_id, h.old_agent_id, old_agent.name AS old_agent_name,
-        h.new_branch_id, h.new_agent_id, new_agent.name AS new_agent_name,
-        h.actor_user_id, h.method, h.reason, h.created_at FROM assignment_history h
-      LEFT JOIN user_account old_agent ON old_agent.id = h.old_agent_id
-      LEFT JOIN user_account new_agent ON new_agent.id = h.new_agent_id
-      WHERE h.lead_id = ${lead.id} AND (${request.query.before ?? null}::bigint IS NULL OR h.id < ${request.query.before ?? null})
-      ORDER BY h.id DESC LIMIT ${limit + 1}`;
-    return { items: rows.slice(0, limit), nextCursor: rows.length > limit ? rows[limit - 1]!.id : null };
+    return db.begin(async tx => {
+      const lead = await lockedLead(tx, actor, request.params.id, false);
+      if (!await currentPaymentSession(tx, actor, request)) throw new HttpError(403, 'LEAD_ASSIGNMENT_ACCESS_REVOKED');
+      const all = actor.role==='SUPER_ADMIN';
+      const rows = await tx`SELECT h.id,
+        CASE WHEN ${all} OR h.old_branch_id=${lead.branch_id} THEN h.old_branch_id END AS old_branch_id,
+        CASE WHEN ${all} OR h.old_branch_id=${lead.branch_id} THEN h.old_agent_id END AS old_agent_id,
+        old_agent.name AS old_agent_name,h.new_branch_id,h.new_agent_id,new_agent.name AS new_agent_name,
+        CASE WHEN ${all} OR h.old_branch_id IS NULL OR h.old_branch_id=h.new_branch_id THEN h.actor_user_id END AS actor_user_id,
+        h.method,CASE WHEN ${all} OR h.old_branch_id IS NULL OR h.old_branch_id=h.new_branch_id THEN h.reason END AS reason,h.created_at
+        FROM assignment_history h
+        LEFT JOIN user_account old_agent ON old_agent.id=h.old_agent_id AND (${all} OR h.old_branch_id=${lead.branch_id})
+        LEFT JOIN user_account new_agent ON new_agent.id=h.new_agent_id
+        WHERE h.lead_id=${lead.id} AND (${all} OR h.new_branch_id=${lead.branch_id})
+          AND (${request.query.before ?? null}::bigint IS NULL OR h.id<${request.query.before ?? null})
+        ORDER BY h.id DESC LIMIT ${limit + 1}`;
+      return { items: rows.slice(0, limit), nextCursor: rows.length > limit ? rows[limit - 1]!.id : null };
+    });
   });
 
   app.post<{ Body: { confirmed: true; items: { id: string; version: number }[];

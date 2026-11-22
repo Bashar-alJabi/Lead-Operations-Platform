@@ -86,7 +86,13 @@ test('Initial AI admission derives only from fresh real intake, snapshots curren
   for(const destination of [movedCampaign,sameBranchCampaign]){
     const lid=await create(),aa=await admission(lid);
     await assert.rejects(db.begin(async tx=>{
-      await tx`UPDATE lead SET campaign_id=${destination},branch_id=${destination===movedCampaign?other:branch},assigned_agent_id=NULL WHERE id=${lid}`;
+      if (destination===movedCampaign) {
+        await tx`INSERT INTO lead_branch_transfer(lead_id,source_version,organization_id,destination_branch_id,destination_campaign_id,actor_id,session_id,reason)
+          SELECT id,version,organization_id,${other},${destination},${users.admin!.id},${users.admin!.session},'Test original scope revocation'
+          FROM lead WHERE id=${lid}`;
+      } else {
+        await tx`UPDATE lead SET campaign_id=${destination},assigned_agent_id=NULL WHERE id=${lid}`;
+      }
       assert.equal((await tx`SELECT ai_initial_intake_context(${aa.receipt_id},clock_timestamp()) AS ctx`)[0]!.ctx,null);
       assert.equal((await tx`SELECT ai_initial_admission_current(${aa.id}) AS ctx`)[0]!.ctx,null);throw Error('RollbackVerifiedScopeTransfer');
     }),/RollbackVerifiedScopeTransfer/);

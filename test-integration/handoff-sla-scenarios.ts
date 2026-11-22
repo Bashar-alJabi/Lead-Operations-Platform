@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';import {randomBytes} from 'node:crypto';import type {FastifyInstance} from 'fastify';
+import { withSimulatedLeadScopeDrift } from './lead-scope-drift.js';
 import type {Database} from '../src/db.js';import {sha256} from '../src/security.js';import {processOneHandoffSLATimer,admitLegacyHandoffSLATimers} from '../src/ai/handoff-sla.js';
 type User={id:string;session:string;cookie:string};
 export async function verifyHandoffSLATimers(db:Database,app:FastifyInstance,f:{org:string;branch:string;other:string;campaign:string;lead:string;cv:string;action:string;users:Record<string,User>;newHandoff:()=>Promise<string>}){
@@ -79,8 +80,8 @@ export async function verifyHandoffSLATimers(db:Database,app:FastifyInstance,f:{
   action=await f.newHandoff();const version=(await db`SELECT version FROM conversation WHERE id=${cv}`)[0]!.version;
   assert.equal((await api('POST','/api/conversations/'+cv+'/takeover',{version,reason:'Accept before SLA timer'})).statusCode,200);await advance(900);await drain(async()=>(await timer()).state==='CANCELLED');assert.equal((await api('GET',root)).json().timer.waiting,false);
   action=await f.newHandoff();const moved=(await db`INSERT INTO campaign(organization_id,branch_id,name,status) VALUES(${org},${other},'SLA moved','ACTIVE') RETURNING id`)[0]!.id;
-  await db`UPDATE lead SET branch_id=${other},campaign_id=${moved},assigned_agent_id=NULL,version=version+1 WHERE id=${lead}`;await advance(1200);await drain(async()=>(await timer()).state==='CANCELLED');assert.equal((await timer()).reason_code,'SOURCE_SCOPE_CHANGED');assert.equal((await api('GET',root,undefined,'admin')).json().timer,null);
-  await db`UPDATE lead SET branch_id=${branch},campaign_id=${campaign},assigned_agent_id=${users.agent!.id},version=version+1 WHERE id=${lead}`;
+  await withSimulatedLeadScopeDrift(db, () => db`UPDATE lead SET branch_id=${other},campaign_id=${moved},assigned_agent_id=NULL,version=version+1 WHERE id=${lead}`);await advance(1200);await drain(async()=>(await timer()).state==='CANCELLED');assert.equal((await timer()).reason_code,'SOURCE_SCOPE_CHANGED');assert.equal((await api('GET',root,undefined,'admin')).json().timer,null);
+  await withSimulatedLeadScopeDrift(db, () => db`UPDATE lead SET branch_id=${branch},campaign_id=${campaign},assigned_agent_id=${users.agent!.id},version=version+1 WHERE id=${lead}`);
   // Simulate a real receipt predating the admission trigger, keeping the original trusted Handoff guards active.
   await db`ALTER TABLE ai_handoff_reception_event DISABLE TRIGGER ai_handoff_sla_admission`;
   try{action=await f.newHandoff();}finally{await db`ALTER TABLE ai_handoff_reception_event ENABLE TRIGGER ai_handoff_sla_admission`;}

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { withSimulatedLeadScopeDrift } from './lead-scope-drift.js';
 import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type { Database } from '../src/db.js';
@@ -124,12 +125,12 @@ export async function verifyLocalAIActionQueue(db: Database, app: FastifyInstanc
     const transferred = await f.pending(); await db`INSERT INTO test_local_action_failure(proposal_id) VALUES(${transferred.id})`; assert.equal(await worker(),true);
     const movedQueue = await queue(transferred.id), otherBranch = (await db`SELECT id FROM branch WHERE organization_id=${org} AND id<>${branch} ORDER BY id LIMIT 1`)[0]!.id;
     const movedCampaign = (await db`INSERT INTO campaign(organization_id,branch_id,name,status) VALUES(${org},${otherBranch},'Queue scope transfer','ACTIVE') RETURNING id`)[0]!.id;
-    await db`UPDATE lead SET branch_id=${otherBranch},campaign_id=${movedCampaign},assigned_agent_id=NULL,version=version+1 WHERE id=${lead}`;
+    await withSimulatedLeadScopeDrift(db, () => db`UPDATE lead SET branch_id=${otherBranch},campaign_id=${movedCampaign},assigned_agent_id=NULL,version=version+1 WHERE id=${lead}`);
     assert.equal((await api('GET',root)).statusCode,404); assert.deepEqual((await admin('GET',root)).json().items,[]);
     assert.equal((await admin('GET',root+'/'+movedQueue.id+'/history')).statusCode,404);
     assert.equal((await admin('POST',root+'/'+movedQueue.id+'/retry',{version:movedQueue.version,reason:'Do not migrate source scope'})).statusCode,404);
     await assert.rejects(db`UPDATE ai_local_action_queue SET operation='HUMAN_RETRY',version=version+1,actor_id=${saId},session_id=${saSession},reason='No old-scope repair' WHERE id=${movedQueue.id}`,/CURRENT_RECOVERY_REQUIRED/);
-    await db`UPDATE lead SET branch_id=${branch},campaign_id=${campaign},assigned_agent_id=${users.agent!.id},version=version+1 WHERE id=${lead}`;
+    await withSimulatedLeadScopeDrift(db, () => db`UPDATE lead SET branch_id=${branch},campaign_id=${campaign},assigned_agent_id=${users.agent!.id},version=version+1 WHERE id=${lead}`);
     await db`UPDATE test_local_action_clock SET at_time=at_time+interval '60 seconds'`; assert.equal(await worker(),true); assert.equal((await queue(transferred.id)).state,'COMPLETED');
     // Bounded legacy startup admission is unique and accepts only an existing pending original Job.
     if (kind === 'QUALIFICATION') await db`ALTER TABLE ai_customer_action_job DISABLE TRIGGER ai_local_qualification_queue_sync`;

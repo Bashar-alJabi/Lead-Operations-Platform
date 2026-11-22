@@ -58,7 +58,7 @@ export function requireBranch(principal: Principal, branchId: string): void {
   if (principal.role !== 'SUPER_ADMIN' && principal.branchId !== branchId) throw new HttpError(403, 'FORBIDDEN');
 }
 
-export async function requireLead(db: Database, principal: Principal, leadId: string) {
+export async function requireLead(db: Database | postgres.TransactionSql, principal: Principal, leadId: string, lock = false) {
   const rows = await db`
     SELECT l.id, l.branch_id, l.campaign_id, l.contact_id, l.assigned_agent_id, l.lifecycle, l.version,
       l.source_kind, l.needs_attention_reason, l.created_at, l.updated_at,
@@ -67,7 +67,8 @@ export async function requireLead(db: Database, principal: Principal, leadId: st
     WHERE l.id = ${leadId} AND l.organization_id = ${principal.organizationId}
       AND (${principal.role === 'SUPER_ADMIN'} OR
         (${principal.role === 'MANAGER'} AND l.branch_id = ${principal.branchId}) OR
-        (${principal.role === 'AGENT'} AND l.assigned_agent_id = ${principal.id})) LIMIT 1`;
+        (${principal.role === 'AGENT'} AND l.assigned_agent_id = ${principal.id} AND l.branch_id = ${principal.branchId}))
+    LIMIT 1 ${lock ? db`FOR SHARE OF l` : db``}`;
   if (!rows[0]) throw new HttpError(404, 'LEAD_NOT_FOUND');
   return rows[0];
 }
