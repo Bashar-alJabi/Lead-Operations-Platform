@@ -24,6 +24,15 @@ test('First AI contact uses managed approved template UI, fresh real intake, tru
  const tpl=(await(await page.request.get('/api/messaging/campaigns/'+cid+'/templates')).json()).items.find((x:{name:string})=>x.name==='browser_initial_flow');expect(tpl).toBeTruthy();expect((await page.request.put('/api/messaging/campaigns/'+cid+'/templates/'+tpl.id,{headers,data:{version:tpl.version,bound:true}})).status()).toBe(200);
  await page.getByRole('button',{name:'Campaigns',exact:true}).click();await page.getByRole('button',{name:'Retry',exact:true}).click();await page.getByRole('row').filter({hasText:'Browser first contact flow'}).getByRole('button',{name:'Details',exact:true}).click();
  const setup=page.locator('[data-ai-initial-setup]');await setup.getByRole('button',{name:'Review first message setup',exact:true}).click();await setup.getByRole('combobox',{name:'Approved campaign template',exact:true}).selectOption(tpl.id);await setup.getByLabel('Body parameter values (one per line)',{exact:true}).fill('Approved first contact price 100 EUR');await setup.getByLabel('Content approval reason',{exact:true}).fill('Approve exact campaign-specific first message');await setup.getByRole('button',{name:'Approve first message',exact:true}).click();await expect(setup).toContainText('Template and published knowledge match');await expect(setup).toContainText('Approved first contact price 100 EUR');
+ const followup=page.locator('[data-ai-followup-message]');
+ await followup.getByRole('button',{name:'Review follow-up message setup',exact:true}).click();
+ await followup.getByRole('combobox',{name:'Approved campaign template',exact:true}).selectOption(tpl.id);
+ await followup.getByLabel('Body parameter values (one per line)',{exact:true}).fill('Approved synthetic follow-up');
+ await followup.getByLabel('Content approval reason',{exact:true}).fill('Independent follow-up approval');
+ await followup.getByRole('button',{name:'Approve follow-up message',exact:true}).click();
+ await expect(followup).toContainText('Approved synthetic follow-up');
+ await expect(followup.getByRole('list')).toContainText('Independent follow-up approval');
+ await expect(setup).toContainText('Approved first contact price 100 EUR');
  const create=async(name:string)=>{const r=await page.request.post('/api/leads',{headers,data:{branchId:me.branchId,campaignId:cid,contact:{name,phone:'+15556667901'}}});expect(r.status(),await r.text()).toBe(201);return(await r.json()).id;};
  const old=await create('Browser actual initial customer'),consentPath='/api/leads/'+old+'/messaging-consent',v=(await(await page.request.get(consentPath)).json()).version;
  expect((await page.request.put(consentPath,{headers,data:{version:v,status:'GRANTED',doNotContact:false,evidence:'Authorized synthetic prior opt-in',source:'Dedicated synthetic record'}})).status()).toBe(200);

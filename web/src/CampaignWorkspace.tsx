@@ -197,6 +197,7 @@ export function CampaignWorkspace({ id, locale, api, onBack, onChanged }: {
     <CampaignKnowledge key={id} campaignId={id} locale={locale} api={api} />
     <CampaignQualification key={'qualification-'+id} campaignId={id} locale={locale} api={api} />
     <CampaignAIFollowupPolicy key={'ai-followup-'+id} campaignId={id} locale={locale} api={api} />
+    <CampaignAIInitialMessage key={'ai-followup-message-'+id} campaignId={id} locale={locale} api={api} purpose="followup"/>
     <CampaignAIBehaviorPolicy key={'ai-behavior-'+id} campaignId={id} branchId={campaign.branch_id} locale={locale} api={api} />
     <CampaignAIInitialMessage key={'ai-initial-'+id} campaignId={id} locale={locale} api={api}/>
     <CampaignAIConfiguration key={'ai-config-'+id} campaignId={id} branchId={campaign.branch_id} locale={locale} api={api} />
