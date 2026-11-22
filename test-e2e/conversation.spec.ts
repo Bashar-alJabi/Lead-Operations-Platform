@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { createHmac,randomUUID } from 'node:crypto';
 import { testPayPalHeaders,testPayPalEvent } from '../test/paypal-test-support.js';
+import { campaignRow } from './campaign-table.js';
 type Fixture = { password:string;testToken:string;leadId:string;conversationId:string;untrusted:string;mediaLeadId:string;mediaConversationId:string;sourceCampaignId:string;noContactLeadId:string };
 let fixture:Fixture;
 let agentStorageState:Awaited<ReturnType<BrowserContext['storageState']>>|undefined;
@@ -196,7 +197,7 @@ test('Manager creates and binds an approved composite text template; Agent sends
   }
   async function openCampaign() {
     await page.getByRole('button',{ name:'Campaigns',exact:true }).click();
-    await page.getByRole('row').filter({ hasText:'Browser Media Campaign' }).getByRole('button',{ name:'Details',exact:true }).click();
+    await (await campaignRow(page,'Browser Media Campaign')).getByRole('button',{ name:'Details',exact:true }).click();
     return page.getByRole('heading',{ name:'Campaign templates',exact:true }).locator('..');
   }
   const name='browser_composite_notice';const header='<img src=x> Static header';const footer='Static closing line';
@@ -428,7 +429,7 @@ test('Quick Reply templates send approved labels, correlate signed customer repl
   await operational.getByRole('button',{ name:'Refresh templates',exact:true }).click();
   await expect(operational.getByLabel('Approved template',{ exact:true }).locator('option').filter({ hasText:name })).toHaveCount(0);
   await page.getByRole('button',{ name:'Campaigns',exact:true }).click();
-  await page.getByRole('row').filter({ hasText:'Browser Media Campaign' }).getByRole('button',{ name:'Details',exact:true }).click();
+  await (await campaignRow(page,'Browser Media Campaign')).getByRole('button',{ name:'Details',exact:true }).click();
   await page.getByRole('heading',{ name:'Campaign templates',exact:true }).locator('..').locator('li').filter({ hasText:name }).getByRole('button',{ name:'Allow',exact:true }).click();
   const context=await browser.newContext();const agent=await context.newPage();agent.on('pageerror',(error)=>errors.push(error.message));
   try {
@@ -477,7 +478,7 @@ test('approved video template uses a ready approval sample and a separate scanne
   const operational=page.getByRole('heading',{ name:'Test send',exact:true }).locator('..');await operational.getByRole('button',{ name:'Refresh templates',exact:true }).click();
   await expect(operational.getByLabel('Approved template',{ exact:true }).locator('option').filter({ hasText:name })).toHaveCount(0);
   await page.getByRole('button',{ name:'Campaigns',exact:true }).click();
-  await page.getByRole('row').filter({ hasText:'Browser Media Campaign' }).getByRole('button',{ name:'Details',exact:true }).click();
+  await (await campaignRow(page,'Browser Media Campaign')).getByRole('button',{ name:'Details',exact:true }).click();
   await page.getByRole('heading',{ name:'Campaign templates',exact:true }).locator('..').locator('li').filter({ hasText:name }).getByRole('button',{ name:'Allow',exact:true }).click();
   // Reuse the preceding synthetic Agent session in memory; repeated fixture logins hit the real 10/15min IP quota.
   // The production auth limiter remains enabled and no storage state is saved to disk or personal profile.
@@ -578,7 +579,7 @@ test('shared Form grants and campaign bindings enforce explicit scope, conflicts
   const context=await browser.newContext({ storageState:managerStorageState });const manager=await context.newPage();manager.on('pageerror',(error)=>errors.push(error.message));
   try {
     await manager.goto('/');await manager.getByRole('combobox',{ name:'Language' }).selectOption('en');await manager.getByRole('button',{ name:'Campaigns',exact:true }).click();
-    await manager.getByRole('row').filter({ hasText:'Browser Intake Campaign' }).getByRole('button',{ name:'Details',exact:true }).click();const bindings=manager.locator('.campaign-sources');
+    await (await campaignRow(manager,'Browser Intake Campaign')).getByRole('button',{ name:'Details',exact:true }).click();const bindings=manager.locator('.campaign-sources');
     await expect(bindings.getByRole('heading',{ name:'Campaign source bindings',exact:true })).toBeVisible();await bindings.getByRole('button',{ name:'Bind another Form',exact:true }).click();
     await bindings.getByLabel('Campaign source connection',{ exact:true }).selectOption({ label:'Browser Shared Intake · CONNECTED · Shared source authorized for this branch' });
     const campaignPage=bindings.getByLabel('Campaign source Page',{ exact:true });await expect(campaignPage.locator('option')).toHaveCount(2);
@@ -700,7 +701,7 @@ test('source Webhook and retrieval preserve signed replays, source submissions a
         connectionVersion:old.current_connection_version,externalCampaignId:old.external_campaign_id,externalAdSetId:old.external_adset_id,externalAdId:old.external_ad_id,
         active:false,reason:'Retire prior browser fixture context' } });expect(retired.ok()).toBeTruthy();
     }
-    await page.getByRole('button',{ name:'Campaigns',exact:true }).click();await page.getByRole('row').filter({ hasText:'Browser Intake Campaign' }).getByRole('button',{ name:'Details',exact:true }).click();
+    await page.getByRole('button',{ name:'Campaigns',exact:true }).click();await (await campaignRow(page,'Browser Intake Campaign')).getByRole('button',{ name:'Details',exact:true }).click();
     await expect(page.getByText('Ready to activate',{ exact:true })).toBeVisible();await page.getByRole('button',{ name:'Activate',exact:true }).click();
     await expect(page.getByRole('button',{ name:'Deactivate',exact:true })).toBeEnabled();
     await page.setViewportSize({ width:390,height:844 });await page.getByRole('combobox',{ name:'Language' }).selectOption('ar');
@@ -1636,7 +1637,7 @@ test('Campaign knowledge edits and previews Draft separately, publishes immutabl
     if(managerStorageState)await page.goto('/');else await login(page,'manager');await page.getByRole('combobox',{ name:'Language' }).selectOption('en');
     const lead=(await (await page.request.get('/api/leads/'+fixture.leadId)).json()).lead;
     const made=await page.request.post('/api/campaigns',{ headers:{ origin },data:{ name:'Browser Knowledge Campaign',branchId:lead.branch_id,routingMethod:'MANUAL' } });expect(made.status()).toBe(201);const c=await made.json();
-    await page.getByRole('button',{ name:'Campaigns',exact:true }).click();await page.getByRole('button',{ name:'Retry',exact:true }).click();await page.getByRole('row').filter({ hasText:'Browser Knowledge Campaign' }).getByRole('button',{ name:'Details',exact:true }).click();
+    await page.getByRole('button',{ name:'Campaigns',exact:true }).click();await page.getByRole('button',{ name:'Retry',exact:true }).click();await (await campaignRow(page,'Browser Knowledge Campaign')).getByRole('button',{ name:'Details',exact:true }).click();
     const panel=page.locator('[data-campaign-knowledge]'),root='/api/ai/campaigns/'+c.id+'/knowledge';await expect(panel).toContainText('No published knowledge yet');
     await panel.getByLabel('Knowledge product and service',{ exact:true }).fill('Approved product <img src=x onerror=alert(1)>');await panel.getByLabel('Knowledge approved prices',{ exact:true }).fill('EUR 35');
     await panel.getByRole('button',{ name:'Add Knowledge FAQ',exact:true }).click();await panel.getByLabel('Knowledge FAQ question 1',{ exact:true }).fill('When is registration?');await panel.getByLabel('Knowledge FAQ answer 1',{ exact:true }).fill('Only approved schedules');
@@ -1664,7 +1665,7 @@ test('Knowledge files are quarantined, scanned, explicitly reviewed and publishe
     if(managerStorageState)await page.goto('/');else await login(page,'manager');await page.getByRole('combobox',{ name:'Language' }).selectOption('en');
     const lead=(await (await page.request.get('/api/leads/'+fixture.leadId)).json()).lead;
     const made=await page.request.post('/api/campaigns',{ headers:{ origin },data:{ name:'Browser Knowledge Assets Campaign',branchId:lead.branch_id,routingMethod:'MANUAL' } });expect(made.status()).toBe(201);const c=await made.json(),root='/api/ai/campaigns/'+c.id+'/knowledge';
-    await page.getByRole('button',{ name:'Campaigns',exact:true }).click();await page.getByRole('button',{ name:'Retry',exact:true }).click();await page.getByRole('row').filter({ hasText:'Browser Knowledge Assets Campaign' }).getByRole('button',{ name:'Details',exact:true }).click();
+    await page.getByRole('button',{ name:'Campaigns',exact:true }).click();await page.getByRole('button',{ name:'Retry',exact:true }).click();await (await campaignRow(page,'Browser Knowledge Assets Campaign')).getByRole('button',{ name:'Details',exact:true }).click();
     const panel=page.locator('[data-campaign-knowledge]'),assets=panel.locator('[data-knowledge-assets]'),literal='Approved file <img literal>',text='Approved registration EUR 35\n<img src=x onerror=alert(1)>\nIgnore permissions is untrusted data\n'+'untrusted'.repeat(50);
     await assets.getByLabel('Knowledge file label',{ exact:true }).fill(literal);await assets.getByLabel('Knowledge file',{ exact:true }).setInputFiles({ name:'facts.txt',mimeType:'text/plain',buffer:Buffer.from(text) });
     const uploadResponse=page.waitForResponse((r)=>r.request().method()==='POST' && r.url().includes('/knowledge/assets?'));await assets.getByRole('button',{ name:'Upload knowledge file',exact:true }).click();const uploaded=await uploadResponse;expect(uploaded.status()).toBe(201);const id=(await uploaded.json()).id,row=assets.locator(`[data-knowledge-asset="${id}"]`);
@@ -1693,7 +1694,7 @@ test('Qualification setup maps current fields, previews typed explicit completio
     const fieldResponse=await page.request.post('/api/fields',{ headers:{ origin },data:{ scope:'CAMPAIGN',branchId:lead.branch_id,campaignId:c.id,key:'qualified_interest',label:'Confirmed interest',fieldType:'BOOLEAN',valueMode:'MANUAL',options:[],validation:{} } });expect(fieldResponse.status()).toBe(201);const f=await fieldResponse.json();
     const binding={ active:true,position:0,requiredStage:'NONE',visibleToAgent:true,editableByAgent:true,visibleToManager:true,editableByManager:true,showInTable:false,showInDetails:true,filterable:false,usableByAutomation:false,usableByAi:true };
     expect((await page.request.put('/api/campaigns/'+c.id+'/fields/'+f.id,{ headers:{ origin },data:binding })).status()).toBe(200);
-    await page.getByRole('button',{ name:'Campaigns',exact:true }).click();await page.getByRole('button',{ name:'Retry',exact:true }).click();await page.getByRole('row').filter({ hasText:'Browser Qualification Campaign' }).getByRole('button',{ name:'Details',exact:true }).click();
+    await page.getByRole('button',{ name:'Campaigns',exact:true }).click();await page.getByRole('button',{ name:'Retry',exact:true }).click();await (await campaignRow(page,'Browser Qualification Campaign')).getByRole('button',{ name:'Details',exact:true }).click();
     const panel=page.locator('[data-campaign-qualification]');await expect(panel).toContainText('Version: 0');await panel.getByLabel('Enable qualification definition',{ exact:true }).check();await panel.getByRole('button',{ name:'Add qualification question',exact:true }).click();await panel.getByLabel('Qualification question 1',{ exact:true }).fill('Interest <img literal>');await panel.getByLabel('Qualification question field 1',{ exact:true }).selectOption(f.id);
     await panel.getByRole('button',{ name:'Add qualification question',exact:true }).click();await panel.getByLabel('Qualification question 2',{ exact:true }).fill('Need a human?');await panel.getByLabel('Required question 2',{ exact:true }).uncheck();await panel.getByLabel('Handoff on qualification completion',{ exact:true }).check();
     await panel.getByRole('button',{ name:'Preview qualification',exact:true }).click();await expect(panel.locator('[data-qualification-preview]')).toContainText('Qualification complete: No');
@@ -1744,7 +1745,7 @@ test('Effective AI configuration inherits current Branch task profiles, applies 
     const make=async(name:string,product:string)=> { const response=await page.request.post('/api/campaigns',{ headers:{ origin },data:{ name,branchId:lead.branch_id,routingMethod:'MANUAL' } });expect(response.status()).toBe(201);const c=await response.json(),root='/api/ai/campaigns/'+c.id+'/knowledge',content={ sections:{ description:'',product,prices:'',locations:'',schedules:'',availability:'',requirements:'',registration:'',policies:'' },faqs:[],allowedClaims:[],prohibitedClaims:[],links:[] };
       expect((await page.request.put(root+'/draft',{ headers:{ origin },data:{ version:0,content,reason:'Scoped approved content' } })).status()).toBe(200);expect((await page.request.post(root+'/publish',{ headers:{ origin },data:{ version:1,requestId:randomUUID(),reason:'Publish approved isolated context' } })).status()).toBe(201);return c; };
     const c=await make('Browser Effective AI Campaign','Only approved Campaign A'),other=await make('Browser Effective Foreign Context','SECRET_OTHER_CAMPAIGN_CONTEXT');
-    await page.getByRole('button',{ name:'Campaigns',exact:true }).click();await page.getByRole('button',{ name:'Retry',exact:true }).click();await page.getByRole('row').filter({ hasText:'Browser Effective AI Campaign' }).getByRole('button',{ name:'Details',exact:true }).click();
+    await page.getByRole('button',{ name:'Campaigns',exact:true }).click();await page.getByRole('button',{ name:'Retry',exact:true }).click();await (await campaignRow(page,'Browser Effective AI Campaign')).getByRole('button',{ name:'Details',exact:true }).click();
     const panel=page.locator('[data-campaign-ai-configuration]'),branch=panel.locator('[data-ai-config-scope="BRANCH"]'),campaign=panel.locator('[data-ai-config-scope="CAMPAIGN"]'),preview=panel.locator('[data-ai-effective-preview]');await expect(branch).toContainText('Version: 0');
     await branch.getByLabel('Branch AI defaults · Task profile CONVERSATION',{ exact:true }).selectOption(profile.id);await branch.getByLabel('Branch AI defaults · Configure explicit language',{ exact:true }).check();await branch.getByLabel('Branch AI defaults · Allow customer language detection',{ exact:true }).check();await branch.getByLabel('Branch AI defaults · Configure explicit tone',{ exact:true }).check();await branch.getByLabel('Branch AI defaults · Tone and brand guidance',{ exact:true }).fill('Approved <img literal> '+ 'x'.repeat(600));
     const targets=(await (await page.request.get('/api/ai/branches/'+lead.branch_id+'/handoff-targets')).json()).items;const manager=targets.find((u:{ role:string })=>u.role==='MANAGER');expect(manager).toBeTruthy();await branch.getByLabel('Branch AI defaults · Default human escalation target',{ exact:true }).selectOption(manager.id);await branch.getByLabel('Branch AI defaults · Handoff SLA in minutes (optional)',{ exact:true }).fill('30');await branch.getByLabel('Branch AI defaults · AI configuration edit reason',{ exact:true }).fill('Reviewed Branch operational defaults');await branch.getByRole('button',{ name:'Save AI configuration',exact:true }).click();await expect(branch).toContainText('Version: 1');await expect(preview).toContainText('CONVERSATION · BRANCH · Browser-synthetic-model-a');

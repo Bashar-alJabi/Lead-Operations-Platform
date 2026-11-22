@@ -454,7 +454,7 @@ function App() {
           api<{ items: Lead[]; nextCursor: string | null }>(`/api/leads?${leadQuery ? leadQuery + '&' : ''}limit=50&cursor=${encodeURIComponent(nextLeadCursor)}`)
             .then((result) => { setLeads((existing) => [...existing, ...result.items]); setNextLeadCursor(result.nextCursor); })
             .catch((failure) => setError(String(failure))).finally(() => setBusy(false)); }}>{locale === 'ar' ? 'تحميل المزيد' : locale === 'fr' ? 'Afficher plus' : 'Load more'}</button></div>}
-        {page === 'campaigns' && nextCampaignCursor && <div className="load-more"><button className="secondary" disabled={busy} onClick={() => { setBusy(true);
+        {page === 'campaigns' && nextCampaignCursor && <div className="load-more"><button className="secondary" data-campaign-next-page disabled={busy} onClick={() => { setBusy(true);
           void api<{ items: Campaign[]; nextCursor: string | null }>(`/api/campaigns?cursor=${encodeURIComponent(nextCampaignCursor)}`)
             .then((result) => { setCampaigns((current) => [...current, ...result.items]); setNextCampaignCursor(result.nextCursor); })
             .catch((failure) => setError(String(failure))).finally(() => setBusy(false)); }}>{locale === 'ar' ? 'تحميل المزيد' : locale === 'fr' ? 'Afficher plus' : 'Load more'}</button></div>}

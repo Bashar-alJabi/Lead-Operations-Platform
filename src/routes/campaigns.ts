@@ -71,6 +71,15 @@ async function readiness(sql: Database | postgres.TransactionSql, campaign: post
   return issues;
 }
 
+function campaignPage(rows: postgres.Row[], limit: number) {
+  const results = rows.slice(0,limit);
+  const last = results.at(-1);
+  return {
+    items: results.map(({cursor_at,...campaign}) => campaign),
+    nextCursor: rows.length>limit && last ? encodeCursor({ timestamp:last.cursor_at,id:last.id }) : null,
+  };
+}
+
 export function registerCampaignRoutes(app: FastifyInstance, db: Database): void {
   app.get<{ Querystring: { limit?: number; cursor?: string; branchId?: string } }>('/api/campaigns', {
     schema: { querystring: { type: 'object', additionalProperties: false, properties: {
@@ -83,18 +92,16 @@ export function registerCampaignRoutes(app: FastifyInstance, db: Database): void
     const cursor = decodeCursor(q.cursor);
     const limit = q.limit ?? 30;
     if (actor.role === 'AGENT') {
-      const rows = await db`SELECT c.id, c.branch_id, c.name, c.status, c.created_at
+      const rows = await db`SELECT c.id, c.branch_id, c.name, c.status, c.created_at, c.created_at::text AS cursor_at
         FROM campaign c WHERE c.organization_id = ${actor.organizationId} AND c.branch_id = ${actor.branchId}
           AND (${q.branchId ?? null}::uuid IS NULL OR c.branch_id = ${q.branchId ?? null})
           AND EXISTS (SELECT 1 FROM lead l WHERE l.campaign_id = c.id AND l.assigned_agent_id = ${actor.id})
-          AND (${cursor?.timestamp ?? null}::timestamptz IS NULL OR
-            (c.created_at, c.id) < (${cursor?.timestamp ?? null}::timestamptz, ${cursor?.id ?? null}::uuid))
+          AND (${cursor?.timestamp ?? null}::text::timestamptz IS NULL OR
+            (c.created_at, c.id) < (${cursor?.timestamp ?? null}::text::timestamptz, ${cursor?.id ?? null}::uuid))
         ORDER BY c.created_at DESC, c.id DESC LIMIT ${limit + 1}`;
-      const items = rows.slice(0, limit);
-      const last = items.at(-1);
-      return { items, nextCursor: rows.length > limit && last ? encodeCursor({ timestamp: last.created_at.toISOString(), id: last.id }) : null };
+      return campaignPage(rows,limit);
     }
-    const rows = await db`SELECT c.id, c.branch_id, c.name, c.status, c.source_kind, c.routing_method, c.version, c.created_at,
+    const rows = await db`SELECT c.id, c.branch_id, c.name, c.status, c.source_kind, c.routing_method, c.version, c.created_at, c.created_at::text AS cursor_at,
       COALESCE(jsonb_agg(jsonb_build_object('agentId', ca.agent_id, 'name', u.name, 'weight', ca.weight,
           'capacityOverride', ca.capacity_override) ORDER BY u.name)
           FILTER (WHERE ca.active AND u.id IS NOT NULL), '[]'::jsonb) AS agents
@@ -103,12 +110,10 @@ export function registerCampaignRoutes(app: FastifyInstance, db: Database): void
       WHERE c.organization_id = ${actor.organizationId}
         AND (${actor.role === 'SUPER_ADMIN'} OR c.branch_id = ${actor.branchId})
         AND (${q.branchId ?? null}::uuid IS NULL OR c.branch_id = ${q.branchId ?? null})
-        AND (${cursor?.timestamp ?? null}::timestamptz IS NULL OR
-          (c.created_at, c.id) < (${cursor?.timestamp ?? null}::timestamptz, ${cursor?.id ?? null}::uuid))
+        AND (${cursor?.timestamp ?? null}::text::timestamptz IS NULL OR
+          (c.created_at, c.id) < (${cursor?.timestamp ?? null}::text::timestamptz, ${cursor?.id ?? null}::uuid))
       GROUP BY c.id ORDER BY c.created_at DESC, c.id DESC LIMIT ${limit + 1}`;
-    const items = rows.slice(0, limit);
-    const last = items.at(-1);
-    return { items, nextCursor: rows.length > limit && last ? encodeCursor({ timestamp: last.created_at.toISOString(), id: last.id }) : null };
+    return campaignPage(rows,limit);
   });
 
   app.post<{ Body: { branchId: string; name: string; sourceKind?: string; routingMethod?: RoutingMethod } }>('/api/campaigns', {

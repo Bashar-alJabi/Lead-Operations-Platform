@@ -34,6 +34,29 @@ async function fixture(t:TestContext){
  return {db,app,org,branch,other,campaigns,leads,users,api,overview};
 }
 
+test('Campaign catalog keysets preserve PostgreSQL submillisecond order for scoped managers and agents',async t=>{
+ const {db,campaigns,api}=await fixture(t);
+ const first=campaigns[0]!,second=campaigns[2]!,third=campaigns[1]!;
+ await db`UPDATE campaign SET created_at=CASE id
+  WHEN ${first} THEN '2020-01-01T00:00:00.000901Z'::timestamptz
+  WHEN ${second} THEN '2020-01-01T00:00:00.000801Z'::timestamptz
+  ELSE '2020-01-01T00:00:00.000701Z'::timestamptz END
+  WHERE id IN (${first},${second},${third})`;
+ for (const [who, expected] of [['manager',[first,second,third]],['agent',[first,second]]] as const) {
+  const ids:string[]=[];
+  let cursor:string|null=null;
+  do {
+   const result=await api('GET','/api/campaigns?limit=1'+(cursor?'&cursor='+encodeURIComponent(cursor):''),undefined,who);
+   assert.equal(result.statusCode,200,result.body);
+   const page: {items:{id:string}[];nextCursor:string|null}=result.json();
+   assert.equal(page.items.length,1);
+   ids.push(page.items[0]!.id);
+   cursor=page.nextCursor;
+  } while (cursor);
+  assert.deepEqual(ids,expected);
+ }
+});
+
 test('Campaign Status defines a typed conversion with matching aggregate and drilldown, current visibility and native integrity',async t=>{
  const {db,branch,campaigns,leads,users,api,overview}=await fixture(t);
  const campaign=campaigns[0]!,root='/api/campaigns/'+campaign,filter='campaignId='+campaign;
