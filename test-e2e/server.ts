@@ -188,7 +188,7 @@ const branch = (await db`INSERT INTO branch (organization_id,name) VALUES (${org
 const otherBranch = (await db`INSERT INTO branch (organization_id,name) VALUES (${org},'Other Branch') RETURNING id`)[0]!.id;
 const users: Record<string,string> = {};
 for (const [name,role,branchId] of [['admin','SUPER_ADMIN',null],['manager','MANAGER',branch],
-  ['other','MANAGER',otherBranch],['agent','AGENT',branch],['second','AGENT',branch]] as const)
+  ['other','MANAGER',otherBranch],['agent','AGENT',branch],['second','AGENT',branch],['scope-staff','AGENT',branch]] as const)
   users[name] = (await db`INSERT INTO user_account (organization_id,branch_id,name,role,email,password_hash)
     VALUES (${org},${branchId},${'Browser '+name},${role},${name+'@browser.test'},${hash}) RETURNING id`)[0]!.id;
 const campaign = (await db`INSERT INTO campaign (organization_id,branch_id,name,status,messaging_config)

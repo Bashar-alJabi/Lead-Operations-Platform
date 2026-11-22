@@ -36,6 +36,7 @@ export function registerConversationRoutes(app: FastifyInstance, db: Database): 
             (${actor.role === 'MANAGER'} AND l.branch_id = ${actor.branchId}) OR
             (${actor.role === 'AGENT'} AND l.assigned_agent_id = ${actor.id})) FOR UPDATE OF l`)[0];
       if (!lead) throw new HttpError(404, 'LEAD_NOT_FOUND');
+      if (!await currentPaymentSession(tx,actor,request)) throw new HttpError(403,'CONVERSATION_ACCESS_REVOKED');
       if (lead.lifecycle !== 'OPEN') throw new HttpError(409, 'LEAD_NOT_OPEN');
       if (!lead.phone_normalized || !/^\+[1-9]\d{7,14}$/.test(lead.phone_normalized))
         throw new HttpError(409, 'CONTACT_PHONE_REQUIRED');
@@ -177,6 +178,7 @@ export function registerConversationRoutes(app: FastifyInstance, db: Database): 
             AND (${actor.role === 'SUPER_ADMIN'} OR l.branch_id = ${actor.branchId})
           FOR UPDATE OF l`)[0];
         if (!lead) throw new HttpError(404, 'CONVERSATION_NOT_FOUND');
+        if (!await currentPaymentSession(tx,actor,request)) throw new HttpError(403,'CONVERSATION_ACCESS_REVOKED');
         const current = (await tx`SELECT version, state, needs_attention_reason FROM conversation
           WHERE id = ${request.params.id} FOR UPDATE`)[0]!;
         if (current.version !== request.body.version) throw new HttpError(409, 'CONVERSATION_VERSION_CONFLICT');

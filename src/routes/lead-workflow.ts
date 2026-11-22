@@ -1,4 +1,4 @@
-import {createHumanFollowUp,type FollowUpLead} from '../human-follow-ups.js';
+import {createHumanFollowUp,requireHumanFollowUpOwner,type FollowUpLead} from '../human-follow-ups.js';
 import {currentPaymentSession} from '../payments/access.js';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type postgres from 'postgres';
@@ -287,6 +287,7 @@ export function registerLeadWorkflowRoutes(app: FastifyInstance, db: Database): 
     if (!text) throw new HttpError(400, 'EMPTY_NOTE');
     const id = await db.begin(async (tx) => {
       const lead = await lockedLead(tx, actor, request.params.id);
+      if (!await currentPaymentSession(tx,actor,request)) throw new HttpError(403,'LEAD_ACCESS_REVOKED');
       const rows = await tx`INSERT INTO lead_activity (lead_id, actor_user_id, event_type, detail)
         VALUES (${lead.id}, ${actor.id}, 'NOTE_ADDED', ${tx.json({ text })}) RETURNING id`;
       return rows[0]!.id;
@@ -343,16 +344,13 @@ export function registerLeadWorkflowRoutes(app: FastifyInstance, db: Database): 
     const actor = await principalFromRequest(request, db);
     return db.begin(async (tx) => {
       const { lead, item } = await requireFollowup(tx, actor, request.params.id);
+      if (!await currentPaymentSession(tx,actor,request)) throw new HttpError(403,'FOLLOW_UP_ACCESS_REVOKED');
       if (item.version !== request.body.version) throw new HttpError(409, 'FOLLOW_UP_VERSION_CONFLICT');
       if (item.status !== 'OPEN') throw new HttpError(409, 'FOLLOW_UP_NOT_OPEN');
       if (request.body.status === 'CANCELLED' && actor.role === 'AGENT') throw new HttpError(403, 'FOLLOW_UP_CANCEL_DENIED');
       const owner = request.body.ownerUserId ?? item.owner_user_id;
       if (request.body.ownerUserId && actor.role === 'AGENT' && owner !== actor.id) throw new HttpError(403, 'FOLLOW_UP_OWNER_DENIED');
-      if (owner !== item.owner_user_id) {
-        const user = await tx`SELECT 1 FROM user_account WHERE id = ${owner} AND organization_id = ${actor.organizationId}
-          AND branch_id = ${lead.branch_id} AND active AND role IN ('MANAGER','AGENT')`;
-        if (!user.length) throw new HttpError(400, 'FOLLOW_UP_OWNER_NOT_ELIGIBLE');
-      }
+      if (owner!==item.owner_user_id) await requireHumanFollowUpOwner(tx,actor,lead as FollowUpLead,owner);
       if (Object.keys(request.body).length === 1) throw new HttpError(400, 'FOLLOW_UP_NO_CHANGES');
       const status = request.body.status ?? item.status;
       const before = { dueAt: item.due_at.toISOString(), note: item.note, priority: item.priority, owner: item.owner_user_id, status: item.status };

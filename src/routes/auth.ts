@@ -6,6 +6,7 @@ import { HttpError, lockCurrentSession, newToken, passwordHash, passwordVerify, 
 import { enqueueIdentityEmail, identityEmailConnection } from '../identity-email.js';
 import { decodeCursor, encodeCursor } from '../pagination.js';
 import { registerAgentProfileRoutes } from './agent-profile.js';
+import { registerStaffOperationalScopeRoutes } from './staff-operational-scope.js';
 
 const emailPattern = '^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$';
 const passwordSchema = { type: 'string', minLength: 12, maxLength: 256 } as const;
@@ -31,6 +32,7 @@ async function queuePasswordReset(tx:postgres.TransactionSql,target:ResetAccount
 
 export function registerAuthRoutes(app: FastifyInstance, db: Database): void {
   registerAgentProfileRoutes(app,db);
+  registerStaffOperationalScopeRoutes(app,db);
   app.get('/api/setup/status', async () => {
     const rows = await db`SELECT EXISTS(SELECT 1 FROM user_account) AS initialized`;
     return { initialized: rows[0]?.initialized === true };
@@ -70,13 +72,19 @@ export function registerAuthRoutes(app: FastifyInstance, db: Database): void {
       email: { type: 'string', maxLength: 320 }, password: { type: 'string', maxLength: 256 },
     } } },
   }, async (request, reply) => {
-    const rows = await db`SELECT id, password_hash, active, credential_state FROM user_account WHERE email_normalized = ${request.body.email.trim().toLowerCase()} LIMIT 1`;
+    const rows = await db`SELECT id,password_hash,active,credential_state,operational_scope_version
+      FROM user_account WHERE email_normalized=${request.body.email.trim().toLowerCase()} LIMIT 1`;
     const user = rows[0];
     const valid = user && user.active && user.credential_state === 'READY' && user.password_hash &&
       await passwordVerify(user.password_hash, request.body.password);
     if (!valid) throw new HttpError(401, 'INVALID_CREDENTIALS');
     const token = newToken();
-    await db`INSERT INTO user_session (user_id, token_hash, expires_at) VALUES (${user.id}, ${sha256(token)}, now() + interval '12 hours')`;
+    await db.begin(async tx => {
+      const [current] = await tx`SELECT id FROM user_account WHERE id=${user.id} AND active AND credential_state='READY'
+        AND password_hash=${user.password_hash} AND operational_scope_version=${user.operational_scope_version} FOR SHARE`;
+      if (!current) throw new HttpError(401,'INVALID_CREDENTIALS');
+      await tx`INSERT INTO user_session(user_id,token_hash,expires_at) VALUES(${current.id},${sha256(token)},now()+interval '12 hours')`;
+    });
     setSessionCookie(reply, token);
     return { ok: true };
   });
@@ -219,14 +227,16 @@ export function registerAuthRoutes(app: FastifyInstance, db: Database): void {
     requireRole(actor, 'SUPER_ADMIN', 'MANAGER');
     const cursor = decodeCursor(request.query.cursor);
     const limit = request.query.limit ?? 50;
-    const rows = await db`SELECT id, branch_id, role, name, email, active, credential_state, capacity, working_hours, created_at
-      FROM user_account WHERE organization_id = ${actor.organizationId}
-      AND (${actor.role === 'SUPER_ADMIN'} OR branch_id = ${actor.branchId})
-      AND (${cursor?.timestamp ?? null}::timestamptz IS NULL OR (created_at, id) < (${cursor?.timestamp ?? null}::timestamptz, ${cursor?.id ?? null}::uuid))
-      ORDER BY created_at DESC, id DESC LIMIT ${limit + 1}`;
-    const items = rows.slice(0, limit);
-    const last = items.at(-1);
-    return { items, nextCursor: rows.length > limit && last ? encodeCursor({ timestamp: last.created_at.toISOString(), id: last.id }) : null };
+    return db.begin(async tx => {
+      if (!await lockCurrentSession(tx,actor,request)) throw new HttpError(403,'STAFF_SCOPE_ACCESS_REVOKED');
+      const rows = await tx`SELECT id,branch_id,role,name,email,active,credential_state,capacity,working_hours,created_at
+        FROM user_account WHERE organization_id=${actor.organizationId}
+        AND (${actor.role==='SUPER_ADMIN'} OR branch_id=${actor.branchId})
+        AND (${cursor?.timestamp ?? null}::timestamptz IS NULL OR (created_at,id)<(${cursor?.timestamp ?? null}::timestamptz,${cursor?.id ?? null}::uuid))
+        ORDER BY created_at DESC,id DESC LIMIT ${limit+1}`;
+      const items = rows.slice(0,limit), last = items.at(-1);
+      return { items, nextCursor: rows.length>limit && last ? encodeCursor({ timestamp: last.created_at.toISOString(), id: last.id }) : null };
+    });
   });
 
   app.post<{ Body: { branchId?: string; role: 'SUPER_ADMIN'|'MANAGER'|'AGENT'; name: string; email: string; capacity?: number } }>('/api/users', {
@@ -241,14 +251,13 @@ export function registerAuthRoutes(app: FastifyInstance, db: Database): void {
     const { branchId, role, name, email, capacity } = request.body;
     if (actor.role === 'MANAGER' && role !== 'AGENT') throw new HttpError(403, 'FORBIDDEN');
     if (role === 'SUPER_ADMIN' ? branchId != null : !branchId) throw new HttpError(400, 'INVALID_BRANCH');
-    if (branchId) {
-      requireBranch(actor, branchId);
-      const branches = await db`SELECT 1 FROM branch WHERE id = ${branchId} AND organization_id = ${actor.organizationId} AND active = true`;
-      if (!branches.length) throw new HttpError(404, 'BRANCH_NOT_FOUND');
-    }
+    if (branchId) requireBranch(actor,branchId);
     const connection = await identityEmailConnection(db, actor.organizationId);
     if (!connection || connection.status !== 'CONNECTED' || !connection.ciphertext) throw new HttpError(409, 'IDENTITY_EMAIL_UNAVAILABLE');
     const id = await db.begin(async (tx) => {
+      if (branchId && !(await tx`SELECT id FROM branch WHERE id=${branchId} AND organization_id=${actor.organizationId} AND active FOR SHARE`).length)
+        throw new HttpError(404,'BRANCH_NOT_FOUND');
+      if (!await lockCurrentSession(tx,actor,request)) throw new HttpError(403,'STAFF_SCOPE_ACCESS_REVOKED');
       const users = await tx`INSERT INTO user_account
         (organization_id, branch_id, role, name, email, password_hash, credential_state, capacity)
         VALUES (${actor.organizationId}, ${branchId ?? null}, ${role}, ${name.trim()}, ${email.trim()}, NULL, 'INVITED', ${capacity ?? null})
@@ -275,6 +284,7 @@ export function registerAuthRoutes(app: FastifyInstance, db: Database): void {
         WHERE id = ${request.params.id} AND organization_id = ${actor.organizationId} FOR UPDATE`;
       const target = rows[0];
       if (!target) throw new HttpError(404, 'USER_NOT_FOUND');
+      if (!await lockCurrentSession(tx,actor,request)) throw new HttpError(403,'STAFF_SCOPE_ACCESS_REVOKED');
       if (actor.role === 'MANAGER' && (target.role !== 'AGENT' || target.branch_id !== actor.branchId)) throw new HttpError(403, 'FORBIDDEN');
       if (!target.active || target.credential_state !== 'INVITED') throw new HttpError(409, 'INVITATION_NOT_AVAILABLE');
       await tx`UPDATE credential_token SET used_at = now() WHERE user_id = ${target.id} AND purpose = 'INVITATION' AND used_at IS NULL`;
@@ -291,12 +301,14 @@ export function registerAuthRoutes(app: FastifyInstance, db: Database): void {
   }, async (request) => {
     const actor = await principalFromRequest(request, db);
     requireRole(actor, 'SUPER_ADMIN', 'MANAGER');
-    const rows = await db`SELECT id, branch_id, role FROM user_account WHERE id = ${request.params.id} AND organization_id = ${actor.organizationId}`;
-    const target = rows[0];
-    if (!target) throw new HttpError(404, 'USER_NOT_FOUND');
-    if (actor.id === target.id && !request.body.active) throw new HttpError(409, 'CANNOT_DISABLE_SELF');
-    if (actor.role === 'MANAGER' && (target.role !== 'AGENT' || target.branch_id !== actor.branchId)) throw new HttpError(403, 'FORBIDDEN');
     await db.begin(async (tx) => {
+      const accounts = await tx`SELECT id,branch_id,role FROM user_account WHERE id IN (${actor.id},${request.params.id})
+        AND organization_id=${actor.organizationId} ORDER BY id FOR UPDATE`;
+      const target = accounts.find(account => account.id===request.params.id);
+      if (!target) throw new HttpError(404,'USER_NOT_FOUND');
+      if (!await lockCurrentSession(tx,actor,request)) throw new HttpError(403,'STAFF_SCOPE_ACCESS_REVOKED');
+      if (actor.id===target.id && !request.body.active) throw new HttpError(409,'CANNOT_DISABLE_SELF');
+      if (actor.role==='MANAGER' && (target.role!=='AGENT' || target.branch_id!==actor.branchId)) throw new HttpError(403,'FORBIDDEN');
       await tx`UPDATE user_account SET active = ${request.body.active}, updated_at = now() WHERE id = ${target.id}`;
       if (!request.body.active) await tx`UPDATE user_session SET revoked_at = now() WHERE user_id = ${target.id} AND revoked_at IS NULL`;
       await tx`INSERT INTO audit_log (organization_id, branch_id, actor_user_id, action, target_type, target_id)
