@@ -112,3 +112,84 @@ test('Generic Webhook setup isolates real sessions and preserves one current sig
   await db`UPDATE user_session SET revoked_at=clock_timestamp() WHERE id=${manager.session}`;
   assert.equal((await api('POST',rotate,{version:3,reason:'Expired scope'})).statusCode,401);
 });
+
+test('Generic Webhook uses current branch schema, shared mapping publication and versioned field visibility', async t=>{
+  process.env.APP_ORIGIN='http://127.0.0.1:5173';
+  process.env.CREDENTIAL_ENCRYPTION_KEY=randomBytes(32).toString('hex');
+  const db=createDatabase(url),app=await buildApp(db,{logger:false,globalRateLimitMax:10000});
+  t.after(async()=>{await app.close();await db.end();});
+  await db.begin(async tx=>{
+    await tx`SET LOCAL client_min_messages TO warning`;
+    await tx`TRUNCATE background_job CASCADE`;
+    await tx`TRUNCATE organization CASCADE`;
+  });
+  const [org]=await db`INSERT INTO organization(name) VALUES('Webhook mapping test') RETURNING id`;
+  const [branch,foreign]=await db`INSERT INTO branch(organization_id,name)
+    VALUES(${org!.id},'Webhook scope'),(${org!.id},'Other branch') RETURNING id`;
+  const [manager,other]=await db`INSERT INTO user_account(organization_id,branch_id,role,name,email,password_hash) VALUES
+    (${org!.id},${branch!.id},'MANAGER','Scoped manager','manager@webhook.test','fixture'),
+    (${org!.id},${foreign!.id},'MANAGER','Other manager','other@webhook.test','fixture') RETURNING id`;
+  async function session(id:string) {
+    const token=randomBytes(32).toString('hex');
+    await db`INSERT INTO user_session(user_id,token_hash,expires_at) VALUES(${id},${sha256(token)},clock_timestamp()+interval '1 hour')`;
+    return 'lop_session='+token;
+  }
+  const cookie=await session(manager!.id), otherCookie=await session(other!.id);
+  const request=(method:'GET'|'POST'|'PUT',path:string,payload?:object,actingCookie=cookie)=>app.inject({
+    method,url:path,payload,headers:{cookie:actingCookie,origin:process.env.APP_ORIGIN!},
+  });
+  const [campaign,second]=await db`INSERT INTO campaign(organization_id,branch_id,source_kind,name) VALUES
+    (${org!.id},${branch!.id},'GENERIC_SOURCE','Webhook campaign'),(${org!.id},${branch!.id},'GENERIC_SOURCE','Second campaign') RETURNING id`;
+  const create=await request('POST','/api/sources/generic/connections',{branchId:branch!.id,name:'Mapped webhook',reason:'Authorize mapping'});
+  assert.equal(create.statusCode,201,create.body);
+  const {id,signingSecret,callbackPath}=create.json();
+  const schemaPath='/api/sources/generic/connections/'+id+'/schema';
+  const input={version:0,connectionVersion:1,keys:['name','email'],reason:'Declare webhook field keys'};
+  assert.equal((await request('PUT',schemaPath,input)).json().error,'GENERIC_SOURCE_TEST_REQUIRED');
+  assert.equal((await request('GET',schemaPath,undefined,otherCookie)).statusCode,404);
+  const body=JSON.stringify({testId:randomUUID()}),seconds=Math.floor(Date.now()/1000);
+  const signed=createHmac('sha256',Buffer.from(signingSecret,'hex'))
+    .update(`lead-operations.generic-source:test:v1\n${id}\n${seconds}\n`).update(body).digest('hex');
+  const probe=await app.inject({method:'POST',url:callbackPath,payload:body,
+    headers:{'content-type':'application/json','x-source-timestamp':String(seconds),'x-source-signature':'v1='+signed}});
+  assert.equal(probe.statusCode,202,probe.body);
+  assert.equal((await request('PUT',schemaPath,{...input,keys:['name','name']})).statusCode,400);
+  const concurrent=await Promise.all(Array.from({length:5},()=>request('PUT',schemaPath,input)));
+  assert.deepEqual(concurrent.map(result=>result.statusCode).sort(),[200,409,409,409,409]);
+  const catalog=(await request('GET',schemaPath)).json().schema;
+  assert.equal(catalog.current,true);
+  assert.deepEqual(catalog.questions.map((question:{key:string})=>question.key),input.keys);
+  await assert.rejects(db`UPDATE source_resource SET version=version+1 WHERE id=${catalog.id}`,/GENERIC_SOURCE_SCHEMA_REVISION_REQUIRED/);
+
+  const root='/api/sources/campaigns/'+campaign!.id;
+  assert.deepEqual((await request('GET',root+'/connections')).json().items.map((row:{id:string})=>row.id),[id]);
+  const resources=await request('GET',root+'/connections/'+id+'/resources?kind=WEBHOOK_SCHEMA');
+  assert.equal(resources.json().items[0].id,catalog.id);
+  const bindingInput={connectionId:id,formId:catalog.id,requestId:randomUUID(),connectionVersion:1,
+    active:true,externalCampaignId:null,externalAdSetId:null,externalAdId:null,reason:'Bind only the designated campaign'};
+  assert.equal((await request('POST',root+'/bindings',{...bindingInput,externalCampaignId:'123'})).statusCode,400);
+  const bound=await request('POST',root+'/bindings',bindingInput);
+  assert.equal(bound.statusCode,201,bound.body);
+  const binding=bound.json().id;
+  assert.equal((await request('POST','/api/sources/campaigns/'+second!.id+'/bindings',{...bindingInput,requestId:randomUUID()})).json().error,
+    'SOURCE_BINDING_CONTEXT_CONFLICT');
+  await assert.rejects(db`UPDATE source_campaign_binding SET version=version+1,generic_session_id=NULL WHERE id=${binding}`,
+    /SOURCE_BINDING_SESSION_REQUIRED/);
+  const mapping=root+'/bindings/'+binding+'/mapping';
+  const versions={bindingVersion:1,connectionVersion:1,resourceVersion:1};
+  const entries=[{sourceKey:'name',kind:'CONTACT_NAME',transform:'TEXT',optionMap:[]}];
+  const preview=await request('POST',mapping+'/preview',{...versions,entries,values:[{key:'name',values:['Synthetic preview']}]});
+  assert.equal(preview.statusCode,200,preview.body);
+  assert.equal(preview.json().contact.name,'Synthetic preview');
+  const publish=await request('PUT',mapping,{...versions,entries,version:0,status:'PUBLISHED',reason:'Approve source mapping'});
+  assert.equal(publish.statusCode,200,publish.body);
+  assert.equal((await request('GET',mapping)).json().configured,true);
+  assert.equal((await request('GET',mapping,undefined,otherCookie)).statusCode,404);
+  assert.equal((await request('GET','/api/campaigns/'+campaign!.id+'/readiness')).json().ready,false);
+  assert.equal((await request('PUT',schemaPath,{...input,version:1,reason:'Reauthorize the current schema'})).statusCode,200);
+  assert.equal((await request('GET',mapping)).json().configured,false);
+  assert.equal((await request('PUT',mapping,{...versions,entries,version:1,status:'PUBLISHED',reason:'Stale schema'})).json().error,
+    'SOURCE_MAPPING_CONFIGURATION_CHANGED');
+  assert.equal((await request('GET',mapping+'/history')).json().items[0].reason,'Approve source mapping');
+  assert.equal((await db`SELECT count(*)::int AS n FROM lead`)[0]!.n,0);
+});

@@ -14,7 +14,7 @@
 | Leads/History —00–03،06 §7 | manual/Source intake و OPEN/CLOSED/ARCHIVED و notes/assignment/activity/Follow-up و trusted origin. تجمع 221 الإسناد اليدوي الفردي والجماعي تحت تحقق الجلسة ومعاملة واحدة تحمي المتابعات والتحكم البشري والتاريخ. | Branch transfer UI/service حيثتسمحالقواعد،قبول human lifecycle الشامل وربطالوحداتالمتبقية |
 | Campaigns —00–03/05،06 §8 | إنشاء وتعديل وتفعيل وجاهزية وإسناد وكلاء وإعدادات المصدر والرسائل والدفع وAI. تدعم 169 تعريف Conversion المالي المستقل و226 تعريفه من الحقل أو Status. | استكمال الجاهزية مع Generic Webhook وقبول مسارات الأدوار. |
 | Dynamic/Calculated Fields —00–03،06 §8 | typed definitions/bindings/visibility/editability/required/history و trusted calculated contact metrics،source mappings وHuman/AI Qualification وNative170–171 Bulk typed Manual Fields/Status/Tags ومحفز تغيّر القيم في 212 وشرط المساواة في 215 للحقول المتاحة للأتمتة | إجراءات Automation وAnalytics والأعمدة الديناميكية فيLead table/Saved Views وcalculated filters وremaining required-stage gates والقبول الأوسع |
-| Meta/Sources —00–03،06 §10 | إعداد Meta المشفّر والموارد والصلاحيات والتعيين والاستقبال والمراجعة والمسار المشترك. يضيف 227 إعداد Generic Webhook والتوقيع الاصطناعي والتدوير والتعطيل والسجل. | ربط الحملة ونشر Field Mapping واستقبال Lead عبر Webhook باستخدام المسار المشترك. تبقى جاهزية حملات Messaging دون AI وقبول Meta الحي. |
+| Meta/Sources —00–03،06 §10 | إعداد Meta المشفّر والموارد والتعيين والاستقبال والمراجعة. يغطي Generic Webhook اتصال الفرع واختبار التوقيع والتدوير في 227، ومخطط الحقول والربط بالحملة والمعاينة والنشر في 228. | استقبال حدث Lead الموقّع والتقييم والإنشاء عبر مسار المصادر المشترك. تبقى جاهزية حملات Messaging دون AI وقبول Meta الحي. |
 | Routing —00/02،06 §9 | Manual/Round Robin/Weighted/Performance. أثبتت 216–217 سياسة الأداء وإصداراتها، التوزيع بعينات بشرية ضمن الحملة، البديل وحماية السعة والتاريخ وAudit، والإعداد والتفعيل من Edge. | اختبار حمل مستمر وقبول الوحدات المترابطة ضمن بوابات المنصة. |
 | Messaging —03/05،06 §11 | multiple connections/senders/default/override/pinning/CMP/consent/templates/media/inbound/outbound/delivery/retries/UNKNOWN/review و Human/AI boundaries | acceptance الشاملةوبعض setup/recovery Browser و operability؛Live provider pending. الصيغ provider-specific الإضافية تبقى backlog منخفضةالأولوية |
 | Initial AI Contact —04 §11/05 §18،06 §12 | managed approved first template→fresh intake→durable initial action/outbox→mocked send→signed reply→existing AI reply؛contract مستقل | Live disabled؛initial local dead-letter recovery UI مازالتناقصة؛لا optional initial-media أو provider polish الآن |
@@ -38,13 +38,13 @@
 
 ## الاعتماديات والأولوية التنفيذية التالية
 
-**أحدث نتائج الانحدار الشامل — 2026-11-21** اجتاز بناء `34c9dd0` مع 224 **200/200 PostgreSQL Integration**. اجتاز بناء `efcc06a` مع 223 **91/91 Edge Browser E2E**. تحققت بوابتا 224 و225 المركّزتان مع **209/209 Unit** والبناء وفحص الأنواع وmigrations.
+**أحدث نتائج الانحدار الشامل — 2026-11-22** اجتاز بناء 226 على Compose نظيفة **203/203 PostgreSQL Integration**. بقيت بوابة Edge للبناء 227 عند 72 نجاحًا وفشل رحلة واحدة نتج عن اسم حملة غائب من صفحة الكتالوج الأولى، وتخطت 22 رحلة تعتمد على المجموعة نفسها. اجتاز إصلاح العرض فحص Edge المركّز مع 228. آخر Edge شاملة ناجحة مثبتة هي **91/91** للبناء 223.
 
 1. **Import CSV/Excel checkpoint محفوظة:** `95dbce3` مرفوعة،Native183–184 و193Unit/142PG/68Browser و001–184/build/typecheck مثبتة. لاتعدتنفيذها؛هيbaseline للملفات معSheets/API/load/acceptance gaps باقية. [العقد](lead-import-execution.md). التاليGoogleSheets،دونoptionalparser/provider/AI refinements.
 2. **Google Sheets:** baseline Import190–192 محفوظةفي5d063a8،Export preparation194 في3a6271b،delivery/verification195 في3ca5157. لا إعادةتنفيذ أوoptionalrefinements؛انتقلالآنلمتطلباتEmail/Notifications الأساسية.
 3. **Notifications.** ثبت تسليم Messaging الداخلي وإقرار المزوّد محليًا بـmock في 206، واستعادة تجهيز الجمهور من داخل المنصة في 210. تبقى إثباتات الوصول والقبول الحي والسياسات الإلزامية ضمن المراجعة.
 4. **بقية Automation.** ثبت الإسناد وطلب المراجعة البشرية وCampaign Status والإغلاق المشروط محليًا. تبقى الأتمتة المرتبطة بحالات AI وإجراءاتها المسموحة ضمن اعتماديات دورة AI.
-5. **متطلبات الوحدات الأساسية الأخرى.** ثبت Performance Routing في 216–217، وسجل Audit الإداري في 225، وتعريف Conversion من حقول الحملة في 226، وإعداد Generic Webhook في 227. تابع ربط الحملة ونشر Mapping والاستقبال المشترك، ثم دورة Branch/User/Lead transfer وAI workflows ورحلات القبول الشاملة.
+5. **متطلبات الوحدات الأساسية الأخرى.** ثبت Performance Routing في 216–217، وسجل Audit الإداري في 225، وتعريف Conversion في 226، وإعداد Generic Webhook في 227، وربط مخطط الحقول وتعيينه في 228. تابع الاستقبال المشترك، ثم دورة Branch/User/Lead transfer وAI workflows ورحلات القبول الشاملة.
 
 ## حدودالمراجعةالتلقائية والاعتمادياتالخارجية
 

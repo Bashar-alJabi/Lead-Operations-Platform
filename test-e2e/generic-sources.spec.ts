@@ -1,8 +1,9 @@
 import { expect,test } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import { campaignRow } from './campaign-table.js';
 
-test('A manager configures a Webhook, proves signing in the browser, rotates its secret and retains test history',async({page})=>{
+test('A manager verifies a Webhook, publishes scoped field mapping, rotates its secret and retains test history',async({page})=>{
   const {password}=JSON.parse(await readFile('.local/e2e/fixture.json','utf8')) as {password:string};
   await page.setExtraHTTPHeaders({'x-e2e-rate-scope':randomUUID()});
   await page.goto('/');
@@ -13,7 +14,7 @@ test('A manager configures a Webhook, proves signing in the browser, rotates its
   await expect(page.getByRole('button',{name:'Sign out',exact:true})).toBeVisible();
   await page.getByRole('button',{name:'Webhook sources',exact:true}).click();
   const workspace=page.locator('[data-generic-sources]'),form=workspace.locator('form');
-  await form.getByRole('combobox',{name:'Branch',exact:true}).selectOption({label:'Browser Branch'});
+  const [branchId]=await form.getByRole('combobox',{name:'Branch',exact:true}).selectOption({label:'Browser Branch'});
   await form.getByRole('textbox',{name:'Connection name',exact:true}).fill('Synthetic signed webhook');
   await form.getByRole('textbox',{name:'Change reason',exact:true}).fill('Approve local synthetic setup');
   await form.getByRole('button',{name:'Create webhook connection',exact:true}).click();
@@ -25,18 +26,55 @@ test('A manager configures a Webhook, proves signing in the browser, rotates its
   await expect(detail).toContainText('Waiting for a signed test');
   await detail.getByRole('button',{name:'Send signed test',exact:true}).click();
   const receipts=detail.locator('[data-generic-source-test]');
+  const changes=detail.locator('.actions');
+  const schema=detail.locator('[data-generic-source-schema]');
   await expect(receipts).toHaveCount(1);
   await expect(receipts.first()).toContainText('Current version');
   await detail.getByRole('button',{name:'Hide signing secret',exact:true}).click();
   await expect(secret).toHaveCount(0);
-  await detail.getByRole('textbox',{name:'Change reason',exact:true}).fill('Rotate local synthetic secret');
+  await schema.getByRole('textbox',{name:'Field keys',exact:true}).fill('name\nemail');
+  await schema.getByRole('textbox',{name:'Change reason',exact:true}).fill('Declare synthetic field schema');
+  await schema.getByRole('button',{name:'Save field schema',exact:true}).click();
+  await expect(schema).toContainText('Version 1 · Current version');
+
+  const campaignName='Synthetic webhook campaign '+randomUUID().slice(0,8);
+  const campaign=await page.request.post('/api/campaigns',{headers:{origin:'http://127.0.0.1:4100'},
+    data:{branchId,name:campaignName,sourceKind:'GENERIC_SOURCE',routingMethod:'MANUAL'}});
+  expect(campaign.status(),await campaign.text()).toBe(201);
+  await page.getByRole('button',{name:'Campaigns',exact:true}).click();
+  await page.getByRole('button',{name:'Retry',exact:true}).click();
+  await (await campaignRow(page,campaignName)).getByRole('button',{name:'Details',exact:true}).click();
+  const sources=page.locator('.campaign-sources');
+  await sources.getByRole('button',{name:'Bind Webhook schema',exact:true}).click();
+  await sources.getByRole('combobox',{name:'Campaign source connection',exact:true}).selectOption({label:'Synthetic signed webhook · CONNECTED'});
+  await sources.getByRole('combobox',{name:'Webhook schema',exact:true}).selectOption({label:'Webhook fields'});
+  await sources.getByRole('checkbox',{name:'Enable source selection',exact:true}).check();
+  await sources.getByRole('textbox',{name:'Binding change reason',exact:true}).fill('Bind synthetic webhook to the campaign');
+  await sources.getByRole('button',{name:'Save source binding',exact:true}).click();
+  await sources.getByRole('button',{name:'Field Mapping',exact:true}).click();
+  const mapping=sources.locator('.source-field-mapping');
+  await mapping.getByRole('button',{name:'Suggest mapping',exact:true}).click();
+  await expect(mapping.locator('.mapping-entry')).toHaveCount(2);
+  await mapping.getByRole('textbox',{name:'Preview name',exact:true}).fill('Synthetic lead preview');
+  await mapping.getByRole('button',{name:'Preview mapping',exact:true}).click();
+  await expect(mapping.getByRole('status')).toContainText('Synthetic lead preview');
+  await mapping.getByRole('textbox',{name:'Mapping change reason',exact:true}).fill('Approve synthetic field mapping');
+  await mapping.getByRole('button',{name:'Publish mapping',exact:true}).click();
+  await expect(mapping).toContainText('Published v1');
+  await expect(page.getByRole('button',{name:'Activate',exact:true})).toBeDisabled();
+
+  await page.getByRole('button',{name:'Webhook sources',exact:true}).click();
+  await workspace.getByRole('listitem').filter({hasText:'Synthetic signed webhook'}).getByRole('button',{name:'Open connection',exact:true}).click();
+  await changes.getByRole('textbox',{name:'Change reason',exact:true}).fill('Rotate local synthetic secret');
   await detail.getByRole('button',{name:'Issue a new secret and reverify',exact:true}).click();
   await expect(secret).toHaveValue(/^[0-9a-f]{64}$/);
   expect(await secret.inputValue()).not.toEqual(firstSecret);
   await expect(receipts.first()).toContainText('Previous version');
+  await expect(schema.getByRole('textbox',{name:'Field keys',exact:true})).toBeDisabled();
   await detail.getByRole('button',{name:'Send signed test',exact:true}).click();
   await expect(receipts).toHaveCount(2);
-  await detail.getByRole('textbox',{name:'Change reason',exact:true}).fill('Disable local synthetic source');
+  await expect(schema).toContainText('Version 1 · Previous version');
+  await changes.getByRole('textbox',{name:'Change reason',exact:true}).fill('Disable local synthetic source');
   await detail.getByRole('button',{name:'Disable connection',exact:true}).click();
   await expect(detail).toContainText('Disabled');
   await expect(secret).toHaveCount(0);

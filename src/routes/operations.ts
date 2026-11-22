@@ -118,8 +118,10 @@ export function registerOperationsRoutes(app: FastifyInstance, db: Database): vo
     if(!await currentPaymentSession(tx,actor,request))throw new HttpError(403,'LEAD_QUERY_ACCESS_REVOKED');const field=await prepareLeadFilter(tx,actor,q);
     const rows=await tx`SELECT l.id,l.branch_id,l.campaign_id,l.contact_id,l.assigned_agent_id,l.lifecycle,l.version,l.source_kind,l.needs_attention_reason,l.created_at,l.created_at::text AS cursor_at,
      automation_review_pending(l.id,l.branch_id,l.campaign_id) AS automation_review_pending,
-     c.name AS contact_name,c.phone,c.email,(SELECT min(f.due_at) FROM follow_up f WHERE f.lead_id=l.id AND f.status='OPEN') AS next_followup_at
-     FROM lead l LEFT JOIN contact c ON c.id=l.contact_id WHERE ${leadPredicate(tx,actor,q,field)} AND
+     campaign.name AS campaign_name,c.name AS contact_name,c.phone,c.email,
+     (SELECT min(f.due_at) FROM follow_up f WHERE f.lead_id=l.id AND f.status='OPEN') AS next_followup_at
+     FROM lead l JOIN campaign ON campaign.id=l.campaign_id AND campaign.organization_id=l.organization_id
+     LEFT JOIN contact c ON c.id=l.contact_id WHERE ${leadPredicate(tx,actor,q,field)} AND
       (${cursor?.timestamp??null}::text::timestamptz IS NULL OR ${ascending} AND (l.created_at,l.id)>(${cursor?.timestamp??null}::text::timestamptz,${cursor?.id??null}::uuid)
        OR NOT ${ascending} AND (l.created_at,l.id)<(${cursor?.timestamp??null}::text::timestamptz,${cursor?.id??null}::uuid))
      ORDER BY l.created_at ${tx.unsafe(ascending?'ASC':'DESC')},l.id ${tx.unsafe(ascending?'ASC':'DESC')} LIMIT ${limit+1}`;

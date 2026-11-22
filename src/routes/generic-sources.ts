@@ -16,6 +16,7 @@ const page = { type: 'object', additionalProperties: false, properties: { cursor
   limit: { type: 'integer', minimum: 1, maximum: 50 } } } as const;
 type Page = { cursor?: string; limit?: number };
 type Change = { version: number; reason: string };
+type SchemaChange = Change & { connectionVersion: number; keys: string[] };
 const callbackPath = (id: string) => '/api/webhooks/sources/generic/' + id + '/test';
 
 async function currentSession(tx: postgres.TransactionSql, actor: Principal, request: FastifyRequest) {
@@ -148,6 +149,50 @@ export function registerGenericSourceRoutes(app: FastifyInstance, db: Database) 
         ORDER BY received_at DESC,test_id DESC LIMIT ${limit+1}`;
       const result=paged(rows,limit,'testId');
       return {...result,items:result.items.map(({cursor_at,...item})=>item)};
+    });
+  });
+
+  app.get<{ Params: { id: string } }>(root+'/:id/schema',{schema:{params}},async(request,reply) => {
+    const actor=await principalFromRequest(request,db);
+    requireRole(actor,'SUPER_ADMIN','MANAGER');
+    reply.header('Cache-Control','no-store');
+    return db.begin(async tx => {
+      const c=await connectionForActor(tx,actor,request.params.id);
+      await currentSession(tx,actor,request);
+      const [resource]=await tx`SELECT id,version,connection_version AS "connectionVersion",questions FROM source_resource
+        WHERE connection_id=${c.id} AND resource_kind='WEBHOOK_SCHEMA'`;
+      return {
+        schema: resource ? { ...resource, current:c.branch_active && c.status==='CONNECTED' && c.version===resource.connectionVersion } : null,
+        version:c.version, canSave:c.branch_active && c.status==='CONNECTED',
+      };
+    });
+  });
+
+  app.put<{ Params: { id: string }; Body: SchemaChange }>(root+'/:id/schema',{
+    schema:{params,body:{type:'object',additionalProperties:false,required:['version','connectionVersion','keys','reason'],properties:{
+      version:{type:'integer',minimum:0},connectionVersion:{type:'integer',minimum:1},reason,
+      keys:{type:'array',minItems:1,maxItems:100,uniqueItems:true,items:{type:'string',pattern:'^[a-z][a-z0-9_]{0,63}$'}},
+    }}},config:{rateLimit:{max:20,timeWindow:'15 minutes'}},
+  },async(request,reply) => {
+    const actor=await principalFromRequest(request,db);
+    requireRole(actor,'SUPER_ADMIN','MANAGER');
+    reply.header('Cache-Control','no-store');
+    const input=request.body, note=checkedReason(input.reason);
+    const questions=input.keys.map(key=>({ key, externalId:null, label:key, type:'CUSTOM', options:[] }));
+    return db.begin(async tx => {
+      const c=await connectionForActor(tx,actor,request.params.id,true);
+      const session=await currentSession(tx,actor,request);
+      if (c.version!==input.connectionVersion) throw new HttpError(409,'CONNECTION_VERSION_CONFLICT');
+      if (!c.branch_active || c.status!=='CONNECTED') throw new HttpError(409,'GENERIC_SOURCE_TEST_REQUIRED');
+      const [old]=await tx`SELECT id,version FROM source_resource WHERE connection_id=${c.id} AND resource_kind='WEBHOOK_SCHEMA'`;
+      if ((old?.version??0)!==input.version) throw new HttpError(409,'GENERIC_SOURCE_SCHEMA_VERSION_CONFLICT');
+      const [resource]=old ? await tx`UPDATE source_resource SET questions=${tx.json(questions)},version=version+1,
+        connection_version=${c.version},last_synced_at=clock_timestamp() WHERE id=${old.id} RETURNING id,version`
+        : await tx`INSERT INTO source_resource(connection_id,resource_kind,external_id,name,connection_version,questions)
+          VALUES(${c.id},'WEBHOOK_SCHEMA','webhook','Webhook fields',${c.version},${tx.json(questions)}) RETURNING id,version`;
+      await tx`INSERT INTO generic_source_schema_revision(resource_id,version,connection_version,actor_id,session_id,reason,questions)
+        VALUES(${resource!.id},${resource!.version},${c.version},${actor.id},${session},${note},${tx.json(questions)})`;
+      return { id:resource!.id,version:resource!.version };
     });
   });
 

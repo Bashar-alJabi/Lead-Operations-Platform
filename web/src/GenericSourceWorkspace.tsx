@@ -9,6 +9,10 @@ type Connection = {
 type TestReceipt = { testId: string; connectionVersion: number; receivedAt: string; current: boolean };
 type Page<T> = { items: T[]; nextCursor: string | null };
 type Credential = { id: string; version: number; callbackPath: string; signingSecret?: string };
+type SchemaSetup = {
+  version: number; canSave: boolean;
+  schema: { version: number; connectionVersion: number; current: boolean; questions: { key: string }[] } | null;
+};
 const root = '/api/sources/generic/connections';
 const empty: {items:never[];nextCursor:null}={items:[],nextCursor:null};
 const words = {
@@ -20,6 +24,8 @@ const words = {
     current:'النسخة الحالية', prior:'نسخة سابقة', emptyHistory:'لا توجد أحداث اختبار.', version:'النسخة',
     error:'تعذّر تنفيذ الطلب. حدّث الاتصال وتحقق من الصلاحية والإعداد.', scope:'اختبار الرابط يتحقق من توقيع حدث اصطناعي.',
     protocol:'توقيع طلب الاختبار', signature:'أرسل JSON بطريقة POST. طابع الوقت بالثواني منذ Unix. وقّع النص أدناه بمفتاح HMAC-SHA256 الناتج عن فك ترميز السر من hex. أرسل ناتج التوقيع بصيغة hex صغيرة.',
+    schemaTitle:'حقول Webhook', keys:'مفاتيح الحقول', keysRule:'اكتب مفتاحًا في كل سطر بحروف إنجليزية صغيرة وأرقام وشرطة سفلية. يجب أن يبدأ المفتاح بحرف.',
+    saveSchema:'حفظ مخطط الحقول', schemaNeeded:'تحقق من توقيع الإصدار الحالي قبل حفظ الحقول.', schemaOld:'احفظ المخطط مع الإصدار الحالي، ثم انشر التعيين من إعدادات الحملة.',
   },
   en: { title:'Webhook connections', branch:'Branch', name:'Connection name', reason:'Change reason', create:'Create webhook connection',
     refresh:'Refresh connections', none:'No connections in this scope.', more:'Older connections', open:'Open connection', choose:'Choose a branch',
@@ -29,6 +35,8 @@ const words = {
     current:'Current version', prior:'Previous version', emptyHistory:'No test events.', version:'Version',
     error:'The request failed. Refresh the connection and verify access and setup.', scope:'The test URL verifies the signature of a synthetic event.',
     protocol:'Signing a test request', signature:'Send a JSON POST. Use Unix time in seconds. Sign the text below with HMAC-SHA256 using the hex-decoded secret as the key. Send the signature as lowercase hex.',
+    schemaTitle:'Webhook fields', keys:'Field keys', keysRule:'Enter one key per line. Start each key with a lowercase letter and use lowercase letters, numbers and underscores.',
+    saveSchema:'Save field schema', schemaNeeded:'Verify a signature with the current secret before saving fields.', schemaOld:'Save the schema for the current version, then publish the mapping in Campaign setup.',
   },
   fr: { title:'Connexions webhook', branch:'Agence', name:'Nom de la connexion', reason:'Motif du changement', create:'Créer une connexion webhook',
     refresh:'Actualiser les connexions', none:'Aucune connexion dans ce périmètre.', more:'Connexions précédentes', open:'Ouvrir la connexion', choose:'Choisir une agence',
@@ -39,6 +47,8 @@ const words = {
     error:'La requête a échoué. Actualisez la connexion et vérifiez l’accès et la configuration.',
     scope:'L’URL de test vérifie la signature d’un événement synthétique.',
     protocol:'Signer une requête de test', signature:'Envoyez un POST JSON. Utilisez le temps Unix en secondes. Signez le texte ci-dessous avec HMAC-SHA256 en utilisant le secret décodé depuis l’hexadécimal. Envoyez la signature en hexadécimal minuscule.',
+    schemaTitle:'Champs du webhook', keys:'Clés des champs', keysRule:'Saisissez une clé par ligne. Commencez par une lettre minuscule et utilisez des minuscules, des chiffres et des traits de soulignement.',
+    saveSchema:'Enregistrer le schéma', schemaNeeded:'Vérifiez une signature du secret actuel avant d’enregistrer les champs.', schemaOld:'Enregistrez le schéma pour la version actuelle, puis publiez le mapping dans la campagne.',
   },
 };
 
@@ -61,6 +71,9 @@ export function GenericSourceWorkspace({api,locale,branches}: {api:Api;locale:ke
   const [history,setHistory]=useState<Page<TestReceipt>>(empty);
   const [selected,setSelected]=useState<Connection|null>(null);
   const [issued,setIssued]=useState<Credential|null>(null);
+  const [schema,setSchema]=useState<SchemaSetup|null>(null);
+  const [schemaKeys,setSchemaKeys]=useState('');
+  const [schemaReason,setSchemaReason]=useState('');
   const [branchId,setBranchId]=useState('');
   const [name,setName]=useState('');
   const [creationReason,setCreationReason]=useState('');
@@ -76,7 +89,7 @@ export function GenericSourceWorkspace({api,locale,branches}: {api:Api;locale:ke
     catch (failure) {
       setError(true);
       if (failure instanceof Error && /AUTH_REQUIRED|ACCESS_REVOKED|FORBIDDEN|GENERIC_SOURCE_NOT_FOUND/.test(failure.message)) {
-        setList(empty);setSelected(null);setHistory(empty);setIssued(null);setTestPassed(false);
+        setList(empty);setSelected(null);setHistory(empty);setIssued(null);setSchema(null);setTestPassed(false);
       }
     } finally {setBusy(false);}
   }
@@ -89,6 +102,11 @@ export function GenericSourceWorkspace({api,locale,branches}: {api:Api;locale:ke
     setHistory(previous=>cursor?{items:[...previous.items,...next.items],nextCursor:next.nextCursor}:next);
     return next.items[0];
   }
+  async function readSchema(id:string) {
+    const next=await api<SchemaSetup>(root+'/'+id+'/schema');
+    setSchema(next);setSchemaKeys(next.schema?.questions.map(question=>question.key).join('\n')??'');
+    setSchemaReason('');
+  }
   function replaceConnection(connection:Connection) {
     setSelected(connection);
     setList(previous=>({ ...previous,items:previous.items.map(item=>item.id===connection.id?connection:item) }));
@@ -100,9 +118,9 @@ export function GenericSourceWorkspace({api,locale,branches}: {api:Api;locale:ke
     const result=await api<Credential>(root,{method:'POST',body:JSON.stringify({name,branchId,reason:creationReason})});
     const connection:Connection={id:result.id,name:name.trim(),branchId,branchActive:true,
       version:result.version,status:'NOT_CONFIGURED',lastTestAt:null,callbackPath:result.callbackPath};
-    setSelected(connection);setIssued(result);setHistory(empty);setChangeReason('');
+    setSelected(connection);setIssued(result);setHistory(empty);setSchema(null);setChangeReason('');
     setName('');setCreationReason('');
-    await readConnections();
+    await Promise.all([readConnections(),readSchema(connection.id)]);
   }
   async function change(action:'rotate'|'disable',connection:Connection) {
     setIssued(null);setTestPassed(false);
@@ -111,18 +129,25 @@ export function GenericSourceWorkspace({api,locale,branches}: {api:Api;locale:ke
     replaceConnection({...connection,version:result.version,status:result.status,lastTestAt:null});
     if (result.signingSecret) setIssued(result);
     setChangeReason('');
-    await readTests(connection.id);
+    await Promise.all([readTests(connection.id),readSchema(connection.id)]);
   }
   async function sendTest(connection:Connection,secret:string) {
     setTestPassed(false);
     await api(connection.callbackPath,await signedSample(connection.id,secret));
-    const current=await readTests(connection.id);
+    const [current]=await Promise.all([readTests(connection.id),readSchema(connection.id)]);
     if (current?.current) replaceConnection({...connection,status:'CONNECTED',lastTestAt:current.receivedAt});
     setTestPassed(true);
   }
   function open(connection:Connection) {
-    setSelected(connection);setIssued(null);setChangeReason('');setHistory(empty);setTestPassed(false);
-    void run(async()=>{await readTests(connection.id);});
+    setSelected(connection);setIssued(null);setChangeReason('');setHistory(empty);setSchema(null);setTestPassed(false);
+    void run(async()=>{await Promise.all([readTests(connection.id),readSchema(connection.id)]);});
+  }
+  const keys=schemaKeys.split(/\r?\n/).map(key=>key.trim()).filter(Boolean);
+  const validSchema=keys.length>0 && keys.length<=100 && new Set(keys).size===keys.length && keys.every(key=>/^[a-z][a-z0-9_]{0,63}$/.test(key));
+  async function saveSchema(id:string,setup:SchemaSetup) {
+    await api(root+'/'+id+'/schema',{method:'PUT',body:JSON.stringify({version:setup.schema?.version??0,
+      connectionVersion:setup.version,keys,reason:schemaReason})});
+    await readSchema(id);
   }
 
   return <section className="panel" data-generic-sources aria-busy={busy}>
@@ -138,7 +163,7 @@ export function GenericSourceWorkspace({api,locale,branches}: {api:Api;locale:ke
     </form>
     {error&&<p role="alert">{t.error}</p>}
     <button type="button" className="secondary" disabled={busy} onClick={()=>void run(async()=>{
-      setIssued(null);setSelected(null);setHistory(empty);setTestPassed(false);await readConnections();
+      setIssued(null);setSelected(null);setHistory(empty);setSchema(null);setTestPassed(false);await readConnections();
     })}>{t.refresh}</button>
     {!list.items.length&&!busy&&!error&&<p>{t.none}</p>}
     <ul>{list.items.map(item=><li key={item.id}><bdi>{item.name}</bdi>{' · '}{status(item.status)}
@@ -170,6 +195,18 @@ export function GenericSourceWorkspace({api,locale,branches}: {api:Api;locale:ke
         <button type="button" disabled={busy||changeReason.trim().length<3||selected.status==='DISABLED'}
           onClick={()=>void run(()=>change('disable',selected))}>{t.disable}</button>
       </div>
+      {schema&&<form className="workflow-form" data-generic-source-schema onSubmit={event=>{event.preventDefault();void run(()=>saveSchema(selected.id,schema));}}>
+        <h4>{t.schemaTitle}</h4>
+        {schema.schema&&<p>{t.version} {schema.schema.version} · {schema.schema.current?t.current:t.prior}</p>}
+        {!schema.canSave&&<p>{t.schemaNeeded}</p>}
+        {schema.canSave&&schema.schema&&!schema.schema.current&&<p>{t.schemaOld}</p>}
+        <label>{t.keys}<textarea required maxLength={6500} value={schemaKeys} disabled={busy||!schema.canSave}
+          onChange={event=>setSchemaKeys(event.target.value)} /></label>
+        <p>{t.keysRule}</p>
+        <label>{t.reason}<input minLength={3} maxLength={500} disabled={busy||!schema.canSave} value={schemaReason}
+          onChange={event=>setSchemaReason(event.target.value)} /></label>
+        <button disabled={busy||!schema.canSave||!validSchema||schemaReason.trim().length<3}>{t.saveSchema}</button>
+      </form>}
       <h4>{t.history}</h4>
       {!history.items.length&&!busy&&<p>{t.emptyHistory}</p>}
       <ul>{history.items.map(item=><li key={item.testId} data-generic-source-test>

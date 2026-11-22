@@ -72,7 +72,9 @@ test('Lead assignment, notes, and human follow-up preserve history and permissio
   assert.deepEqual((await send('GET', '/api/followups', undefined, managerB)).json().items, []);
   assert.equal((await send('GET', `/api/leads/${leadId}/followups`, undefined, agent1)).json().items[0].priority, 'HIGH');
   assert.equal((await send('GET', '/api/leads?q=customer', undefined, managerA)).json().items[0].id, leadId);
-  assert.equal((await send('GET', `/api/leads?q=${leadId}`, undefined, managerA)).json().items[0].id, leadId);
+  const exactSearch = (await send('GET', `/api/leads?q=${leadId}`, undefined, managerA)).json().items[0];
+  assert.equal(exactSearch.id, leadId);
+  assert.equal(exactSearch.campaign_name, 'Campaign');
   assert.equal((await send('GET', '/api/leads?q=%2B15550001111', undefined, managerA)).json().items[0].id, leadId);
   assert.deepEqual((await send('GET', '/api/leads?q=customer', undefined, managerB)).json().items, []);
   assert.equal((await send('GET', '/api/leads?followup=UPCOMING', undefined, agent1)).json().items[0].id, leadId);

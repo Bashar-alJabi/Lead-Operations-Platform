@@ -34,6 +34,7 @@ const issueLabels: Record<string, Record<Locale, string>> = {
   NO_ELIGIBLE_AGENTS_CONFIGURED: { ar: 'لا يوجد وكيل نشط مؤهل', fr: 'Aucun agent admissible actif', en: 'No active eligible agent' },
   PERFORMANCE_POLICY_REQUIRED: { ar: 'اعتمد سياسة التوزيع حسب الأداء', fr: 'Approuvez la politique de routage par performance', en: 'Approve the performance routing policy' },
   SOURCE_BINDING_NOT_READY: { ar: 'ربط المصدر الخارجي لم يكتمل', fr: 'Source externe non reliée', en: 'External source binding is not ready' },
+  SOURCE_WEBHOOK_INTAKE_NOT_READY: { ar:'استقبال أحداث Lead عبر Webhook قيد التجهيز',fr:'La réception des prospects par webhook est en préparation',en:'Webhook lead intake is being prepared' },
   SOURCE_MAPPING_NOT_CONFIGURED: { ar:'انشر Mapping صالحة لكل ربط مصدر مفعّل',fr:'Publiez un mapping valide pour chaque liaison active',en:'Publish valid mapping for every active source binding' },
   SOURCE_CREDENTIAL_UNAVAILABLE: { ar:'راجع بيانات اعتماد Source Connection',fr:'Vérifiez les secrets de la connexion source',en:'Check source connection credentials' },
   SOURCE_PAGE_CREDENTIAL_UNAVAILABLE: { ar:'أعد اكتشاف Page المخولة وبيانات اعتمادها',fr:'Redécouvrez la Page autorisée et ses secrets',en:'Rediscover the authorized Page and its credentials' },
@@ -202,7 +203,8 @@ export function CampaignWorkspace({ id, locale, api, onBack, onChanged }: {
     <CampaignAIConfiguration key={'ai-config-'+id} campaignId={id} branchId={campaign.branch_id} locale={locale} api={api} />
     <CampaignAITools key={'ai-tools-'+id} campaignId={id} branchId={campaign.branch_id} locale={locale} api={api} />
     <CampaignAISimulation key={'ai-simulation-'+id} campaignId={id} locale={locale} api={api} />
-    {campaign.source_kind==='META' && <CampaignSources key={id} campaignId={id} locale={locale} api={api}/>}
+    {['META','GENERIC_SOURCE'].includes(campaign.source_kind) && <CampaignSources key={id+campaign.source_kind} campaignId={id}
+      locale={locale} api={api} webhook={campaign.source_kind==='GENERIC_SOURCE'}/>}
     {policy && <section className="panel"><h3>{t.policy}</h3>
       <label className="check-row"><input type="checkbox" checked={policyWindow === null} disabled={busy}
         onChange={(event) => setPolicyWindow(event.target.checked ? null : { start: '09:00', end: '18:00' })} />{t.inheritWindow}</label>

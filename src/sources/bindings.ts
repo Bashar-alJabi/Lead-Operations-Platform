@@ -25,31 +25,36 @@ export async function sourceCampaign(db:Database,actor:Principal,id:string,lock=
 }
 export async function sourceFormForBranch(db:Database,actor:Principal,connectionId:string,formId:string,branchId:string) {
   const [form]=await db`SELECT f.id,f.external_id,f.name,f.questions,f.active,f.connection_version,p.active AS page_active,
-    p.connection_version AS page_connection_version,c.version,c.status,c.branch_id,
+    p.connection_version AS page_connection_version,c.version,c.status,c.branch_id,c.kind AS connection_kind,
     c.branch_id IS NOT NULL OR EXISTS (SELECT 1 FROM source_resource_access a WHERE a.resource_id=f.id AND a.branch_id=${branchId} AND a.active) AS has_access
-    FROM integration_connection c JOIN source_resource f ON f.connection_id=c.id AND f.resource_kind='FORM'
-    JOIN source_resource p ON p.id=f.parent_id WHERE c.id=${connectionId} AND f.id=${formId}
-      AND c.organization_id=${actor.organizationId} AND c.kind='META' AND c.provider='META_LEAD_ADS'
-      AND (c.branch_id=${branchId} OR (c.branch_id IS NULL AND ((${actor.role==='SUPER_ADMIN'}) OR EXISTS
-        (SELECT 1 FROM source_resource_access a WHERE a.resource_id=f.id AND a.branch_id=${branchId} AND a.active))))`;
+    FROM integration_connection c JOIN source_resource f ON f.connection_id=c.id
+    LEFT JOIN source_resource p ON p.id=f.parent_id WHERE c.id=${connectionId} AND f.id=${formId}
+      AND c.organization_id=${actor.organizationId} AND (
+        (c.kind='GENERIC_SOURCE' AND c.provider='SIGNED_WEBHOOK' AND f.resource_kind='WEBHOOK_SCHEMA' AND c.branch_id=${branchId})
+        OR (c.kind='META' AND c.provider='META_LEAD_ADS' AND f.resource_kind='FORM' AND p.id IS NOT NULL
+          AND (c.branch_id=${branchId} OR (c.branch_id IS NULL AND ((${actor.role==='SUPER_ADMIN'}) OR EXISTS
+            (SELECT 1 FROM source_resource_access a WHERE a.resource_id=f.id AND a.branch_id=${branchId} AND a.active))))))`;
   if (!form) throw new HttpError(404,'SOURCE_FORM_NOT_FOUND');return form;
 }
 export function sourceFormAvailable(form:Record<string,unknown>):boolean {
-  return ['CONNECTED','WARNING'].includes(String(form.status)) && form.active===true && form.page_active===true
-    && form.connection_version===form.version && form.page_connection_version===form.version && form.has_access===true;
+  if (form.active!==true || form.connection_version!==form.version || form.has_access!==true) return false;
+  return form.connection_kind==='GENERIC_SOURCE' ? form.status==='CONNECTED'
+    : ['CONNECTED','WARNING'].includes(String(form.status)) && form.page_active===true && form.page_connection_version===form.version;
 }
 export function sourceBindingIssues(row:Record<string,unknown>):string[] {
   const issues:string[]=[];
+  const webhook=row.connection_kind==='GENERIC_SOURCE';
   if (!row.active) issues.push('SOURCE_BINDING_INACTIVE');
-  if (row.source_kind!=='META') issues.push('SOURCE_CAMPAIGN_KIND_MISMATCH');
+  if (row.source_kind!==(webhook?'GENERIC_SOURCE':'META')) issues.push('SOURCE_CAMPAIGN_KIND_MISMATCH');
   if (!row.branch_active) issues.push('SOURCE_BRANCH_INACTIVE');
   if (!row.has_access) issues.push('SOURCE_RESOURCE_ACCESS_REQUIRED');
   if (!['CONNECTED','WARNING'].includes(String(row.connection_status))) issues.push('SOURCE_CONNECTION_NOT_AVAILABLE');
-  if (!row.form_active || !row.page_active) issues.push('SOURCE_RESOURCE_NOT_AVAILABLE');
+  if (!row.form_active || !webhook&&!row.page_active) issues.push('SOURCE_RESOURCE_NOT_AVAILABLE');
   if (row.connection_version!==row.current_connection_version || row.form_connection_version!==row.current_connection_version
-    || row.page_connection_version!==row.current_connection_version) issues.push('SOURCE_CONFIGURATION_CHANGED');
+    || !webhook&&row.page_connection_version!==row.current_connection_version) issues.push('SOURCE_CONFIGURATION_CHANGED');
   if (!row.mapping_configured) issues.push('SOURCE_MAPPING_NOT_CONFIGURED');
   if (!row.connection_credential_available) issues.push('SOURCE_CREDENTIAL_UNAVAILABLE');
+  if (webhook) return issues;
   if (!row.page_credential_available) issues.push('SOURCE_PAGE_CREDENTIAL_UNAVAILABLE');
   if (!row.app_id_configured) issues.push('SOURCE_APP_ID_REQUIRED');
   if (!row.handshake_verified) issues.push('SOURCE_WEBHOOK_HANDSHAKE_REQUIRED');

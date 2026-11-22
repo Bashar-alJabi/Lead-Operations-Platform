@@ -19,8 +19,23 @@ async function login(page:Page,name='agent') {
   await page.getByRole('button',{ name:'Sign in',exact:true }).click();
   await expect(page.getByRole('button',{ name:'Sign out',exact:true })).toBeVisible();
 }
+async function openFixtureLead(page: Page, id: string, ...expectedText: string[]) {
+  const search = page.locator('.lead-search-form');
+  await search.getByRole('textbox', { name: 'Name, phone, email or lead ID', exact: true }).fill(id);
+  const [response] = await Promise.all([
+    page.waitForResponse(result => {
+      const url = new URL(result.url());
+      return result.request().method()==='GET' && url.pathname==='/api/leads' && url.searchParams.get('q')===id;
+    }),
+    search.getByRole('button', { name: 'Apply filters', exact: true }).click(),
+  ]);
+  expect(response.ok()).toBeTruthy();
+  const row = page.locator(`[data-lead-row="${id}"]`);
+  for (const value of expectedText) await expect(row).toContainText(value);
+  await row.getByRole('button', { name: 'Details', exact: true }).click();
+}
 async function openLead(page:Page) {
-  await page.getByRole('row').filter({ hasText:'Browser Customer' }).getByRole('button',{ name:'Details',exact:true }).click();
+  await openFixtureLead(page,fixture.leadId,'Browser Customer');
   const panel=page.getByRole('heading',{ name:'Customer conversations',exact:true }).locator('..');
   await panel.getByRole('button',{ name:'View messages',exact:true }).click(); return panel;
 }
@@ -786,8 +801,7 @@ test('source referral picks the proven Campaign over another active thread, pres
   const known=await control(page,{ sourceReferral:'KNOWN' });
   const attached=known.sourceReferenceEvents.find((event:{ provider_id:string })=>event.provider_id==='wamid.browser-source-KNOWN');
   expect(attached.state).toBe('PROCESSED');expect(attached.lead_id).toBeTruthy();
-  const leadRow=page.getByRole('row').filter({ hasText:'Historical customer' }).filter({ hasText:'Browser Intake Campaign' });
-  await leadRow.getByRole('button',{ name:'Details',exact:true }).click();
+  await openFixtureLead(page,attached.lead_id,'Historical customer','Browser Intake Campaign');
   const panel=page.locator('.conversation-panel');
   await panel.getByRole('button',{ name:'View messages',exact:true }).click();
   const message=panel.locator('.conversation-messages > li').filter({ has:page.getByText('Browser source referral KNOWN',{ exact:true }) });
@@ -910,7 +924,7 @@ test('Branch Payment Methods support explicit shared accounts, scoped Agent/Camp
     await expect(managed.getByRole('alert')).toContainText('PAYMENT_CURRENCIES_INVALID');expect((await (await tab.request.get('/api/payments/methods/'+method.id)).json()).version).toBe(2);
     await managed.getByLabel('Method currencies',{ exact:true }).fill('EUR');
     const customer=await agent.newPage();customer.on('pageerror',(e)=>errors.push(e.message));await customer.goto('/');await customer.getByRole('combobox',{ name:'Language' }).selectOption('en');
-    await customer.getByRole('row').filter({ hasText:'Contact unavailable' }).getByRole('button',{ name:'Details',exact:true }).click();const available=customer.locator('.lead-payment-methods');
+    await openFixtureLead(customer,fixture.noContactLeadId,'Contact unavailable');const available=customer.locator('.lead-payment-methods');
     await expect(available).toContainText('Manager maintained shared method');await expect(available).toContainText('PAYMENT_WEBHOOK_VERIFICATION_REQUIRED');
     expect((await customer.request.get('/api/payments/methods')).status()).toBe(403);expect((await customer.request.get('/api/payments/methods/'+method.id+'/history')).status()).toBe(403);
     const safe=await (await customer.request.get(`/api/leads/${fixture.noContactLeadId}/payment-methods`)).json();expect(JSON.stringify(safe)).not.toContain('connection_id');
@@ -1030,7 +1044,7 @@ test('browser saves an exact idempotent payment request with scoped setup and im
     const method=await api('/api/payments/methods',{ name:'Browser request <img src=x>',branchId:lead.branch_id,connectionId:connection.id,currencies:['USD'],active:true,
       agents:{ mode:'ALL',ids:[] },campaigns:{ mode:'SELECTED',ids:[lead.campaign_id] },reason:'Browser selects allowed Campaign' });
     await page.goto('/');await page.getByRole('combobox',{ name:'Language' }).selectOption('en');
-    await page.getByRole('row').filter({ hasText:'Browser Customer' }).getByRole('button',{ name:'Details',exact:true }).click();
+    await openFixtureLead(page,fixture.leadId,'Browser Customer');
     const panel=page.locator('.lead-payment-requests');await expect(panel.getByRole('heading',{ name:'Payment link requests',exact:true })).toBeVisible();
     await panel.getByLabel('Payment request method',{ exact:true }).selectOption(method.id);
     await panel.getByLabel('Payment request amount',{ exact:true }).fill('12.501');await panel.getByRole('button',{ name:'Save payment link request',exact:true }).click();
@@ -1044,7 +1058,7 @@ test('browser saves an exact idempotent payment request with scoped setup and im
     await panel.getByRole('button',{ name:'Refresh payment requests',exact:true }).click();await expect(panel.locator('.payment-request-history li')).toHaveCount(1);
     await expect(panel.locator('img')).toHaveCount(0);expect(await panel.textContent()).not.toContain(secret);expect((await page.request.get(root)).status()).toBe(403);
     expect((await page.request.post(`/api/leads/${fixture.leadId}/payment-link-requests`,{ data:{ ...response.request().postDataJSON(),requestId:randomUUID(),amount:'1e3' },headers:{ origin } })).status()).toBe(400);
-    await page.reload();await page.getByRole('row').filter({ hasText:'Browser Customer' }).getByRole('button',{ name:'Details',exact:true }).click();
+    await page.reload();await openFixtureLead(page,fixture.leadId,'Browser Customer');
     await expect(page.locator('.payment-request-history')).toContainText('12.50 USD');
     await page.getByRole('combobox',{ name:'Language' }).selectOption('fr');await expect(panel.getByRole('heading',{ name:'Demandes de liens de paiement',exact:true })).toBeVisible();await expect(panel).toHaveCount(1);
     await page.setViewportSize({ width:390,height:844 });await page.getByRole('combobox',{ name:'Language' }).selectOption('ar');
@@ -1060,7 +1074,7 @@ test('browser issues a safe Checkout link and shows trusted Payment and separate
   const admin=await browser.newContext({ storageState:adminStorageState });const adminPage=await admin.newPage();const errors:string[]=[];page.on('pageerror',(e)=>errors.push(e.message));
   try {
     await page.goto('/');await page.getByRole('combobox',{ name:'Language' }).selectOption('en');
-    await page.getByRole('row').filter({ hasText:'Browser Customer' }).getByRole('button',{ name:'Details',exact:true }).click();
+    await openFixtureLead(page,fixture.leadId,'Browser Customer');
     const panel=page.locator('.lead-payment-requests');await expect(panel.locator('.payment-request-history')).toContainText('Waiting for issuance');
     const root=`/api/leads/${fixture.leadId}/payment-link-requests`;const before=(await (await page.request.get(root)).json()).items[0];expect(before.paymentState).toBe(null);
     await control(adminPage,{ paymentDispatch:true });await panel.getByRole('button',{ name:'Refresh payment requests',exact:true }).click();
@@ -1069,7 +1083,7 @@ test('browser issues a safe Checkout link and shows trusted Payment and separate
     await panel.getByRole('button',{ name:'Copy payment link',exact:true }).click();await expect(panel.getByRole('status')).toContainText('Link copied.');
     expect(await page.evaluate(()=>navigator.clipboard.readText())).toBe(await link.getAttribute('href'));
     await panel.getByRole('button',{ name:'Issuance attempts',exact:true }).click();await expect(panel).toContainText('ACKNOWLEDGED');
-    await page.goto('/?paymentReturn=success');await page.getByRole('row').filter({ hasText:'Browser Customer' }).getByRole('button',{ name:'Details',exact:true }).click();
+    await page.goto('/?paymentReturn=success');await openFixtureLead(page,fixture.leadId,'Browser Customer');
     expect((await (await page.request.get(root)).json()).items[0].enrollmentId).toBe(null);await expect(panel).not.toContainText('Payment confirmed');
     await control(adminPage,{ paymentPaid:before.id,paymentReceipts:true });await panel.getByRole('button',{ name:'Refresh payment requests',exact:true }).click();
     await expect(panel).toContainText('Payment confirmed');await expect(panel).toContainText('Enrollment confirmed');await expect(panel.getByRole('link',{ name:'Open payment link',exact:true })).toHaveCount(0);
@@ -1107,7 +1121,7 @@ test('browser authorizes receipt credential repair through scoped setup and reta
     await event.getByRole('button',{ name:'Retry receipt verification',exact:true }).click();await expect(event).toContainText('RETRY');
     await control(rootPage,{ paymentReceipts:true });await panel.getByRole('button',{ name:'Refresh payment webhooks',exact:true }).click();await expect(event).toContainText('PROCESSED');
     await event.getByRole('button',{ name:'Receipt verification attempts',exact:true }).click();await expect(event.locator('.receipt-verification-history')).toContainText('Approved replacement credentials');
-    await page.goto('/');await page.getByRole('combobox',{ name:'Language' }).selectOption('en');await page.getByRole('row').filter({ hasText:'Browser Customer' }).getByRole('button',{ name:'Details',exact:true }).click();
+    await page.goto('/');await page.getByRole('combobox',{ name:'Language' }).selectOption('en');await openFixtureLead(page,fixture.leadId,'Browser Customer');
     const result=(await (await page.request.get(`/api/leads/${fixture.leadId}/payment-link-requests`)).json()).items.find((row:{ id:string })=>row.id===id);expect(result.paymentState).toBe('CONFIRMED');expect(result.enrollmentId).toBeTruthy();
     await rootPage.getByRole('combobox',{ name:'Language' }).selectOption('fr');await expect(panel).toContainText('Identifiants de remplacement approuvés');
     await rootPage.setViewportSize({ width:390,height:844 });await rootPage.getByRole('combobox',{ name:'Language' }).selectOption('ar');
@@ -1138,7 +1152,7 @@ test('browser prepares scoped payment messages without overwriting drafts, sends
     await control(rootPage,{ approveTemplates:true });await rootPost('/api/messaging/connections/'+mc.id+'/templates/sync',{});
     const available=(await (await rootPage.request.get('/api/messaging/campaigns/'+lead.campaign_id+'/templates')).json()).items.find((row:{ name:string })=>row.name==='browser_payment_url');
     const bound=await rootPage.request.put('/api/messaging/campaigns/'+lead.campaign_id+'/templates/'+available.id,{ data:{ version:available.version,bound:true },headers:{ origin } });expect(bound.ok(),await bound.text()).toBe(true);
-    await page.goto('/');await page.getByRole('combobox',{ name:'Language' }).selectOption('en');await page.getByRole('row').filter({ hasText:'Browser Media Customer' }).getByRole('button',{ name:'Details',exact:true }).click();
+    await page.goto('/');await page.getByRole('combobox',{ name:'Language' }).selectOption('en');await openFixtureLead(page,fixture.mediaLeadId,'Browser Media Customer');
     const panel=page.locator('.conversation-panel');const payments=page.locator('.lead-payment-requests');await panel.getByRole('button',{ name:'View messages',exact:true }).click();
     const original='Reviewed payment details <img src=x>';await panel.getByLabel('Message text',{ exact:true }).fill(original);const before=await control(rootPage);
     await payments.getByRole('button',{ name:'Prepare payment message',exact:true }).click();await expect(panel.locator('.payment-message-selection')).toContainText(url);
@@ -1305,7 +1319,7 @@ test('browser issues PayPal link, explicitly queues capture and separates accept
     const callback=new URL(w.callback_url).pathname;expect((await page.request.post(callback,{ data:probe,headers:{ ...testPayPalHeaders(probe,endpoint),...origin } })).status()).toBe(200);
     const method=await post('/api/payments/methods',{ name:'Browser PayPal tuition <img literal>',branchId:lead.branch_id,connectionId:c.id,currencies:['USD'],active:true,
       agents:{ mode:'ALL',ids:[] },campaigns:{ mode:'SELECTED',ids:[lead.campaign_id] },reason:'Scoped browser PayPal method' });
-    await page.getByRole('row').filter({ hasText:'Browser Media Customer' }).getByRole('button',{ name:'Details',exact:true }).click();
+    await openFixtureLead(page,fixture.mediaLeadId,'Browser Media Customer');
     const panel=page.locator('.lead-payment-requests');await panel.getByLabel('Payment request method',{ exact:true }).selectOption(method.id);
     await panel.getByLabel('Payment request amount',{ exact:true }).fill('25');await panel.getByRole('button',{ name:'Save payment link request',exact:true }).click();
     await expect(panel.getByRole('status')).toContainText('Request saved once');const requests='/api/leads/'+fixture.mediaLeadId+'/payment-link-requests';
@@ -1317,7 +1331,7 @@ test('browser issues PayPal link, explicitly queues capture and separates accept
     const orderId='O'+intent.id.replaceAll('-','').toUpperCase();const captureId='C'+intent.id.replaceAll('-','').toUpperCase();
     // A browser return/customer claim supplies no financial authority and cannot enqueue capture.
     await page.goto('/?paymentReturn=success&token='+orderId);expect((await (await page.request.get(requests+'/'+intent.id)).json()).captureState).toBeNull();
-    await page.getByRole('row').filter({ hasText:'Browser Media Customer' }).getByRole('button',{ name:'Details',exact:true }).click();
+    await openFixtureLead(page,fixture.mediaLeadId,'Browser Media Customer');
     await control(page,{ paypalApprove:intent.id,paypalPending:intent.id });await row.getByRole('button',{ name:'Request PayPal capture',exact:true }).click();
     await expect(row).toContainText('Capture execution status: QUEUED');await control(page,{ paypalCapture:true });await panel.getByRole('button',{ name:'Refresh payment requests',exact:true }).click();
     await expect(row).toContainText('Provider accepted capture');await expect(row.getByRole('link',{ name:'Open payment link',exact:true })).toHaveCount(0);
@@ -1339,7 +1353,7 @@ test('browser issues PayPal link, explicitly queues capture and separates accept
     const recoveryResponse=page.waitForResponse((response)=>response.url().includes('/webhook-events/') && response.url().endsWith('/retry') && response.request().method()==='POST');
     await webhookPanel.getByRole('button',{ name:'Retry receipt verification',exact:true }).click();expect((await recoveryResponse).ok()).toBe(true);
     await control(page,{ paymentReceipts:true });
-    await page.goto('/');await page.getByRole('row').filter({ hasText:'Browser Media Customer' }).getByRole('button',{ name:'Details',exact:true }).click();
+    await page.goto('/');await openFixtureLead(page,fixture.mediaLeadId,'Browser Media Customer');
     await expect(row).toContainText('Payment confirmed');await expect(row).toContainText('Enrollment confirmed');
     await expect(row).not.toContainText('awaiting financial confirmation');
     await expect(row).toContainText('25.00 USD');await expect(row).not.toContainText('99999.00');await expect(row).toContainText(captureId);
@@ -1501,7 +1515,7 @@ test('browser issues Alma with an explicit plan and independently confirms enrol
     const method=await post('/api/payments/methods',{ name:'Browser Alma tuition <img literal>',branchId:lead.branch_id,connectionId:connection.id,currencies:['EUR'],active:true,
       agents:{ mode:'ALL',ids:[] },campaigns:{ mode:'SELECTED',ids:[lead.campaign_id] },reason:'Explicit Alma browser availability' });
     const requests='/api/leads/'+fixture.mediaLeadId+'/payment-link-requests';const plan={ installments:3,deferredMonths:0,deferredDays:0 };
-    const open=async()=>{ await page.goto('/');await page.getByRole('combobox',{ name:'Language' }).selectOption('en');await page.getByRole('row').filter({ hasText:'Browser Media Customer' }).getByRole('button',{ name:'Details',exact:true }).click(); };
+    const open=async()=>{ await page.goto('/');await page.getByRole('combobox',{ name:'Language' }).selectOption('en');await openFixtureLead(page,fixture.mediaLeadId,'Browser Media Customer'); };
     await open();const panel=page.locator('.lead-payment-requests');
     const save=async()=> {
       await panel.getByLabel('Payment request method',{ exact:true }).selectOption(method.id);await panel.getByLabel('Payment request amount',{ exact:true }).fill('100');
@@ -1565,7 +1579,7 @@ test('Bank Transfer setup, authorized manual approval and signed durable feed ke
     const sourceResponse=await sourceResponsePromise;expect(sourceResponse.status()).toBe(201);const source=await sourceResponse.json();
     await expect(sourcePanel).toContainText('Live Verification Pending External Credential/Approval');await expect(sourcePanel.getByLabel('Dedicated HMAC secret',{ exact:true })).toHaveValue('');
     await expect(sourcePanel.locator('img')).toHaveCount(0);expect(await sourcePanel.textContent()).not.toContain(secret);
-    await agent.goto('/');await agent.getByRole('combobox',{ name:'Language' }).selectOption('en');await agent.getByRole('row').filter({ hasText:'Browser Customer' }).getByRole('button',{ name:'Details',exact:true }).click();
+    await agent.goto('/');await agent.getByRole('combobox',{ name:'Language' }).selectOption('en');await openFixtureLead(agent,fixture.leadId,'Browser Customer');
     const transfers=agent.locator('[data-bank-transfers]');await transfers.getByLabel('Transfer method',{ exact:true }).selectOption(method.id);await transfers.getByLabel('Transfer amount',{ exact:true }).fill('35.001');await transfers.getByLabel('Transfer currency',{ exact:true }).selectOption('EUR');
     await transfers.getByRole('button',{ name:'Create transfer request',exact:true }).click();await expect(transfers.getByRole('alert')).toContainText('PAYMENT_AMOUNT_PRECISION_INVALID');
     await transfers.getByLabel('Transfer amount',{ exact:true }).fill('35.00');
@@ -1582,7 +1596,7 @@ test('Bank Transfer setup, authorized manual approval and signed durable feed ke
     await setup.getByLabel('Transfer instructions',{ exact:true }).fill('Updated future transfer instructions');await setup.getByLabel('Action reason',{ exact:true }).fill('Clarified future instructions');
     const edited=manager.waitForResponse((x)=>x.request().method()==='PUT' && x.url().endsWith('/bank-accounts/'+account.id));await setup.getByRole('button',{ name:'Save transfer account',exact:true }).click();expect((await edited).status()).toBe(200);
     await transfers.getByRole('button',{ name:'Refresh transfers',exact:true }).click();await expect(card).toContainText('Exact reference <img src=x onerror=alert(1)>');
-    await manager.goto('/');await manager.getByRole('combobox',{ name:'Language' }).selectOption('en');await manager.getByRole('row').filter({ hasText:'Browser Customer' }).getByRole('button',{ name:'Details',exact:true }).click();
+    await manager.goto('/');await manager.getByRole('combobox',{ name:'Language' }).selectOption('en');await openFixtureLead(manager,fixture.leadId,'Browser Customer');
     const review=manager.locator('[data-bank-transfers]');await review.locator(`[data-bank-transfer="${r.id}"]`).getByRole('button',{ name:'Authorized manual reconciliation',exact:true }).click();const form=review.locator('[data-bank-approval]');
     await expect(form.getByRole('button',{ name:'Approve after bank verification',exact:true })).toBeDisabled();await form.getByLabel('Settled bank transaction ID',{ exact:true }).fill(approval.transactionId);
     await form.getByLabel('Bank settlement time',{ exact:true }).fill('2026-10-01T12:00');await form.getByLabel('Action reason',{ exact:true }).fill('Reviewed settled bank record <img literal>');await form.getByRole('checkbox').check();

@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type { Database } from '../db.js';
-import { HttpError,principalFromRequest,requireRole } from '../security.js';
+import { HttpError,lockCurrentSession,principalFromRequest,requireRole,type Principal } from '../security.js';
+import type { FastifyRequest } from 'fastify';
+import type postgres from 'postgres';
 import { managedSourceConnection,recheckSourceActor } from '../sources/catalog-sync.js';
 import { sourceCampaign,sourceFormForBranch,sourceFormAvailable,sourceBindingIssues,sourceBindingConflict,type SourceSelectors } from '../sources/bindings.js';
 import { sourceBindingRows } from '../sources/readiness.js';
@@ -17,26 +19,43 @@ type BindingInput=SourceSelectors & { active:boolean;reason:string;connectionVer
 const requiredEdit=['externalCampaignId','externalAdSetId','externalAdId','active','reason','connectionVersion'];
 const root='/api/sources/campaigns/:id';
 
+async function bindingSession(tx:postgres.TransactionSql,actor:Principal,request:FastifyRequest,kind:string) {
+  if (kind!=='GENERIC_SOURCE') return null;
+  const session=await lockCurrentSession(tx,actor,request);
+  if (!session) throw new HttpError(403,'GENERIC_SOURCE_ACCESS_REVOKED');
+  return session;
+}
+function validateSelectors(kind:string,input:SourceSelectors) {
+  if (kind==='GENERIC_SOURCE' && [input.externalCampaignId,input.externalAdSetId,input.externalAdId].some(value=>value!==null))
+    throw new HttpError(400,'GENERIC_SOURCE_SELECTORS_NOT_ALLOWED');
+}
+
 export function registerSourceBindingRoutes(app:FastifyInstance,db:Database):void {
   app.get<{ Params:{ id:string };Querystring:{ after?:string;limit?:number } }>(root+'/connections',{ schema:{ params:campaignParams,querystring:paging } },async(request)=> {
     const actor=await principalFromRequest(request,db);const camp=await sourceCampaign(db,actor,request.params.id);const limit=request.query.limit ?? 30;
     const rows=await db`SELECT c.id,c.name,c.branch_id,c.status,c.version FROM integration_connection c
-      WHERE c.organization_id=${actor.organizationId} AND c.kind='META' AND c.provider='META_LEAD_ADS'
-      AND (c.branch_id=${camp.branch_id} OR (c.branch_id IS NULL AND (${actor.role==='SUPER_ADMIN'} OR EXISTS
-        (SELECT 1 FROM source_resource_access a JOIN source_resource f ON f.id=a.resource_id WHERE f.connection_id=c.id AND a.branch_id=${camp.branch_id} AND a.active))))
+      WHERE c.organization_id=${actor.organizationId} AND (
+        (${camp.source_kind==='GENERIC_SOURCE'} AND c.kind='GENERIC_SOURCE' AND c.provider='SIGNED_WEBHOOK' AND c.branch_id=${camp.branch_id})
+        OR (${camp.source_kind!=='GENERIC_SOURCE'} AND c.kind='META' AND c.provider='META_LEAD_ADS'
+          AND (c.branch_id=${camp.branch_id} OR (c.branch_id IS NULL AND (${actor.role==='SUPER_ADMIN'} OR EXISTS
+            (SELECT 1 FROM source_resource_access a JOIN source_resource f ON f.id=a.resource_id WHERE f.connection_id=c.id AND a.branch_id=${camp.branch_id} AND a.active))))))
       AND (${request.query.after ?? null}::uuid IS NULL OR c.id>${request.query.after ?? null}::uuid) ORDER BY c.id LIMIT ${limit+1}`;
     const items=rows.slice(0,limit);return { items,nextAfter:rows.length>limit ? items.at(-1)!.id : null };
   });
-  app.get<{ Params:{ id:string;connectionId:string };Querystring:{ kind:'PAGE'|'FORM';pageId?:string;after?:string;limit?:number } }>(root+'/connections/:connectionId/resources',{
+  app.get<{ Params:{ id:string;connectionId:string };Querystring:{ kind:'PAGE'|'FORM'|'WEBHOOK_SCHEMA';pageId?:string;after?:string;limit?:number } }>(root+'/connections/:connectionId/resources',{
     schema:{ params:{ ...campaignParams,required:['id','connectionId'],properties:{ id:uuid,connectionId:uuid } },querystring:{ ...paging,required:['kind'],
-      properties:{ ...paging.properties,kind:{ enum:['PAGE','FORM'] },pageId:uuid } } } },async(request)=> {
+      properties:{ ...paging.properties,kind:{ enum:['PAGE','FORM','WEBHOOK_SCHEMA'] },pageId:uuid } } } },async(request)=> {
     const actor=await principalFromRequest(request,db);const camp=await sourceCampaign(db,actor,request.params.id);
+    const webhook=request.query.kind==='WEBHOOK_SCHEMA';
+    if (webhook && camp.source_kind!=='GENERIC_SOURCE') throw new HttpError(404,'SOURCE_CONNECTION_NOT_FOUND');
     const [conn]=await db`SELECT id,branch_id,version,status FROM integration_connection c WHERE c.id=${request.params.connectionId}
-      AND c.organization_id=${actor.organizationId} AND c.kind='META' AND c.provider='META_LEAD_ADS'
-      AND (c.branch_id=${camp.branch_id} OR (c.branch_id IS NULL AND (${actor.role==='SUPER_ADMIN'} OR EXISTS
-        (SELECT 1 FROM source_resource_access a JOIN source_resource f ON f.id=a.resource_id WHERE f.connection_id=c.id AND a.branch_id=${camp.branch_id} AND a.active))))`;
+      AND c.organization_id=${actor.organizationId} AND (
+        (${webhook} AND c.kind='GENERIC_SOURCE' AND c.provider='SIGNED_WEBHOOK' AND c.branch_id=${camp.branch_id})
+        OR (${!webhook} AND c.kind='META' AND c.provider='META_LEAD_ADS'
+          AND (c.branch_id=${camp.branch_id} OR (c.branch_id IS NULL AND (${actor.role==='SUPER_ADMIN'} OR EXISTS
+            (SELECT 1 FROM source_resource_access a JOIN source_resource f ON f.id=a.resource_id WHERE f.connection_id=c.id AND a.branch_id=${camp.branch_id} AND a.active))))))`;
     if (!conn) throw new HttpError(404,'SOURCE_CONNECTION_NOT_FOUND');
-    if (request.query.kind==='PAGE' && request.query.pageId) throw new HttpError(400,'SOURCE_PARENT_NOT_ALLOWED');
+    if (request.query.kind!=='FORM' && request.query.pageId) throw new HttpError(400,'SOURCE_PARENT_NOT_ALLOWED');
     const limit=request.query.limit ?? 50;
     const rows=await db`SELECT r.id,r.parent_id,r.external_id,r.name,r.provider_status,r.questions,r.active,r.connection_version,r.version
       FROM source_resource r WHERE r.connection_id=${conn.id} AND r.resource_kind=${request.query.kind}
@@ -64,6 +83,8 @@ export function registerSourceBindingRoutes(app:FastifyInstance,db:Database):voi
       await tx`SELECT id FROM integration_connection WHERE id=${input.connectionId} FOR UPDATE`;
       await recheckSourceActor(sql,actor);const current=await sourceCampaign(sql,actor,camp.id,true);
       const form=await sourceFormForBranch(sql,actor,input.connectionId,input.formId,current.branch_id);
+      const session=await bindingSession(tx,actor,request,form.connection_kind);
+      validateSelectors(form.connection_kind,input);
       const [existing]=await tx`SELECT b.id,h.snapshot,h.reason FROM source_campaign_binding b JOIN source_binding_history h ON h.binding_id=b.id AND h.version=1
         WHERE b.campaign_id=${current.id} AND b.request_key=${input.requestId}`;
       const snapshot={ connectionId:input.connectionId,resourceId:input.formId,campaignId:current.id,externalCampaignId:input.externalCampaignId,
@@ -74,12 +95,12 @@ export function registerSourceBindingRoutes(app:FastifyInstance,db:Database):voi
       }
       if (!input.reason.trim()) throw new HttpError(400,'SOURCE_CHANGE_REASON_REQUIRED');
       if (form.version!==input.connectionVersion) throw new HttpError(409,'SOURCE_CONNECTION_VERSION_CONFLICT');
-      if (current.source_kind!=='META') throw new HttpError(409,'SOURCE_CAMPAIGN_KIND_MISMATCH');
+      if (current.source_kind!==form.connection_kind) throw new HttpError(409,'SOURCE_CAMPAIGN_KIND_MISMATCH');
       if (input.active && (!current.branch_active || !sourceFormAvailable(form))) throw new HttpError(409,'SOURCE_BINDING_NOT_AVAILABLE');
       const id=randomUUID();await tx`INSERT INTO source_campaign_binding (id,connection_id,resource_id,campaign_id,request_key,
-        external_campaign_id,external_adset_id,external_ad_id,active,connection_version,updated_by,change_reason)
+        external_campaign_id,external_adset_id,external_ad_id,active,connection_version,updated_by,change_reason,generic_session_id)
         VALUES (${id},${input.connectionId},${input.formId},${current.id},${input.requestId},${input.externalCampaignId},${input.externalAdSetId},${input.externalAdId},
-          ${input.active},${form.version},${actor.id},${input.reason.trim()})`;
+          ${input.active},${form.version},${actor.id},${input.reason.trim()},${session})`;
       await tx`INSERT INTO audit_log (organization_id,branch_id,actor_user_id,action,target_type,target_id)
         VALUES (${actor.organizationId},${current.branch_id},${actor.id},'SOURCE_BINDING_CREATED','SOURCE_BINDING',${id})`;
       return { id,replayed:false };
@@ -89,11 +110,14 @@ export function registerSourceBindingRoutes(app:FastifyInstance,db:Database):voi
   app.put<{ Params:{ id:string;bindingId:string };Body:BindingInput }>(root+'/bindings/:bindingId',{ schema:{ params:bindingParams,body:{ type:'object',additionalProperties:false,
     required:[...requiredEdit,'version'],properties:{ ...editProperties,version:{ type:'integer',minimum:1 } } } } },async(request)=> {
     const actor=await principalFromRequest(request,db);const camp=await sourceCampaign(db,actor,request.params.id);
-    const [old]=await db`SELECT connection_id FROM source_campaign_binding WHERE id=${request.params.bindingId} AND campaign_id=${camp.id}`;
+    const [old]=await db`SELECT b.connection_id,c.kind FROM source_campaign_binding b JOIN integration_connection c ON c.id=b.connection_id
+      WHERE b.id=${request.params.bindingId} AND b.campaign_id=${camp.id}`;
     if (!old) throw new HttpError(404,'SOURCE_BINDING_NOT_FOUND');const input=request.body;
     return db.begin(async(tx)=> {
       const sql=tx as unknown as Database;await tx`SELECT id FROM integration_connection WHERE id=${old.connection_id} FOR UPDATE`;
       await recheckSourceActor(sql,actor);const current=await sourceCampaign(sql,actor,camp.id,true);
+      const session=await bindingSession(tx,actor,request,old.kind);
+      validateSelectors(old.kind,input);
       const [binding]=await tx`SELECT * FROM source_campaign_binding WHERE id=${request.params.bindingId} FOR UPDATE`;
       if (binding!.version!==input.version) throw new HttpError(409,'SOURCE_BINDING_VERSION_CONFLICT');
       if (!input.reason.trim()) throw new HttpError(400,'SOURCE_CHANGE_REASON_REQUIRED');
@@ -104,13 +128,13 @@ export function registerSourceBindingRoutes(app:FastifyInstance,db:Database):voi
       if (!onlyDisable) {
         const form=await sourceFormForBranch(sql,actor,old.connection_id,binding!.resource_id,current.branch_id);
         if (form.version!==input.connectionVersion) throw new HttpError(409,'SOURCE_CONNECTION_VERSION_CONFLICT');
-        if (current.source_kind!=='META') throw new HttpError(409,'SOURCE_CAMPAIGN_KIND_MISMATCH');
+        if (current.source_kind!==form.connection_kind) throw new HttpError(409,'SOURCE_CAMPAIGN_KIND_MISMATCH');
         if (input.active && (!current.branch_active || !sourceFormAvailable(form))) throw new HttpError(409,'SOURCE_BINDING_NOT_AVAILABLE');
         connectionVersion=form.version;
       }
       const [changed]=await tx`UPDATE source_campaign_binding SET external_campaign_id=${input.externalCampaignId},external_adset_id=${input.externalAdSetId},
         external_ad_id=${input.externalAdId},active=${input.active},connection_version=${connectionVersion},version=version+1,updated_by=${actor.id},
-        change_reason=${input.reason.trim()} WHERE id=${binding!.id} RETURNING version`;
+        change_reason=${input.reason.trim()},generic_session_id=${session} WHERE id=${binding!.id} RETURNING version`;
       await tx`INSERT INTO audit_log (organization_id,branch_id,actor_user_id,action,target_type,target_id,detail)
         VALUES (${actor.organizationId},${current.branch_id},${actor.id},'SOURCE_BINDING_UPDATED','SOURCE_BINDING',${binding!.id},${tx.json({ version:changed!.version })})`;
       return { version:changed!.version };

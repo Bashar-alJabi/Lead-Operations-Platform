@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { Database } from '../db.js';
-import { HttpError,principalFromRequest,type Principal } from '../security.js';
+import { HttpError,lockCurrentSession,principalFromRequest,type Principal } from '../security.js';
 import { sourceCampaign,sourceFormForBranch,sourceFormAvailable,sourceBindingIssues } from '../sources/bindings.js';
 import { sourceBindingRows } from '../sources/readiness.js';
 import { recheckSourceActor } from '../sources/catalog-sync.js';
@@ -19,7 +19,8 @@ const versionFields={ version:{ type:'integer',minimum:0 },bindingVersion:{ type
 const root='/api/sources/campaigns/:id/bindings/:bindingId/mapping';
 async function mappingScope(db:Database,actor:Principal,campaignId:string,bindingId:string) {
   const camp=await sourceCampaign(db,actor,campaignId);
-  const [binding]=await db`SELECT id,connection_id,resource_id,version,active FROM source_campaign_binding WHERE id=${bindingId} AND campaign_id=${camp.id}`;
+  const [binding]=await db`SELECT id,connection_id,resource_id,version,active,connection_version
+    FROM source_campaign_binding WHERE id=${bindingId} AND campaign_id=${camp.id}`;
   if (!binding) throw new HttpError(404,'SOURCE_BINDING_NOT_FOUND');
   const form=await sourceFormForBranch(db,actor,binding.connection_id,binding.resource_id,camp.branch_id);
   const [resource]=await db`SELECT version,questions FROM source_resource WHERE id=${binding.resource_id}`;
@@ -47,7 +48,8 @@ export function registerSourceMappingRoutes(app:FastifyInstance,db:Database):voi
     if (!published) issues.push('SOURCE_MAPPING_NOT_PUBLISHED');
     else {
       const current=await mappingTargets(db,actor,scope.camp.id,fieldIds(published.entries));const byId=new Map(current.map((t)=>[t.id,t]));
-      if (!sourceCatalogHash(scope.questions).equals(published.catalog_hash) || scope.form.version!==published.connection_version)
+      if (!sourceCatalogHash(scope.questions).equals(published.catalog_hash) || scope.form.version!==published.connection_version
+        || (scope.form.connection_kind==='GENERIC_SOURCE' && (published.binding_version!==scope.binding.version || published.resource_version!==scope.resource.version)))
         issues.push('SOURCE_MAPPING_CATALOG_CHANGED');
       if ((published.target_snapshot as MappingTarget[]).some((t)=>!byId.has(t.id) || mappingTargetHash(t)!==mappingTargetHash(byId.get(t.id)!)))
         issues.push('SOURCE_MAPPING_TARGET_CHANGED');
@@ -97,16 +99,22 @@ export function registerSourceMappingRoutes(app:FastifyInstance,db:Database):voi
       if (input.bindingVersion!==scope.binding.version || input.connectionVersion!==scope.form.version || input.resourceVersion!==scope.resource.version)
         throw new HttpError(409,'SOURCE_MAPPING_CONFIGURATION_CHANGED');
       if (!input.reason.trim()) throw new HttpError(400,'SOURCE_CHANGE_REASON_REQUIRED');
-      if (scope.camp.source_kind!=='META') throw new HttpError(409,'SOURCE_CAMPAIGN_KIND_MISMATCH');
+      if (scope.camp.source_kind!==scope.form.connection_kind) throw new HttpError(409,'SOURCE_CAMPAIGN_KIND_MISMATCH');
+      const generic=scope.form.connection_kind==='GENERIC_SOURCE';
+      const session=generic ? await lockCurrentSession(tx,actor,request) : null;
+      if (generic && !session) throw new HttpError(403,'GENERIC_SOURCE_ACCESS_REVOKED');
+      if (generic && (!scope.camp.branch_active || scope.binding.connection_version!==scope.form.version))
+        throw new HttpError(409,'SOURCE_MAPPING_CONFIGURATION_CHANGED');
+      if (generic && !scope.binding.active && input.status==='PUBLISHED') throw new HttpError(409,'SOURCE_BINDING_INACTIVE');
       const targets=await mappingTargets(sql,actor,scope.camp.id,fieldIds(input.entries),true);
       const warnings=validateMappingEntries(input.entries,scope.questions,targets);const required=await requiredFields(sql,scope.camp.id);
       if (required.some((id)=>!input.entries.some((e)=>e.kind==='LEAD_FIELD' && e.fieldId===id))) {
         if (input.status==='PUBLISHED') throw new HttpError(409,'SOURCE_MAPPING_REQUIRED_FIELD_UNMAPPED');warnings.push('SOURCE_MAPPING_REQUIRED_FIELD_UNMAPPED');
       }
       if (input.status==='PUBLISHED' && (!scope.camp.branch_active || !sourceFormAvailable(scope.form))) throw new HttpError(409,'SOURCE_MAPPING_RESOURCE_NOT_AVAILABLE');
-      await tx`INSERT INTO source_mapping_revision (binding_id,version,status,binding_version,connection_version,resource_version,catalog_hash,questions,entries,target_snapshot,actor_user_id,reason)
+      await tx`INSERT INTO source_mapping_revision (binding_id,version,status,binding_version,connection_version,resource_version,catalog_hash,questions,entries,target_snapshot,actor_user_id,reason,generic_session_id)
         VALUES (${scope.binding.id},${input.version+1},${input.status},${scope.binding.version},${scope.form.version},${scope.resource.version},${sourceCatalogHash(scope.questions)},
-          ${tx.json(scope.questions)},${tx.json(input.entries)},${tx.json(targets)},${actor.id},${input.reason.trim()})`;
+          ${tx.json(scope.questions)},${tx.json(input.entries)},${tx.json(targets)},${actor.id},${input.reason.trim()},${session})`;
       await tx`INSERT INTO audit_log (organization_id,branch_id,actor_user_id,action,target_type,target_id,detail)
         VALUES (${actor.organizationId},${scope.camp.branch_id},${actor.id},${'SOURCE_MAPPING_'+input.status},'SOURCE_BINDING',${scope.binding.id},${tx.json({ version:input.version+1 })})`;
       return { version:input.version+1,status:input.status,warnings };
