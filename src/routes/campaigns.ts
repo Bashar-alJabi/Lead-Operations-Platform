@@ -7,6 +7,7 @@ import { sourceCampaignIssues } from '../sources/readiness.js';
 import { recheckSourceActor } from '../sources/catalog-sync.js';
 import {initialCampaignIssues} from '../ai/initial-readiness.js';
 import {currentPaymentSession} from '../payments/access.js';
+import { validateFieldValue, type FieldOption, type FieldType, type FieldValidation } from '../fields.js';
 
 const idParam = { type: 'object', additionalProperties: false, required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } as const;
 const routingMethods = ['MANUAL', 'ROUND_ROBIN', 'WEIGHTED', 'PERFORMANCE'] as const;
@@ -23,7 +24,8 @@ type CampaignUpdate = {
   routingMethod: RoutingMethod;
   messagingEnabled: boolean;
   aiEnabled: boolean;
-  conversion: { type: 'PAYMENT_CONFIRMED' | 'ENROLLMENT_CONFIRMED' } | null;
+  conversion?: { type: 'PAYMENT_CONFIRMED' | 'ENROLLMENT_CONFIRMED' } |
+    { type: 'FIELD_VALUE'; fieldId: string; value: unknown } | null;
 };
 
 async function managedCampaign(sql: Database | postgres.TransactionSql, actor: Principal, id: string, lock = false) {
@@ -134,10 +136,36 @@ export function registerCampaignRoutes(app: FastifyInstance, db: Database): void
 
   app.get<{ Params: { id: string } }>('/api/campaigns/:id', { schema: { params: idParam } }, async (request) => {
     const actor = await principalFromRequest(request, db);
-    const campaign = await managedCampaign(db, actor, request.params.id);
-    const agents = await db`SELECT ca.agent_id, u.name, ca.active, ca.weight, ca.capacity_override, u.active AS account_active
-      FROM campaign_agent ca JOIN user_account u ON u.id = ca.agent_id WHERE ca.campaign_id = ${campaign.id} ORDER BY u.name`;
-    return { campaign, agents, issues: await readiness(db, campaign) };
+    return db.begin(async tx => {
+      const campaign = await managedCampaign(tx, actor, request.params.id);
+      if (!await currentPaymentSession(tx, actor, request)) throw new HttpError(403, 'CAMPAIGN_ACCESS_REVOKED');
+      const [conversionField] = campaign.conversion_config?.type === 'FIELD_VALUE'
+        ? await tx`SELECT f.id,f.key,f.label,f.field_type,f.value_mode,f.options,f.validation
+          FROM campaign c CROSS JOIN LATERAL campaign_conversion_field(c,c.conversion_config,${actor.role}) f
+          WHERE c.id=${campaign.id} AND c.version=${campaign.version}`
+        : [];
+      const visibleCampaign = campaign.conversion_config?.type === 'FIELD_VALUE' && !conversionField
+        ? { ...campaign, conversion_config: { type: 'FIELD_VALUE', unavailable: true } } : campaign;
+      const agents = await tx`SELECT ca.agent_id, u.name, ca.active, ca.weight, ca.capacity_override, u.active AS account_active
+        FROM campaign_agent ca JOIN user_account u ON u.id = ca.agent_id WHERE ca.campaign_id = ${campaign.id} ORDER BY u.name`;
+      return { campaign: visibleCampaign, conversionField: conversionField ?? null, agents, issues: await readiness(tx, campaign) };
+    });
+  });
+
+  app.get<{ Params: { id: string }; Querystring: { after?: string } }>('/api/campaigns/:id/conversion-fields', {
+    schema: { params: idParam, querystring: { type: 'object', additionalProperties: false,
+      properties: { after: { type: 'string', format: 'uuid' } } } },
+  }, async request => {
+    const actor = await principalFromRequest(request, db);
+    return db.begin(async tx => {
+      const campaign = await managedCampaign(tx, actor, request.params.id);
+      if (!await currentPaymentSession(tx, actor, request)) throw new HttpError(403, 'CAMPAIGN_ACCESS_REVOKED');
+      const rows = await tx`SELECT f.id,f.key,f.label,f.field_type,f.value_mode,f.options,f.validation
+        FROM campaign c JOIN campaign_field cf ON c.id=cf.campaign_id JOIN field_definition f ON f.id=cf.field_id
+        WHERE c.id=${campaign.id} AND campaign_conversion_field_allowed(c,f,cf,${actor.role})
+          AND (${request.query.after ?? null}::uuid IS NULL OR f.id>${request.query.after ?? null}) ORDER BY f.id LIMIT 51`;
+      return { items: rows.slice(0,50), nextAfter: rows.length>50 ? rows[49]!.id : null };
+    });
   });
 
   app.get<{ Params: { id: string } }>('/api/campaigns/:id/readiness', { schema: { params: idParam } }, async (request) => {
@@ -225,12 +253,14 @@ export function registerCampaignRoutes(app: FastifyInstance, db: Database): void
 
   app.patch<{ Params: { id: string }; Body: CampaignUpdate }>('/api/campaigns/:id', {
     schema: { params: idParam, body: { type: 'object', additionalProperties: false,
-      required: ['version','name','sourceKind','routingMethod','messagingEnabled','aiEnabled','conversion'], properties: {
+      required: ['version','name','sourceKind','routingMethod','messagingEnabled','aiEnabled'], properties: {
         version: { type: 'integer', minimum: 1 }, name: { type: 'string', minLength: 1, maxLength: 200 },
         sourceKind: { type: 'string', pattern: '^[A-Z][A-Z0-9_]{0,39}$' }, routingMethod: { enum: routingMethods },
         messagingEnabled: { type: 'boolean' }, aiEnabled: { type: 'boolean' },
         conversion: { anyOf: [{ type: 'null' }, { type: 'object', additionalProperties: false,
-          required: ['type'], properties: { type: { enum: ['PAYMENT_CONFIRMED','ENROLLMENT_CONFIRMED'] } } }] },
+          required: ['type'], properties: { type: { enum: ['PAYMENT_CONFIRMED','ENROLLMENT_CONFIRMED'] } } },
+          { type: 'object', additionalProperties: false, required: ['type','fieldId','value'],
+            properties: { type: { const: 'FIELD_VALUE' }, fieldId: { type: 'string', format: 'uuid' }, value: {} } }] },
       } } },
   }, async (request) => {
     const actor = await principalFromRequest(request, db);
@@ -239,13 +269,29 @@ export function registerCampaignRoutes(app: FastifyInstance, db: Database): void
       if (campaign.version !== request.body.version) throw new HttpError(409, 'CAMPAIGN_VERSION_CONFLICT');
       if (campaign.status === 'ACTIVE') throw new HttpError(409, 'DEACTIVATE_CAMPAIGN_BEFORE_EDIT');
       if (!request.body.name.trim()) throw new HttpError(400, 'INVALID_CAMPAIGN_NAME');
+      if (!await currentPaymentSession(tx, actor, request)) throw new HttpError(403, 'CAMPAIGN_ACCESS_REVOKED');
+      let conversion = request.body.conversion === undefined ? campaign.conversion_config : request.body.conversion ?? {};
+      if (request.body.conversion?.type === 'FIELD_VALUE') {
+        const selection = request.body.conversion;
+        const [field] = await tx`SELECT f.id,f.field_type,f.options,f.validation
+          FROM campaign c JOIN campaign_field cf ON c.id=cf.campaign_id JOIN field_definition f ON f.id=cf.field_id
+          WHERE c.id=${campaign.id} AND f.id=${selection.fieldId}
+            AND campaign_conversion_field_allowed(c,f,cf,${actor.role}) FOR SHARE OF f,cf`;
+        if (!field) throw new HttpError(404, 'CONVERSION_FIELD_NOT_FOUND');
+        const value = validateFieldValue(field.field_type as FieldType, selection.value,
+          field.options as FieldOption[], field.validation as FieldValidation);
+        if (value === null || !(await tx`SELECT stored_field_value_valid(${tx.json(value as postgres.JSONValue)},f) AS valid
+          FROM field_definition f WHERE f.id=${field.id}`)[0]?.valid) throw new HttpError(400, 'CONVERSION_VALUE_INVALID');
+        conversion = { type: selection.type, fieldId: field.id, value };
+      }
       const changed = await tx`UPDATE campaign SET name = ${request.body.name.trim()}, source_kind = ${request.body.sourceKind},
         routing_method = ${request.body.routingMethod}, messaging_config = ${tx.json({ enabled: request.body.messagingEnabled })},
-        ai_config = ${tx.json({ enabled: request.body.aiEnabled })}, conversion_config = ${tx.json(request.body.conversion ?? {})},
+        ai_config = ${tx.json({ enabled: request.body.aiEnabled })}, conversion_config = ${tx.json(conversion)},
         version = version + 1, updated_at = now() WHERE id = ${campaign.id} RETURNING version`;
       await tx`INSERT INTO audit_log (organization_id, branch_id, actor_user_id, action, target_type, target_id, detail)
         VALUES (${actor.organizationId}, ${campaign.branch_id}, ${actor.id}, 'CAMPAIGN_UPDATED', 'CAMPAIGN', ${campaign.id},
-          ${tx.json({ fromVersion: campaign.version, toVersion: changed[0]!.version })})`;
+          ${tx.json({ fromVersion: campaign.version, toVersion: changed[0]!.version,
+            conversionType: conversion?.type ?? null, conversionFieldId: conversion?.fieldId ?? null })})`;
       return { version: changed[0]!.version };
     });
   });

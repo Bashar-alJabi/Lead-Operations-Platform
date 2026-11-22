@@ -24,9 +24,9 @@ Field filter يمر عبر نوع Field وvalidation وactive/filterable binding
 
 ## Conversion
 
-تُقرأ `campaign.conversion_config` الحالية ونسخة Campaign. النوعان الحاليان في Setup هما PAYMENT_CONFIRMED وENROLLMENT_CONFIRMED. لا تستنتج المنصة conversion من AI qualification أوStatus أوأي اسم تجاري. المجموعة التي بلا تعريف تُعرض كغير محددة، ولا تظهر نسبة افتراضية لها.
+يقرأ التقرير `campaign.conversion_config` الحالية ونسخة Campaign. يدعم الإعداد تأكيد Payment أو Enrollment أو مطابقة قيمة مخزنة في Campaign Field. يختار المستخدم الحقل والقيمة صراحة، بما فيها خيارات Campaign Status. يتأكد Backend وPostgreSQL من صحة القيمة ونطاق الحقل النشط المرتبط بالحملة.
 
-في إجمالي عدة Campaigns: numerator هو عدد Leads ذات milestone الموثوقة بحسب تعريف حملتها؛denominator هو Leads في Campaigns ذات تعريف صريح فقط. يظهر configured/unconfigured denominator في الواجهة. Campaign breakdown تعرض التعريف والنسخة المستخدمة لكل حملة. هذه قراءة للتعريف الحالي، وليست attribution تاريخية لنسخة إعداد سابقة. Field/Status milestones الأخرى لا تُعرض كمنفذة قبل دعم Setup/rules/tests الخاصة بها.
+يضم المقام الفرص ذات التعريف الحالي المتاح للقراءة، ويضم البسط الفرص التي حققت تعريف حملتها. يتشارك التجميع وDrill-down شرط المطابقة. يعامل التقرير التعريف كغير محدد عند إخفاء الحقل عن الدور الحالي أو تعطيل تعريفه أو رابط الحملة أو الخيار المعتمد. تعرض مجموعة الحملة نوع التعريف ونسخة الإعداد الحالية. تبقى مطابقة الحقل مستقلة عن مؤشرات Payment وEnrollment.
 
 ## التواصل والأداء البشري
 
@@ -64,4 +64,4 @@ Native169 views/indexes فقط؛لا backfill أوتغيير مالي أوAI/cus
 
 Browser تثبت actual Leads/Bank/Enrollment وdrilldown وscope revocation وfailed-read clearing وar/en/fr وArabic390px/Revenue cards بلا overflow/XSS/duplicate keys. صفحات25 اختيارًا تختبر بـHTTP mock معزولة عن catalog المشتركة؛تحتفظ UI بالاختيار وتعود لأول صفحة ثم API catalog الحقيقية. لم تُخفف اختبارات startup catalog أوPayment Methods أوtemplates القديمة لإرضاء البيانات الجديدة.
 
-بقية aggregate qualification completion/source attribution وField/Status conversion milestones وsustained production-like load وcross-module acceptance ما زالت ضمن مراجعة الفجوات. هذه الشريحة Implemented وMock/PostgreSQL/Local Browser Verified فقط. وجود هذه الشاشة لا يعني أن Analytics أوالمنصة Complete أوLive Provider Verified؛كل Live integrations تبقى Pending External Credential/Approval والاستخدام الحي معطل.
+تبقى مقاييس اكتمال Qualification وإسناد المصدر واختبارات الأحمال المستمرة وقبول الرحلات بين الوحدات ضمن مراجعة الفجوات. حالة التكاملات الحية هي Live Verification Pending External Credential/Approval.

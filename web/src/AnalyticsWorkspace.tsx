@@ -90,7 +90,8 @@ export function AnalyticsWorkspace({locale,api,user,branches,onOpenLead}:{locale
  const values=(list:string[])=>list.map(value=>({value,label:value}));
  const metrics=[['total','ALL'],['open','OPEN'],['closed','CLOSED'],['archived','ARCHIVED'],['unassigned','UNASSIGNED'],['attention','ATTENTION'],['noFollowUp','NO_FOLLOW_UP'],['overdueFollowUp','OVERDUE_FOLLOW_UP'],['paid','PAID'],['enrolled','ENROLLED'],['aiAnswered','AI_ANSWERED'],['humanAnswered','HUMAN_ANSWERED']] as const;
  const communication=[['platformContacted','PLATFORM_CONTACTED'],['aiContacted','AI_CONTACTED'],['humanContacted','HUMAN_CONTACTED'],['customerResponded','CUSTOMER_RESPONDED']] as const;
- const definition=(d:string|null)=>d==='PAYMENT_CONFIRMED'?t.payment:d==='ENROLLMENT_CONFIRMED'?t.enrollment:t.none;
+ const definition=(d:string|null)=>d==='PAYMENT_CONFIRMED'?t.payment:d==='ENROLLMENT_CONFIRMED'?t.enrollment:d==='FIELD_VALUE'
+  ? {ar:'قيمة حقل في الحملة',en:'Campaign field value',fr:'Valeur d’un champ de campagne'}[locale]:t.none;
  const chosenField=fields.find(f=>f.id===form.fieldId);
  return <section className="panel" data-analytics-workspace><h2>{t.title}</h2><p>{t.basis}</p><p>{t.humanNote}</p><p>{t.financeNote}</p>
   <form className="lead-search-form" data-analytics-filters onSubmit={e=>{e.preventDefault();void load(form);}}>

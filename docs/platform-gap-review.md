@@ -1,4 +1,4 @@
-# مراجعة فجوات المنصة — تحديث 2026-11-21
+# مراجعة فجوات المنصة — تحديث 2026-11-22
 
 ## منهج المراجعة وحدودها
 
@@ -23,7 +23,7 @@
 | Notifications —00 §38/01 §§40–41/02 §64/03 §§30/71/99،06 §19 | In-App وEmail للأحداث المثبتة في التغطية. تشمل 202–206 إعداد Messaging الداخلي والتسليم وإقرار المزوّد **Mock Verified**. أضافت 210 استعادة تجهيز الجمهور بواجهة إدارية وAudit. | قبول حي موثّق وربط callbacks بإثبات الوصول والسياسات الإلزامية ضمن حدود المواصفات |
 | Payments —01 §§42–45/02 §§59–63/03 §§32–38،06 §14 | Stripe/PayPal/Alma/Bank Transfer baselines محلية و trusted proof/idempotency/native guards/reconciliation/history/UI،Native166 In-App confirmed notice | توسيع قبول Analytics عبر جميع المزودين وexternal notification channels/cross-module acceptance وLive verification؛Mollie ليست Requirement ولا provider polish قبل core |
 | Enrollment —00–03،06 §14 | كيانمستقلمن confirmed Payment مع history/Activity/ACL/UI و Native166 In-App notice مستقلة | توسيع قبول Analytics وexternal channels وcross-module acceptance؛لا customer claim/receipt upload كإثباتدفع |
-| Analytics/Conversion/Dashboard —00 §§43–45/03 §§72–73،06 §15 | Native169: shared scoped filters/typed Field equality،trusted overview/groups/Human author performance وbounded drilldown،explicit Conversion وexact per-currency/per-mode Revenue وar/en/fr UI؛180unit/104full PG/60full Browser و001–169/build/typecheck مثبتة | aggregate qualification-completion/source attribution وField/Status conversion milestones وsustained load/cross-module acceptance باقية. هذه current Lead cohort وليستaccounting attribution أوhistorical snapshot |
+| Analytics/Conversion/Dashboard —00 §§43–45/03 §§72–73،06 §15 | فلاتر ذات نطاق وملخصات وتقسيم حسب المصدر/الحملة/الفرع وأداء بشري موثوق وتفاصيل محدودة الصفحات. يدعم 226 تعريف Conversion من قيمة Campaign Field أو Status الحالية إلى جانب التأكيد المالي والتسجيل. | إحصاءات اكتمال Qualification وإسناد المصدر واختبارات الأحمال المستمرة وقبول الرحلات بين الوحدات. يعرض التقرير الفرص ضمن المجموعة والنطاق الحاليين. |
 | Automation —00 §§46–47/01 §§46–50/02 §65/03 §74،06 §16 | قواعد ذات إصدارات ونطاق System/Branch/Campaign ومحفزات Lead والدفع والتسجيل والاستحقاق والرسائل وتغيّر المحادثة والحقل. تتوفر شروط المال والمحادثة والحقل والموظف والتاريخ. تشمل الإجراءات متابعة وإشعارًا وتعيين قيمة حقل وإضافة Tags وإسنادًا بضوابط الأهلية وتتبع السبب في 219–222. يضيف 223 طلب المراجعة البشرية، ويثبت 224 كتابة Campaign Status والإغلاق الصريح بضوابط الحقول المطلوبة. | AI workflows المسموحة وحالات AI خارج Conversation. يجب ربط سبب كل إجراء يولّد حدثًا جديدًا. |
 | Search/Views/Bulk —00 §§48–51/02 §§68–71،06 §17 | scoped search وtyped visible Field filters/keyset وviews/columns وbounded bulk assignment؛Native169 تضيف financial/conversation/controller/attention filters؛Native170–171 تضيف confirmed typed Human Fields/Status/Tags وper-item current scope/CAS/hash/native receipt/history/Audit وUI؛Native172 تضيفHuman Bulk Follow-up وTask history،ثمNative173–174 guarded CSV Export مع186Unit/119PG/63Browser و001–174/build/typecheck ناجحة | sort إضافي/calculated filters وlarge-data UX/قبول شامل باقية؛هذه baseline وليست اكتمال المنطقة |
 | Import/Export —00 §§52–53/02 §§66–69/03 §§97–98،06 §18 | CSVExport173–174 وCSV/Excel Import183–184،Google Import190–192 وGoogle Export193–195: actual scoped jobs/approval/intake/dispatch/typed independent confirmation/history/UI؛208Unit/170PG/76Browser و001–195/build/typecheck مثبتة | **File وGoogle Import/Export baselines مثبتة**؛generic API sources وsustained load/restore/cross-module acceptance باقية. لاfinancial/consent trust من claims أوLive verification |
@@ -38,13 +38,13 @@
 
 ## الاعتماديات والأولوية التنفيذية التالية
 
-**أحدث نتائج الانحدار الشامل — 2026-11-21** اجتاز بناء `164df52` مع 222 **198/198 PostgreSQL Integration**. اجتاز بناء `efcc06a` مع 223 **91/91 Edge Browser E2E**. تحققت بوابة 223 المركزة مع **209/209 Unit** والبناء وفحص الأنواع وmigrations.
+**أحدث نتائج الانحدار الشامل — 2026-11-21** اجتاز بناء `34c9dd0` مع 224 **200/200 PostgreSQL Integration**. اجتاز بناء `efcc06a` مع 223 **91/91 Edge Browser E2E**. تحققت بوابتا 224 و225 المركّزتان مع **209/209 Unit** والبناء وفحص الأنواع وmigrations.
 
 1. **Import CSV/Excel checkpoint محفوظة:** `95dbce3` مرفوعة،Native183–184 و193Unit/142PG/68Browser و001–184/build/typecheck مثبتة. لاتعدتنفيذها؛هيbaseline للملفات معSheets/API/load/acceptance gaps باقية. [العقد](lead-import-execution.md). التاليGoogleSheets،دونoptionalparser/provider/AI refinements.
 2. **Google Sheets:** baseline Import190–192 محفوظةفي5d063a8،Export preparation194 في3a6271b،delivery/verification195 في3ca5157. لا إعادةتنفيذ أوoptionalrefinements؛انتقلالآنلمتطلباتEmail/Notifications الأساسية.
 3. **Notifications.** ثبت تسليم Messaging الداخلي وإقرار المزوّد محليًا بـmock في 206، واستعادة تجهيز الجمهور من داخل المنصة في 210. تبقى إثباتات الوصول والقبول الحي والسياسات الإلزامية ضمن المراجعة.
 4. **بقية Automation.** ثبت الإسناد وطلب المراجعة البشرية وCampaign Status والإغلاق المشروط محليًا. تبقى الأتمتة المرتبطة بحالات AI وإجراءاتها المسموحة ضمن اعتماديات دورة AI.
-5. **متطلبات الوحدات الأساسية الأخرى.** ثبت Performance Routing في 216–217، وسجل Audit الإداري في 225. تابع تعريف Conversion من قيمة Campaign Field أو Status، ثم بقية الفجوات ومنها دورة Branch/User/Lead transfer وGeneric API intake وAI workflows ورحلات القبول الشاملة.
+5. **متطلبات الوحدات الأساسية الأخرى.** ثبت Performance Routing في 216–217، وسجل Audit الإداري في 225 وتعريف Conversion من حقول الحملة في 226. تابع Generic API/Webhook intake ثم بقية الفجوات ومنها دورة Branch/User/Lead transfer وAI workflows ورحلات القبول الشاملة.
 
 ## حدودالمراجعةالتلقائية والاعتمادياتالخارجية
 

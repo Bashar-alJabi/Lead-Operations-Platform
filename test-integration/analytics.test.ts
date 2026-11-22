@@ -34,6 +34,62 @@ async function fixture(t:TestContext){
  return {db,app,org,branch,other,campaigns,leads,users,api,overview};
 }
 
+test('Campaign Status defines a typed conversion with matching aggregate and drilldown, current visibility and native integrity',async t=>{
+ const {db,branch,campaigns,leads,users,api,overview}=await fixture(t);
+ const campaign=campaigns[0]!,root='/api/campaigns/'+campaign,filter='campaignId='+campaign;
+ await db`UPDATE campaign SET status='DRAFT' WHERE id=${campaign}`;
+ const definition=await api('POST','/api/fields',{scope:'CAMPAIGN',branchId:branch,campaignId:campaign,key:'analytics_status',
+  label:'Approved conversion status',fieldType:'STATUS',valueMode:'MANUAL',options:[
+   {value:'won',label:'Won',active:true},{value:'pending',label:'Pending',active:true},
+  ],validation:{}});
+ assert.equal(definition.statusCode,201,definition.body);
+ const {id:field}=definition.json();
+ const binding=await api('PUT',root+'/fields/'+field,{active:true,position:0,requiredStage:'NONE',
+  visibleToAgent:false,editableByAgent:false,visibleToManager:true,editableByManager:true,showInTable:false,
+  showInDetails:true,filterable:false,usableByAutomation:false,usableByAi:false});
+ assert.equal(binding.statusCode,200,binding.body);
+ const detail=async(who='manager')=>(await api('GET',root,undefined,who)).json();
+ const edit={version:(await detail()).campaign.version,name:'Scoped conversion campaign',sourceKind:'MANUAL',
+  routingMethod:'MANUAL',messagingEnabled:false,aiEnabled:false};
+ const conversion={type:'FIELD_VALUE',fieldId:field,value:'won'};
+ assert.equal((await api('PATCH',root,{...edit,conversion:{...conversion,value:'fabricated'}})).statusCode,400);
+ assert.equal((await api('PATCH',root,{...edit,conversion:{...conversion,fieldId:randomUUID()}})).statusCode,404);
+ assert.equal((await api('PATCH',root,{...edit,conversion},'agent')).statusCode,403);
+ assert.equal((await api('PATCH',root,{...edit,conversion},'other')).statusCode,403);
+ const save=await api('PATCH',root,{...edit,conversion});
+ assert.equal(save.statusCode,200,save.body);
+ assert.equal((await api('PATCH',root,{...edit,conversion})).statusCode,409);
+ assert.equal((await detail()).conversionField.id,field);
+ for(const [id,value] of [[leads[0],'won'],[leads[3],'pending']]){
+  const write=await api('PUT','/api/leads/'+id+'/fields/'+field,{value});
+  assert.equal(write.statusCode,200,write.body);
+ }
+ assert.deepEqual((await overview(filter)).conversion,{configuredLeads:'2',converted:'1',unconfiguredLeads:'0',rate:'50.00'});
+ assert.equal((await overview(filter)).leads.paid,'0');
+ assert.equal((await overview(filter+'&paymentMode=TEST')).conversion.converted,'1');
+ const group=(await api('GET','/api/analytics/groups?'+filter+'&by=CAMPAIGN')).json().items[0];
+ assert.equal(group.definition,'FIELD_VALUE');assert.equal(group.rate,'50.00');
+ const drill=(who='manager')=>api('GET','/api/analytics/leads?metric=CONVERTED&'+filter,undefined,who);
+ assert.deepEqual((await drill('manager')).json().items.map((item:{id:string})=>item.id),[leads[0]]);
+ assert.equal((await overview(filter,'agent')).conversion.rate,null);
+ assert.equal((await drill('agent')).json().items.length,0);
+ await assert.rejects(db`UPDATE campaign SET conversion_config=${db.json({...conversion,value:'fabricated'})} WHERE id=${campaign}`,
+  /CAMPAIGN_CONVERSION_INVALID/);
+
+ await db`UPDATE campaign_field SET visible_to_manager=false,editable_by_manager=false,version=version+1
+  WHERE campaign_id=${campaign} AND field_id=${field}`;
+ const redacted=await detail();
+ assert.deepEqual(redacted.campaign.conversion_config,{type:'FIELD_VALUE',unavailable:true});
+ assert.equal(redacted.conversionField,null);
+ assert.deepEqual((await api('GET',root+'/conversion-fields')).json().items,[]);
+ assert.equal((await overview(filter)).conversion.rate,null);
+ assert.equal((await overview(filter,'admin')).conversion.converted,'1');
+ assert.equal((await api('PATCH',root,{...edit,version:save.json().version,name:'Rename without replacing the protected definition'})).statusCode,200);
+ assert.deepEqual((await detail('admin')).campaign.conversion_config,conversion);
+ await db`UPDATE user_session SET revoked_at=clock_timestamp() WHERE id=${users.manager!.session}`;
+ assert.equal((await api('GET',root+'/conversion-fields')).statusCode,401);
+});
+
 test('Analytics computes scoped exact financial cohort totals from real trusted confirmations, separates currencies/modes and explicit conversion, with matching bounded drilldown',async t=>{
  const {db,branch,campaigns,leads,users,api,overview}=await fixture(t);
  assert.equal((await overview()).leads.total,'4');assert.equal((await overview('', 'admin')).leads.total,'5');assert.equal((await overview('', 'foreign')).leads.total,'1');

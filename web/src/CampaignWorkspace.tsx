@@ -10,14 +10,16 @@ import { CampaignAIConfiguration } from './CampaignAIConfiguration';
 import { CampaignAITools } from './CampaignAITools';
 import { CampaignAISimulation } from './CampaignAISimulation';
 import { CampaignPerformanceRouting } from './CampaignPerformanceRouting';
+import { FieldInput, type FieldRow } from './LeadFields';
 
 type Api = <T>(path: string, options?: RequestInit) => Promise<T>;
 type Locale = 'ar'|'fr'|'en';
 type Campaign = { id: string; branch_id: string; name: string; status: 'DRAFT'|'ACTIVE'|'INACTIVE'; version: number;
   source_kind: string; routing_method: string; messaging_config: { enabled?: boolean }; ai_config: { enabled?: boolean };
-  conversion_config: { type?: string }; branch_active: boolean; sender_override_id: string | null };
+  conversion_config: { type?: string; fieldId?: string; value?: unknown; unavailable?: boolean };
+  branch_active: boolean; sender_override_id: string | null };
 type Agent = { agent_id: string; name: string; active: boolean; account_active: boolean; weight: number; capacity_override: number | null };
-type Detail = { campaign: Campaign; agents: Agent[]; issues: string[] };
+type Detail = { campaign: Campaign; agents: Agent[]; issues: string[]; conversionField?: FieldRow | null };
 type User = { id: string; name: string };
 type SendingWindow = { start: string; end: string } | null;
 type MessagingPolicy = { version: number; sendingWindow: SendingWindow; effectiveSendingWindow: SendingWindow;
@@ -46,8 +48,19 @@ export function CampaignWorkspace({ id, locale, api, onBack, onChanged }: {
   id: string; locale: Locale; api: Api; onBack: () => void; onChanged: () => Promise<void>;
 }) {
   const t = text[locale];
+  const conversionText = {
+    ar: { field: 'قيمة حقل في الحملة', choose: 'حقل التحويل', value: 'القيمة المطلوبة للتحويل', more: 'مزيد من حقول التحويل',
+      unavailable: 'تعريف الحقل المحفوظ غير متاح في النطاق الحالي.', yes: 'نعم', no: 'لا' },
+    en: { field: 'Campaign field value', choose: 'Conversion field', value: 'Conversion field value', more: 'More conversion fields',
+      unavailable: 'The saved conversion field is unavailable in this scope.', yes: 'Yes', no: 'No' },
+    fr: { field: 'Valeur d’un champ de campagne', choose: 'Champ de conversion', value: 'Valeur du champ de conversion',
+      more: 'Autres champs de conversion', unavailable: 'Le champ de conversion enregistré est indisponible dans ce périmètre.', yes: 'Oui', no: 'Non' },
+  }[locale];
   const [detail, setDetail] = useState<Detail | null>(null);
   const [form, setForm] = useState({ name: '', sourceKind: 'MANUAL', routingMethod: 'MANUAL', messagingEnabled: false, aiEnabled: false, conversion: '' });
+  const [conversionFieldId, setConversionFieldId] = useState('');
+  const [conversionValue, setConversionValue] = useState<unknown>(null);
+  const [conversionFields, setConversionFields] = useState<{items: FieldRow[]; nextAfter: string | null}>({items:[],nextAfter:null});
   const [agentId, setAgentId] = useState('');
   const [weight, setWeight] = useState(1);
   const [capacity, setCapacity] = useState('');
@@ -79,9 +92,20 @@ export function CampaignWorkspace({ id, locale, api, onBack, onChanged }: {
     const c = result.campaign;
     setForm({ name: c.name, sourceKind: c.source_kind, routingMethod: c.routing_method,
       messagingEnabled: Boolean(c.messaging_config.enabled), aiEnabled: Boolean(c.ai_config.enabled), conversion: c.conversion_config.type ?? '' });
+    setConversionFieldId(c.conversion_config.fieldId ?? '');
+    setConversionValue(c.conversion_config.value ?? null);
     setSenderOverrideId(c.sender_override_id ?? '');
   }
   useEffect(() => { void load().catch((failure) => setError(String(failure))); }, [id]);
+  useEffect(() => {
+    if (form.conversion !== 'FIELD_VALUE') return;
+    let current = true;
+    setConversionFields({items:[],nextAfter:null});
+    void api<typeof conversionFields>(`/api/campaigns/${id}/conversion-fields`)
+      .then(result => { if (current) setConversionFields(result); })
+      .catch(failure => { if (current) setError(String(failure)); });
+    return () => { current = false; };
+  }, [id, form.conversion]);
   async function loadSenders(branchId: string, after?: string) {
     const result = await api<{ items: typeof senderOptions; nextAfter: string | null }>(
       `/api/messaging/branches/${branchId}/senders${after ? '?after=' + encodeURIComponent(after) : ''}`);
@@ -108,6 +132,11 @@ export function CampaignWorkspace({ id, locale, api, onBack, onChanged }: {
   if (!detail) return <section className="panel"><button className="link" onClick={onBack}>{t.back}</button>{error && <p role="alert" className="error">{error}</p>}</section>;
   const campaign = detail.campaign;
   const editable = campaign.status !== 'ACTIVE';
+  const conversionOptions = detail.conversionField && !conversionFields.items.some(item => item.id === detail.conversionField?.id)
+    ? [detail.conversionField, ...conversionFields.items] : conversionFields.items;
+  const conversionField = conversionOptions.find(item => item.id === conversionFieldId);
+  const keepUnavailable = form.conversion === 'FIELD_VALUE' && !conversionFieldId && campaign.conversion_config.unavailable;
+  const missingConversion = form.conversion === 'FIELD_VALUE' && !keepUnavailable && (!conversionField || conversionValue == null);
   async function reloadReadiness() {
     const { issues } = await api<{ issues: string[] }>(`/api/campaigns/${id}/readiness`);
     setDetail(current => current && { ...current, issues });
@@ -118,7 +147,9 @@ export function CampaignWorkspace({ id, locale, api, onBack, onChanged }: {
       <form className="campaign-form" onSubmit={(event) => { event.preventDefault(); void mutate(`/api/campaigns/${id}`, 'PATCH', {
         version: campaign.version, name: form.name, sourceKind: form.sourceKind, routingMethod: form.routingMethod,
         messagingEnabled: form.messagingEnabled, aiEnabled: form.aiEnabled,
-        conversion: form.conversion ? { type: form.conversion } : null,
+        conversion: keepUnavailable ? undefined : form.conversion === 'FIELD_VALUE' ?
+          { type: form.conversion, fieldId: conversionFieldId, value: conversionValue } :
+          form.conversion ? { type: form.conversion } : null,
       }); }}>
         <label>{t.name}<input required maxLength={200} disabled={!editable || busy} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
         <label>{t.source}<select disabled={!editable || busy} value={form.sourceKind} onChange={(e) => setForm({ ...form, sourceKind: e.target.value })}>
@@ -126,10 +157,26 @@ export function CampaignWorkspace({ id, locale, api, onBack, onChanged }: {
         <label>{t.routing}<select disabled={!editable || busy} value={form.routingMethod} onChange={(e) => setForm({ ...form, routingMethod: e.target.value })}>
           {['MANUAL','ROUND_ROBIN','WEIGHTED','PERFORMANCE'].map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
         <label>{t.conversion}<select disabled={!editable || busy} value={form.conversion} onChange={(e) => setForm({ ...form, conversion: e.target.value })}>
-          <option value="">{t.none}</option><option value="PAYMENT_CONFIRMED">{t.payment}</option><option value="ENROLLMENT_CONFIRMED">{t.enrollment}</option></select></label>
+          <option value="">{t.none}</option><option value="PAYMENT_CONFIRMED">{t.payment}</option><option value="ENROLLMENT_CONFIRMED">{t.enrollment}</option>
+          <option value="FIELD_VALUE">{conversionText.field}</option></select></label>
+        {form.conversion === 'FIELD_VALUE' && <fieldset disabled={!editable || busy}>
+          <label>{conversionText.choose}<select value={conversionFieldId} onChange={event => {
+            setConversionFieldId(event.target.value); setConversionValue(null);
+          }}><option value="">{t.choose}</option>{conversionOptions.map(item => <option value={item.id} key={item.id}>{item.label}</option>)}</select></label>
+          {keepUnavailable && <p role="status">{conversionText.unavailable}</p>}
+          {conversionField && <label>{conversionText.value}<FieldInput field={conversionField} value={conversionValue} onChange={setConversionValue}
+            ariaLabel={conversionText.value} booleanLabels={conversionText} /></label>}
+          {conversionFields.nextAfter && <button type="button" onClick={() => {
+            const after = conversionFields.nextAfter!;
+            void api<typeof conversionFields>(`/api/campaigns/${id}/conversion-fields?after=${after}`)
+              .then(result => setConversionFields(current => current.nextAfter === after
+                ? { items: [...current.items, ...result.items], nextAfter: result.nextAfter } : current))
+              .catch(failure => setError(String(failure)));
+          }}>{conversionText.more}</button>}
+        </fieldset>}
         <label className="check-row"><input type="checkbox" disabled={!editable || busy} checked={form.messagingEnabled} onChange={(e) => setForm({ ...form, messagingEnabled: e.target.checked })} />{t.messaging}</label>
         <label className="check-row"><input type="checkbox" disabled={!editable || busy} checked={form.aiEnabled} onChange={(e) => setForm({ ...form, aiEnabled: e.target.checked })} />{t.ai}</label>
-        <button disabled={!editable || busy}>{t.save}</button>
+        <button disabled={!editable || busy || missingConversion}>{t.save}</button>
       </form><p>{editable ? t.dependency : t.disabled}</p>
     </section>
     {(campaign.routing_method==='PERFORMANCE'||form.routingMethod==='PERFORMANCE')&&

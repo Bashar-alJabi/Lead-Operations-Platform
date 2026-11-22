@@ -17,7 +17,7 @@ export function analyticsCtes(tx:postgres.TransactionSql,actor:Principal,q:LeadF
  const humanActor=actor.role==='AGENT'?actor.id:q.assignedAgentId??null,mode=q.paymentMode??'LIVE';
  return tx`WITH selected AS MATERIALIZED (
   SELECT l.id,l.organization_id,l.branch_id,l.campaign_id,l.contact_id,l.assigned_agent_id,l.lifecycle,l.source_kind,l.created_at,l.needs_attention_reason,
-   ca.name AS campaign_name,ca.version AS campaign_version,ca.conversion_config->>'type' AS conversion_type,b.name AS branch_name
+   ca.name AS campaign_name,ca.version AS campaign_version,ca.conversion_config->>'type' AS configured_conversion,b.name AS branch_name
   FROM lead l LEFT JOIN contact c ON c.id=l.contact_id JOIN campaign ca ON ca.id=l.campaign_id JOIN branch b ON b.id=l.branch_id
   WHERE ${leadPredicate(tx,actor,q,field)}
  ), cvs AS MATERIALIZED (SELECT cv.id,cv.lead_id,cv.state,cv.controller_type,cv.needs_attention_reason FROM conversation cv JOIN selected s ON s.id=cv.lead_id),
@@ -44,6 +44,12 @@ export function analyticsCtes(tx:postgres.TransactionSql,actor:Principal,q:LeadF
   SELECT pf.* FROM analytics_payment_fact pf JOIN selected s ON s.id=pf.lead_id AND s.organization_id=pf.organization_id WHERE (${mode}='ALL' OR pf.mode=${mode})
  ), payment_leads AS (SELECT lead_id,bool_or(state='CONFIRMED') AS paid FROM payments GROUP BY lead_id),
  enrollments AS MATERIALIZED (SELECT e.id,e.lead_id,e.enrolled_at FROM enrollment e JOIN payments p ON p.id=e.payment_id AND p.lead_id=e.lead_id AND p.state='CONFIRMED'),
+ conversion_fields AS MATERIALIZED (
+  SELECT c.id AS campaign_id,f.id AS field_id,c.conversion_config->'value' AS expected
+  FROM (SELECT DISTINCT campaign_id FROM selected WHERE configured_conversion='FIELD_VALUE') scope
+   JOIN campaign c ON c.id=scope.campaign_id
+   CROSS JOIN LATERAL campaign_conversion_field(c,c.conversion_config,${actor.role}) f
+ ),
  qualification AS (
   SELECT a.lead_id,bool_or(a.source='AI') AS ai_answered,bool_or(a.source='HUMAN') AS human_answered FROM lead_qualification_answer a JOIN selected s ON s.id=a.lead_id AND s.campaign_id=a.campaign_id
    LEFT JOIN campaign_field cf ON cf.campaign_id=s.campaign_id AND cf.field_id=a.field_id LEFT JOIN field_definition fd ON fd.id=a.field_id
@@ -59,8 +65,15 @@ export function analyticsCtes(tx:postgres.TransactionSql,actor:Principal,q:LeadF
    coalesce(q.ai_answered,false) AS ai_answered,coalesce(q.human_answered,false) AS human_answered,
    s.needs_attention_reason IS NOT NULL OR automation_review_pending(s.id,s.branch_id,s.campaign_id)
     OR EXISTS(SELECT 1 FROM cvs cv WHERE cv.lead_id=s.id AND cv.needs_attention_reason IS NOT NULL) AS attention,
-   coalesce(CASE s.conversion_type WHEN 'PAYMENT_CONFIRMED' THEN p.paid WHEN 'ENROLLMENT_CONFIRMED' THEN EXISTS(SELECT 1 FROM enrollments e WHERE e.lead_id=s.id) ELSE false END,false) AS converted,
-   coalesce(s.conversion_type IN ('PAYMENT_CONFIRMED','ENROLLMENT_CONFIRMED'),false) AS conversion_defined
-  FROM selected s LEFT JOIN communication c ON c.lead_id=s.id LEFT JOIN tasks t ON t.lead_id=s.id LEFT JOIN payment_leads p ON p.lead_id=s.id LEFT JOIN qualification q ON q.lead_id=s.id
+   CASE WHEN d.field_id IS NOT NULL OR s.configured_conversion IN ('PAYMENT_CONFIRMED','ENROLLMENT_CONFIRMED')
+    THEN s.configured_conversion END AS conversion_type,
+   coalesce(CASE s.configured_conversion WHEN 'PAYMENT_CONFIRMED' THEN p.paid
+    WHEN 'ENROLLMENT_CONFIRMED' THEN EXISTS(SELECT 1 FROM enrollments e WHERE e.lead_id=s.id)
+    WHEN 'FIELD_VALUE' THEN fv.value=d.expected ELSE false END,false) AS converted,
+   d.field_id IS NOT NULL OR coalesce(s.configured_conversion IN ('PAYMENT_CONFIRMED','ENROLLMENT_CONFIRMED'),false) AS conversion_defined
+  FROM selected s LEFT JOIN communication c ON c.lead_id=s.id LEFT JOIN tasks t ON t.lead_id=s.id
+   LEFT JOIN payment_leads p ON p.lead_id=s.id LEFT JOIN qualification q ON q.lead_id=s.id
+   LEFT JOIN conversion_fields d ON d.campaign_id=s.campaign_id
+   LEFT JOIN lead_field_value fv ON fv.lead_id=s.id AND fv.field_id=d.field_id
  )`;
 }
