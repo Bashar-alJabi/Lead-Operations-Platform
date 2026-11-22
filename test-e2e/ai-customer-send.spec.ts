@@ -75,6 +75,11 @@ test('AI replies use signed sources, approved content, durable native queues and
     expect((await inbound(false)).status()).toBe(200);
     expect((await control({process:true})).status()).toBe(200);
     await read();await expect(panel).toContainText('ANSWER');
+    const resumedReply=panel.locator('[data-ai-customer-execution]').first().locator('[data-ai-customer-action]');
+    expect((await (await execute()).json()).processed).toBe(true);
+    await read();await expect(resumedReply).toContainText('QUEUED');
+    expect((await (await dispatch()).json()).processed).toBe(true);
+    await read();await expect(resumedReply).toContainText('SENT');
     await page.reload();
     await page.getByRole('row').filter({hasText:leadName}).getByRole('button',{name:'Details',exact:true}).click();
     await expect(page.getByRole('listitem').filter({hasText:'Conversation returned to AI'})).toContainText('Employee finished the review');
