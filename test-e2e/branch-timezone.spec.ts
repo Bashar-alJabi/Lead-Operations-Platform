@@ -1,0 +1,38 @@
+import { expect,test } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+
+test('An administrator adjusts a branch timezone and working hours reflects the current value with localized history',async({page})=>{
+  const {password}=JSON.parse(await readFile('.local/e2e/fixture.json','utf8')) as {password:string};
+  await page.setExtraHTTPHeaders({'x-e2e-rate-scope':randomUUID()});
+  await page.goto('/');
+  await page.getByRole('combobox',{name:'Language',exact:true}).selectOption('en');
+  await page.getByLabel('Email',{exact:true}).fill('admin@browser.test');
+  await page.getByLabel('Password',{exact:true}).fill(password);
+  await page.getByRole('button',{name:'Sign in',exact:true}).click();
+  await page.getByRole('button',{name:'Branches',exact:true}).click();
+  const name='Timezone test branch '+randomUUID().slice(0,8);
+  const created=await page.request.post('/api/branches',{headers:{origin:'http://127.0.0.1:4100'},data:{name,timezone:'UTC'}});
+  expect(created.status(),await created.text()).toBe(201);
+  const {id}=await created.json();
+  await page.getByRole('button',{name:'Retry',exact:true}).click();
+  const branch=page.getByRole('row').filter({hasText:name});
+  await branch.getByRole('button',{name:'Configure working hours',exact:true}).click();
+  const settings=page.locator('[data-branch-timezone]');
+  const zone=settings.getByRole('textbox',{name:'Timezone',exact:true});
+  await expect(zone).toHaveValue('UTC');
+  await zone.fill('Asia/Invalid');
+  const reason=settings.getByRole('textbox',{name:'Timezone change reason',exact:true});
+  await reason.fill('Use local time for future working hours');
+  await settings.getByRole('button',{name:'Save timezone',exact:true}).click();
+  await expect(settings.getByRole('alert')).toContainText('Use a valid timezone');
+  await zone.fill('Asia/Damascus');
+  await settings.getByRole('button',{name:'Save timezone',exact:true}).click();
+  await expect(settings).toContainText('UTC → Asia/Damascus');
+  await expect(branch.getByRole('cell',{name:'Asia/Damascus',exact:true})).toBeVisible();
+  await expect(page.locator(`[data-working-hours="${id}"]`)).toContainText('Time zone: Asia/Damascus');
+  await page.setViewportSize({width:390,height:844});
+  await page.getByRole('combobox',{name:'Language',exact:true}).selectOption('ar');
+  await expect(settings.getByRole('heading',{name:'سجل تغييرات المنطقة الزمنية',exact:true})).toBeVisible();
+  await expect(settings).toContainText('Use local time for future working hours');
+});

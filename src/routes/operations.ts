@@ -8,6 +8,7 @@ import { decodeCursor, encodeCursor } from '../pagination.js';
 import { identityLockKeys, normalizeContact } from '../contacts.js';
 import { prepareManualFieldValues, storeManualFieldValues, type ManualFieldInput } from '../field-values.js';
 import { registerCampaignRoutes } from './campaigns.js';
+import { registerBranchTimezoneRoutes } from './branch-timezone.js';
 import {leadPredicate,prepareLeadFilter,operationalFilterProperties,type LeadFilter} from '../lead-query.js';
 
 const idParam = { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } as const;
@@ -16,6 +17,7 @@ const pageQuery={type:'object',additionalProperties:false,properties:{...operati
 
 export function registerOperationsRoutes(app: FastifyInstance, db: Database): void {
   registerCampaignRoutes(app, db);
+  registerBranchTimezoneRoutes(app, db);
   app.get('/api/branches', async (request) => {
     const actor = await principalFromRequest(request, db);
     const rows = await db`SELECT id, name, timezone, active, business_hours, ai_defaults, created_at FROM branch

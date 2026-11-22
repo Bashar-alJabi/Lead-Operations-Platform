@@ -21,6 +21,7 @@ import { MessagingSetup } from './MessagingSetup.js';
 import { LeadCustomerOperations } from './LeadCustomerOperations.js';
 import { MetaSourceSetup } from './MetaSourceSetup.js';
 import { GenericSourceWorkspace } from './GenericSourceWorkspace.js';
+import { BranchTimeWorkspace } from './BranchTimeWorkspace.js';
 import { PaymentSetup } from './PaymentSetup.js';
 import { AISetup } from './AISetup.js';
 import { AIHumanHandoffQueue } from './AIHumanHandoffQueue.js';
@@ -337,7 +338,9 @@ function App() {
     {notice && <div role="status" className="panel">{notice}</div>}
     {busy && <div className="loading">{t.loading}</div>}
     {hoursResource && (page==='users'||page==='branches') && <section className="panel"><h2>{hoursResource.name}</h2><button className="link" onClick={()=>setHoursResource(null)}>{t.back}</button>
-      <WorkingHoursEditor scope={hoursResource.scope} id={hoursResource.id} locale={locale} api={api} initiallyOpen/></section>}
+      {hoursResource.scope==='BRANCH'
+        ? <BranchTimeWorkspace key={hoursResource.id} id={hoursResource.id} locale={locale} api={api} onChanged={refresh}/>
+        : <WorkingHoursEditor key={hoursResource.id} scope="USER" id={hoursResource.id} locale={locale} api={api} initiallyOpen/>}</section>}
     {page==='users' && canManage && staffDestination && <section className="panel"><h2>{staffDestination.name}</h2>
       <button className="link" onClick={()=>setStaffDestination(null)}>{t.back}</button>
       <StaffMessagingDestination key={user.id+':'+staffDestination.id} staffId={staffDestination.id} locale={locale} api={api}/></section>}

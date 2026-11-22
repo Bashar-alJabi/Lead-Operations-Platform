@@ -9,7 +9,7 @@
 | المنطقة ومصدرها | المنفذ المثبت | الباقي الفعلي / بوابة الاكتمال |
 |---|---|---|
 | الحسابات و Roles — README،02،06 §§5–6 | bootstrap أحادية/login/logout/invitation/reset/revocation/disabled،اختبارات Identity و Email fake و scope negatives | critical account Browser journeys و SMTP sandbox/live وقبول شامل؛كل module جديدة تحتاج current backend authorization |
-| Branches/Users/Agents —00–03،06 §§6/9/20 | إنشاء/قوائم/دعوات/تعطيل و working hours/timezone و capacity/membership و scope | واجهات ودورةإدارة Branch/User كاملة بحسبالمواصفات،تعديلالإعداداتالناقصة و deactivation/reassignment journeys؛لا يُعد create/list اكتمالًا |
+| Branches/Users/Agents —00–03،06 §§6/9/20 | الإنشاء والقوائم والدعوات وتعطيل الحسابات وساعات العمل والعضوية. تثبت 230 تعديل المنطقة الزمنية من إعدادات الفرع مع تحقق الصلاحية وعرض جدول ساعات العمل وAudit. | تعديل الملف التشغيلي للـAgent والسعة وعبء الفرص، وإسناد أدوار وفروع المستخدمين، ومسارات التعطيل وإعادة التوزيع. |
 | Contacts —00–03،06 §7 | normalization/matching/concurrency و ambiguous/cross-branch review و CRUD/history؛Meta optional Contact intake | تغطية Browser مستقلةلمراجعة/تعديل/مشاركة Contacts وبقية external identity cases؛لا Lead merging من Contact matching |
 | Leads/History —00–03،06 §7 | manual/Source intake و OPEN/CLOSED/ARCHIVED و notes/assignment/activity/Follow-up و trusted origin. تجمع 221 الإسناد اليدوي الفردي والجماعي تحت تحقق الجلسة ومعاملة واحدة تحمي المتابعات والتحكم البشري والتاريخ. | Branch transfer UI/service حيثتسمحالقواعد،قبول human lifecycle الشامل وربطالوحداتالمتبقية |
 | Campaigns —00–03/05،06 §8 | إنشاء وتعديل وتفعيل وجاهزية وإسناد وكلاء وإعدادات المصدر والرسائل والدفع وAI. تدعم 169 تعريف Conversion المالي المستقل و226 تعريفه من الحقل أو Status. أثبت 229 التفعيل واستقبال Lead الموقّعة عند جاهزية الربط. | قبول مسارات الأدوار ورحلات الوحدات المترابطة. |
@@ -38,7 +38,7 @@
 
 ## الاعتماديات والأولوية التنفيذية التالية
 
-**أحدث نتائج الانحدار الشامل — 2026-11-22** اجتاز بناء 226 على Compose نظيفة **203/203 PostgreSQL Integration**. اجتازت رحلة إحالة المصدر Edge في 228 بعد إصلاح اسم الحملة. انتهت بوابة 228 إلى 74 نجاحًا وفشل في رحلة خيارات طرق الدفع اعتمد على صفحة Campaign الأولى، و20 رحلة متخطاة. عدّلت رحلة الخيارات لتستخدم الصفحات المصرّح بها، وتعمل إعادة الانحدار الشامل للبناء 229. آخر Edge شاملة ناجحة مثبتة هي **91/91** للبناء 223.
+**أحدث نتائج الانحدار الشامل — 2026-11-22** اجتاز البناء 228 على Compose **205/205 PostgreSQL Integration**. نجحت رحلتا إحالة المصدر وخيارات الدفع في Edge للبناء 229. سجل التشغيل 90 نجاحًا وخمس حالات Import فاشلة بفعل خادم اختبار TypeScript دون محلل Import المعزول المجمّع. نجحت الحالات الخمس بإعادة التحقق المجمّعة للبناء 230 ضمن **7/7 Edge مركزة**. تعمل Edge الشاملة للبناء 230. آخر Edge شاملة ناجحة مثبتة هي **91/91** للبناء 223.
 
 1. **Import CSV/Excel checkpoint محفوظة:** `95dbce3` مرفوعة،Native183–184 و193Unit/142PG/68Browser و001–184/build/typecheck مثبتة. لاتعدتنفيذها؛هيbaseline للملفات معSheets/API/load/acceptance gaps باقية. [العقد](lead-import-execution.md). التاليGoogleSheets،دونoptionalparser/provider/AI refinements.
 2. **Google Sheets:** baseline Import190–192 محفوظةفي5d063a8،Export preparation194 في3a6271b،delivery/verification195 في3ca5157. لا إعادةتنفيذ أوoptionalrefinements؛انتقلالآنلمتطلباتEmail/Notifications الأساسية.
