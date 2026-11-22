@@ -44,6 +44,7 @@ export function LeadSearch({ locale, branches, campaigns, users, currentUser, ap
   const checkedFieldColumns=fieldColumns??choices?.items.slice(0,maxCampaignColumns).map(field=>field.id)??[];
   const tableWords={ar:{columns:'أعمدة الحملة',more:'المزيد من حقول الحملة'},en:{columns:'Campaign columns',more:'More campaign fields'},
     fr:{columns:'Colonnes de campagne',more:'Autres champs de campagne'}}[locale];
+  const searchExample={ar:'أو اسم الحملة أو الفرع أو المسؤول',en:'Or campaign, branch or owner name',fr:'Ou nom de la campagne, de l’agence ou du responsable'}[locale];
   const columnOptions: { value: LeadColumn; label: string }[] = [
     { value: 'contact', label: t.contact }, { value: 'campaign', label: t.campaign },
     { value: 'branch', label: t.branch }, { value: 'lifecycle', label: t.lifecycle },
@@ -146,7 +147,7 @@ export function LeadSearch({ locale, branches, campaigns, users, currentUser, ap
     catch (failure) { setError(String(failure)); } finally { setBusy(false); }
   }
   return <section className="panel"><form className="lead-search-form" onSubmit={(event) => { event.preventDefault(); void submit(form); }}>
-    <label>{t.search}<input value={form.q} maxLength={200} onChange={(event) => set('q', event.target.value)} /></label>
+    <label>{t.search}<input value={form.q} maxLength={200} placeholder={searchExample} onChange={(event) => set('q', event.target.value)} /></label>
     {select('branchId', t.branch, branches.map((item) => ({ value: item.id, label: item.name })))}
     {select('campaignId', t.campaign, campaigns.filter((item) => !form.branchId || item.branch_id === form.branchId)
       .map((item) => ({ value: item.id, label: item.name })))}

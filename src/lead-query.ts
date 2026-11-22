@@ -51,7 +51,16 @@ export function leadPredicate(tx:postgres.TransactionSql,actor:Principal,q:LeadF
   AND (${q.branchId??null}::uuid IS NULL OR l.branch_id=${q.branchId??null}) AND (${q.campaignId??null}::uuid IS NULL OR l.campaign_id=${q.campaignId??null})
   AND (${q.contactId??null}::uuid IS NULL OR l.contact_id=${q.contactId??null}) AND (${q.assignedAgentId??null}::uuid IS NULL OR l.assigned_agent_id=${q.assignedAgentId??null})
   AND (${q.lifecycle??null}::text IS NULL OR l.lifecycle=${q.lifecycle??null}) AND (${q.sourceKind??null}::text IS NULL OR l.source_kind=${q.sourceKind??null})
-  AND (${search}='' OR starts_with(lower(c.name),${search}) OR starts_with(c.email_normalized,${search}) OR (${phone!==''} AND starts_with(c.phone_normalized,${phone})) OR l.id=${id}::uuid)
+  AND (${search}='' OR starts_with(lower(c.name),${search}) OR starts_with(c.email_normalized,${search})
+    OR (${phone!==''} AND starts_with(c.phone_normalized,${phone})) OR l.id=${id}::uuid
+    OR EXISTS(SELECT 1 FROM campaign matching_campaign
+      WHERE (matching_campaign.id,matching_campaign.organization_id,matching_campaign.branch_id)=(l.campaign_id,l.organization_id,l.branch_id)
+       AND starts_with(lower(normalize(matching_campaign.name,NFKC)),${search}))
+    OR EXISTS(SELECT 1 FROM branch matching_branch WHERE matching_branch.id=l.branch_id AND matching_branch.organization_id=l.organization_id
+       AND starts_with(lower(normalize(matching_branch.name,NFKC)),${search}))
+    OR EXISTS(SELECT 1 FROM user_account matching_owner
+      WHERE (matching_owner.id,matching_owner.organization_id,matching_owner.branch_id)=(l.assigned_agent_id,l.organization_id,l.branch_id)
+       AND starts_with(lower(normalize(matching_owner.name,NFKC)),${search})))
   AND (${q.from??null}::text::timestamptz IS NULL OR l.created_at>=${q.from??null}::text::timestamptz) AND (${q.to??null}::text::timestamptz IS NULL OR l.created_at<=${q.to??null}::text::timestamptz)
   AND (${q.followup??null}::text IS NULL OR ${q.followup==='NONE'} AND NOT EXISTS(SELECT 1 FROM follow_up f WHERE f.lead_id=l.id AND f.status='OPEN')
    OR ${q.followup==='OVERDUE'} AND EXISTS(SELECT 1 FROM follow_up f WHERE f.lead_id=l.id AND f.status='OPEN' AND f.due_at<statement_timestamp())

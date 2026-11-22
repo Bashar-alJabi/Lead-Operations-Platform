@@ -27,7 +27,7 @@ test('Lead assignment, notes, and human follow-up preserve history and permissio
     return (response.headers['set-cookie'] as string).split(';')[0]!;
   };
   const admin = await login('owner@example.test');
-  const branchA = (await send('POST', '/api/branches', { name: 'A', timezone: 'UTC' }, admin)).json().id as string;
+  const branchA = (await send('POST', '/api/branches', { name: 'Ｎorth Division', timezone: 'UTC' }, admin)).json().id as string;
   const branchB = (await send('POST', '/api/branches', { name: 'B', timezone: 'UTC' }, admin)).json().id as string;
   const organizationId = (await db`SELECT id FROM organization LIMIT 1`)[0]!.id as string;
   const hash = await passwordHash(password);
@@ -76,6 +76,15 @@ test('Lead assignment, notes, and human follow-up preserve history and permissio
   assert.equal(exactSearch.id, leadId);
   assert.equal(exactSearch.campaign_name, 'Campaign');
   assert.equal((await send('GET', '/api/leads?q=%2B15550001111', undefined, managerA)).json().items[0].id, leadId);
+  for(const term of ['cAMPAIG','north div','agent-1@']){
+    const path='/api/leads?q='+encodeURIComponent(term);
+    const result=await send('GET',path,undefined,managerA);
+    assert.equal(result.statusCode,200,result.body);
+    assert.deepEqual(result.json().items.map((item:{id:string})=>item.id),[leadId]);
+    assert.deepEqual((await send('GET',path,undefined,managerB)).json().items,[]);
+    assert.deepEqual((await send('GET',path,undefined,agent2)).json().items,[]);
+  }
+  assert.deepEqual((await send('GET','/api/leads?q=campaign&followup=NONE',undefined,managerA)).json().items,[]);
   assert.deepEqual((await send('GET', '/api/leads?q=customer', undefined, managerB)).json().items, []);
   assert.equal((await send('GET', '/api/leads?followup=UPCOMING', undefined, agent1)).json().items[0].id, leadId);
   assert.deepEqual((await send('GET', '/api/leads?followup=NONE', undefined, managerA)).json().items, []);
