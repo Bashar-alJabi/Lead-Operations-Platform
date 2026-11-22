@@ -10,6 +10,7 @@ import {processOneLeadAttentionNotification} from '../src/lead-attention-notific
 import {processOneOperationalNotification} from '../src/operational-notifications.js';
 import {processOneStaffMessagingPublication} from '../src/staff-messaging-outbox.js';
 import {processOneStaffMessagingDispatch} from '../src/staff-messaging-dispatch.js';
+import {processOneIdentityEmailJob,type IdentityEmailAdapter} from '../src/identity-email.js';
 import {processOneAutomationMatch,processOneAutomationExecution} from '../src/automation.js';
 // Test-only HTTP entrypoint. Never imported by the production server or workers.
 import { randomBytes,createHmac } from 'node:crypto';
@@ -282,7 +283,16 @@ const templates:ProviderTemplate[]=[{ externalId:'7000',name:'header_only_templa
     components:[null,{ type:'HEADER',format:'TEXT',text:{ untrusted:'not a text value' } },{ type:'BODY',text:'Malformed metadata' }] }];
 await mkdir(resolve('.local/e2e'),{ recursive:true });const mediaRoot=await mkdtemp(resolve('.local/e2e/media-'));
 const storage=localMediaStorage(mediaRoot);
-const app = await buildApp(db, { logger:false,globalRateLimitMax:10000,mediaStorage:storage,aiReadTestAdapters:aiInferenceAdapters,
+const identityTestMail:{to:string;text:string}[]=[];
+const identityBrowserAdapter:IdentityEmailAdapter={
+  async verify(settings) { if(settings.host!=='smtp.identity.browser.test') throw Error('Unexpected synthetic identity SMTP host'); },
+  async send(settings,_password,message) {
+    await this.verify(settings,_password);
+    if(!message.to.endsWith('@browser.test')) throw Error('Unexpected synthetic identity recipient');
+    identityTestMail.push({to:message.to,text:message.text});
+  },
+};
+const app = await buildApp(db, { logger:false,globalRateLimitMax:10000,mediaStorage:storage,aiReadTestAdapters:aiInferenceAdapters,emailAdapter:identityBrowserAdapter,
   operationalEmailAdapters:{SMTP:{verify:async(settings,password)=>{if(!settings.host.endsWith('.example.test')||!password.startsWith('BrowserSyntheticEmail_'))throw Error('Unexpected synthetic email account');operationalEmailChecks++;if(settings.host.startsWith('failed.'))throw Error('Synthetic private SMTP response must not be returned');},send:async()=>{operationalEmailSends++;throw Error('Connection setup must not send mail');}}},
   // Isolate loopback browser scenarios while retaining each route's actual limits.
   // Only this guarded test entrypoint reads this header; the production server uses request.ip.
@@ -331,6 +341,11 @@ const app = await buildApp(db, { logger:false,globalRateLimitMax:10000,mediaStor
       templates.push(template);return template;
     },
   } });
+app.post('/__test__/identity-delivery',async request=>{
+  if(typeof request.headers.authorization!=='string'||!safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
+  await processOneIdentityEmailJob(db,identityBrowserAdapter);
+  return {message:identityTestMail.shift()??null};
+});
 app.post<{Body:{reject?:boolean;unavailable?:boolean}}>('/__test__/import-files',{schema:{body:{type:'object',additionalProperties:false,properties:{reject:{type:'boolean'},unavailable:{type:'boolean'}}}}},async request=>{
  if(typeof request.headers.authorization!=='string'||!safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
  const processed=await processOneImportFile(db,{storage,retryDelaySeconds:0,scanner:{scan:async()=>{if(request.body.unavailable)throw new Error('Synthetic scanner outage');return {clean:!request.body.reject,version:'BrowserFakeScanner/test-only'};}}});const reviewed=await processOneImportReview(db,{retryDelaySeconds:0});return {processed,reviewed};

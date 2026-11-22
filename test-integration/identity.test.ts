@@ -217,4 +217,26 @@ test('identity invitation and recovery enforce scope, one-time tokens, and retry
   assert.ok(firstUserPage.json().nextCursor);
   const secondUserPage = await send('GET', `/api/users?limit=1&cursor=${encodeURIComponent(firstUserPage.json().nextCursor)}`, undefined, manager);
   assert.notEqual(firstUserPage.json().items[0].id, secondUserPage.json().items[0].id);
+
+  const staffReset=`/api/users/${invitation.json().id}/password-reset`;
+  const reason={reason:'Employee requested help recovering account access'};
+  assert.equal((await send('POST',staffReset,reason,manager)).statusCode,403);
+  assert.equal((await send('POST',staffReset,reason,recoveredAgent)).statusCode,403);
+  assert.equal((await send('POST',`/api/users/${otherBranchInvite.json().id}/password-reset`,reason,admin)).statusCode,409);
+  const [foreignOrg]=await db`INSERT INTO organization(name) VALUES('Foreign reset scope') RETURNING id`;
+  const [foreignBranch]=await db`INSERT INTO branch(organization_id,name) VALUES(${foreignOrg!.id},'Foreign branch') RETURNING id`;
+  const [foreignAgent]=await db`INSERT INTO user_account(organization_id,branch_id,role,name,email,password_hash)
+    VALUES(${foreignOrg!.id},${foreignBranch!.id},'AGENT','Foreign Agent','foreign-reset@example.test',${managerHash}) RETURNING id`;
+  assert.equal((await send('POST',`/api/users/${foreignAgent!.id}/password-reset`,reason,admin)).statusCode,404);
+  const queued=await Promise.all(Array.from({length:4},()=>send('POST',staffReset,reason,admin)));
+  assert.ok(queued.every(response=>response.statusCode===202),queued.map(response=>response.body).join('\n'));
+  assert.deepEqual(queued.map(response=>response.json().delivery).sort(),['QUEUED','RECENT_REQUEST','RECENT_REQUEST','RECENT_REQUEST']);
+  assert.deepEqual(Object.keys(queued[0]!.json()),['delivery']);
+  assert.equal((await db`SELECT count(*)::integer AS count FROM audit_log WHERE action='ADMIN_PASSWORD_RESET_REQUESTED' AND target_id=${invitation.json().id}`)[0]!.count,1);
+  assert.equal((await send('GET','/api/auth/me',undefined,recoveredAgent)).statusCode,200);
+  await processOneIdentityEmailJob(db,fakeEmail); // Invitation created by the preceding branch-scope test.
+  assert.equal(await processOneIdentityEmailJob(db,fakeEmail),true);
+  assert.equal(delivered.at(-1)!.to,'invited@example.test');
+  assert.equal((await send('POST','/api/auth/reset',{token:tokenFromLastMail('reset'),password:'Admin-assisted recovery test 123!'})).statusCode,200);
+  assert.equal((await send('GET','/api/auth/me',undefined,recoveredAgent)).statusCode,401);
 });

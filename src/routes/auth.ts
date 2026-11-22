@@ -1,7 +1,8 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
+import type postgres from 'postgres';
 import type { Database } from '../db.js';
 import { isProduction, sessionCookie } from '../config.js';
-import { HttpError, newToken, passwordHash, passwordVerify, principalFromRequest, requireBranch, requireRole, safeTokenEqual, sha256 } from '../security.js';
+import { HttpError, lockCurrentSession, newToken, passwordHash, passwordVerify, principalFromRequest, requireBranch, requireRole, safeTokenEqual, sha256 } from '../security.js';
 import { enqueueIdentityEmail, identityEmailConnection } from '../identity-email.js';
 import { decodeCursor, encodeCursor } from '../pagination.js';
 import { registerAgentProfileRoutes } from './agent-profile.js';
@@ -11,6 +12,21 @@ const passwordSchema = { type: 'string', minLength: 12, maxLength: 256 } as cons
 
 function setSessionCookie(reply: FastifyReply, token: string) {
   reply.setCookie(sessionCookie, token, { path: '/', httpOnly: true, secure: isProduction, sameSite: 'lax', maxAge: 60 * 60 * 12 });
+}
+
+type ResetAccount={id:string;organizationId:string;branchId:string|null;email:string};
+
+// Call while holding the target account lock, shared by both ways of requesting a reset.
+async function queuePasswordReset(tx:postgres.TransactionSql,target:ResetAccount,connectionId:string,operator?:{id:string;reason:string}) {
+  const [recent]=await tx`SELECT 1 FROM credential_token WHERE user_id=${target.id} AND purpose='RESET' AND used_at IS NULL
+    AND expires_at>statement_timestamp() AND created_at>statement_timestamp()-interval '2 minutes' LIMIT 1`;
+  if (recent) return false;
+  await tx`UPDATE credential_token SET used_at=clock_timestamp() WHERE user_id=${target.id} AND purpose='RESET' AND used_at IS NULL`;
+  await enqueueIdentityEmail(tx,{userId:target.id,recipient:target.email,purpose:'RESET',connectionId});
+  await tx`INSERT INTO audit_log(organization_id,branch_id,actor_user_id,action,target_type,target_id,detail)
+    VALUES(${target.organizationId},${target.branchId},${operator?.id??null},${operator?'ADMIN_PASSWORD_RESET_REQUESTED':'PASSWORD_RESET_REQUESTED'},
+      'USER',${target.id},${tx.json(operator?{reason:operator.reason}:{})})`;
+  return true;
 }
 
 export function registerAuthRoutes(app: FastifyInstance, db: Database): void {
@@ -112,18 +128,38 @@ export function registerAuthRoutes(app: FastifyInstance, db: Database): void {
       reply.code(202); return generic;
     }
     await db.begin(async (tx) => {
-      const locked = await tx`SELECT id FROM user_account WHERE id = ${user.id} AND active = true
-        AND credential_state = 'READY' FOR UPDATE`;
-      if (!locked.length) return;
-      const recent = await tx`SELECT 1 FROM credential_token WHERE user_id = ${user.id} AND purpose = 'RESET'
-        AND created_at > now() - interval '2 minutes' AND used_at IS NULL LIMIT 1`;
-      if (recent.length) return;
-      await tx`UPDATE credential_token SET used_at = now() WHERE user_id = ${user.id} AND purpose = 'RESET' AND used_at IS NULL`;
-      await enqueueIdentityEmail(tx, { userId: String(user.id), recipient: String(user.email), purpose: 'RESET', connectionId: String(connection.id) });
-      await tx`INSERT INTO audit_log (organization_id, branch_id, action, target_type, target_id)
-        VALUES (${user.organization_id}, ${user.branch_id}, 'PASSWORD_RESET_REQUESTED', 'USER', ${user.id})`;
+      const [locked] = await tx`SELECT id,organization_id,branch_id,email FROM user_account WHERE id = ${user.id}
+        AND organization_id=${user.organization_id} AND active = true AND credential_state = 'READY' FOR UPDATE`;
+      if (!locked) return;
+      await queuePasswordReset(tx,{id:locked.id,organizationId:locked.organization_id,branchId:locked.branch_id,email:locked.email},connection.id);
     });
     reply.code(202); return generic;
+  });
+
+  app.post<{Params:{id:string};Body:{reason:string}}>('/api/users/:id/password-reset',{
+    config:{rateLimit:{max:10,timeWindow:'15 minutes'}},schema:{params:{type:'object',additionalProperties:false,required:['id'],
+      properties:{id:{type:'string',format:'uuid'}}},body:{type:'object',additionalProperties:false,required:['reason'],properties:{
+        reason:{type:'string',minLength:3,maxLength:500,pattern:'^[^\\x00-\\x1f\\x7f]+$'},
+      }}},
+  },async(request,reply)=>{
+    const actor=await principalFromRequest(request,db);
+    requireRole(actor,'SUPER_ADMIN');
+    const reason=request.body.reason.trim();
+    if (reason.length<3) throw new HttpError(400,'PASSWORD_RESET_REASON_REQUIRED');
+    const delivery=await db.begin(async tx=>{
+      const [target]=await tx`SELECT id,branch_id,organization_id,email,active,credential_state FROM user_account
+        WHERE id=${request.params.id} AND organization_id=${actor.organizationId} AND role IN ('MANAGER','AGENT') FOR UPDATE`;
+      if (!target) throw new HttpError(404,'USER_NOT_FOUND');
+      if (!await lockCurrentSession(tx,actor,request)) throw new HttpError(403,'PASSWORD_RESET_ACCESS_REVOKED');
+      if (!target.active || target.credential_state!=='READY') throw new HttpError(409,'PASSWORD_RESET_NOT_AVAILABLE');
+      const connection=await identityEmailConnection(tx as unknown as Database,actor.organizationId);
+      if (!connection || connection.status!=='CONNECTED' || !connection.ciphertext) throw new HttpError(409,'IDENTITY_EMAIL_UNAVAILABLE');
+      const queued=await queuePasswordReset(tx,{id:target.id,organizationId:target.organization_id,branchId:target.branch_id,email:target.email},
+        connection.id,{id:actor.id,reason});
+      return queued?'QUEUED':'RECENT_REQUEST';
+    });
+    reply.header('Cache-Control','no-store').code(202);
+    return {delivery};
   });
 
   app.post<{ Body: { token: string; password: string } }>('/api/auth/reset', {
@@ -134,18 +170,16 @@ export function registerAuthRoutes(app: FastifyInstance, db: Database): void {
   }, async (request) => {
     const hashed = await passwordHash(request.body.password);
     await db.begin(async (tx) => {
-      const rows = await tx`SELECT t.id AS token_id, u.id AS user_id, u.organization_id, u.branch_id
-        FROM credential_token t JOIN user_account u ON u.id = t.user_id
-        WHERE t.token_hash = ${sha256(request.body.token)} AND t.purpose = 'RESET'
-          AND t.used_at IS NULL AND t.expires_at > now() AND u.active = true AND u.credential_state = 'READY'
-        FOR UPDATE OF t, u`;
-      const row = rows[0];
-      if (!row) throw new HttpError(400, 'INVALID_RESET_TOKEN');
-      await tx`UPDATE user_account SET password_hash = ${hashed}, updated_at = now() WHERE id = ${row.user_id}`;
-      await tx`UPDATE credential_token SET used_at = now() WHERE user_id = ${row.user_id} AND used_at IS NULL`;
-      await tx`UPDATE user_session SET revoked_at = now() WHERE user_id = ${row.user_id} AND revoked_at IS NULL`;
+      const tokenHash=sha256(request.body.token);
+      const [row]=await tx`SELECT u.id,u.organization_id,u.branch_id FROM user_account u JOIN credential_token t ON t.user_id=u.id
+        WHERE t.token_hash=${tokenHash} AND t.purpose='RESET' AND u.active AND u.credential_state='READY' FOR UPDATE OF u`;
+      if (!row || !(await tx`SELECT 1 FROM credential_token WHERE user_id=${row.id} AND token_hash=${tokenHash} AND purpose='RESET'
+        AND used_at IS NULL AND expires_at>clock_timestamp() FOR UPDATE`).length) throw new HttpError(400,'INVALID_RESET_TOKEN');
+      await tx`UPDATE user_account SET password_hash = ${hashed}, updated_at = now() WHERE id = ${row.id}`;
+      await tx`UPDATE credential_token SET used_at = now() WHERE user_id = ${row.id} AND used_at IS NULL`;
+      await tx`UPDATE user_session SET revoked_at = now() WHERE user_id = ${row.id} AND revoked_at IS NULL`;
       await tx`INSERT INTO audit_log (organization_id, branch_id, action, target_type, target_id)
-        VALUES (${row.organization_id}, ${row.branch_id}, 'PASSWORD_RESET_COMPLETED', 'USER', ${row.user_id})`;
+        VALUES (${row.organization_id}, ${row.branch_id}, 'PASSWORD_RESET_COMPLETED', 'USER', ${row.id})`;
     });
     return { ok: true };
   });
