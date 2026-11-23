@@ -151,3 +151,45 @@ test('A signed returning message restores the same conversation for an explicit 
   await expect(thread).toContainText('HUMAN_ACTIVE');
   await expect(panel.getByRole('button',{name:'Queue message',exact:true})).toBeVisible();
 });
+
+test('An approved returning policy reopens the existing closed Lead and preserves its conversation',async({page})=>{
+  const {password,testToken}=JSON.parse(await readFile('.local/e2e/fixture.json','utf8'));
+  await page.setExtraHTTPHeaders({'x-e2e-rate-scope':randomUUID()});
+  await login(page,'manager@browser.test',password);
+  const name='Browser Closed Lead Return';
+  const {branchId,campaignId}=await createCampaign(page,name);
+  await page.getByRole('button',{name:'Campaigns',exact:true}).click();
+  await page.getByRole('button',{name:'Retry',exact:true}).click();
+  await (await campaignRow(page,name)).getByRole('button',{name:'Details',exact:true}).click();
+  const policy=page.locator('[data-ai-behavior-scope="CAMPAIGN"]');
+  await policy.getByLabel('Campaign AI behavior · Configure explicitly Returning-contact policy',{exact:true}).check();
+  await policy.getByLabel('Campaign AI behavior · Return to closed Lead',{exact:true}).selectOption('REOPEN_EXISTING');
+  await policy.getByLabel('Campaign AI behavior · AI behavior edit reason',{exact:true}).fill('Restore an existing closed Lead for human follow-up');
+  await policy.getByRole('button',{name:'Save AI behavior',exact:true}).click();
+  await expect(policy).toContainText('Version: 1');
+
+  const created=await page.request.post('/api/leads',{headers,data:{branchId,campaignId,
+    contact:{name:'Browser returning closed Lead',phone:'+15558765480'}}});
+  expect(created.status(),await created.text()).toBe(201);
+  const {id:leadId}=await created.json();
+  const opened=await page.request.post(`/api/leads/${leadId}/conversations`,{headers});
+  expect(opened.status(),await opened.text()).toBe(201);
+  const {id:conversationId}=await opened.json();
+  const closed=await page.request.post(`/api/leads/${leadId}/lifecycle`,{headers,data:{lifecycle:'CLOSED'}});
+  expect(closed.status(),await closed.text()).toBe(200);
+  const {panel,thread}=await showConversation(page,leadId);
+  await expect(page.locator('.facts')).toContainText('CLOSED');
+  const customerText='Customer returns to the previously closed Lead';
+  const received=await page.request.post('/__test__/ai-customer-inbound',{
+    headers:{...headers,authorization:`Bearer ${testToken}`},data:{conversationId,body:customerText}});
+  expect(received.status(),await received.text()).toBe(200);
+  expect((await received.json()).processed).toBe(true);
+  await page.getByRole('button',{name:'Back',exact:true}).click();
+  await showConversation(page,leadId);
+  await expect(page.locator('.facts')).toContainText('OPEN');
+  await expect(page.getByRole('heading',{name:'Activity',exact:true}).locator('..')).toContainText('Lead reopened by an incoming message');
+  await expect(thread).toHaveCount(1);
+  await expect(thread).toContainText('WAITING_FOR_HUMAN');
+  await expect(panel.getByText(customerText,{exact:true})).toBeVisible();
+  await expect(panel.getByRole('button',{name:'Queue message',exact:true})).toHaveCount(0);
+});

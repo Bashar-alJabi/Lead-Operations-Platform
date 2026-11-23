@@ -23,13 +23,13 @@ const labels = {
 const activityLabels = {
   ar: { AUTOMATION_HUMAN_REVIEW_REQUESTED: 'الأتمتة طلبت مراجعة بشرية', AUTOMATION_HUMAN_REVIEW_RESOLVED: 'اكتملت المراجعة البشرية',
     AUTOMATION_HANDOFF_REQUESTED:'الأتمتة حوّلت المحادثة إلى موظف',CONVERSATION_RETURNED_TO_AI:'عاد التحكم في المحادثة إلى AI',CONVERSATION_CLOSED:'أُغلقت المحادثة',
-    CONVERSATION_REOPENED_BY_INBOUND:'أُعيد فتح المحادثة بعد ورود رسالة' },
+    CONVERSATION_REOPENED_BY_INBOUND:'أُعيد فتح المحادثة بعد ورود رسالة',RETURNING_LEAD_REOPENED:'أُعيد فتح الفرصة بعد ورود رسالة' },
   en: { AUTOMATION_HUMAN_REVIEW_REQUESTED: 'Automation requested a human review', AUTOMATION_HUMAN_REVIEW_RESOLVED: 'Human review completed',
     AUTOMATION_HANDOFF_REQUESTED:'Automation handed off the conversation',CONVERSATION_RETURNED_TO_AI:'Conversation returned to AI',CONVERSATION_CLOSED:'Conversation closed',
-    CONVERSATION_REOPENED_BY_INBOUND:'Conversation reopened by an incoming message' },
+    CONVERSATION_REOPENED_BY_INBOUND:'Conversation reopened by an incoming message',RETURNING_LEAD_REOPENED:'Lead reopened by an incoming message' },
   fr: { AUTOMATION_HUMAN_REVIEW_REQUESTED: 'Vérification humaine demandée par l’automatisation', AUTOMATION_HUMAN_REVIEW_RESOLVED: 'Vérification humaine terminée',
     AUTOMATION_HANDOFF_REQUESTED:'Conversation transférée par l’automatisation',CONVERSATION_RETURNED_TO_AI:'Conversation rendue à l’IA',CONVERSATION_CLOSED:'Conversation clôturée',
-    CONVERSATION_REOPENED_BY_INBOUND:'Conversation rouverte après réception d’un message' },
+    CONVERSATION_REOPENED_BY_INBOUND:'Conversation rouverte après réception d’un message',RETURNING_LEAD_REOPENED:'Prospect rouvert après réception d’un message' },
 };
 
 export function LeadWorkflow({ lead, role, locale, api, onChanged, activityRevision }: {
@@ -149,7 +149,8 @@ export function LeadWorkflow({ lead, role, locale, api, onChanged, activityRevis
     </section>
     <section className="panel"><h3>{t.activity}</h3><ul className="timeline">{activity.map((item) => <li key={item.id}>
       <span>{item.event_type === 'LIFECYCLE_CHANGED' && item.detail.source === 'AUTOMATION' && item.detail.to === 'CLOSED'
-        ? automaticClosure : activityLabels[locale][item.event_type as keyof typeof activityLabels.en] ?? item.event_type}
+        ? automaticClosure : item.event_type==='LIFECYCLE_CHANGED' && item.detail.source==='RETURNING_INBOUND'
+          ? activityLabels[locale].RETURNING_LEAD_REOPENED : activityLabels[locale][item.event_type as keyof typeof activityLabels.en] ?? item.event_type}
         {(item.event_type === 'NOTE_ADDED' || item.event_type === 'AUTOMATION_HUMAN_REVIEW_RESOLVED') &&
           <small>{String(item.detail.text ?? '')}</small>}
         {['CONVERSATION_RETURNED_TO_AI','CONVERSATION_CLOSED'].includes(item.event_type)&&typeof item.detail.reason==='string'&&<small>{item.detail.reason}</small>}</span><time>{time(item.created_at)}</time>

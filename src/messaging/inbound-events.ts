@@ -151,6 +151,7 @@ export async function processInboundEvent(tx: postgres.TransactionSql, eventId: 
   let conversationId = decision?.conversationId ?? null;
   let leadId = decision?.leadId ?? null;
   let providerContext = false;
+  let returningLead = false;
   let sourceEvidence: postgres.Row|null = null;
   if (decision) {
     if (Boolean(conversationId) === Boolean(leadId)) throw new HttpError(400, 'INBOUND_TARGET_REQUIRED');
@@ -237,8 +238,12 @@ export async function processInboundEvent(tx: postgres.TransactionSql, eventId: 
       JOIN messaging_meta_ad_context(l.organization_id,${sourceReference!.externalId}) ref ON ref.campaign_id=l.campaign_id
       WHERE l.id=${leadId} ORDER BY ref.evidence_kind DESC,ref.evidence_id LIMIT 1`)[0] ?? null : null;
     if (knownSourceReference && !sourceEvidence) return attention(tx,event.id,'SOURCE_REFERENCE_TARGET_CONFLICT');
-    if(cv.lifecycle!=='OPEN')return attention(tx,event.id,cv.lifecycle==='ARCHIVED'?'ARCHIVED_LEAD_REQUIRES_REVIEW':'CLOSED_LEAD_REQUIRES_REVIEW');
-    if(cv.state==='CLOSED'){
+    if(cv.lifecycle==='ARCHIVED')return attention(tx,event.id,'ARCHIVED_LEAD_REQUIRES_REVIEW');
+    if(cv.lifecycle==='CLOSED'){
+      if(decision||!(await tx`SELECT 1 FROM verified_returning_lead(${event.id},${cv.id})`).length)
+        return attention(tx,event.id,'CLOSED_LEAD_REQUIRES_REVIEW');
+      returningLead=true;
+    } else if(cv.state==='CLOSED'){
       if(decision)return attention(tx,event.id,'CLOSED_CONVERSATION');
       const block=await reopenReturningConversation(tx,{eventId:event.id,conversationId:cv.id,leadId:cv.lead_id,
         organizationId:sender.organization_id,branchId:cv.branch_id,campaignId:cv.campaign_id,
@@ -312,6 +317,8 @@ export async function processInboundEvent(tx: postgres.TransactionSql, eventId: 
   await tx`UPDATE integration_event SET state = 'PROCESSED', failure_code = NULL,
     lead_id = ${leadId}, conversation_id = ${conversationId}, resolved_by = ${decision?.actor.id ?? null},
     resolved_at = now() WHERE id = ${event.id}`;
+  if(returningLead)await tx`INSERT INTO messaging_returning_lead_reopen(event_id,conversation_id)
+    VALUES(${event.id},${conversationId})`;
   // Preserve active AI only for a newly eligible implemented tool path. Diagnostic attention never grants execution.
   const admission=(await tx`WITH source AS (SELECT ai_customer_proposal_context(${event.id}) AS context)
     SELECT ai_inbound_after_control_return(${event.id}) AS after_return,

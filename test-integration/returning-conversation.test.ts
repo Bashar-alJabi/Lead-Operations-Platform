@@ -141,4 +141,51 @@ test('Signed returning messages honor campaign policy, attribution and closure h
   assert.equal((await db`SELECT count(*)::int AS n FROM lead_activity WHERE event_type='CONVERSATION_REOPENED_BY_INBOUND'`)[0]!.n,2);
   assert.equal((await db`SELECT count(*)::int AS n FROM conversation_message WHERE direction='OUTBOUND'`)[0]!.n,0);
   assert.equal((await db`SELECT count(*)::int AS n FROM ai_customer_proposal`)[0]!.n,0);
+
+  // A closed Lead can retain an earlier controller. A returning message must not restore that authority.
+  await db`UPDATE conversation SET state='AI_ACTIVE',controller_type='AI',needs_attention_reason=NULL,version=version+1
+    WHERE id=${target.cv}`;
+  const closedLead=await scoped('POST',`/api/leads/${target.lead}/lifecycle`,'manager',{lifecycle:'CLOSED'});
+  assert.equal(closedLead.statusCode,200,closedLead.body);
+  const closedState=(await db`SELECT version,assigned_agent_id,closed_at::text AS closed_at FROM lead WHERE id=${target.lead}`)[0]!;
+  const safety=await received(textMessage(target.reference));
+  await processOneInboundEvent(db);
+  assert.equal((await read(safety)).failure_code,'CLOSED_LEAD_REQUIRES_REVIEW');
+  const enable=await scoped('PUT',`/api/ai/campaigns/${campaign}/behavior-policy`,'manager',{version:1,reason:'Permit verified Lead reopening',
+    definition:{...emptyAIBehaviorPolicy(),returningContact:{closedConversation:'REOPEN_EXISTING',closedLead:'REOPEN_EXISTING'}}});
+  assert.equal(enable.statusCode,200,enable.body);
+  const oldLeadMessage=await received(textMessage(target.reference,60));
+  await processOneInboundEvent(db);
+  assert.equal((await read(oldLeadMessage)).failure_code,'CLOSED_LEAD_REQUIRES_REVIEW');
+  const returning=textMessage(target.reference);
+  const incoming=await received(returning);
+  await assert.rejects(db`INSERT INTO messaging_returning_lead_reopen(event_id,conversation_id) VALUES(${incoming},${target.cv})`,
+    /RETURNING_LEAD_TRUSTED_ATTACHMENT_REQUIRED/);
+  assert.equal((await db`SELECT lifecycle FROM lead WHERE id=${target.lead}`)[0]!.lifecycle,'CLOSED');
+  await processOneIntegrationEvent(db,'INBOUND_MESSAGE',async(tx,id)=>{
+    const result=await processInboundEvent(tx,id);
+    assert.equal(result.leadId,target.lead);
+    throw new Error('Synthetic rollback after Lead reopening');
+  });
+  assert.equal((await db`SELECT lifecycle FROM lead WHERE id=${target.lead}`)[0]!.lifecycle,'CLOSED');
+  assert.equal((await snapshot(target.cv)).state,'AI_ACTIVE');
+  assert.equal((await db`SELECT count(*)::int AS n FROM messaging_returning_lead_reopen`)[0]!.n,0);
+  await db`UPDATE integration_event SET processing_available_at=now() WHERE id=${incoming}`;
+  assert.deepEqual((await Promise.all([processOneInboundEvent(db),processOneInboundEvent(db)])).sort(),[false,true]);
+  assert.deepEqual(await read(incoming),{state:'PROCESSED',failure_code:null,lead_id:target.lead,conversation_id:target.cv});
+  assert.equal((await webhook(returning)).json().created,0);
+  assert.deepEqual((await db`SELECT lifecycle,version,assigned_agent_id,closed_at FROM lead WHERE id=${target.lead}`)[0],{
+    lifecycle:'OPEN',version:closedState.version+1,assigned_agent_id:closedState.assigned_agent_id,closed_at:null,
+  });
+  const waiting=await snapshot(target.cv);
+  assert.equal(waiting.state,'WAITING_FOR_HUMAN');
+  assert.equal(waiting.controller_type,'NONE');
+  assert.equal(waiting.closed_at,closedState.closed_at);
+  assert.equal((await db`SELECT policy_version FROM messaging_returning_lead_reopen WHERE event_id=${incoming}`)[0]!.policy_version,2);
+  await assert.rejects(db`UPDATE messaging_returning_lead_reopen SET policy_version=1 WHERE event_id=${incoming}`,
+    /RETURNING_LEAD_HISTORY_IMMUTABLE/);
+  assert.equal((await db`SELECT count(*)::int AS n FROM audit_log WHERE target_id=${target.lead} AND detail->>'source'='RETURNING_INBOUND'`)[0]!.n,1);
+  assert.equal((await db`SELECT count(*)::int AS n FROM conversation_handoff WHERE conversation_id=${target.cv} AND from_controller='AI'
+    AND to_controller='NONE' AND reason='RETURNING_LEAD_REOPENED'`)[0]!.n,1);
+  assert.equal((await db`SELECT count(*)::int AS n FROM ai_customer_proposal`)[0]!.n,0);
 });
