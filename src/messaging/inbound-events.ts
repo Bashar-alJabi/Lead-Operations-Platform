@@ -9,6 +9,7 @@ import { identityLockKeys, normalizeSourceContact } from '../contacts.js';
 import { parseMetaSourceReference, type SourceReference } from './source-reference.js';
 import { recordBlockedCustomerAIInbound } from '../ai/customer-inbound.js';
 import { enqueueCustomerProposal } from '../ai/customer-worker.js';
+import { reopenReturningConversation } from './returning-conversation.js';
 
 type InboundPayload = { senderExternalId: string; message: Record<string, unknown> };
 type EventRow = { id: string; connection_id: string; sender_id: string | null;
@@ -69,6 +70,16 @@ export async function hasSourceReferenceContext(tx: postgres.TransactionSql, con
     JOIN campaign c ON c.id=ref.campaign_id
     WHERE ic.id=${connectionId} AND c.organization_id=ic.organization_id
       AND (ic.branch_id IS NULL OR c.branch_id=ic.branch_id) LIMIT 1`).length > 0;
+}
+
+function closedConversations(tx: postgres.TransactionSql, event: EventRow, reference: SourceReference|null) {
+  return tx`SELECT cv.id,cv.lead_id FROM conversation cv JOIN lead l ON l.id=cv.lead_id
+    JOIN integration_connection ic ON ic.id=cv.connection_id AND ic.organization_id=l.organization_id
+    WHERE (cv.connection_id,cv.sender_id,cv.participant_ref)=(${event.connection_id},${event.sender_id},${event.participant_ref})
+      AND cv.channel='WHATSAPP' AND cv.state='CLOSED' AND (ic.branch_id IS NULL OR ic.branch_id=l.branch_id)
+      AND (${reference===null} OR (${reference?.namespace??null}='META_AD' AND EXISTS(SELECT 1
+        FROM messaging_meta_ad_context(l.organization_id,${reference?.externalId??null}) ref WHERE ref.campaign_id=l.campaign_id)))
+    LIMIT 2`;
 }
 
 export async function processInboundEvent(tx: postgres.TransactionSql, eventId: string,
@@ -153,7 +164,7 @@ export async function processInboundEvent(tx: postgres.TransactionSql, eventId: 
   }
   if (quickReply) {
     const prior=(await tx`SELECT prior.id,prior.provider_message_id,prior.template_snapshot,
-        cv.id AS conversation_id,cv.lead_id,cv.state
+        cv.id AS conversation_id,cv.lead_id
       FROM conversation_message prior JOIN conversation cv ON cv.id=prior.conversation_id
       WHERE prior.id=${quickReply.messageId} AND prior.direction='OUTBOUND' AND prior.message_kind='TEMPLATE'
         AND prior.connection_id=${event.connection_id} AND prior.sender_id=${event.sender_id}
@@ -167,7 +178,6 @@ export async function processInboundEvent(tx: postgres.TransactionSql, eventId: 
     if (contextId && contextId!==prior.provider_message_id) return attention(tx,event.id,'QUICK_REPLY_CONTEXT_MISMATCH');
     if (decision && ((conversationId && conversationId!==prior.conversation_id) || (leadId && leadId!==prior.lead_id)))
       throw new HttpError(409,'INBOUND_CONTEXT_TARGET_CONFLICT');
-    if (prior.state==='CLOSED') return attention(tx,event.id,'CLOSED_CONVERSATION');
     conversationId=prior.conversation_id;leadId=prior.lead_id;providerContext=true;
   }
   if (contextId) {
@@ -183,8 +193,9 @@ export async function processInboundEvent(tx: postgres.TransactionSql, eventId: 
         || (leadId && leadId !== references[0]!.lead_id)))
         throw new HttpError(409, 'INBOUND_CONTEXT_TARGET_CONFLICT');
       if (!decision) {
-        if (references[0]!.state === 'CLOSED') return attention(tx, event.id, 'CLOSED_CONVERSATION');
         conversationId = references[0]!.id; leadId = references[0]!.lead_id;
+      } else if (references[0]!.state==='CLOSED') {
+        return attention(tx,event.id,'CLOSED_CONVERSATION');
       }
       providerContext=true;
     }
@@ -197,9 +208,13 @@ export async function processInboundEvent(tx: postgres.TransactionSql, eventId: 
     if (active.length === 1) { conversationId = active[0]!.id; leadId = active[0]!.lead_id; }
     else {
       const leads = await candidateLeads(tx, event, sourceReference);
-      if (leads.length !== 1) return attention(tx, event.id,
+      const closed=await closedConversations(tx,event,sourceReference);
+      if(closed.length>1 || (closed[0] && leads.some(lead=>lead.id!==closed[0]!.lead_id)))
+        return attention(tx,event.id,'MULTIPLE_RETURNING_CONVERSATIONS');
+      if(closed[0]){conversationId=closed[0].id;leadId=closed[0].lead_id;}
+      else if (leads.length !== 1) return attention(tx, event.id,
         leads.length > 1 ? 'MULTIPLE_ACTIVE_LEADS' : 'NO_UNIQUE_LEAD');
-      leadId = leads[0]!.id;
+      else leadId=leads[0]!.id;
     }
   }
   if (conversationId) {
@@ -208,11 +223,11 @@ export async function processInboundEvent(tx: postgres.TransactionSql, eventId: 
       WHERE cv.id=${conversationId} AND cv.connection_id=${event.connection_id} AND cv.sender_id=${event.sender_id}
         AND cv.participant_ref=${event.participant_ref} AND l.organization_id=${sender.organization_id}
         AND (${sender.branch_id}::uuid IS NULL OR l.branch_id=${sender.branch_id}) FOR UPDATE OF l`;
-    const cv = (await tx`SELECT cv.id, cv.lead_id, cv.state, l.branch_id
+    const cv = (await tx`SELECT cv.id, cv.lead_id, cv.state, l.branch_id,l.campaign_id,l.lifecycle
       FROM conversation cv JOIN lead l ON l.id = cv.lead_id
       WHERE cv.id = ${conversationId} AND cv.connection_id = ${event.connection_id}
         AND cv.sender_id = ${event.sender_id} AND cv.participant_ref = ${event.participant_ref}
-        AND cv.state <> 'CLOSED' AND l.organization_id=${sender.organization_id}
+        AND l.organization_id=${sender.organization_id}
         AND (${sender.branch_id}::uuid IS NULL OR l.branch_id=${sender.branch_id}) FOR UPDATE OF cv`)[0];
     if (!cv) return attention(tx, event.id, 'CONVERSATION_NOT_AVAILABLE');
     if (decision?.actor.role === 'MANAGER' && cv.branch_id !== decision.actor.branchId)
@@ -222,6 +237,14 @@ export async function processInboundEvent(tx: postgres.TransactionSql, eventId: 
       JOIN messaging_meta_ad_context(l.organization_id,${sourceReference!.externalId}) ref ON ref.campaign_id=l.campaign_id
       WHERE l.id=${leadId} ORDER BY ref.evidence_kind DESC,ref.evidence_id LIMIT 1`)[0] ?? null : null;
     if (knownSourceReference && !sourceEvidence) return attention(tx,event.id,'SOURCE_REFERENCE_TARGET_CONFLICT');
+    if(cv.lifecycle!=='OPEN')return attention(tx,event.id,cv.lifecycle==='ARCHIVED'?'ARCHIVED_LEAD_REQUIRES_REVIEW':'CLOSED_LEAD_REQUIRES_REVIEW');
+    if(cv.state==='CLOSED'){
+      if(decision)return attention(tx,event.id,'CLOSED_CONVERSATION');
+      const block=await reopenReturningConversation(tx,{eventId:event.id,conversationId:cv.id,leadId:cv.lead_id,
+        organizationId:sender.organization_id,branchId:cv.branch_id,campaignId:cv.campaign_id,
+        senderId:event.sender_id,connectionId:event.connection_id});
+      if(block)return attention(tx,event.id,block);
+    }
   } else {
     if (!leadId) return attention(tx, event.id, 'NO_UNIQUE_LEAD');
     const lead = (await tx`SELECT l.id, l.branch_id, l.assigned_agent_id, u.active AS agent_active
@@ -257,6 +280,9 @@ export async function processInboundEvent(tx: postgres.TransactionSql, eventId: 
         return attention(tx, event.id, 'PINNED_SENDER_MISMATCH');
       conversationId = pinned[0]!.id;
     } else {
+      if(decision && (await tx`SELECT 1 FROM conversation WHERE lead_id=${leadId} AND state='CLOSED' AND channel='WHATSAPP'
+        AND (connection_id,sender_id,participant_ref)=(${event.connection_id},${event.sender_id},${event.participant_ref}) LIMIT 1`).length)
+        return attention(tx,event.id,'CLOSED_CONVERSATION');
       const human = lead.assigned_agent_id && lead.agent_active ? lead.assigned_agent_id : null;
       const created = (await tx`INSERT INTO conversation (lead_id, connection_id, sender_id, channel,
         participant_ref, controller_type, controller_user_id, state, needs_attention_reason)

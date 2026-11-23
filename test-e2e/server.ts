@@ -218,6 +218,11 @@ await db`UPDATE branch SET default_sender_id=${sender} WHERE id=${branch}`;
 const intakeMessagingConnection=(await db`INSERT INTO integration_connection (organization_id,branch_id,kind,provider,name,status,config)
   VALUES (${org},${branch},'MESSAGING','META_WHATSAPP_CLOUD','Browser Intake Messaging Connection','CONNECTED',
     '{"graphVersion":"v25.0","wabaId":"5621275203"}') RETURNING id`)[0]!.id;
+const intakeMessagingAppSecret='test-intake-returning-e2e-secret';
+const intakeMessagingSecret=sealSecret(intakeMessagingConnection,JSON.stringify({accessToken:'test-intake-token',
+  appSecret:intakeMessagingAppSecret,verifyToken:'test-intake-verification'}));
+await db`INSERT INTO connection_secret(connection_id,ciphertext,nonce,auth_tag)
+  VALUES (${intakeMessagingConnection},${intakeMessagingSecret.ciphertext},${intakeMessagingSecret.nonce},${intakeMessagingSecret.authTag})`;
 await db`INSERT INTO messaging_sender(organization_id,connection_id,external_sender_id,display_name,health,operator_enabled,capabilities)
   VALUES (${org},${intakeMessagingConnection},'15550001834','Browser Intake Sender','HEALTHY',true,'{"text":true}')`;
 const staffSenderConnection=(await db`INSERT INTO integration_connection(organization_id,branch_id,kind,provider,name,status,config)
@@ -633,11 +638,14 @@ app.post<{ Body:{ conversationId:string;enable?:boolean;process?:boolean;messagi
 app.post<{ Body:{ conversationId:string;body:string;aiControl?:boolean } }>('/__test__/ai-customer-inbound',{ schema:{ body:{ type:'object',additionalProperties:false,required:['conversationId','body'],properties:{ conversationId:{ type:'string',format:'uuid' },body:{ type:'string',minLength:1,maxLength:2000 },aiControl:{ type:'boolean' } } } } },async(request)=>{
   if(typeof request.headers.authorization!=='string' || !safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
   const row=(await db`SELECT cv.id,cv.connection_id,cv.participant_ref,s.external_sender_id,ic.config FROM conversation cv JOIN lead l ON l.id=cv.lead_id JOIN messaging_sender s ON s.id=cv.sender_id JOIN integration_connection ic ON ic.id=cv.connection_id
-    WHERE cv.id=${request.body.conversationId} AND l.organization_id=${org} AND cv.connection_id=${connection}`)[0];if(!row)throw new HttpError(404,'SYNTHETIC_CONVERSATION_NOT_FOUND');
+    WHERE cv.id=${request.body.conversationId} AND l.organization_id=${org}
+      AND (cv.connection_id=${connection} OR (cv.connection_id=${intakeMessagingConnection} AND ${!request.body.aiControl}))`)[0];
+  if(!row)throw new HttpError(404,'SYNTHETIC_CONVERSATION_NOT_FOUND');
   // Isolated synthetic fixture only. Production activation remains blocked until the runtime/tools exist.
   if(request.body.aiControl)await db`UPDATE conversation SET controller_type='AI',controller_user_id=NULL,state='AI_ACTIVE',needs_attention_reason=NULL WHERE id=${row.id}`;
   const raw=JSON.stringify({ object:'whatsapp_business_account',entry:[{ id:row.config.wabaId,changes:[{ field:'messages',value:{ messaging_product:'whatsapp',metadata:{ phone_number_id:row.external_sender_id },messages:[{ id:'wamid.synthetic-ai-'+randomBytes(12).toString('hex'),from:row.participant_ref.slice(1),timestamp:String(Math.floor(Date.now()/1000)),type:'text',text:{ body:request.body.body } }] } }] }] });
-  const received=await app.inject({ method:'POST',url:'/api/webhooks/messaging/meta/'+row.connection_id,payload:raw,headers:{ 'content-type':'application/json','x-hub-signature-256':'sha256='+createHmac('sha256','test-customer-ai-e2e-secret').update(raw).digest('hex') } });
+  const appSecret=row.connection_id===intakeMessagingConnection?intakeMessagingAppSecret:'test-customer-ai-e2e-secret';
+  const received=await app.inject({ method:'POST',url:'/api/webhooks/messaging/meta/'+row.connection_id,payload:raw,headers:{ 'content-type':'application/json','x-hub-signature-256':'sha256='+createHmac('sha256',appSecret).update(raw).digest('hex') } });
   if(received.statusCode!==200)throw new HttpError(500,'SYNTHETIC_CUSTOMER_WEBHOOK_FAILED');
   return { processed:await processOneInboundEvent(db) };
 });

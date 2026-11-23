@@ -22,11 +22,14 @@ const labels = {
 } as const;
 const activityLabels = {
   ar: { AUTOMATION_HUMAN_REVIEW_REQUESTED: 'الأتمتة طلبت مراجعة بشرية', AUTOMATION_HUMAN_REVIEW_RESOLVED: 'اكتملت المراجعة البشرية',
-    AUTOMATION_HANDOFF_REQUESTED:'الأتمتة حوّلت المحادثة إلى موظف',CONVERSATION_RETURNED_TO_AI:'عاد التحكم في المحادثة إلى AI',CONVERSATION_CLOSED:'أُغلقت المحادثة' },
+    AUTOMATION_HANDOFF_REQUESTED:'الأتمتة حوّلت المحادثة إلى موظف',CONVERSATION_RETURNED_TO_AI:'عاد التحكم في المحادثة إلى AI',CONVERSATION_CLOSED:'أُغلقت المحادثة',
+    CONVERSATION_REOPENED_BY_INBOUND:'أُعيد فتح المحادثة بعد ورود رسالة' },
   en: { AUTOMATION_HUMAN_REVIEW_REQUESTED: 'Automation requested a human review', AUTOMATION_HUMAN_REVIEW_RESOLVED: 'Human review completed',
-    AUTOMATION_HANDOFF_REQUESTED:'Automation handed off the conversation',CONVERSATION_RETURNED_TO_AI:'Conversation returned to AI',CONVERSATION_CLOSED:'Conversation closed' },
+    AUTOMATION_HANDOFF_REQUESTED:'Automation handed off the conversation',CONVERSATION_RETURNED_TO_AI:'Conversation returned to AI',CONVERSATION_CLOSED:'Conversation closed',
+    CONVERSATION_REOPENED_BY_INBOUND:'Conversation reopened by an incoming message' },
   fr: { AUTOMATION_HUMAN_REVIEW_REQUESTED: 'Vérification humaine demandée par l’automatisation', AUTOMATION_HUMAN_REVIEW_RESOLVED: 'Vérification humaine terminée',
-    AUTOMATION_HANDOFF_REQUESTED:'Conversation transférée par l’automatisation',CONVERSATION_RETURNED_TO_AI:'Conversation rendue à l’IA',CONVERSATION_CLOSED:'Conversation clôturée' },
+    AUTOMATION_HANDOFF_REQUESTED:'Conversation transférée par l’automatisation',CONVERSATION_RETURNED_TO_AI:'Conversation rendue à l’IA',CONVERSATION_CLOSED:'Conversation clôturée',
+    CONVERSATION_REOPENED_BY_INBOUND:'Conversation rouverte après réception d’un message' },
 };
 
 export function LeadWorkflow({ lead, role, locale, api, onChanged, activityRevision }: {
