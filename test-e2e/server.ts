@@ -635,15 +635,30 @@ app.post<{ Body:{ conversationId:string;enable?:boolean;process?:boolean;messagi
   if(request.body.messaging)await db`UPDATE campaign SET messaging_config='{"enabled":true}' WHERE id=${target.campaign_id}`;
   return { processed:request.body.process ? await processOneAICustomerProposal(db,{ adapters:aiInferenceAdapters,retryDelaySeconds:0 }) : false };
 });
-app.post<{ Body:{ conversationId:string;body:string;aiControl?:boolean } }>('/__test__/ai-customer-inbound',{ schema:{ body:{ type:'object',additionalProperties:false,required:['conversationId','body'],properties:{ conversationId:{ type:'string',format:'uuid' },body:{ type:'string',minLength:1,maxLength:2000 },aiControl:{ type:'boolean' } } } } },async(request)=>{
+app.post<{ Body:{ conversationId:string;body:string;aiControl?:boolean;returningAd?:boolean } }>('/__test__/ai-customer-inbound',{ schema:{ body:{ type:'object',additionalProperties:false,required:['conversationId','body'],properties:{ conversationId:{ type:'string',format:'uuid' },body:{ type:'string',minLength:1,maxLength:2000 },aiControl:{ type:'boolean' },returningAd:{type:'boolean'} } } } },async(request)=>{
   if(typeof request.headers.authorization!=='string' || !safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
-  const row=(await db`SELECT cv.id,cv.connection_id,cv.participant_ref,s.external_sender_id,ic.config FROM conversation cv JOIN lead l ON l.id=cv.lead_id JOIN messaging_sender s ON s.id=cv.sender_id JOIN integration_connection ic ON ic.id=cv.connection_id
+  const row=(await db`SELECT cv.id,cv.connection_id,cv.participant_ref,s.external_sender_id,ic.config,l.branch_id,l.campaign_id,l.lifecycle
+    FROM conversation cv JOIN lead l ON l.id=cv.lead_id JOIN messaging_sender s ON s.id=cv.sender_id JOIN integration_connection ic ON ic.id=cv.connection_id
     WHERE cv.id=${request.body.conversationId} AND l.organization_id=${org}
       AND (cv.connection_id=${connection} OR (cv.connection_id=${intakeMessagingConnection} AND ${!request.body.aiControl}))`)[0];
   if(!row)throw new HttpError(404,'SYNTHETIC_CONVERSATION_NOT_FOUND');
   // Isolated synthetic fixture only. Production activation remains blocked until the runtime/tools exist.
   if(request.body.aiControl)await db`UPDATE conversation SET controller_type='AI',controller_user_id=NULL,state='AI_ACTIVE',needs_attention_reason=NULL WHERE id=${row.id}`;
-  const raw=JSON.stringify({ object:'whatsapp_business_account',entry:[{ id:row.config.wabaId,changes:[{ field:'messages',value:{ messaging_product:'whatsapp',metadata:{ phone_number_id:row.external_sender_id },messages:[{ id:'wamid.synthetic-ai-'+randomBytes(12).toString('hex'),from:row.participant_ref.slice(1),timestamp:String(Math.floor(Date.now()/1000)),type:'text',text:{ body:request.body.body } }] } }] }] });
+  let referral: {source_type:string;source_id:string}|undefined;
+  if(request.body.returningAd){
+    if(row.connection_id!==intakeMessagingConnection||row.lifecycle!=='CLOSED'||request.body.aiControl)
+      throw new HttpError(409,'SYNTHETIC_CLOSED_INTAKE_REQUIRED');
+    const adId='59418207015';
+    // Isolated historical campaign evidence for the returning-contact browser journey.
+    await db.begin(async tx=>{
+      const [historical]=await tx`INSERT INTO lead(organization_id,branch_id,campaign_id,source_kind,lifecycle)
+        VALUES(${org},${row.branch_id},${row.campaign_id},'META','ARCHIVED') RETURNING id`;
+      await tx`INSERT INTO source_submission(organization_id,branch_id,campaign_id,lead_id,source_kind,state,raw_payload)
+        VALUES(${org},${row.branch_id},${row.campaign_id},${historical!.id},'META','PROCESSED',${tx.json({lead:{ad_id:adId}})})`;
+    });
+    referral={source_type:'ad',source_id:adId};
+  }
+  const raw=JSON.stringify({ object:'whatsapp_business_account',entry:[{ id:row.config.wabaId,changes:[{ field:'messages',value:{ messaging_product:'whatsapp',metadata:{ phone_number_id:row.external_sender_id },messages:[{ id:'wamid.synthetic-ai-'+randomBytes(12).toString('hex'),from:row.participant_ref.slice(1),timestamp:String(Math.floor(Date.now()/1000)),type:'text',text:{ body:request.body.body },referral }] } }] }] });
   const appSecret=row.connection_id===intakeMessagingConnection?intakeMessagingAppSecret:'test-customer-ai-e2e-secret';
   const received=await app.inject({ method:'POST',url:'/api/webhooks/messaging/meta/'+row.connection_id,payload:raw,headers:{ 'content-type':'application/json','x-hub-signature-256':'sha256='+createHmac('sha256',appSecret).update(raw).digest('hex') } });
   if(received.statusCode!==200)throw new HttpError(500,'SYNTHETIC_CUSTOMER_WEBHOOK_FAILED');

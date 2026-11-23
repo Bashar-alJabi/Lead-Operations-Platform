@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-type Origin = { id: string; originKind: 'HUMAN_MANUAL'|'SOURCE'|'APPROVED_IMPORT'; sourceKind: string; createdAt: string; routing: { method: string; reason: string; ownerId: string | null };
+type Origin = { id: string; originKind: 'HUMAN_MANUAL'|'SOURCE'|'APPROVED_IMPORT'|'RETURNING_INBOUND'; sourceKind: string; createdAt: string; routing: { method: string; reason: string; ownerId: string | null };
   initialAI: { id: string; state: 'ADMITTED'|'BLOCKED'; blockers: string[]; createdAt: string; knowledgeVersion: number | null;
     ownerAvailable: boolean | null; initialContactWithoutAgent: boolean | null; senderReason: string | null;
     runtime?:{jobState:string;failureCount:number;errorCode:string|null;actionState:string|null;conversationId:string|null;messageId:string|null;deliveryState:string|null}|null } | null };
@@ -35,7 +35,9 @@ export function LeadIntakeOrigin({ leadId, revision, locale, api }: { leadId: st
   const unassessed = { ar: 'غير مُقيّم', en: 'Not assessed', fr: 'Non évalué' }[locale];
   const busyReason = { ar: 'إعدادات AI قيد التحديث أو مشغولة. لم يبدأ التواصل الأولي.', en: 'AI configuration is being updated or busy. Initial contact has not started.', fr: 'La configuration IA est en cours de modification ou occupée. Le premier contact n’a pas commencé.' }[locale];
   return <section className="panel" data-lead-intake-origin><h3>{t.title}</h3><button disabled={busy} onClick={() => void read()}>{t.read}</button>
-    {error && <p role="alert">{error}</p>}{value && !o && <p>{t.empty}</p>}{o && <div data-lead-intake-record><p>{o.originKind === 'HUMAN_MANUAL' ? t.manual : o.originKind==='APPROVED_IMPORT'?{ar:'استيراد من مصدر معتمد',en:'Intake from an approved import',fr:'Import depuis une source approuvée'}[locale]:t.source} · {o.sourceKind}</p>
+    {error && <p role="alert">{error}</p>}{value && !o && <p>{t.empty}</p>}{o && <div data-lead-intake-record><p>{o.originKind==='RETURNING_INBOUND'
+      ? {ar:'أُنشئت من رسالة عميل عائد',en:'Created from a returning customer message',fr:'Créé à partir du message d’un client de retour'}[locale]
+      : o.originKind === 'HUMAN_MANUAL' ? t.manual : o.originKind==='APPROVED_IMPORT'?{ar:'استيراد من مصدر معتمد',en:'Intake from an approved import',fr:'Import depuis une source approuvée'}[locale]:t.source} · {o.sourceKind}</p>
       <p>{t.at}: <time dateTime={o.createdAt}>{new Date(o.createdAt).toLocaleString(locale)}</time></p>
       <p>{t.routing}: {o.routing.method} · {performanceReasons[o.routing.reason]?.[locale] ?? o.routing.reason}</p>
       <p style={{ overflowWrap: 'anywhere' }}>{t.owner}: {o.routing.ownerId ?? t.unassigned}</p><p>{t.note}</p>

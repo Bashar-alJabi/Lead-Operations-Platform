@@ -159,7 +159,7 @@ export function LeadSearch({ locale, branches, campaigns, users, currentUser, ap
     {select('assignedAgentId', t.agent, users.filter((item) => item.role === 'AGENT' && (!form.branchId || item.branch_id === form.branchId))
       .map((item) => ({ value: item.id, label: item.name })))}
     {select('lifecycle', t.lifecycle, ['OPEN','CLOSED','ARCHIVED'].map((value) => ({ value, label: value })))}
-    {select('sourceKind', t.source, ['MANUAL','META','GENERIC_SOURCE','IMPORT_CSV','IMPORT_EXCEL','IMPORT_GOOGLE_SHEETS'].map((value) => ({ value, label: value })))}
+    {select('sourceKind', t.source, ['MANUAL','META','GENERIC_SOURCE','IMPORT_CSV','IMPORT_EXCEL','IMPORT_GOOGLE_SHEETS','MESSAGING_INBOUND'].map((value) => ({ value, label: value })))}
     {select('followup', t.followup, [{ value: 'NONE', label: t.noFollowup }, { value: 'OVERDUE', label: t.overdue },
       { value: 'UPCOMING', label: t.upcoming }])}
     {select('conversationState',extra.state,['AI_ACTIVE','AI_WAITING_FOR_LEAD','AI_HANDOFF_REQUIRED','WAITING_FOR_HUMAN','HUMAN_ACTIVE','CLOSED'].map(value=>({value,label:value})))}

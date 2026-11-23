@@ -11,6 +11,7 @@ import { processOneSourceEvaluation } from '../src/sources/evaluation.js';
 import { processOneSourceIntake } from '../src/sources/intake.js';
 import { processInboundEvent,processOneInboundEvent } from '../src/messaging/inbound-events.js';
 import { processOneIntegrationEvent } from '../src/messaging/event-processing.js';
+import { emptyAIBehaviorPolicy } from '../src/ai/behavior-policy.js';
 
 const url=process.env.TEST_DATABASE_URL;
 if (!url || new URL(url).pathname!=='/lead_operations_test') throw new Error('Isolated TEST_DATABASE_URL required');
@@ -190,4 +191,63 @@ test('signed source references resolve proven campaign context without guessing,
   assert.equal((await eventRow(moved.id)).failure_code,'CONVERSATION_NOT_AVAILABLE');
   assert.equal((await api('GET',`/api/conversations/${a.conversation_id}/messages`)).statusCode,404);
   assert.equal((await api('GET',`/api/conversations/${a.conversation_id}/messages`,undefined,'other')).statusCode,200);
+
+  const returningPhone='15550002332';
+  const returningContact=(await db`INSERT INTO contact(organization_id,name,phone,phone_normalized)
+    VALUES(${org},'Returning source customer',${'+'+returningPhone},${'+'+returningPhone}) RETURNING id`)[0]!.id;
+  await db`UPDATE campaign SET messaging_config='{"enabled":true}' WHERE id=${camps[0]!}`;
+  const previousLead=(await db`INSERT INTO lead(organization_id,branch_id,campaign_id,contact_id,source_kind)
+    VALUES(${org},${branch},${camps[0]!},${returningContact},'MANUAL') RETURNING id`)[0]!.id;
+  const previousConversation=(await db`INSERT INTO conversation(lead_id,connection_id,sender_id,channel,participant_ref,
+    controller_type,controller_user_id,state) VALUES(${previousLead},${conn},${sender},'WHATSAPP',${'+'+returningPhone},
+    'HUMAN',${users.manager!.id},'HUMAN_ACTIVE') RETURNING id`)[0]!.id;
+  const previousMessage='wamid.returning-origin';
+  await db`INSERT INTO conversation_message(conversation_id,connection_id,sender_id,direction,author_type,body,provider_message_id,delivery_state)
+    VALUES(${previousConversation},${conn},${sender},'INBOUND','CUSTOMER','Immutable former message',${previousMessage},'RECEIVED')`;
+  const closed=await api('POST',`/api/leads/${previousLead}/lifecycle`,{lifecycle:'CLOSED'});
+  assert.equal(closed.statusCode,200,closed.body);
+  const policy=await api('PUT',`/api/ai/campaigns/${camps[0]!}/behavior-policy`,{version:0,reason:'Activate approved returning Lead creation',
+    definition:{...emptyAIBehaviorPolicy(),returningContact:{closedConversation:'REVIEW',closedLead:'CREATE_NEW'}}});
+  assert.equal(policy.statusCode,200,policy.body);
+  const noReference=await receive(undefined,previousMessage,returningPhone);
+  await processOneInboundEvent(db);
+  assert.equal((await eventRow(noReference.id)).failure_code,'NEW_LEAD_TRUSTED_CONTEXT_REQUIRED');
+
+  const requiredField=(await db`INSERT INTO field_definition(organization_id,branch_id,campaign_id,key,label,field_type,value_mode)
+    VALUES(${org},${branch},${camps[0]!},'returning_test_required','Required test field','TEXT','MANUAL') RETURNING id`)[0]!.id;
+  await db`INSERT INTO campaign_field(campaign_id,field_id,required_stage) VALUES(${camps[0]!},${requiredField},'LEAD_CREATION')`;
+  const missingData=await receive(referral(),previousMessage,returningPhone);
+  await processOneInboundEvent(db);
+  assert.equal((await eventRow(missingData.id)).failure_code,'NEW_LEAD_REQUIRED_DATA_MISSING');
+  await db`UPDATE campaign_field SET active=false,version=version+1 WHERE campaign_id=${camps[0]!} AND field_id=${requiredField}`;
+
+  const newIntake=await receive(referral(),previousMessage,returningPhone);
+  await assert.rejects(db.begin(async tx=>{
+    await tx`INSERT INTO messaging_returning_lead_intake(event_id,prior_conversation_id) VALUES(${newIntake.id},${previousConversation})`;
+  }),/RETURNING_LEAD_INTAKE_EFFECT_REQUIRED/);
+  assert.equal((await db`SELECT count(*)::int n FROM lead WHERE contact_id=${returningContact}`)[0]!.n,1);
+  assert.equal((await db`SELECT state FROM conversation WHERE id=${previousConversation}`)[0]!.state,'HUMAN_ACTIVE');
+  assert.deepEqual((await Promise.all([processOneInboundEvent(db),processOneInboundEvent(db)])).sort(),[false,true]);
+  const created=await eventRow(newIntake.id);
+  assert.equal(created.state,'PROCESSED');
+  assert.notEqual(created.lead_id,previousLead);
+  assert.notEqual(created.conversation_id,previousConversation);
+  assert.equal((await webhook(newIntake.message)).json().created,0);
+  assert.equal((await db`SELECT count(*)::int n FROM lead WHERE contact_id=${returningContact}`)[0]!.n,2);
+  assert.deepEqual((await db`SELECT state,controller_type,sender_id FROM conversation WHERE id=${created.conversation_id}`)[0],
+    {state:'WAITING_FOR_HUMAN',controller_type:'NONE',sender_id:sender});
+  assert.equal((await db`SELECT state FROM conversation WHERE id=${previousConversation}`)[0]!.state,'CLOSED');
+  assert.equal((await db`SELECT lifecycle FROM lead WHERE id=${previousLead}`)[0]!.lifecycle,'CLOSED');
+  assert.equal((await db`SELECT count(*)::int n FROM conversation_message WHERE conversation_id=${previousConversation}`)[0]!.n,1);
+  const lineage=await api('GET',`/api/leads/${created.lead_id}/intake-origin`);
+  assert.equal(lineage.statusCode,200,lineage.body);
+  assert.equal(lineage.json().origin.sourceKind,'MESSAGING_INBOUND');
+  assert.equal(lineage.json().origin.originKind,'RETURNING_INBOUND');
+  assert.equal(lineage.json().origin.initialAI,null);
+  assert.equal((await api('GET',`/api/leads/${created.lead_id}/intake-origin`,undefined,'other')).statusCode,404);
+  await assert.rejects(db`UPDATE messaging_returning_lead_intake SET policy_version=999 WHERE event_id=${newIntake.id}`,
+    /RETURNING_LEAD_INTAKE_IMMUTABLE/);
+  const repeated=await receive(referral(),previousMessage,returningPhone);
+  await processOneInboundEvent(db);
+  assert.equal((await eventRow(repeated.id)).failure_code,'NEW_LEAD_ALREADY_HAS_SUCCESSOR');
 });

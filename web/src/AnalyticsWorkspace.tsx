@@ -106,7 +106,7 @@ export function AnalyticsWorkspace({locale,api,user,branches,onOpenLead}:{locale
    {campaignPaged&&<button type="button" disabled={busy} onClick={()=>void catalog('campaigns')}>{firstChoices.campaign}</button>}
    {select('assignedAgentId',t.agent,agents.map(a=>({value:a.id,label:a.name})))}{nextAgent&&<button type="button" disabled={busy} onClick={()=>void catalog('users',nextAgent)}>{t.moreAgents}</button>}
    {agentPaged&&<button type="button" disabled={busy} onClick={()=>void catalog('users')}>{firstChoices.agent}</button>}
-   {select('sourceKind',t.source,values(['MANUAL','META','GENERIC_SOURCE','IMPORT_CSV','IMPORT_EXCEL','IMPORT_GOOGLE_SHEETS']))}{select('lifecycle',t.lifecycle,values(['OPEN','CLOSED','ARCHIVED']))}
+   {select('sourceKind',t.source,values(['MANUAL','META','GENERIC_SOURCE','IMPORT_CSV','IMPORT_EXCEL','IMPORT_GOOGLE_SHEETS','MESSAGING_INBOUND']))}{select('lifecycle',t.lifecycle,values(['OPEN','CLOSED','ARCHIVED']))}
    {select('conversationState',t.conversation,values(['AI_ACTIVE','AI_WAITING_FOR_LEAD','AI_HANDOFF_REQUIRED','WAITING_FOR_HUMAN','HUMAN_ACTIVE','CLOSED']))}{select('controller',t.controller,values(['AI','HUMAN','NONE']))}
    {select('followup',t.followup,values(['NONE','OVERDUE','UPCOMING']))}{select('paymentMode',t.mode,values(['LIVE','TEST','ALL']))}
    <label>{t.from}<input type="datetime-local" value={form.from} onChange={e=>change('from',e.target.value)}/></label><label>{t.to}<input type="datetime-local" value={form.to} onChange={e=>change('to',e.target.value)}/></label>

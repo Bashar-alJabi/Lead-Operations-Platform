@@ -10,6 +10,7 @@ import { parseMetaSourceReference, type SourceReference } from './source-referen
 import { recordBlockedCustomerAIInbound } from '../ai/customer-inbound.js';
 import { enqueueCustomerProposal } from '../ai/customer-worker.js';
 import { reopenReturningConversation } from './returning-conversation.js';
+import { intakeReturningLead } from './returning-lead-intake.js';
 
 type InboundPayload = { senderExternalId: string; message: Record<string, unknown> };
 type EventRow = { id: string; connection_id: string; sender_id: string | null;
@@ -210,15 +211,25 @@ export async function processInboundEvent(tx: postgres.TransactionSql, eventId: 
     else {
       const leads = await candidateLeads(tx, event, sourceReference);
       const closed=await closedConversations(tx,event,sourceReference);
-      if(closed.length>1 || (closed[0] && leads.some(lead=>lead.id!==closed[0]!.lead_id)))
+      if(closed.length>1)return attention(tx,event.id,'MULTIPLE_RETURNING_CONVERSATIONS');
+      if(leads.length>1)return attention(tx,event.id,'MULTIPLE_ACTIVE_LEADS');
+      if(closed[0] && leads.some(lead=>lead.id!==closed[0]!.lead_id))
         return attention(tx,event.id,'MULTIPLE_RETURNING_CONVERSATIONS');
       if(closed[0]){conversationId=closed[0].id;leadId=closed[0].lead_id;}
-      else if (leads.length !== 1) return attention(tx, event.id,
-        leads.length > 1 ? 'MULTIPLE_ACTIVE_LEADS' : 'NO_UNIQUE_LEAD');
+      else if (leads.length !== 1) return attention(tx, event.id,'NO_UNIQUE_LEAD');
       else leadId=leads[0]!.id;
     }
   }
   if (conversationId) {
+    if(!decision&&knownSourceReference){
+      // Take routing's parent locks before the old Lead if this inbound could create a successor.
+      await tx`SELECT b.id FROM conversation cv JOIN lead l ON l.id=cv.lead_id JOIN branch b ON b.id=l.branch_id
+        JOIN campaign ca ON (ca.id,ca.branch_id,ca.organization_id)=(l.campaign_id,l.branch_id,l.organization_id)
+        JOIN ai_behavior_policy p ON p.scope='CAMPAIGN' AND (p.resource_id,p.branch_id)=(ca.id,b.id)
+        WHERE cv.id=${conversationId} AND (cv.connection_id,cv.sender_id,cv.participant_ref)=(${event.connection_id},${event.sender_id},${event.participant_ref})
+          AND l.organization_id=${sender.organization_id} AND (${sender.branch_id}::uuid IS NULL OR l.branch_id=${sender.branch_id})
+          AND l.lifecycle='CLOSED' AND p.definition->'returningContact'->>'closedLead'='CREATE_NEW' FOR NO KEY UPDATE OF b,ca`;
+    }
     // All conversation mutations take Lead before Conversation, including reassignment.
     await tx`SELECT l.id FROM lead l JOIN conversation cv ON cv.lead_id=l.id
       WHERE cv.id=${conversationId} AND cv.connection_id=${event.connection_id} AND cv.sender_id=${event.sender_id}
@@ -240,9 +251,19 @@ export async function processInboundEvent(tx: postgres.TransactionSql, eventId: 
     if (knownSourceReference && !sourceEvidence) return attention(tx,event.id,'SOURCE_REFERENCE_TARGET_CONFLICT');
     if(cv.lifecycle==='ARCHIVED')return attention(tx,event.id,'ARCHIVED_LEAD_REQUIRES_REVIEW');
     if(cv.lifecycle==='CLOSED'){
-      if(decision||!(await tx`SELECT 1 FROM verified_returning_lead(${event.id},${cv.id})`).length)
-        return attention(tx,event.id,'CLOSED_LEAD_REQUIRES_REVIEW');
-      returningLead=true;
+      if(decision)return attention(tx,event.id,'CLOSED_LEAD_REQUIRES_REVIEW');
+      const [policy]=await tx`SELECT definition->'returningContact'->>'closedLead' AS action FROM ai_behavior_policy
+        WHERE scope='CAMPAIGN' AND resource_id=${cv.campaign_id} AND branch_id=${cv.branch_id}`;
+      if(policy?.action==='CREATE_NEW'){
+        if(!sourceEvidence||quickReply)return attention(tx,event.id,'NEW_LEAD_TRUSTED_CONTEXT_REQUIRED');
+        const intake=await intakeReturningLead(tx,event.id,cv.id);
+        if('block' in intake)return attention(tx,event.id,intake.block);
+        leadId=intake.leadId;conversationId=intake.conversationId;
+      } else {
+        if(!(await tx`SELECT 1 FROM verified_returning_lead(${event.id},${cv.id})`).length)
+          return attention(tx,event.id,'CLOSED_LEAD_REQUIRES_REVIEW');
+        returningLead=true;
+      }
     } else if(cv.state==='CLOSED'){
       if(decision)return attention(tx,event.id,'CLOSED_CONVERSATION');
       const block=await reopenReturningConversation(tx,{eventId:event.id,conversationId:cv.id,leadId:cv.lead_id,
@@ -285,9 +306,6 @@ export async function processInboundEvent(tx: postgres.TransactionSql, eventId: 
         return attention(tx, event.id, 'PINNED_SENDER_MISMATCH');
       conversationId = pinned[0]!.id;
     } else {
-      if(decision && (await tx`SELECT 1 FROM conversation WHERE lead_id=${leadId} AND state='CLOSED' AND channel='WHATSAPP'
-        AND (connection_id,sender_id,participant_ref)=(${event.connection_id},${event.sender_id},${event.participant_ref}) LIMIT 1`).length)
-        return attention(tx,event.id,'CLOSED_CONVERSATION');
       const human = lead.assigned_agent_id && lead.agent_active ? lead.assigned_agent_id : null;
       const created = (await tx`INSERT INTO conversation (lead_id, connection_id, sender_id, channel,
         participant_ref, controller_type, controller_user_id, state, needs_attention_reason)
