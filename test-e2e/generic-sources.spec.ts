@@ -53,6 +53,11 @@ test('A manager verifies a Webhook, publishes mapping, and receives one lead for
   await page.getByRole('button',{name:'Save settings',exact:true}).first().click();
   const savedSettings=await saved;
   expect(savedSettings.status(),await savedSettings.text()).toBe(200);
+  const override=page.getByRole('heading',{name:'Campaign sender override',exact:true}).locator('..');
+  const [senderId]=await override.getByRole('combobox',{name:'Campaign sender override',exact:true})
+    .selectOption({label:'Browser Intake Sender · Browser Intake Messaging Connection'});
+  await override.getByRole('button',{name:'Save settings',exact:true}).click();
+  await expect(override).toContainText('Effective sender for new messages: '+senderId);
   const sources=page.locator('.campaign-sources');
   await sources.getByRole('button',{name:'Bind Webhook schema',exact:true}).click();
   await sources.getByRole('combobox',{name:'Campaign source connection',exact:true}).selectOption({label:'Synthetic signed webhook · CONNECTED'});

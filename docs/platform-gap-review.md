@@ -38,7 +38,7 @@
 
 ## الاعتماديات والأولوية التنفيذية التالية
 
-**أحدث نتائج الانحدار الشامل — 2026-11-23** اجتاز `bbbe44a` **211/211 PostgreSQL Integration و105/105 Edge Browser E2E**. بدأ الانحدار الشامل للبناء الذي يجمع Contacts وAnalytics حسب المصدر. [التقدم](codex-progress.md)
+**أحدث نتائج الانحدار الشامل — 2026-11-23** اجتاز `dbd9add` **211/211 PostgreSQL Integration و106/106 Edge Browser E2E**. اجتاز `76ac7e6` **211/211 PostgreSQL**. تجري إعادة Edge الشاملة لمسار الإدخال بعد فصل Sender اختبار Webhook عن اختبارات فشل التسليم. [التقدم](codex-progress.md)
 
 1. **Import CSV/Excel checkpoint محفوظة:** `95dbce3` مرفوعة،Native183–184 و193Unit/142PG/68Browser و001–184/build/typecheck مثبتة. لاتعدتنفيذها؛هيbaseline للملفات معSheets/API/load/acceptance gaps باقية. [العقد](lead-import-execution.md). التاليGoogleSheets،دونoptionalparser/provider/AI refinements.
 2. **Google Sheets:** baseline Import190–192 محفوظةفي5d063a8،Export preparation194 في3a6271b،delivery/verification195 في3ca5157. لا إعادةتنفيذ أوoptionalrefinements؛انتقلالآنلمتطلباتEmail/Notifications الأساسية.

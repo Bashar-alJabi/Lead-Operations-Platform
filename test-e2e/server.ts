@@ -214,6 +214,12 @@ const sender = (await db`INSERT INTO messaging_sender
   (organization_id,connection_id,external_sender_id,display_name,health,operator_enabled,capabilities)
   VALUES (${org},${connection},'15550001111','Browser Sender','HEALTHY',true,${db.json({ text:true,template:true,...metaMediaCapabilities() })}) RETURNING id`)[0]!.id;
 await db`UPDATE branch SET default_sender_id=${sender} WHERE id=${branch}`;
+// The signed intake journey needs a ready sender independent of delivery failure tests.
+const intakeMessagingConnection=(await db`INSERT INTO integration_connection (organization_id,branch_id,kind,provider,name,status,config)
+  VALUES (${org},${branch},'MESSAGING','META_WHATSAPP_CLOUD','Browser Intake Messaging Connection','CONNECTED',
+    '{"graphVersion":"v25.0","wabaId":"5621275203"}') RETURNING id`)[0]!.id;
+await db`INSERT INTO messaging_sender(organization_id,connection_id,external_sender_id,display_name,health,operator_enabled,capabilities)
+  VALUES (${org},${intakeMessagingConnection},'15550001834','Browser Intake Sender','HEALTHY',true,'{"text":true}')`;
 const staffSenderConnection=(await db`INSERT INTO integration_connection(organization_id,branch_id,kind,provider,name,status,config)
   VALUES(${org},${branch},'MESSAGING','META_WHATSAPP_CLOUD','Browser Staff Connection','CONNECTED',
     '{"graphVersion":"v25.0","wabaId":"5714285714"}') RETURNING id`)[0]!.id;
