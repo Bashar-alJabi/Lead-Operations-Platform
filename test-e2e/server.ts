@@ -68,6 +68,8 @@ const connectionUrl = requireLocalE2ETarget(process.env.TEST_DATABASE_URL,proces
 const paypalTransport=syntheticPayPalFinancialTransport();
 const almaPayments=new Map<string,{ intentId:string;merchant:string;amount:number;plan:{ installments_count:number;deferred_months:number;deferred_days:number };captured:boolean }>();
 let almaLoseResponse=false;let almaReadFailure=false;let almaWrites=0;
+const acceptanceMessaging={wabaId:'59418207016',senderId:'15550008047',accessToken:'test-acceptance-token',
+  appSecret:'test-acceptance-e2e-secret',verifyToken:'test-acceptance-verification'};
 let aiSendCalls=0;
 let operationalEmailChecks=0,operationalEmailSends=0;
 let googleMode:'GOOD'|'AUTH'|'UNKNOWN'|'OTHER'='GOOD',googleCodeCalls=0,googleRefreshCalls=0,googleMetadataCalls=0,googleMetadataFailure=false,googleShortRefresh=false,googleReadFailure=false,googleReadCalls=0,googleImportGrid=false;
@@ -112,8 +114,10 @@ globalThis.fetch=async(target,init)=> { if(String(target)===testPayPalCertUrl)re
     googleMetadataCalls++;if(googleMetadataFailure)return new Response('{}',{status:503,headers:{'content-type':'application/json'}});
     return new Response(JSON.stringify({spreadsheetId:'BrowserSyntheticSpreadsheet_123',properties:{title:'Trusted spreadsheet <img src=x onerror=alert(1)>',locale:'fr_FR',timeZone:'Europe/Paris'},sheets:[...Array.from({length:27},(_,i)=>({properties:{sheetId:i,title:'Trusted worksheet '+i,index:i,sheetType:i===26?'OBJECT':'GRID',gridProperties:{rowCount:1000,columnCount:10}},data:[{private:'UNREQUESTED_SYNTHETIC_CELL'}]})),...Array.from(googleExportSheets.values(),s=>({properties:s.properties}))]}),{headers:{'content-type':'application/json'}});
   }
-  if(String(target)==='https://graph.facebook.com/v25.0/15550001111/messages') {
-    if(init?.method!=='POST' || new Headers(init.headers).get('authorization')!=='Bearer test-fake-token-not-a-real-account')throw new Error('UNEXPECTED_AI_SEND_REQUEST');
+  const acceptanceSend=String(target)===`https://graph.facebook.com/v25.0/${acceptanceMessaging.senderId}/messages`;
+  if(acceptanceSend||String(target)==='https://graph.facebook.com/v25.0/15550001111/messages') {
+    const token=acceptanceSend?acceptanceMessaging.accessToken:'test-fake-token-not-a-real-account';
+    if(init?.method!=='POST' || new Headers(init.headers).get('authorization')!=='Bearer '+token)throw new Error('UNEXPECTED_AI_SEND_REQUEST');
     const payload=JSON.parse(init.body as string);if(payload.type==='text' ? typeof payload.text?.body!=='string' : payload.type!=='template'||typeof payload.template?.name!=='string'||typeof payload.template?.language?.code!=='string')throw new Error('UNEXPECTED_AI_SEND_CONTENT');
     aiSendCalls++;return new Response(JSON.stringify({messages:[{id:'wamid.synthetic-ai-browser-'+aiSendCalls}]}));
   }
@@ -221,6 +225,16 @@ const sender = (await db`INSERT INTO messaging_sender
   (organization_id,connection_id,external_sender_id,display_name,health,operator_enabled,capabilities)
   VALUES (${org},${connection},'15550001111','Browser Sender','HEALTHY',true,${db.json({ text:true,template:true,...metaMediaCapabilities() })}) RETURNING id`)[0]!.id;
 await db`UPDATE branch SET default_sender_id=${sender} WHERE id=${branch}`;
+// Isolate the full acceptance journey from delivery-failure tests on the branch default.
+const acceptanceMessagingConnection=(await db`INSERT INTO integration_connection(organization_id,branch_id,kind,provider,name,status,config)
+  VALUES(${org},${branch},'MESSAGING','META_WHATSAPP_CLOUD','Browser Acceptance Messaging Connection','CONNECTED',
+    ${db.json({graphVersion:'v25.0',wabaId:acceptanceMessaging.wabaId})}) RETURNING id`)[0]!.id;
+const acceptanceSecret=sealSecret(acceptanceMessagingConnection,JSON.stringify({
+  accessToken:acceptanceMessaging.accessToken,appSecret:acceptanceMessaging.appSecret,verifyToken:acceptanceMessaging.verifyToken}));
+await db`INSERT INTO connection_secret(connection_id,ciphertext,nonce,auth_tag)
+  VALUES(${acceptanceMessagingConnection},${acceptanceSecret.ciphertext},${acceptanceSecret.nonce},${acceptanceSecret.authTag})`;
+await db`INSERT INTO messaging_sender(organization_id,connection_id,external_sender_id,display_name,health,operator_enabled,capabilities)
+  VALUES(${org},${acceptanceMessagingConnection},${acceptanceMessaging.senderId},'Browser Acceptance Sender','HEALTHY',true,'{"text":true,"template":true}')`;
 // The signed intake journey needs a ready sender independent of delivery failure tests.
 const intakeMessagingConnection=(await db`INSERT INTO integration_connection (organization_id,branch_id,kind,provider,name,status,config)
   VALUES (${org},${branch},'MESSAGING','META_WHATSAPP_CLOUD','Browser Intake Messaging Connection','CONNECTED',
@@ -301,6 +315,7 @@ const templates:ProviderTemplate[]=[{ externalId:'7000',name:'header_only_templa
     { type:'BODY',text:'Fixed body' }] },
   { externalId:'7001',name:'malformed_provider_template',language:'en_US',category:'UTILITY',status:'APPROVED',
     components:[null,{ type:'HEADER',format:'TEXT',text:{ untrusted:'not a text value' } },{ type:'BODY',text:'Malformed metadata' }] }];
+const acceptanceTemplates:ProviderTemplate[]=[];
 await mkdir(resolve('.local/e2e'),{ recursive:true });const mediaRoot=await mkdtemp(resolve('.local/e2e/media-'));
 const storage=localMediaStorage(mediaRoot);
 const identityTestMail:{to:string;text:string}[]=[];
@@ -347,10 +362,13 @@ const app = await buildApp(db, { logger:false,globalRateLimitMax:10000,mediaStor
   messagingSendAdapter:{ sendText:async()=> { throw new Error('Unexpected operational freeform send'); },
     sendTemplate:async()=>({ providerMessageId:'wamid.browser-operational' }) },
   messagingTemplateAdapter:{
-    list:async(config)=>['987654321','123456789'].includes(config.wabaId) ? templates : [],
+    list:async(config)=>config.wabaId===acceptanceMessaging.wabaId?acceptanceTemplates:
+      ['987654321','123456789'].includes(config.wabaId)?templates:[],
     create:async(config,_credentials,input)=> {
-      if (!['987654321','123456789'].includes(config.wabaId)) throw new Error('Unexpected test connection');
-      const template:ProviderTemplate={ externalId:String(8000+templates.length),name:input.name,language:input.language,
+      const dedicated=config.wabaId===acceptanceMessaging.wabaId;
+      if (!dedicated&&!['987654321','123456789'].includes(config.wabaId)) throw new Error('Unexpected test connection');
+      const catalog=dedicated?acceptanceTemplates:templates;
+      const template:ProviderTemplate={ externalId:String((dedicated?9000:8000)+catalog.length),name:input.name,language:input.language,
         category:input.category,status:'PENDING',components:[
           ...(input.mediaHeader ? [{ type:'HEADER',format:input.mediaHeader.format,example:{ header_handle:[input.mediaHeader.handle] } }] : []),
           ...(input.header ? [{ type:'HEADER',format:'TEXT',text:input.header,
@@ -358,7 +376,7 @@ const app = await buildApp(db, { logger:false,globalRateLimitMax:10000,mediaStor
           { type:'BODY',text:input.body,...(input.examples?.length ? { example:{ body_text:[input.examples] } } : {}) },
           ...(input.footer ? [{ type:'FOOTER',text:input.footer }] : []),...(input.buttons ? [{ type:'BUTTONS',buttons:input.buttons.map((button)=>
             button.type==='URL' && input.urlExample ? { ...button,example:[renderTemplateUrl(button.url,input.urlExample)] } : button) }] : [])] };
-      templates.push(template);return template;
+      catalog.push(template);return template;
     },
   } });
 app.post('/__test__/identity-delivery',async request=>{
@@ -635,7 +653,8 @@ app.post('/__test__/ai-followup-process',async request=>{
 });
 app.post<{ Body:{ conversationId:string;enable?:boolean;process?:boolean;messaging?:boolean } }>('/__test__/ai-customer-proposal',{ schema:{ body:{ type:'object',additionalProperties:false,required:['conversationId'],properties:{ conversationId:{ type:'string',format:'uuid' },enable:{ type:'boolean' },process:{ type:'boolean' },messaging:{type:'boolean'} } } } },async(request)=>{
   if(typeof request.headers.authorization!=='string' || !safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
-  const target=(await db`SELECT l.campaign_id FROM conversation cv JOIN lead l ON l.id=cv.lead_id WHERE cv.id=${request.body.conversationId} AND l.organization_id=${org} AND cv.connection_id=${connection}`)[0];
+  const target=(await db`SELECT l.campaign_id FROM conversation cv JOIN lead l ON l.id=cv.lead_id WHERE cv.id=${request.body.conversationId} AND l.organization_id=${org}
+    AND cv.connection_id IN (${connection},${acceptanceMessagingConnection})`)[0];
   if(!target)throw new HttpError(404,'SYNTHETIC_CONVERSATION_NOT_FOUND');
   // Explicit isolated fixture only; no production readiness, activation or live transport switch.
   if(request.body.enable)await db`UPDATE campaign SET ai_config=jsonb_set(ai_config,'{enabled}','true') WHERE id=${target.campaign_id}`;
@@ -647,7 +666,7 @@ app.post<{ Body:{ conversationId:string;body:string;aiControl?:boolean;returning
   const row=(await db`SELECT cv.id,cv.connection_id,cv.participant_ref,s.external_sender_id,ic.config,l.branch_id,l.campaign_id,l.lifecycle
     FROM conversation cv JOIN lead l ON l.id=cv.lead_id JOIN messaging_sender s ON s.id=cv.sender_id JOIN integration_connection ic ON ic.id=cv.connection_id
     WHERE cv.id=${request.body.conversationId} AND l.organization_id=${org}
-      AND (cv.connection_id=${connection} OR (cv.connection_id=${intakeMessagingConnection} AND ${!request.body.aiControl}))`)[0];
+      AND (cv.connection_id=${connection} OR (cv.connection_id IN (${intakeMessagingConnection},${acceptanceMessagingConnection}) AND ${!request.body.aiControl}))`)[0];
   if(!row)throw new HttpError(404,'SYNTHETIC_CONVERSATION_NOT_FOUND');
   // Isolated synthetic fixture only. Production activation remains blocked until the runtime/tools exist.
   if(request.body.aiControl)await db`UPDATE conversation SET controller_type='AI',controller_user_id=NULL,state='AI_ACTIVE',needs_attention_reason=NULL WHERE id=${row.id}`;
@@ -666,7 +685,8 @@ app.post<{ Body:{ conversationId:string;body:string;aiControl?:boolean;returning
     referral={source_type:'ad',source_id:adId};
   }
   const raw=JSON.stringify({ object:'whatsapp_business_account',entry:[{ id:row.config.wabaId,changes:[{ field:'messages',value:{ messaging_product:'whatsapp',metadata:{ phone_number_id:row.external_sender_id },messages:[{ id:'wamid.synthetic-ai-'+randomBytes(12).toString('hex'),from:row.participant_ref.slice(1),timestamp:String(Math.floor(Date.now()/1000)),type:'text',text:{ body:request.body.body },referral }] } }] }] });
-  const appSecret=row.connection_id===intakeMessagingConnection?intakeMessagingAppSecret:'test-customer-ai-e2e-secret';
+  const appSecret=row.connection_id===acceptanceMessagingConnection?acceptanceMessaging.appSecret:
+    row.connection_id===intakeMessagingConnection?intakeMessagingAppSecret:'test-customer-ai-e2e-secret';
   const received=await app.inject({ method:'POST',url:'/api/webhooks/messaging/meta/'+row.connection_id,payload:raw,headers:{ 'content-type':'application/json','x-hub-signature-256':'sha256='+createHmac('sha256',appSecret).update(raw).digest('hex') } });
   if(received.statusCode!==200)throw new HttpError(500,'SYNTHETIC_CUSTOMER_WEBHOOK_FAILED');
   return { processed:await processOneInboundEvent(db) };
@@ -787,7 +807,7 @@ app.post<{ Body:{ processKnowledgeAsset?:boolean;rejectKnowledgeAsset?:boolean;p
       if (response.statusCode!==200) throw new HttpError(500,'TEST_SOURCE_REFERENCE_WEBHOOK_FAILED');
       await processOneInboundEvent(db);
     }
-    if (request.body.approveTemplates) for (const template of templates) template.status='APPROVED';
+    if (request.body.approveTemplates) for (const template of [...templates,...acceptanceTemplates]) template.status='APPROVED';
     if (typeof request.body.dnc === 'boolean')
       await db`UPDATE messaging_consent SET do_not_contact=${request.body.dnc} WHERE contact_id=${contact}`;
     if (request.body.assigned) await db`UPDATE lead SET assigned_agent_id=${users[request.body.assigned]!} WHERE id=${lead}`;

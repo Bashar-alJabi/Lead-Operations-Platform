@@ -105,6 +105,7 @@ test('One signed Meta lead proceeds through AI qualification, human handoff, ver
   const owner=await verified(await agent.request.get('/api/auth/me'));
   const setup:{qualifiedFieldId?:string;replay?:()=>Promise<void>}={};
   const fixture=await configureInitialContact(page,{campaignName,templateName:'browser_critical_meta',phone:'+15556668047',customerName:leadName,followupEnabled:false,
+   messagingConnectionName:'Browser Acceptance Messaging Connection',
    prepareCampaign:async(campaignId,branchId)=>{
     setup.qualifiedFieldId=await configureQualification(page,campaignId,branchId);
     setup.replay=await configureMeta(page,campaignId,branchId,owner.id);

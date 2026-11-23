@@ -6,6 +6,7 @@ import {emptyAIOperationalConfig} from '../src/ai/operational-config.js';
 import {emptyAIBehaviorPolicy} from '../src/ai/behavior-policy.js';
 type InitialContactFixture={
  campaignName:string;templateName:string;phone:string;customerName:string;followupEnabled:boolean;
+ messagingConnectionName?:string;
  prepareCampaign?:(campaignId:string,branchId:string)=>Promise<void>;
 };
 
@@ -15,6 +16,18 @@ export async function configureInitialContact(page:Page, fixture:InitialContactF
  await page.context().setExtraHTTPHeaders({'x-e2e-rate-scope':randomUUID()});
  await page.goto('/');await page.getByRole('combobox',{name:'Language'}).selectOption('en');await page.getByLabel('Email',{exact:true}).fill('manager@browser.test');await page.getByLabel('Password',{exact:true}).fill(f.password);await page.getByRole('button',{name:'Sign in',exact:true}).click();await expect(page.getByRole('button',{name:'Sign out',exact:true})).toBeVisible();
  const me=await(await page.request.get('/api/auth/me')).json(),cr=await page.request.post('/api/campaigns',{headers,data:{branchId:me.branchId,name:fixture.campaignName,routingMethod:'MANUAL'}});expect(cr.status()).toBe(201);const cid=(await cr.json()).id;
+ const connections=(await(await page.request.get('/api/messaging/connections',{params:{limit:100}})).json()).items;
+ const connectionName=fixture.messagingConnectionName??'Browser Connection';
+ const mc=connections.find((item:{provider:string;name:string})=>item.provider==='META_WHATSAPP_CLOUD'&&item.name===connectionName);
+ expect(mc?.status).toBe('CONNECTED');
+ if(fixture.messagingConnectionName){
+  const senders=await page.request.get('/api/messaging/connections/'+mc.id+'/senders');
+  expect(senders.ok(),await senders.text()).toBeTruthy();
+  const {items}=await senders.json();
+  expect(items).toHaveLength(1);
+  const bound=await page.request.put('/api/messaging/campaigns/'+cid+'/sender-override',{headers,data:{version:1,senderId:items[0].id}});
+  expect(bound.ok(),await bound.text()).toBeTruthy();
+ }
  expect((await page.request.post('/api/campaigns/'+cid+'/activate',{headers})).status()).toBe(200);
  const kr='/api/ai/campaigns/'+cid+'/knowledge',knowledge={...emptyKnowledge(),sections:{...emptyKnowledge().sections,prices:'Approved first contact price 100 EUR'}};
  expect((await page.request.put(kr+'/draft',{headers,data:{version:0,content:knowledge,reason:'Synthetic campaign knowledge'}})).status()).toBe(200);expect((await page.request.post(kr+'/publish',{headers,data:{version:1,requestId:randomUUID(),reason:'Publish approved campaign knowledge'}})).status()).toBe(201);
@@ -23,7 +36,6 @@ export async function configureInitialContact(page:Page, fixture:InitialContactF
  expect((await page.request.put('/api/ai/campaigns/'+cid+'/configuration',{headers,data:{version:0,definition:{...emptyAIOperationalConfig(),profiles:{...emptyAIOperationalConfig().profiles,CONVERSATION:(await pr.json()).id},language:{supported:['en'],preferred:'en',detect:true}},reason:'Initial contact config'}})).status()).toBe(200);
  const disclosure='I am the campaign AI assistant';expect((await page.request.put('/api/ai/campaigns/'+cid+'/behavior-policy',{headers,data:{version:0,definition:{...emptyAIBehaviorPolicy(),disclosure:{mode:'FIRST_AI_MESSAGE',text:disclosure},handoff:{initialContactWithoutAgent:true,transitionMessage:null,misunderstandingLimit:null}},reason:'Explicit Manager attention fallback'}})).status()).toBe(200);
  expect((await page.request.put('/api/ai/campaigns/'+cid+'/tool-policy',{headers,data:{version:0,definition:{allowedTools:['sendConversationMessage','requestHumanHandoff']},reason:'Approved initial contact tools'}})).status()).toBe(200);
- const connections=(await(await page.request.get('/api/messaging/connections')).json()).items,mc=connections.find((x:{provider:string;name:string})=>x.provider==='META_WHATSAPP_CLOUD'&&x.name==='Browser Connection');expect(mc).toBeTruthy();
  const tr=await page.request.post('/api/messaging/connections/'+mc.id+'/templates',{headers,data:{idempotencyKey:randomUUID(),name:fixture.templateName,language:'en_US',category:'UTILITY',body:disclosure+'. Welcome to this campaign. {{1}}',examples:['Approved campaign price']}});expect(tr.status(),await tr.text()).toBe(201);
  expect((await page.request.post('/__test__/control',{headers:fixtureHeaders,data:{approveTemplates:true}})).status()).toBe(200);expect((await page.request.post('/api/messaging/connections/'+mc.id+'/templates/sync',{headers,data:{}})).status()).toBe(200);
  const tpl=(await(await page.request.get('/api/messaging/campaigns/'+cid+'/templates')).json()).items.find((x:{name:string})=>x.name===fixture.templateName);expect(tpl).toBeTruthy();expect((await page.request.put('/api/messaging/campaigns/'+cid+'/templates/'+tpl.id,{headers,data:{version:tpl.version,bound:true}})).status()).toBe(200);
