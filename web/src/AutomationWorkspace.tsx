@@ -7,6 +7,7 @@ type Rule={id:string;name:string;branch_id:string|null;campaign_id:string|null;c
  condition_field_id:string|null;condition_field_value:unknown;
  action_field_id:string|null;action_field_value:unknown;
  action_field_operation:'SET'|'ADD_TAGS';
+ classification_field_id:string|null;
  action_agent_id:string|null;action_agent_name:string|null;
  condition_agent_id:string|null;condition_agent_name:string|null;
  condition_date_basis:DateDraft['basis']|null;condition_date_from:string|null;condition_date_through:string|null;
@@ -58,6 +59,9 @@ export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{local
  const [form,setForm]=useState(initial),[branch,setBranch]=useState(user.branchId??''),[campaign,setCampaign]=useState(''),[campaigns,setCampaigns]=useState<{id:string;name:string}[]>([]),[nextCampaign,setNextCampaign]=useState<string|null>(null);
  const addsTags=form.actionType==='ADD_TAGS';
  const writesField=addsTags||form.actionType==='SET_FIELD_VALUE';
+ const classifiesLead=form.actionType==='REQUEST_LEAD_CLASSIFICATION';
+ const usesTargetField=writesField||classifiesLead;
+ const targetUsage=classifiesLead?'CLASSIFICATION':addsTags?'TAGS':'ACTION';
  const assignsLead=form.actionType==='ASSIGN_LEAD';
  const [kind,setKind]=useState<'sources'|'executions'>('executions'),[processing,setProcessing]=useState<{items:Processing[];nextCursor:string|null}>({items:[],nextCursor:null});
  const [fields,setFields]=useState<TriggerFieldPage>({items:[],nextAfter:null});
@@ -104,7 +108,7 @@ export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{local
   const timer=window.setTimeout(()=>{if(editing&&(form.ownerCondition!=='UNASSIGNED'||assignsLead))void readAgents();},200);
   return()=>{agentEpoch.current++;window.clearTimeout(timer);};
  },[editing,form.ownerCondition,assignsLead,branch,user.id,agentSearch]);
- function fieldScopeQuery(usage?:'ACTION'|'TAGS'){
+ function fieldScopeQuery(usage?:'ACTION'|'TAGS'|'CLASSIFICATION'){
   const query=new URLSearchParams();
   if(branch)query.set('branchId',branch);
   if(campaign)query.set('campaignId',campaign);
@@ -112,7 +116,7 @@ export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{local
   return query;
  }
  async function readTargetFields(after?:string){
-  const request=++targetEpoch.current,query=fieldScopeQuery(addsTags?'TAGS':'ACTION');
+  const request=++targetEpoch.current,query=fieldScopeQuery(targetUsage);
   if(after)query.set('after',after);
   try{
    const page=await api<TriggerFieldPage>('/api/automations/trigger-fields?'+query.toString());
@@ -123,14 +127,14 @@ export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{local
  }
  useEffect(()=>{
   setTargets({items:[],nextAfter:null});
-  if(editing&&writesField)void readTargetFields();
+  if(editing&&usesTargetField)void readTargetFields();
   return()=>{targetEpoch.current++;};
  },[editing,branch,campaign,user.id,form.actionType]);
  useEffect(()=>{
   let current=true;
   setTargetDetails(null);setTargetDenied(false);
-  if(editing&&writesField&&targetField)
-   void api<FieldRow>('/api/automations/trigger-fields/'+targetField+'?'+fieldScopeQuery(addsTags?'TAGS':'ACTION').toString())
+  if(editing&&usesTargetField&&targetField)
+   void api<FieldRow>('/api/automations/trigger-fields/'+targetField+'?'+fieldScopeQuery(targetUsage).toString())
     .then(details=>{if(current)setTargetDetails(details);})
     .catch(()=>{if(current){setTargetValue(null);setTargetDenied(true);}});
   return()=>{current=false;};
@@ -163,7 +167,7 @@ export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{local
  function selectConditionField(id:string){setConditionField(id);setConditionValue(null);setConditionDetails(null);setConditionDenied(false);}
  function edit(r:Rule|null){epoch.current++;setSelected(r);setBranch(r?.branch_id??user.branchId??'');setCampaign(r?.campaign_id??'');
   setConditionField(r?.condition_field_id??'');setConditionValue(r?.condition_field_value??null);
-  setTargetField(r?.action_field_id??'');setTargetValue(r?.action_field_value??null);
+  setTargetField(r?.classification_field_id??r?.action_field_id??'');setTargetValue(r?.action_field_value??null);
   setConditionAgent(r?.condition_agent_id?{id:r.condition_agent_id,name:r.condition_agent_name}:null);setAgentSearch('');
   setAssignmentTarget(r?.action_agent_id?{id:r.action_agent_id,name:r.action_agent_name}:null);
   setDateCondition(r?.condition_date_basis?{basis:r.condition_date_basis,from:r.condition_date_from??'',through:r.condition_date_through??''}:emptyDate);
@@ -176,9 +180,9 @@ export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{local
  const keepHiddenCondition=conditionDenied&&selected?.condition_field_id===conditionField;
  const missingConditionValue=Boolean(conditionField&&!keepHiddenCondition&&(!currentConditionField||conditionValue===null));
  const currentTarget=targetDetails?.id===targetField?targetDetails:null;
- const keepHiddenTarget=Boolean(targetDenied&&selected?.action_field_id===targetField&&!form.enabled);
- const missingTarget=writesField&&!keepHiddenTarget&&(!currentTarget||targetValue===null||
-  addsTags&&(!Array.isArray(targetValue)||targetValue.length===0));
+ const keepHiddenTarget=Boolean(targetDenied&&(classifiesLead?selected?.classification_field_id:selected?.action_field_id)===targetField&&!form.enabled);
+ const missingTarget=usesTargetField&&!keepHiddenTarget&&(!currentTarget||
+  (classifiesLead?!campaign:targetValue===null||addsTags&&(!Array.isArray(targetValue)||targetValue.length===0)));
  const invalidDate=Boolean(dateCondition.basis&&(!dateCondition.from&&!dateCondition.through||
   dateCondition.from&&dateCondition.through&&dateCondition.from>dateCondition.through));
  const missingAssignee=assignsLead&&!assignmentTarget;
@@ -189,6 +193,7 @@ export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{local
   const fieldAction=keepHiddenTarget?undefined:writesField?{fieldId:targetField,value:target,operation:addsTags?'ADD_TAGS':'SET'}:null;
   const definition={...form,actionType:writesField?'SET_FIELD_VALUE':form.actionType,fieldCondition,fieldAction,conditionAgentId:conditionAgent?.id??null,
    actionAgentId:assignsLead?assignmentTarget?.id??null:null,
+   classificationFieldId:classifiesLead?targetField||null:null,
    dateCondition:dateCondition.basis?{basis:dateCondition.basis,from:dateCondition.from||undefined,
     through:dateCondition.through||undefined}:null};
   const payload=selected?{...definition,version:selected.version}:{...definition,branchId:branch||null,campaignId:campaign||null};
@@ -265,11 +270,16 @@ export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{local
   en:{action:'Start AI follow-up',help:'Starts the campaign’s approved follow-up sequence after an acknowledged AI message in the current conversation.',unavailable:'Conversation is not eligible for AI follow-up',duplicate:'Follow-up for this message was already scheduled'},
   fr:{action:'Démarrer un suivi IA',help:'Démarre la séquence approuvée pour la campagne après un message IA confirmé dans la conversation actuelle.',unavailable:'Conversation non admissible au suivi IA',duplicate:'Un suivi a déjà été planifié pour ce message'},
  }[locale];
+ const classification={
+  ar:{action:'طلب تصنيف الفرصة',field:'حقل تصنيف الحملة',help:'يقترح AI تصنيفًا من الخيارات النشطة في الحقل المحدد.',unavailable:'لم تتوفر خيارات معتمدة أو محادثة مؤهلة للتصنيف',duplicate:'يوجد طلب تصنيف قيد المعالجة لهذا الحقل'},
+  en:{action:'Request lead classification',field:'Campaign classification field',help:'AI recommends a label from the active options in the selected field.',unavailable:'Approved options or an eligible conversation were unavailable',duplicate:'A classification request is already pending for this field'},
+  fr:{action:'Demander la classification du prospect',field:'Champ de classification de la campagne',help:'L’IA recommande une catégorie parmi les options actives du champ choisi.',unavailable:'Options approuvées ou conversation admissible indisponibles',duplicate:'Une demande de classification est déjà en cours pour ce champ'},
+ }[locale];
  const actionLabels={CREATE_FOLLOW_UP:t.follow,SEND_IN_APP_NOTIFICATION:t.notify,SET_FIELD_VALUE:fieldAction.action,ADD_TAGS:fieldAction.addTags,
   ASSIGN_LEAD:assignment.action,REQUEST_HUMAN_ATTENTION:{
    ar:'طلب مراجعة بشرية',en:'Request human review',fr:'Demander une vérification humaine',
   }[locale],CLOSE_LEAD:{ar:'إغلاق الفرصة',en:'Close lead',fr:'Clôturer le prospect'}[locale],REQUEST_CONVERSATION_HANDOFF:handoff.action,
-  REQUEST_CONVERSATION_SUMMARY:automationSummary.action,START_AI_FOLLOWUP:aiFollowup.action};
+  REQUEST_CONVERSATION_SUMMARY:automationSummary.action,START_AI_FOLLOWUP:aiFollowup.action,REQUEST_LEAD_CLASSIFICATION:classification.action};
  const causal={
   ar:{AUTOMATION_CAUSAL_REPEAT:'نُفذت القاعدة سابقًا في هذه السلسلة',AUTOMATION_CAUSAL_LIMIT:'بلغت السلسلة حد إجراءات الأتمتة'},
   en:{AUTOMATION_CAUSAL_REPEAT:'Rule already ran in this chain',AUTOMATION_CAUSAL_LIMIT:'Automation chain limit reached'},
@@ -283,6 +293,7 @@ export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{local
   s==='AUTOMATION_HANDOFF_CONVERSATION_UNAVAILABLE'?handoff.unavailable:s==='AUTOMATION_HANDOFF_CONTROLLER_CHANGED'?handoff.changed:
   s==='AUTOMATION_HANDOFF_TOOL_NOT_APPROVED'?handoff.denied:
   s==='AUTOMATION_FOLLOWUP_CONTEXT_UNAVAILABLE'?aiFollowup.unavailable:s==='AUTOMATION_FOLLOWUP_ALREADY_SCHEDULED'?aiFollowup.duplicate:
+  s==='AUTOMATION_CLASSIFICATION_CONTEXT_UNAVAILABLE'?classification.unavailable:s==='AUTOMATION_CLASSIFICATION_ALREADY_PENDING'?classification.duplicate:
   s==='FIELD_REQUIRED'?{ar:'حقول مطلوبة للإغلاق لم تُستكمل',en:'Required closure fields are missing',fr:'Des champs requis pour la clôture sont manquants'}[locale]:
   s==='ASSIGNMENT_ALREADY_MATCHES'?assignment.already:s==='AUTOMATION_ASSIGNMENT_AGENT_UNAVAILABLE'?assignment.unavailable:
   s==='AUTOMATION_TRIGGER_FIELD_UNAVAILABLE'||s==='AUTOMATION_CONDITION_FIELD_UNAVAILABLE'||s==='AUTOMATION_ACTION_FIELD_UNAVAILABLE'
@@ -367,14 +378,16 @@ export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{local
     {form.ownerCondition==='UNASSIGNED'&&agents.nextAfter&&<button type="button" disabled={busy}
      onClick={()=>void readAgents(agents.nextAfter!)}>{ownerDate.more}</button>}
    </>}
-   {writesField&&<>
-    <label>{fieldAction.field}<select aria-label={fieldAction.field} required value={targetField} onChange={e=>selectTargetField(e.target.value)}>
+   {usesTargetField&&<>
+    {classifiesLead&&<p>{classification.help}</p>}
+    <label>{classifiesLead?classification.field:fieldAction.field}<select aria-label={classifiesLead?classification.field:fieldAction.field}
+     required value={targetField} onChange={e=>selectTargetField(e.target.value)}>
      <option value="">{field.choose}</option>
      {targetField&&!targets.items.some(item=>item.id===targetField)&&<option value={targetField}>{currentTarget?.label??field.unavailable}</option>}
      {targets.items.map(item=><option key={item.id} value={item.id}>{item.label}</option>)}
     </select></label>
     {targetDenied&&<p role="status">{field.unavailable}</p>}
-    {currentTarget&&<label>{addsTags?fieldAction.tags:fieldAction.value}<FieldInput field={currentTarget} value={targetValue} onChange={setTargetValue}
+    {writesField&&currentTarget&&<label>{addsTags?fieldAction.tags:fieldAction.value}<FieldInput field={currentTarget} value={targetValue} onChange={setTargetValue}
      ariaLabel={addsTags?fieldAction.tags:fieldAction.value} booleanLabels={{yes:field.yes,no:field.no}}/></label>}
     {targets.nextAfter&&<button type="button" disabled={busy} onClick={()=>void readTargetFields(targets.nextAfter!)}>{field.more}</button>}
    </>}
@@ -383,7 +396,7 @@ export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{local
    {form.actionType==='REQUEST_CONVERSATION_HANDOFF'&&<p>{handoff.help}</p>}
    {form.actionType==='REQUEST_CONVERSATION_SUMMARY'&&<p>{automationSummary.help}</p>}
    {form.actionType==='START_AI_FOLLOWUP'&&<p>{aiFollowup.help}</p>}
-   {!writesField&&!assignsLead&&!['CLOSE_LEAD','REQUEST_CONVERSATION_HANDOFF','REQUEST_CONVERSATION_SUMMARY','START_AI_FOLLOWUP'].includes(form.actionType)&&<><p>{t.timing}</p><label>{t.note}<textarea maxLength={4000} value={form.note} onChange={e=>change('note',e.target.value)}/></label></>}
+   {!usesTargetField&&!assignsLead&&!['CLOSE_LEAD','REQUEST_CONVERSATION_HANDOFF','REQUEST_CONVERSATION_SUMMARY','START_AI_FOLLOWUP'].includes(form.actionType)&&<><p>{t.timing}</p><label>{t.note}<textarea maxLength={4000} value={form.note} onChange={e=>change('note',e.target.value)}/></label></>}
    <label><input type="checkbox" checked={form.enabled} onChange={e=>change('enabled',e.target.checked)}/>{t.enabled}</label>
    <label>{t.reason}<input minLength={3} maxLength={500} required value={form.reason} onChange={e=>change('reason',e.target.value)}/></label>
    {selected&&<p>{t.version} {selected.version}</p>}<div className="actions"><button disabled={busy||missingConditionValue||invalidDate||missingTarget||missingAssignee}>{t.save}</button><button type="button" disabled={busy} onClick={()=>setEditing(false)}>{t.cancel}</button></div>

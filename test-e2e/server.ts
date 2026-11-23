@@ -122,6 +122,13 @@ globalThis.fetch=async(target,init)=> { if(String(target)===testPayPalCertUrl)re
     if(!new Headers(init.headers).get('authorization')?.startsWith('Bearer BrowserSyntheticAI_'))return new Response('private synthetic failure',{ status:401 });
     const body=JSON.parse(init.body as string),data=JSON.parse(body.input[1].content);
     if(body.store!==false || body.tools.length || body.text.format.type!=='json_schema' || !body.text.format.strict)throw new Error('UNEXPECTED_AI_INFERENCE_BOUNDARY');
+    if(body.text.format.name==='automation_classification') {
+      const evidence=data.references.find((item:{text:string})=>item.text.includes('enrollment schedule'));
+      const option=data.options.find((item:{text:string})=>item.text==='Enrollment inquiry');
+      if(!evidence||!option||JSON.stringify(data).includes('4242'))throw new Error('UNEXPECTED_AI_CLASSIFICATION_CONTEXT');
+      return new Response(JSON.stringify({status:'completed',output:[{type:'message',role:'assistant',status:'completed',content:[
+        {type:'output_text',text:JSON.stringify({optionId:option.id,referenceIds:[evidence.id]})}]}]}));
+    }
     if(body.text.format.name==='customer_proposal') {
       const message=data.messages.find((m:{ id:string })=>m.id===data.currentMessageId)?.text ?? '';
       if(message.includes('Provider failure'))return new Response('private synthetic customer failure',{ status:401 });

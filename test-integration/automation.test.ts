@@ -130,6 +130,89 @@ test('Automation summaries require the approved scoped source, preserve evidence
  assert.equal((await db`SELECT count(*)::int AS n FROM conversation_message WHERE direction='OUTBOUND'`)[0]!.n,0);
 });
 
+test('Automation classification uses approved campaign labels and evidence with current AI and field grants',async t=>{
+ const {db,org,branch,campaign,users,api,def,rule,create,matches,execute}=await fixture(t,{
+  OPENAI:{listModels:async()=>['synthetic-classification']},
+ });
+ process.env.CREDENTIAL_ENCRYPTION_KEY=randomBytes(32).toString('hex');
+ const categories=[{value:'enrollment',label:'Enrollment inquiry',active:true},
+  {value:'schedule',label:'Scheduling question',active:true},{value:'retired',label:'Retired option',active:false}];
+ const createdField=await api('POST','/api/fields',{scope:'CAMPAIGN',branchId:branch,campaignId:campaign,key:'classification_tags',
+  label:'Campaign classification labels',fieldType:'TAGS',valueMode:'MANUAL',options:categories,validation:{}});
+ assert.equal(createdField.statusCode,201,createdField.body);
+ const fieldId=createdField.json().id,bindingPath=`/api/campaigns/${campaign}/fields/${fieldId}`;
+ const binding={active:true,position:0,requiredStage:'NONE',visibleToAgent:true,editableByAgent:true,visibleToManager:true,
+  editableByManager:true,showInTable:false,showInDetails:true,filterable:false,usableByAutomation:true,usableByAi:true};
+ const action={triggerType:'CONVERSATION_STATE_CHANGED',actionType:'REQUEST_LEAD_CLASSIFICATION',delayMinutes:0,priority:'NORMAL',note:'',classificationFieldId:fieldId};
+ const initialBinding=await api('PUT',bindingPath,{...binding,usableByAi:false});
+ assert.equal(initialBinding.statusCode,200,initialBinding.body);
+ const unavailable=await api('POST','/api/automations',{...def,...action,branchId:branch,campaignId:campaign});
+ assert.equal(unavailable.statusCode,409,unavailable.body);
+ assert.match(unavailable.body,/AUTOMATION_CLASSIFICATION_FIELD_UNAVAILABLE/);
+ const granted=await api('PUT',bindingPath,{...binding,version:initialBinding.json().version});
+ assert.equal(granted.statusCode,200,granted.body);
+ assert.equal((await api('POST','/api/automations',{...def,...action,branchId:branch,campaignId:campaign},'agent')).statusCode,403);
+ await rule(action);await rule({...action,name:'Duplicate approval for the same classification field'});
+
+ const connection=await api('POST','/api/ai/connections',{branchId:branch,name:'Synthetic classification',provider:'OPENAI',
+  credential:'synthetic-classification-only',reason:'Enable a synthetic task profile'});
+ assert.equal(connection.statusCode,201,connection.body);
+ const cid=connection.json().id;
+ assert.equal((await api('POST',`/api/ai/connections/${cid}/test`,{version:1})).statusCode,200);
+ const profile=await api('POST','/api/ai/profiles',{connectionId:cid,name:'Approved classifier',task:'CLASSIFICATION',
+  modelId:'synthetic-classification',active:true,maxOutputTokens:256,reason:'Approve campaign label suggestions'});
+ assert.equal(profile.statusCode,201,profile.body);
+ const config=emptyAIOperationalConfig();config.profiles.CLASSIFICATION=profile.json().id;
+ assert.equal((await api('PUT',`/api/ai/campaigns/${campaign}/configuration`,{version:0,definition:config,reason:'Select classifier'})).statusCode,200);
+
+ const [transport]=await db`INSERT INTO integration_connection(organization_id,branch_id,kind,provider,name)
+  VALUES(${org},${branch},'MESSAGING','META_WHATSAPP_CLOUD','Synthetic classification history') RETURNING id`;
+ const [sender]=await db`INSERT INTO messaging_sender(organization_id,connection_id,external_sender_id,display_name,capabilities)
+  VALUES(${org},${transport!.id},'15550002301','Classification sender','{"text":true}') RETURNING id`;
+ async function queue(){
+  const lead=await create();
+  const [conversation]=await db`INSERT INTO conversation(lead_id,connection_id,sender_id,channel,participant_ref,controller_type,state)
+   VALUES(${lead},${transport!.id},${sender!.id},'WHATSAPP','+15554000001','NONE','WAITING_FOR_HUMAN') RETURNING id`;
+  const id=conversation!.id;
+  await db`INSERT INTO conversation_message(conversation_id,connection_id,sender_id,direction,author_type,body,delivery_state)
+   VALUES(${id},${transport!.id},${sender!.id},'INBOUND','CUSTOMER','When is the next enrollment session?','RECEIVED'),
+    (${id},${transport!.id},${sender!.id},'INBOUND','CUSTOMER','card number: 4242 4242 4242 4242','RECEIVED')`;
+  await db`UPDATE conversation SET state='HUMAN_ACTIVE',controller_type='HUMAN',controller_user_id=${users.agent!.id},version=version+1 WHERE id=${id}`;
+  await matches();await Promise.all([execute(),execute()]);
+  assert.equal((await db`SELECT count(*)::int AS n FROM ai_handoff_summary WHERE conversation_id=${id}`)[0]!.n,1);
+  return {id,lead};
+ }
+ let calls=0,invalid=false;
+ const adapters:AIInferenceRegistry={OPENAI:{simulate:async()=>{throw Error('Unexpected simulation');},classify:async input=>{
+  calls++;assert.equal(input.model,'synthetic-classification');
+  const data=input.data as {options:{id:string;text:string}[];references:{id:string;text:string}[]};
+  assert.deepEqual(data.options,[{id:'tag:1',text:'Enrollment inquiry'},{id:'tag:2',text:'Scheduling question'}]);
+  assert.equal(data.references.length,1);assert.match(data.references[0]!.text,/next enrollment session/);
+  return {optionId:invalid?'tag:999':'tag:1',referenceIds:[data.references[0]!.id]};
+ }}};
+ const subject=await queue();
+ assert.equal(await processOneAIHandoffSummary(db,{adapters}),true);
+ const history=`/api/conversations/${subject.id}/ai-handoffs`;
+ const read=await api('GET',history,undefined,'agent');assert.equal(read.statusCode,200,read.body);
+ assert.equal(read.json().automationClassifications[0].label,'Enrollment inquiry');
+ assert.equal(read.json().automationSummaries.length,0);
+ assert.equal((await api('GET',history,undefined,'other')).statusCode,404);
+ assert.equal((await db`SELECT count(*)::int AS n FROM lead_field_value WHERE lead_id=${subject.lead} AND field_id=${fieldId}`)[0]!.n,0);
+ assert.equal((await db`SELECT count(*)::int AS n FROM audit_log WHERE action='AI_AUTOMATION_CLASSIFICATION_COMPLETED'`)[0]!.n,1);
+ const failed=await queue();invalid=true;
+ assert.equal(await processOneAIHandoffSummary(db,{adapters}),true);
+ assert.deepEqual((await db`SELECT state,error_code FROM ai_handoff_summary WHERE conversation_id=${failed.id}`)[0],
+  {state:'FAILED',error_code:'AI_RESPONSE_INVALID'});
+ const revoked=await queue();
+ const removed=await api('PUT',bindingPath,{...binding,version:granted.json().version,visibleToAgent:false,editableByAgent:false,usableByAi:false});
+ assert.equal(removed.statusCode,200,removed.body);
+ assert.equal(await processOneAIHandoffSummary(db,{adapters}),true);
+ assert.deepEqual((await db`SELECT state,error_code FROM ai_handoff_summary WHERE conversation_id=${revoked.id}`)[0],
+  {state:'BLOCKED',error_code:'AUTOMATION_CLASSIFICATION_CONTEXT_CHANGED'});
+ assert.equal((await api('GET',history,undefined,'agent')).json().automationClassifications.length,0);
+ assert.equal(calls,2);
+});
+
 test('Automation requests one authorized AI handoff, retains ownership, and links its downstream event to the rule',async t=>{
  const {db,org,branch,campaign,users,api,def,rule,create,matches,execute}=await fixture(t);
  const request={triggerType:'CONVERSATION_STATE_CHANGED',actionType:'REQUEST_CONVERSATION_HANDOFF',delayMinutes:0,priority:'NORMAL',note:''};

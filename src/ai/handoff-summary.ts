@@ -7,6 +7,7 @@ import { AIInferenceError, type AIInferenceRegistry } from './inference-provider
 import { assertAIReadTestTransport } from './read-transport.js';
 import { copilotSafeReferences, copilotSummaryPurpose } from './copilot-summary.js';
 import { simulationResult, type SimulationReference, type SimulationProposal } from './simulation.js';
+import { classificationResult, type ClassificationResult } from './automation-classification.js';
 
 // Refresh uses a real authorized employee; the initial admission is native and autonomous.
 export async function enqueueHandoffSummary(tx: postgres.TransactionSql, actionId: string, requestId: string, actorId: string, sessionId: string) {
@@ -44,7 +45,8 @@ export async function processOneAIHandoffSummary(db: Database, options: { adapte
     if (!(await tx`SELECT ai_handoff_summary_current(s) AS current FROM ai_handoff_summary s WHERE id=${row.id}`)[0]?.current) return false;
     return !!(await tx`SELECT id FROM ai_handoff_summary WHERE id=${row.id} AND state='RUNNING' AND lease_token=${token} AND lease_until>clock_timestamp() FOR SHARE`)[0];
   };
-  let result: ReturnType<typeof simulationResult> | null = null, failure: AIInferenceError | null = null, blocked = false;
+  const classification=row.context.kind==='AUTOMATION_CLASSIFICATION';
+  let result: ReturnType<typeof simulationResult> | ClassificationResult | null = null, failure: AIInferenceError | null = null, blocked = false;
   try {
     const input = await db.begin(async tx => {
       if (!await authorize(tx)) return null;
@@ -60,12 +62,17 @@ export async function processOneAIHandoffSummary(db: Database, options: { adapte
     });
     if (!input) blocked = true;
     else {
-      const execute = options.adapters![input.profile.provider]?.summarize;
+      const adapter=options.adapters![input.profile.provider];
+      const execute = classification ? adapter?.classify : adapter?.summarize;
       if (!execute) throw new AIInferenceError('AI_MODEL_UNSUPPORTED');
       const references = copilotSafeReferences(row.references_json as SimulationReference[]);
-      const proposed = await execute({ credential: input.credential, model: input.profile.modelId, maxOutputTokens: input.profile.maxOutputTokens,
-        data: { purpose: copilotSummaryPurpose, references, language: row.context.language } });
-      try { result = simulationResult(proposed as SimulationProposal, references); } catch { throw new AIInferenceError('AI_RESPONSE_INVALID'); }
+      const choices=classification ? copilotSafeReferences(row.context.classification.options as SimulationReference[]) : [];
+      const data=classification ? { options:choices,references,language:row.context.language }
+        : { purpose:copilotSummaryPurpose,references,language:row.context.language };
+      const proposed=classification && (!choices.length || !references.length) ? {optionId:null,referenceIds:[]}
+        : await execute({ credential: input.credential, model: input.profile.modelId, maxOutputTokens: input.profile.maxOutputTokens,data });
+      try { result=classification ? classificationResult(proposed,choices,references) : simulationResult(proposed as SimulationProposal,references); }
+      catch { throw new AIInferenceError('AI_RESPONSE_INVALID'); }
     }
   } catch (e) { failure = e instanceof AIInferenceError ? e : new AIInferenceError('AI_PROVIDER_UNAVAILABLE', true); }
   await db.begin(async tx => {
@@ -74,8 +81,10 @@ export async function processOneAIHandoffSummary(db: Database, options: { adapte
     if (held?.state !== 'RUNNING' || held.lease_token !== token || !(await tx`SELECT ${held.lease_until}::timestamptz>clock_timestamp() AS valid`)[0]!.valid) return;
     const retry = !blocked && failure?.retryable && held.attempt_count < 5;
     const state = blocked || failure?.code === 'AI_LIVE_DATA_TRANSFER_DISABLED' ? 'BLOCKED' : failure ? retry ? 'QUEUED' : 'FAILED' : 'COMPLETED';
+    const contextError=classification ? 'AUTOMATION_CLASSIFICATION_CONTEXT_CHANGED' : row.automation_execution_id
+      ? 'AUTOMATION_SUMMARY_CONTEXT_CHANGED' : 'AI_HANDOFF_SUMMARY_CONTEXT_CHANGED';
     await tx`UPDATE ai_handoff_summary SET state=${state},result=${state === 'COMPLETED' ? tx.json(result!) : null},
-      error_code=${blocked ? row.automation_execution_id ? 'AUTOMATION_SUMMARY_CONTEXT_CHANGED' : 'AI_HANDOFF_SUMMARY_CONTEXT_CHANGED' : failure?.code ?? null},completed_lease_token=${token},lease_token=NULL,lease_until=NULL,
+      error_code=${blocked ? contextError : failure?.code ?? null},completed_lease_token=${token},lease_token=NULL,lease_until=NULL,
       available_at=clock_timestamp()+(${delay ?? Math.min(300, 2 ** held.attempt_count)}*interval '1 second'),version=version+1 WHERE id=${row.id}`;
   });
   return true;

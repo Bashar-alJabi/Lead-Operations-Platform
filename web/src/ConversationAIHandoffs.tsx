@@ -8,6 +8,7 @@ type Result = { items: { id: string; state: string; error_code: string | null; h
   nextCursor: string | null; current: { state: string; controller_type: string; campaign_name: string; source_kind: string };
   qualification: { questions: { id: string; prompt: string; value: unknown; source: string | null }[]; result: { missingQuestionIds: string[] } | null; blockers: string[] };
   automationSummaries?:SummaryResult[];
+  automationClassifications?:{id:string;state:string;error_code:string|null;completed_at:string|null;label:string|null}[];
   package: { summaries: (SummaryResult & {knowledge_version:number})[]; awaitingCustomerMessage: { id: string; body: string; message_kind: string; created_at: string } | null;
     publication: { version: number; references: { id: string; text: string }[] } | null; refreshAvailable: boolean; suggestedNextAction: string } };
 const labels = {
@@ -23,6 +24,9 @@ const packageLabels = {
 export function ConversationAIHandoffs({ conversationId, locale, api, revision }: { conversationId: string; locale: 'ar' | 'en' | 'fr'; api: Api; revision: string }) {
   const qualificationAction = { ar: 'إجراء Qualification المصدر', en: 'Source Qualification action', fr: 'Action de qualification source' }[locale];
   const automationTitle={ar:'ملخصات أُنشئت بواسطة Automation',en:'Automation summaries',fr:'Résumés générés par l’automatisation'}[locale];
+  const classification={ar:{title:'اقتراحات التصنيف من Automation',empty:'الأدلة غير كافية لاقتراح تصنيف'},
+    en:{title:'Automation classification suggestions',empty:'Insufficient evidence for a classification'},
+    fr:{title:'Suggestions de classification automatisées',empty:'Éléments insuffisants pour proposer une catégorie'}}[locale];
   const t = labels[locale], p = packageLabels[locale], [value, setValue] = useState<Result | null>(null), [busy, setBusy] = useState(false), [error, setError] = useState(''), sequence = useRef(0);
   useEffect(() => { sequence.current++; setValue(null); setError(''); setBusy(false); return () => { sequence.current++; }; }, [conversationId, revision]);
   async function load(older = false) {
@@ -64,6 +68,13 @@ export function ConversationAIHandoffs({ conversationId, locale, api, revision }
           {summary.completed_at&&<time dateTime={summary.completed_at}>{new Date(summary.completed_at).toLocaleString(locale)}</time>}
           {summary.stale&&<p>{p.stale}</p>}{summary.truncated&&<p>{p.truncated}</p>}
           {summary.result?.decision==='ANSWER'&&<p dir="auto" style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{summary.result.answer}</p>}
+        </article>)}
+      </section>}
+      {!!value.automationClassifications?.length && <section data-automation-classifications><h5>{classification.title}</h5>
+        {value.automationClassifications.map(result=><article key={result.id}>
+          <p dir="ltr">{result.state} {result.error_code}</p>
+          {result.state==='COMPLETED'&&<p dir="auto" style={{overflowWrap:'anywhere'}}>{result.label??classification.empty}</p>}
+          {result.completed_at&&<time dateTime={result.completed_at}>{new Date(result.completed_at).toLocaleString(locale)}</time>}
         </article>)}
       </section>}
       <h5>{t.qualification}</h5>{value.qualification.blockers.length > 0 && <p>{t.restricted}</p>}{value.qualification.questions.map(q => <p key={q.id} style={{ overflowWrap: 'anywhere' }}>{q.prompt}: {q.value === null ? '—' : typeof q.value === 'string' ? q.value : JSON.stringify(q.value)} · {q.source ?? '—'}</p>)}
