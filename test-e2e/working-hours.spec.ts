@@ -2,7 +2,7 @@ import { test,expect,type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 test('Working hours are configured in-platform with scoped history, routing availability and safe localized rendering',async({browser})=>{
-  const fixture=JSON.parse(await readFile('.local/e2e/fixture.json','utf8')) as {password:string},origin='http://127.0.0.1:4100';
+  const fixture=JSON.parse(await readFile('.local/e2e/fixture.json','utf8')) as {password:string;testToken:string},origin='http://127.0.0.1:4100';
   const managerContext=await browser.newContext({extraHTTPHeaders:{'x-e2e-rate-scope':randomUUID()}}),agentContext=await browser.newContext({extraHTTPHeaders:{'x-e2e-rate-scope':randomUUID()}}),adminContext=await browser.newContext({extraHTTPHeaders:{'x-e2e-rate-scope':randomUUID()}});
   const page=await managerContext.newPage(),agent=await agentContext.newPage(),admin=await adminContext.newPage(),errors:string[]=[];
   page.on('pageerror',e=>errors.push(e.message));page.on('console',m=>{if(m.type()==='error'&&/same key|unique.*key/i.test(m.text()))errors.push(m.text());});
@@ -30,6 +30,22 @@ test('Working hours are configured in-platform with scoped history, routing avai
     const made=await admin.request.post('/api/branches',{headers:{origin},data:{name:'Hours isolated '+randomUUID(),timezone:'Europe/Paris'}});expect(made.status()).toBe(201);const branch=(await made.json()).id,broot='/api/branches/'+branch+'/working-hours';
     expect((await page.request.get(broot)).status()).toBe(404);await admin.reload();await admin.getByRole('button',{name:'Branches',exact:true}).click();await admin.locator('[data-hours-open="'+branch+'"] ').click();const b=admin.locator('[data-working-hours="'+branch+'"]');await b.getByLabel('No weekly hours restriction',{exact:true}).uncheck();
     const monday=b.getByRole('group',{name:'Monday',exact:true});await monday.getByRole('button',{name:'Add period',exact:true}).click();await b.getByLabel('Monday End (24:00 allowed) 1',{exact:true}).fill('24:00');await b.getByLabel('Working hours change reason',{exact:true}).fill('Scoped overnight boundary setup');await b.getByRole('button',{name:'Save working hours',exact:true}).click();await expect(b.getByLabel('Working hours change reason',{exact:true})).toHaveValue('');expect((await(await admin.request.get(broot)).json()).hours.mon).toEqual([['09:00','24:00']]);
+    await page.getByRole('combobox',{name:'Language',exact:true}).selectOption('en');
+    const published=await page.request.post('/__test__/lead-attention',{headers:{origin,authorization:'Bearer '+fixture.testToken}});
+    expect(published.ok(),await published.text()).toBeTruthy();
+    const inbox='/api/notifications?language=en&limit=50';
+    const feed=await page.request.get(inbox);
+    expect(feed.ok(),await feed.text()).toBeTruthy();
+    const alert=(await feed.json()).items.find((item:{leadId:string;eventType:string})=>item.leadId===blocked.id&&item.eventType==='LEAD_NEEDS_ATTENTION');
+    expect(alert?.attention).toMatchObject({reasonCode:'NO_ELIGIBLE_AGENT',currentlyNeedsAttention:true});
+    const agentFeed=await agent.request.get(inbox);
+    expect(agentFeed.ok(),await agentFeed.text()).toBeTruthy();
+    expect((await agentFeed.json()).items.some((item:{id:string})=>item.id===alert.id)).toBe(false);
+    await page.getByRole('button',{name:'Notifications',exact:true}).click();
+    const notice=page.locator(`[data-notification="${alert.id}"]`);
+    await expect(notice).toContainText('Lead still needs review');
+    await notice.getByRole('button',{name:'Open Lead',exact:true}).click();
+    await expect(page.getByText('Outside availability synthetic',{exact:true}).last()).toBeVisible();
     expect(errors).toEqual([]);
   }finally{await managerContext.close();await agentContext.close();await adminContext.close();}
 });

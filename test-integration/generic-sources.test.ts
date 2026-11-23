@@ -6,9 +6,13 @@ import { createDatabase } from '../src/db.js';
 import { sha256 } from '../src/security.js';
 import { processOneSourceEvaluation } from '../src/sources/evaluation.js';
 import { processOneSourceIntake } from '../src/sources/intake.js';
+import { processOneAutomationExecution,processOneAutomationMatch } from '../src/automation.js';
+import { processOneLeadAttentionNotification } from '../src/lead-attention-notifications.js';
 
 const url=process.env.TEST_DATABASE_URL;
-if(!url||new URL(url).pathname!=='/lead_operations_test')throw new Error('Isolated TEST_DATABASE_URL required');
+const target=url?new URL(url):null;
+if(!url||target?.pathname!=='/lead_operations_test'||!['127.0.0.1','localhost','[::1]'].includes(target.hostname))
+  throw new Error('Local isolated TEST_DATABASE_URL required');
 
 test('Generic Webhook setup isolates real sessions and preserves one current signed test across rotation, retries and failure', async t=>{
   process.env.APP_ORIGIN='http://127.0.0.1:5173';
@@ -204,12 +208,15 @@ test('Generic Webhook creates one scoped lead through shared mapping and intake,
     VALUES(${org!.id},${messageConnection!.id},'synthetic-sender','Local Sender','HEALTHY',true,'{"text":true}') RETURNING id`;
   assert.equal((await request('PUT','/api/messaging/branches/'+branch!.id+'/default-sender',{version:1,senderId:sender!.id})).statusCode,200);
   assert.equal((await request('GET',campaignPath+'/readiness')).json().ready,true);
-  async function postEvent(payload:string,purpose='intake') {
+  function signedIntakeHeaders(payload:string,purpose='intake') {
     const timestamp=Math.floor(Date.now()/1000);
     const signature=createHmac('sha256',Buffer.from(signingSecret,'hex'))
       .update(`lead-operations.generic-source:${purpose}:v1\n${id}\n${timestamp}\n`).update(payload).digest('hex');
+    return {'content-type':'application/json','x-source-timestamp':String(timestamp),'x-source-signature':'v1='+signature};
+  }
+  async function postEvent(payload:string,purpose='intake') {
     return app.inject({method:'POST',url:'/api/webhooks/sources/generic/'+id+'/leads',payload,
-      headers:{'content-type':'application/json','x-source-timestamp':String(timestamp),'x-source-signature':'v1='+signature}});
+      headers:signedIntakeHeaders(payload,purpose)});
   }
   const eventId=randomUUID(),first=JSON.stringify({eventId,fields:{name:'Synthetic Webhook Lead',email:'lead@webhook.test',phone:'+15550907315'}});
   assert.equal((await postEvent(first)).statusCode,409);
@@ -293,4 +300,119 @@ test('Generic Webhook creates one scoped lead through shared mapping and intake,
   for (const table of ['ai_initial_job','ai_initial_admission','conversation_message','payment_record']){
     assert.equal((await db.unsafe('SELECT count(*)::int AS n FROM '+table))[0]!.n,0,table);
   }
+
+  await t.test('repeated signed HTTP intake preserves capacity, Automation effects, manager attention and scoped Analytics', {timeout:60_000}, async load=>{
+    const additional=(await db`INSERT INTO user_account(organization_id,branch_id,role,name,email,password_hash)
+      VALUES(${org!.id},${branch!.id},'AGENT','Second load owner','second@webhook.test','fixture') RETURNING id`)[0]!;
+    const capacities=[{agentId:agent!.id,capacityOverride:21},{agentId:additional.id,capacityOverride:18}];
+    for(const membership of capacities){
+      const update=await request('PUT',campaignPath+'/agents',membership);
+      assert.equal(update.statusCode,200,update.body);
+    }
+    while(await processOneAutomationMatch(db)){ /* Drain intake evidence from the setup journey. */ }
+    const approved=await request('POST','/api/automations',{name:'Create one follow-up on assigned load intake',
+      branchId:branch!.id,campaignId:campaign!.id,enabled:true,triggerType:'LEAD_CREATED',lifecycle:'OPEN',
+      ownerCondition:'ASSIGNED',actionType:'CREATE_FOLLOW_UP',delayMinutes:60,priority:'NORMAL',
+      note:'Synthetic load follow-up',reason:'Exercise the approved internal action'});
+    assert.equal(approved.statusCode,201,approved.body);
+    const ruleId=approved.json().id as string;
+    const workers=Array.from({length:4},()=>createDatabase(url));
+    load.after(()=>Promise.all(workers.map(worker=>worker.end())));
+    const address=await app.listen({host:'127.0.0.1',port:0});
+    const webhook=address+'/api/webhooks/sources/generic/'+id+'/leads';
+    const acceptedIds:string[]=[],latencies:number[]=[];
+    async function replayedHttpIntake(index:number){
+      const payload=JSON.stringify({eventId:randomUUID(),fields:{name:'Synthetic load '+index,email:`load-${index}@webhook.test`}});
+      const responses=await Promise.all([0,1].map(async()=>{
+        const started=performance.now();
+        const response=await fetch(webhook,{method:'POST',headers:signedIntakeHeaders(payload),body:payload,signal:AbortSignal.timeout(10_000)});
+        const body=await response.json() as {id?:string;error?:string};
+        latencies.push(performance.now()-started);
+        return {status:response.status,body};
+      }));
+      assert.deepEqual(responses.map(response=>response.status).sort(),[200,202]);
+      const accepted=responses[0]!.body.id;
+      assert.ok(accepted);assert.equal(responses[1]!.body.id,accepted);
+      return accepted;
+    }
+    async function drainWave(){
+      for(let round=0;round<120;round++){
+        const results=await Promise.all(workers.map(async worker=>{
+          const evaluated=await processOneSourceEvaluation(worker);
+          const created=await processOneSourceIntake(worker);
+          const matched=await processOneAutomationMatch(worker);
+          const applied=await processOneAutomationExecution(worker);
+          const notified=await processOneLeadAttentionNotification(worker);
+          return evaluated||created||matched||applied||notified;
+        }));
+        if(!results.some(Boolean))return;
+      }
+      assert.fail('Work did not drain within the bounded load exercise');
+    }
+    const waves=4,perWave=12;
+    const started=performance.now();
+    for(let wave=0;wave<waves;wave++){
+      const accepted=await Promise.all(Array.from({length:perWave},(_,index)=>replayedHttpIntake(wave*perWave+index)));
+      acceptedIds.push(...accepted);
+      await drainWave();
+    }
+    const elapsed=performance.now()-started;
+    const total=waves*perWave,expectedAssigned=36,expectedAttention=total-expectedAssigned;
+    assert.equal(new Set(acceptedIds).size,total);
+    const processRows=await db`SELECT s.lead_id,p.state,ah.method,ah.reason,l.assigned_agent_id,l.needs_attention_reason
+      FROM source_submission s JOIN source_processing p ON p.submission_id=s.id
+      JOIN lead l ON l.id=s.lead_id JOIN assignment_history ah ON ah.lead_id=l.id
+      WHERE s.id=ANY(${acceptedIds}::uuid[])`;
+    assert.equal(processRows.length,total);
+    assert.equal(new Set(processRows.map(row=>row.lead_id)).size,total);
+    assert.ok(processRows.every(row=>row.state==='PROCESSED'&&row.method==='ROUND_ROBIN'));
+    const flagged=processRows.filter(row=>row.assigned_agent_id===null);
+    assert.equal(flagged.length,expectedAttention);
+    assert.ok(flagged.every(row=>row.reason==='NO_ELIGIBLE_AGENT'&&row.needs_attention_reason==='NO_ELIGIBLE_AGENT'));
+    const ownerCounts=await db`SELECT assigned_agent_id,count(*)::int AS leads FROM lead
+      WHERE campaign_id=${campaign!.id} AND assigned_agent_id IS NOT NULL GROUP BY assigned_agent_id`;
+    assert.deepEqual(new Map(ownerCounts.map(row=>[row.assigned_agent_id,row.leads])),
+      new Map(capacities.map(membership=>[membership.agentId,membership.capacityOverride])));
+    const effects=await db`SELECT s.lead_id,e.state,e.result_code,f.id AS follow_up_id,f.owner_user_id,a.id AS audit_id FROM automation_execution e
+      JOIN automation_source s ON s.id=e.source_id LEFT JOIN follow_up f ON f.automation_execution_id=e.id
+      LEFT JOIN audit_log a ON a.target_id=e.id::text AND a.action='AUTOMATION_ACTION_APPLIED' WHERE e.rule_id=${ruleId}`;
+    const expectedOwners=new Map(processRows.filter(row=>row.assigned_agent_id).map(row=>[row.lead_id,row.assigned_agent_id]));
+    assert.equal(effects.length,total);
+    assert.deepEqual(new Set(effects.map(row=>row.lead_id)),new Set(processRows.map(row=>row.lead_id)));
+    const applied=effects.filter(row=>row.state==='SUCCEEDED');
+    assert.equal(applied.length,expectedAssigned);
+    assert.ok(applied.every(row=>row.result_code==='APPLIED'&&row.follow_up_id&&row.audit_id&&row.owner_user_id===expectedOwners.get(row.lead_id)));
+    const skipped=effects.filter(row=>row.state==='SKIPPED');
+    assert.equal(skipped.length,expectedAttention);
+    assert.ok(skipped.every(row=>row.result_code==='CONDITIONS_NOT_MET'&&!row.audit_id&&!row.follow_up_id&&!expectedOwners.has(row.lead_id)));
+    const inbox='/api/notifications?language=en&limit=50';
+    const managerInbox=await request('GET',inbox);
+    assert.equal(managerInbox.statusCode,200,managerInbox.body);
+    const items=managerInbox.json().items as {eventType:string;leadId:string;attention?:{reasonCode:string;currentlyNeedsAttention:boolean}}[];
+    const alerts=items.filter(item=>item.eventType==='LEAD_NEEDS_ATTENTION');
+    assert.equal(alerts.length,expectedAttention);
+    assert.deepEqual(new Set(alerts.map(item=>item.leadId)),new Set(flagged.map(row=>row.lead_id)));
+    assert.ok(alerts.every(item=>item.attention?.reasonCode==='NO_ELIGIBLE_AGENT'&&item.attention.currentlyNeedsAttention));
+    for(const actor of [agentCookie,otherCookie]){
+      const scoped=await request('GET',inbox,undefined,actor);
+      assert.equal(scoped.statusCode,200,scoped.body);
+      assert.ok(!scoped.json().items.some((item:{eventType:string})=>item.eventType==='LEAD_NEEDS_ATTENTION'));
+    }
+    const analytics='/api/analytics/overview?campaignId='+campaign!.id;
+    const managerStats=await request('GET',analytics);
+    assert.equal(managerStats.statusCode,200,managerStats.body);
+    assert.equal(managerStats.json().leads.total,String(total+3));
+    assert.equal(managerStats.json().leads.unassigned,String(expectedAttention));
+    assert.equal(managerStats.json().follow_ups.automation,String(expectedAssigned));
+    const agentStats=await request('GET',analytics,undefined,agentCookie);
+    assert.equal(agentStats.statusCode,200,agentStats.body);
+    assert.equal(agentStats.json().leads.total,'21');
+    assert.equal(agentStats.json().leads.unassigned,'0');
+    const foreignStats=await request('GET','/api/analytics/overview',undefined,otherCookie);
+    assert.equal(foreignStats.statusCode,200,foreignStats.body);
+    assert.equal(foreignStats.json().leads.total,'0');
+    latencies.sort((left,right)=>left-right);
+    const httpP95=latencies[Math.ceil(latencies.length*0.95)-1]!;
+    load.diagnostic(`Signed intake: ${total} unique, ${latencies.length} HTTP calls, ${workers.length} workers, p95 ${httpP95.toFixed(1)} ms; ${waves} drained waves in ${elapsed.toFixed(1)} ms`);
+  });
 });
