@@ -16,7 +16,8 @@ type Query = { limit?: number; before?: string };
 
 async function authorize(tx: postgres.TransactionSql, actor: Principal, ids: Params) {
   // Keep assignment stable until the bounded read finishes; no payload or integration secret is selected.
-  const row = (await tx`SELECT cv.controller_type, cv.controller_user_id, cv.state, cv.needs_attention_reason
+  const row = (await tx`SELECT cv.controller_type, cv.controller_user_id, cv.state, cv.needs_attention_reason,
+      m.created_at <= cv.closed_at AS predates_closure
     FROM conversation_message m JOIN conversation cv ON cv.id = m.conversation_id JOIN lead l ON l.id = cv.lead_id
     WHERE m.id = ${ids.messageId} AND cv.id = ${ids.id} AND l.organization_id = ${actor.organizationId}
       AND (${actor.role === 'SUPER_ADMIN'} OR (${actor.role === 'MANAGER'} AND l.branch_id = ${actor.branchId})
@@ -41,8 +42,9 @@ export function registerMessageDeliveryRoutes(app: FastifyInstance, db: Database
         FROM conversation_message m LEFT JOIN outbound_delivery_job link ON link.message_id = m.id
         LEFT JOIN background_job j ON j.id = link.job_id WHERE m.id = ${request.params.messageId}`)[0]!;
       const block = messageRecoveryBlock(row as RecoveryFacts, actor.id)
+        ?? (cv.state === 'CLOSED' || cv.predates_closure ? 'CONVERSATION_CLOSED' : null)
         ?? (cv.controller_type !== 'HUMAN' || cv.controller_user_id !== actor.id ? 'HUMAN_CONTROLLER_REQUIRED' : null)
-        ?? (cv.state === 'CLOSED' ? 'CONVERSATION_CLOSED' : cv.needs_attention_reason);
+        ?? cv.needs_attention_reason;
       return { deliveryState: row.delivery_state, errorCode: row.last_error_code,
         providerMessageId: row.provider_message_id, sentAt: row.sent_at, providerUpdatedAt: row.delivery_provider_at,
         queue: row.job_status ? { state: row.job_status, attempts: row.attempts, maxAttempts: row.max_attempts,

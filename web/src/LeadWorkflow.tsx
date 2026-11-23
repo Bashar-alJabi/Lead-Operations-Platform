@@ -22,15 +22,15 @@ const labels = {
 } as const;
 const activityLabels = {
   ar: { AUTOMATION_HUMAN_REVIEW_REQUESTED: 'الأتمتة طلبت مراجعة بشرية', AUTOMATION_HUMAN_REVIEW_RESOLVED: 'اكتملت المراجعة البشرية',
-    AUTOMATION_HANDOFF_REQUESTED:'الأتمتة حوّلت المحادثة إلى موظف',CONVERSATION_RETURNED_TO_AI:'عاد التحكم في المحادثة إلى AI' },
+    AUTOMATION_HANDOFF_REQUESTED:'الأتمتة حوّلت المحادثة إلى موظف',CONVERSATION_RETURNED_TO_AI:'عاد التحكم في المحادثة إلى AI',CONVERSATION_CLOSED:'أُغلقت المحادثة' },
   en: { AUTOMATION_HUMAN_REVIEW_REQUESTED: 'Automation requested a human review', AUTOMATION_HUMAN_REVIEW_RESOLVED: 'Human review completed',
-    AUTOMATION_HANDOFF_REQUESTED:'Automation handed off the conversation',CONVERSATION_RETURNED_TO_AI:'Conversation returned to AI' },
+    AUTOMATION_HANDOFF_REQUESTED:'Automation handed off the conversation',CONVERSATION_RETURNED_TO_AI:'Conversation returned to AI',CONVERSATION_CLOSED:'Conversation closed' },
   fr: { AUTOMATION_HUMAN_REVIEW_REQUESTED: 'Vérification humaine demandée par l’automatisation', AUTOMATION_HUMAN_REVIEW_RESOLVED: 'Vérification humaine terminée',
-    AUTOMATION_HANDOFF_REQUESTED:'Conversation transférée par l’automatisation',CONVERSATION_RETURNED_TO_AI:'Conversation rendue à l’IA' },
+    AUTOMATION_HANDOFF_REQUESTED:'Conversation transférée par l’automatisation',CONVERSATION_RETURNED_TO_AI:'Conversation rendue à l’IA',CONVERSATION_CLOSED:'Conversation clôturée' },
 };
 
-export function LeadWorkflow({ lead, role, locale, api, onChanged }: {
-  lead: Lead; role: Role; locale: Locale; api: Api; onChanged: () => Promise<void>;
+export function LeadWorkflow({ lead, role, locale, api, onChanged, activityRevision }: {
+  lead: Lead; role: Role; locale: Locale; api: Api; onChanged: () => Promise<void>; activityRevision: number;
 }) {
   const t = labels[locale];
   const automaticClosure = { ar: 'الأتمتة أغلقت الفرصة', en: 'Lead closed by automation', fr: 'Prospect clôturé par l’automatisation' }[locale];
@@ -65,7 +65,7 @@ export function LeadWorkflow({ lead, role, locale, api, onChanged }: {
     setActivity(events.items); setActivityCursor(events.nextCursor as number | null);
     setAssignments(history.items); setAssignmentCursor(history.nextCursor as number | null);
   }
-  useEffect(() => { void load().catch((failure) => setError(String(failure))); }, [lead.id]);
+  useEffect(() => { void load().catch((failure) => setError(String(failure))); }, [lead.id, activityRevision]);
   useEffect(() => {
     if (role === 'AGENT') return;
     let cancelled = false;
@@ -149,7 +149,7 @@ export function LeadWorkflow({ lead, role, locale, api, onChanged }: {
         ? automaticClosure : activityLabels[locale][item.event_type as keyof typeof activityLabels.en] ?? item.event_type}
         {(item.event_type === 'NOTE_ADDED' || item.event_type === 'AUTOMATION_HUMAN_REVIEW_RESOLVED') &&
           <small>{String(item.detail.text ?? '')}</small>}
-        {item.event_type==='CONVERSATION_RETURNED_TO_AI'&&typeof item.detail.reason==='string'&&<small>{item.detail.reason}</small>}</span><time>{time(item.created_at)}</time>
+        {['CONVERSATION_RETURNED_TO_AI','CONVERSATION_CLOSED'].includes(item.event_type)&&typeof item.detail.reason==='string'&&<small>{item.detail.reason}</small>}</span><time>{time(item.created_at)}</time>
     </li>)}</ul>{activityCursor && <button className="secondary" onClick={() => { void api<Page<History>>(
       `/api/leads/${lead.id}/activity?before=${activityCursor}`)
       .then((page) => { setActivity((current) => [...current, ...page.items]); setActivityCursor(page.nextCursor as number | null); })

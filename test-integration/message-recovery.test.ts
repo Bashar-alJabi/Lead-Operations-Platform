@@ -281,4 +281,47 @@ test('message delivery observability and recovery preserve acceptance, authoriza
     // Request limiter also covers authenticated explicit recovery, independently of the global limiter.
     for (let i=0;i<10;i++) assert.notEqual((await api('POST',path(reassigned.id)+'/retry','agent',retryBody,'127.0.0.250')).statusCode,429);
     assert.equal((await api('POST',path(reassigned.id)+'/retry','agent',retryBody,'127.0.0.250')).statusCode,429);
+    // The first allowed recovery in the limiter scenario enqueued a real job.
+    assert.equal(await processOneMessagingJob(db,reject),true);
+    assert.equal((await api('GET',path(reassigned.id)+'/delivery','agent')).json().deliveryState,'FAILED');
+
+    const pending=await enqueue('Queued before closing');
+    const olderPending=await enqueue('Queued before reopening');
+    const closePath=`/api/conversations/${cv}/close`;
+    const {version}=(await db`SELECT version FROM conversation WHERE id=${cv}`)[0]!;
+    const closeRequest={version,reason:'Verified that the conversation was complete'};
+    assert.equal((await api('POST',closePath,undefined,closeRequest)).statusCode,401);
+    assert.equal((await api('POST',closePath,'other',closeRequest)).statusCode,404);
+    assert.equal((await api('POST',closePath,'second',closeRequest)).statusCode,404);
+    assert.equal((await api('POST',closePath,'manager',closeRequest)).json().error,'CONVERSATION_CLOSE_CONTROLLER_REQUIRED');
+    assert.equal((await api('POST',closePath,'agent',{...closeRequest,reason:'    '})).json().error,'CONVERSATION_CLOSE_REASON_REQUIRED');
+    const closed=await Promise.all([api('POST',closePath,'agent',closeRequest),api('POST',closePath,'agent',closeRequest)]);
+    assert.deepEqual(closed.map(response=>response.statusCode).sort(),[200,409]);
+    assert.deepEqual((await db`SELECT cv.state,cv.controller_type,cv.controller_user_id,cv.sender_id,l.assigned_agent_id,l.lifecycle
+      FROM conversation cv JOIN lead l ON l.id=cv.lead_id WHERE cv.id=${cv}`)[0],
+      {state:'CLOSED',controller_type:'NONE',controller_user_id:null,sender_id:sender,assigned_agent_id:identities.agent!.id,lifecycle:'OPEN'});
+    assert.equal((await db`SELECT count(*)::int AS n FROM conversation_handoff h JOIN conversation cv ON cv.id=h.conversation_id
+      WHERE cv.id=${cv} AND h.reason=${closeRequest.reason} AND h.from_controller='HUMAN' AND h.to_controller='NONE'
+        AND h.requested_by=${identities.agent!.id} AND h.created_at=cv.closed_at`)[0]!.n,1);
+    assert.equal((await db`SELECT count(*)::int AS n FROM audit_log WHERE target_id=${cv} AND action='CONVERSATION_CLOSED'`)[0]!.n,1);
+    assert.equal((await db`SELECT count(*)::int AS n FROM lead_activity WHERE lead_id=${lead} AND event_type='CONVERSATION_CLOSED'`)[0]!.n,1);
+    const callsAtClosure=calls;
+    assert.equal(await processOneMessagingJob(db,success),true);
+    // Exercise the dispatch fence with the same controller restored but the closure timestamp intact.
+    await db`UPDATE conversation SET state='HUMAN_ACTIVE',controller_type='HUMAN',controller_user_id=${identities.agent!.id}
+      WHERE id=${cv}`;
+    assert.equal(await processOneMessagingJob(db,success),true);
+    assert.equal(calls,callsAtClosure);
+    for(const queued of [pending,olderPending]){
+      const delivery=(await api('GET',path(queued.id)+'/delivery','agent')).json();
+      assert.equal(delivery.errorCode,'CONVERSATION_CLOSED');
+      assert.equal(delivery.recoveryBlock,'CONVERSATION_CLOSED');
+      assert.equal((await api('POST',path(queued.id)+'/retry','agent',retryBody)).json().error,'CONVERSATION_CLOSED');
+      assert.equal((await api('GET',path(queued.id)+'/attempts','agent')).json().items.length,0);
+    }
+    const fresh=await enqueue('Prepared after restoring control');
+    assert.equal(await processOneMessagingJob(db,success),true);
+    assert.equal(calls,callsAtClosure+1);
+    assert.equal((await api('GET',path(fresh.id)+'/delivery','agent')).json().deliveryState,'SENT');
+    assert.equal((await db`SELECT body FROM conversation_message WHERE id=${inbound}`)[0]!.body,'Test window');
   });

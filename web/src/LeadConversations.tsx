@@ -72,8 +72,8 @@ const labels = {
     mode: 'Message type', textMode: 'Freeform text in reply window', templateMode: 'Approved template', template: 'Template', noTemplates: 'No approved templates allowed for this campaign.', templateNote: 'Template approval and sending policy are checked again before contacting the provider.', takeover: 'Take over conversation', takeoverReason: 'Takeover reason' },
 } as const;
 
-export function LeadConversations({ leadId, lifecycle, role, actorId, locale, api,paymentIntentId,onClearPayment }: { leadId: string; lifecycle: string;
-  role: 'SUPER_ADMIN'|'MANAGER'|'AGENT'; actorId: string; locale: Locale; api: Api;paymentIntentId:string|null;onClearPayment:()=>void }) {
+export function LeadConversations({ leadId, lifecycle, role, actorId, locale, api,paymentIntentId,onClearPayment,onClosed }: { leadId: string; lifecycle: string;
+  role: 'SUPER_ADMIN'|'MANAGER'|'AGENT'; actorId: string; locale: Locale; api: Api;paymentIntentId:string|null;onClearPayment:()=>void;onClosed:()=>void }) {
   const t = labels[locale];
   const [items, setItems] = useState<Conversation[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -113,9 +113,13 @@ export function LeadConversations({ leadId, lifecycle, role, actorId, locale, ap
   const [submitted, setSubmitted] = useState(false);
   const [takeoverReason, setTakeoverReason] = useState('');
   const [returnReason, setReturnReason] = useState('');
+  const [closeReason,setCloseReason]=useState('');
   const aiReturn={ar:{action:'إعادة التحكم إلى AI',reason:'سبب إعادة التحكم إلى AI'},
     en:{action:'Return control to AI',reason:'Reason to return control to AI'},
     fr:{action:'Rendre le contrôle à l’IA',reason:'Motif du retour à l’IA'}}[locale];
+  const closeLabels={ar:{action:'إغلاق المحادثة',reason:'سبب إغلاق المحادثة'},
+    en:{action:'Close conversation',reason:'Reason for closing the conversation'},
+    fr:{action:'Clore la conversation',reason:'Motif de clôture de la conversation'}}[locale];
   const [reviewNote, setReviewNote] = useState('');
   const [reviewConfirmed, setReviewConfirmed] = useState(false);
   const [attentionReviews, setAttentionReviews] = useState<AttentionReview[]>([]);
@@ -198,7 +202,7 @@ export function LeadConversations({ leadId, lifecycle, role, actorId, locale, ap
     setDraft(''); setSendMode('TEXT'); setTemplates([]); setTemplateAfter(null); setTemplateId('');
     setUploadFile(null); setUploadedAttachment(null); setUploadKey(crypto.randomUUID());
     setTemplateParameters([]);setHeaderParameter('');setUrlParameter('');
-    setAttentionReviews([]); setReviewBefore(null); setReviewNote(''); setReviewConfirmed(false); setReturnReason('');
+    setAttentionReviews([]); setReviewBefore(null); setReviewNote(''); setReviewConfirmed(false); setReturnReason(''); setCloseReason('');
     setSendKey(crypto.randomUUID()); setSubmitted(false); setError('');
     await Promise.all([loadMessages(id), loadTemplates(id),
       role === 'AGENT' ? Promise.resolve() : loadAttentionReviews(id)]);
@@ -299,6 +303,16 @@ export function LeadConversations({ leadId, lifecycle, role, actorId, locale, ap
       setReturnReason('');await load();
     }catch(failure){setError(String(failure));}finally{setBusy(false);}
   }
+  async function closeConversation() {
+    if(!selected||closeReason.trim().length<3)return;
+    setBusy(true);setError('');
+    try{
+      await api(`/api/conversations/${selected.id}/close`,{method:'POST',body:JSON.stringify({
+        version:selected.version,reason:closeReason.trim(),
+      })});
+      setCloseReason('');onClosed();await load();
+    }catch(failure){setError(String(failure));}finally{setBusy(false);}
+  }
   async function saveConsent() {
     if (!consent) return;
     setBusy(true); setError('');
@@ -354,6 +368,13 @@ export function LeadConversations({ leadId, lifecycle, role, actorId, locale, ap
         <label>{aiReturn.reason}<input value={returnReason} minLength={3} maxLength={500} onChange={event=>setReturnReason(event.target.value)} /></label>
         <button className="secondary" disabled={busy||returnReason.trim().length<3} onClick={()=>void returnToAI()}>{aiReturn.action}</button>
       </div>}
+      {selected?.state==='HUMAN_ACTIVE'&&selected.controller_type==='HUMAN'&&selected.controller_user_id===actorId&&
+        <div className="actions" data-conversation-close>
+          <label>{closeLabels.reason}<input value={closeReason} minLength={3} maxLength={500}
+            onChange={event=>setCloseReason(event.target.value)} /></label>
+          <button className="secondary" disabled={busy||closeReason.trim().length<3}
+            onClick={()=>void closeConversation()}>{closeLabels.action}</button>
+        </div>}
       {!messages.length && <p>{t.noMessages}</p>}
       <ConversationSummarySource key={selectedId} conversationId={selectedId} locale={locale} api={api} humanActive={selected?.controller_type==='HUMAN' && selected?.state==='HUMAN_ACTIVE'} revision={messages.map(m=>m.id+':'+m.delivery_state).join(',')} />
       <ConversationCampaignKnowledge key={'knowledge-'+selectedId} conversationId={selectedId} locale={locale} api={api} humanActive={selected?.controller_type==='HUMAN' && selected?.state==='HUMAN_ACTIVE'} />

@@ -21,7 +21,7 @@ async function loadOutboundScope(tx: postgres.TransactionSql, conversationId: st
   if (!scope) throw new HttpError(404, 'CONVERSATION_NOT_FOUND');
   await tx`SELECT id FROM contact WHERE id = ${scope.contact_id} FOR SHARE`;
   const conversation = (await tx`SELECT id, lead_id, connection_id, sender_id, channel,
-      participant_ref, controller_type, controller_user_id, state, needs_attention_reason
+      participant_ref, controller_type, controller_user_id, state, needs_attention_reason, closed_at
     FROM conversation WHERE id = ${conversationId} FOR UPDATE`)[0]!;
   return { scope, conversation };
 }
@@ -78,6 +78,12 @@ export async function checkCurrentOutbound(tx: postgres.TransactionSql, locked: 
   if (scope.lifecycle !== 'OPEN') return { allowed: false as const, reason: 'LEAD_NOT_OPEN' };
   if (conversation.channel !== 'WHATSAPP') return { allowed: false as const, reason: 'CHANNEL_NOT_SUPPORTED' };
   if (conversation.state === 'CLOSED') return { allowed: false as const, reason: 'CONVERSATION_CLOSED' };
+  if (excludeMessageId && conversation.closed_at) {
+    const [delivery] = await tx`SELECT m.created_at <= cv.closed_at AS predates_closure
+      FROM conversation_message m JOIN conversation cv ON cv.id = m.conversation_id
+      WHERE m.id = ${excludeMessageId} AND cv.id = ${conversation.id}`;
+    if (delivery?.predates_closure) return { allowed: false as const, reason: 'CONVERSATION_CLOSED' };
+  }
   if (conversation.needs_attention_reason) return { allowed: false as const, reason: conversation.needs_attention_reason as string };
   if (!scope.phone_normalized || scope.phone_normalized !== conversation.participant_ref) {
     await tx`UPDATE conversation SET needs_attention_reason = 'PARTICIPANT_CHANGED' WHERE id = ${conversation.id}`;

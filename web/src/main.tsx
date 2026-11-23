@@ -151,6 +151,7 @@ function App() {
   useEffect(()=>{setHoursResource(null);},[page,user?.id]);
   const [selectedLead, setSelectedLead] = useState<string | null>(null);
   const [fieldRefresh, setFieldRefresh] = useState(0);
+  const [leadActivityRevision, setLeadActivityRevision] = useState(0);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [nextCampaignCursor, setNextCampaignCursor] = useState<string | null>(null);
@@ -446,14 +447,14 @@ function App() {
       {canManage && <div className="actions">{(['OPEN','CLOSED','ARCHIVED'] as const).filter((state) => state !== detail.lead.lifecycle).map((state) =>
         <button key={state} className="secondary" onClick={() => { setBusy(true); api(`/api/leads/${selectedLead}/lifecycle`, { method: 'POST', body: JSON.stringify({ lifecycle: state }) })
           .then(() => api<typeof detail>(`/api/leads/${selectedLead}`)).then(result => {setDetail(result);setDetailScope(currentDetailScope);}).catch((failure) => setError(String(failure))).finally(() => setBusy(false)); }}>{state === 'OPEN' ? t.reopen : state === 'CLOSED' ? t.close : t.archive}</button>)}</div>}
-      <LeadWorkflow lead={detail.lead} role={user.role} locale={locale} api={api}
+      <LeadWorkflow lead={detail.lead} role={user.role} locale={locale} api={api} activityRevision={leadActivityRevision}
         onChanged={async () => { const current = await api<typeof detail>(`/api/leads/${selectedLead}`); setDetail(current); setDetailScope(currentDetailScope); }} />
       <LeadQualification key={`${selectedLead}:${detail.lead.campaign_id}:qualification`} leadId={selectedLead} locale={locale} api={api} onChanged={() => setFieldRefresh(n => n + 1)} />
       <LeadIntakeOrigin leadId={selectedLead} revision={detail.lead.version} locale={locale} api={api} />
       <LeadFields key={`${selectedLead}:${detail.lead.campaign_id}:fields:${fieldRefresh}`} leadId={selectedLead} locale={locale} api={api} />
       <LeadPaymentMethods key={`${selectedLead}:${detail.lead.campaign_id}:payment-methods`} leadId={selectedLead} locale={locale} api={api} />
       <LeadCustomerOperations key={`${selectedLead}:${detail.lead.campaign_id}:customer-operations`} leadId={selectedLead} lifecycle={detail.lead.lifecycle}
-        role={user.role} actorId={user.id} locale={locale} api={api} />
+        role={user.role} actorId={user.id} locale={locale} api={api} onConversationClosed={()=>setLeadActivityRevision(n=>n+1)} />
     </section> : <>
       {page === 'leads' && <LeadSearch locale={locale} branches={branches} campaigns={campaigns} users={users} currentUser={user}
         api={api} onSearch={searchLeads} onClearResults={clearLeadSearchResults} columns={leadColumns} onColumns={setLeadColumns} />}

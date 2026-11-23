@@ -4,15 +4,15 @@ import { LeadConversations } from './LeadConversations';
 import { LeadBankTransfers } from './BankTransfers';
 
 // Mounted per Lead: a selected link cannot become another Lead's message context.
-export function LeadCustomerOperations({ leadId,lifecycle,role,actorId,locale,api }: {
+export function LeadCustomerOperations({ leadId,lifecycle,role,actorId,locale,api,onConversationClosed }: {
   leadId:string;lifecycle:string;role:'SUPER_ADMIN'|'MANAGER'|'AGENT';actorId:string;locale:'ar'|'en'|'fr';
-  api:<T>(path:string,options?:RequestInit)=>Promise<T>;
+  api:<T>(path:string,options?:RequestInit)=>Promise<T>;onConversationClosed:()=>void;
 }) {
   const [paymentIntentId,setPaymentIntentId]=useState<string|null>(null);
   return <>
     <LeadBankTransfers key={leadId} leadId={leadId} role={role} locale={locale} api={api} />
     <LeadPaymentRequests leadId={leadId} locale={locale} api={api} onPrepareMessage={setPaymentIntentId} />
     <LeadConversations leadId={leadId} lifecycle={lifecycle} role={role} actorId={actorId} locale={locale} api={api}
-      paymentIntentId={paymentIntentId} onClearPayment={()=>setPaymentIntentId(null)} />
+      paymentIntentId={paymentIntentId} onClearPayment={()=>setPaymentIntentId(null)} onClosed={onConversationClosed} />
   </>;
 }

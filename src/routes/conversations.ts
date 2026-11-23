@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type postgres from 'postgres';
 import type { Database } from '../db.js';
-import { HttpError, principalFromRequest, requireLead, requireRole, type Principal } from '../security.js';
+import { HttpError, lockCurrentSession, principalFromRequest, requireLead, requireRole, type Principal } from '../security.js';
 import { resolveConfiguredSender } from '../messaging/sender-resolution.js';
 import { decodeCursor, encodeCursor } from '../pagination.js';
 import { metaMediaCapabilities } from '../media/meta-outbound.js';
@@ -255,6 +255,35 @@ export function registerConversationRoutes(app: FastifyInstance, db: Database): 
         return { state: 'HUMAN_ACTIVE', version: changed.version, existing: false };
       });
     });
+
+  app.post<{Params:{id:string};Body:{version:number;reason:string}}>('/api/conversations/:id/close',{
+    schema:{params:idParam,body:{type:'object',additionalProperties:false,required:['version','reason'],properties:{
+      version:{type:'integer',minimum:1,maximum:2147483646},reason:{type:'string',minLength:3,maxLength:500},
+    }}},
+  },async request=>{
+    const actor=await principalFromRequest(request,db);
+    const reason=request.body.reason.trim();
+    if(reason.length<3||/[\x00-\x1f\x7f]/.test(reason))throw new HttpError(400,'CONVERSATION_CLOSE_REASON_REQUIRED');
+    return db.begin(async tx=>{
+      const lead=await lockConversationLead(tx,actor,request.params.id);
+      const [conversation]=await tx`SELECT id,version,state,controller_type,controller_user_id FROM conversation
+        WHERE id=${request.params.id} AND lead_id=${lead.id} FOR UPDATE`;
+      if(!conversation||!await lockCurrentSession(tx,actor,request))throw new HttpError(403,'CONVERSATION_ACCESS_REVOKED');
+      if(conversation.version!==request.body.version)throw new HttpError(409,'CONVERSATION_VERSION_CONFLICT');
+      if(conversation.state!=='HUMAN_ACTIVE'||conversation.controller_type!=='HUMAN'||conversation.controller_user_id!==actor.id)
+        throw new HttpError(403,'CONVERSATION_CLOSE_CONTROLLER_REQUIRED');
+      const [closed]=await tx`UPDATE conversation SET state='CLOSED',controller_type='NONE',controller_user_id=NULL,
+        closed_at=clock_timestamp(),version=version+1 WHERE id=${conversation.id} RETURNING version,closed_at::text AS closed_at`;
+      await tx`INSERT INTO conversation_handoff(conversation_id,from_controller,from_user_id,to_controller,reason,requested_by,created_at)
+        VALUES(${conversation.id},'HUMAN',${actor.id},'NONE',${reason},${actor.id},${closed!.closed_at}::text::timestamptz)`;
+      const detail={conversationId:conversation.id,reason,version:closed!.version};
+      await tx`INSERT INTO lead_activity(lead_id,actor_user_id,event_type,detail)
+        VALUES(${lead.id},${actor.id},'CONVERSATION_CLOSED',${tx.json(detail)})`;
+      await tx`INSERT INTO audit_log(organization_id,branch_id,actor_user_id,action,target_type,target_id,detail)
+        VALUES(${actor.organizationId},${lead.branch_id},${actor.id},'CONVERSATION_CLOSED','CONVERSATION',${conversation.id},${tx.json(detail)})`;
+      return {state:'CLOSED',version:closed!.version};
+    });
+  });
 
   app.post<{Params:{id:string};Body:{version:number;reason:string}}>('/api/conversations/:id/return-to-ai',{
     schema:{params:idParam,body:{type:'object',additionalProperties:false,required:['version','reason'],properties:{
