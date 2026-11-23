@@ -739,6 +739,8 @@ app.post<{ Body:{ processKnowledgeAsset?:boolean;rejectKnowledgeAsset?:boolean;p
     }
     if (request.body.retrieveSource) await processOneSourceRetrieval(db,{ retrieve:async(input)=> {
       sourceRetrievalCalls++;if (sourceRetrievalFailure) throw new Error('synthetic-browser-source-private-error');
+      if(input.leadId==='380247')return { id:input.leadId,form_id:input.formId,created_time:new Date().toISOString(),campaign_id:'555',
+        field_data:[{name:'full_name',values:['Browser Meta acceptance customer']},{name:'phone',values:['+15556668047']},{name:'interest',values:['7']}] };
       return { id:input.leadId,form_id:input.formId,created_time:'2023-11-14T22:13:19+0000',ad_id:'500001',adset_id:'400001',campaign_id:'555',
         field_data:[{ name:'full_name',values:['<img src=x onerror=alert(1)> Browser source customer'] },{ name:'phone',values:['+15550008888'] },{ name:'interest',values:['12.5'] }] };
     } });

@@ -38,12 +38,12 @@
 
 ## الاعتماديات والأولوية التنفيذية التالية
 
-**أحدث نتائج الانحدار الشامل — 2026-11-23** اجتاز `1c8c2f5` **215/215 PostgreSQL Integration و113/113 Edge Browser E2E** لطلب التصنيف من Automation. [التقدم](codex-progress.md)
+**أحدث نتائج الانحدار الشامل — 2026-11-23** اجتاز `1c8c2f5` **215/215 PostgreSQL Integration**، واجتاز `f58eaed` **113/113 Edge Browser E2E** مع رحلة تعطيل AI. أثبتت Edge المركّزة رحلة Meta الكاملة، وتجري إعادتها ضمن المجموعة الشاملة. [التقدم](codex-progress.md)
 
 1. **Import CSV/Excel checkpoint محفوظة:** `95dbce3` مرفوعة،Native183–184 و193Unit/142PG/68Browser و001–184/build/typecheck مثبتة. لاتعدتنفيذها؛هيbaseline للملفات معSheets/API/load/acceptance gaps باقية. [العقد](lead-import-execution.md). التاليGoogleSheets،دونoptionalparser/provider/AI refinements.
 2. **Google Sheets:** baseline Import190–192 محفوظةفي5d063a8،Export preparation194 في3a6271b،delivery/verification195 في3ca5157. لا إعادةتنفيذ أوoptionalrefinements؛انتقلالآنلمتطلباتEmail/Notifications الأساسية.
 3. **Notifications.** ثبت تسليم Messaging الداخلي وإقرار المزوّد محليًا بـmock في 206، واستعادة تجهيز الجمهور من داخل المنصة في 210. تبقى إثباتات الوصول والقبول الحي والسياسات الإلزامية ضمن المراجعة.
-4. **قبول الرحلات المترابطة.** ثبتت إجراءات Automation الأساسية محليًا ومنها التلخيص والمتابعة والتصنيف. أثبتت Edge رحلة 06 §26 مع تعطيل AI من الإدخال الموقّع إلى إسناد الموظف والمتابعة والدفع الموثوق والتسجيل وAnalytics. التالي رحلة Meta مع AI والتأهيل وHuman Handoff ثم الدفع والتسجيل وAnalytics بمعرّف Lead واحد.
+4. **قبول الرحلات المترابطة.** أثبتت Edge رحلتي 06 §26 مع تعطيل AI ومع Meta وAI والتأهيل وHuman Handoff ثم الدفع الموثوق والتسجيل وAnalytics. يبدأ القبول التشغيلي التالي من تمرين استعادة PostgreSQL وقياس سلامة السجلات المرتبطة، ثم اختبارات الأحمال والاستعادة لبقية طبقات التخزين.
 5. **متطلبات الوحدات الأساسية الأخرى.** ثبت Performance Routing في 216–217، وسجل Audit الإداري في 225، وتعريف Conversion في 226، ومسار Generic Webhook المحلي في 227–229. تابع إعدادات Branch وUser، ثم مسار Lead transfer وصلاحياته وآثاره، ثم AI workflows ورحلات القبول الشاملة.
 
 ## الاعتماديات الخارجية
