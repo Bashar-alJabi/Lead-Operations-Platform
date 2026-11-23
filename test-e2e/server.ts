@@ -646,6 +646,29 @@ app.post('/__test__/ai-initial-process',async request=>{
  if(typeof request.headers.authorization!=='string'||!safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
  return {processed:await processOneAIInitialContact(db)};
 });
+app.post<{Body:{leadId:string;fail:boolean}}>('/__test__/ai-initial-local-failure',{schema:{
+ body:{type:'object',required:['leadId','fail'],additionalProperties:false,properties:{
+  leadId:{type:'string',format:'uuid'},fail:{type:'boolean'},
+ }},
+}},async request=>{
+ if(typeof request.headers.authorization!=='string'||!safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
+ const {leadId,fail}=request.body;
+ const [lead]=await db`SELECT l.id FROM lead l JOIN lead_intake_receipt i ON i.lead_id=l.id
+    JOIN ai_initial_admission a ON a.receipt_id=i.id WHERE l.id=${leadId} AND l.organization_id=${org}`;
+ if(!lead)throw new HttpError(404,'SYNTHETIC_INITIAL_JOB_NOT_FOUND');
+ await db.begin(async tx=>{
+  await tx`CREATE TABLE IF NOT EXISTS e2e_initial_failure(lead_id uuid PRIMARY KEY REFERENCES lead(id))`;
+  await tx`CREATE OR REPLACE FUNCTION e2e_reject_initial_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+    IF NEW.action='AI_INITIAL_CONTACT_APPLIED' AND EXISTS(SELECT 1 FROM e2e_initial_failure f WHERE f.lead_id::text=NEW.target_id) THEN
+     RAISE EXCEPTION 'Synthetic initial local-processing failure';
+    END IF; RETURN NEW; END $$`;
+  await tx`DROP TRIGGER IF EXISTS e2e_reject_initial_failure ON audit_log`;
+  await tx`CREATE TRIGGER e2e_reject_initial_failure BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION e2e_reject_initial_failure()`;
+  if(fail)await tx`INSERT INTO e2e_initial_failure VALUES(${leadId}) ON CONFLICT DO NOTHING`;
+  else await tx`DELETE FROM e2e_initial_failure WHERE lead_id=${leadId}`;
+ });
+ return {ok:true};
+});
 app.post('/__test__/ai-followup-process',async request=>{
  if(typeof request.headers.authorization!=='string'||!safeTokenEqual(request.headers.authorization,'Bearer '+testToken))throw new HttpError(403,'TEST_CONTROL_DENIED');
  const due=await processOneAIFollowupSchedule(db);

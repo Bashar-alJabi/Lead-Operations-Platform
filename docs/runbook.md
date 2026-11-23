@@ -275,7 +275,9 @@ Follow-up الناتجة مرتبطة بالمالك الحالي المؤهل �
 
 بعد migrations المعتادة شغّل `worker:ai` و`worker:messaging`. من Campaign workspace جهّز Published Knowledge وProfile/Tools/behavior والمراسلة، ثم اعتمد approved text template والمعاملات والسبب عبرإعداد Initial Message. راجعpreview وready،ثمcurrent Campaign activation checks. Lead جديدة موثوقة ومسموح بها فقط تدخلjob؛لاbackfill أوSQL replay لadmission قديمة. إعدادالقالب لا يرسلشيئًا.
 
-منLead→مراجعة مصدر الإنشاء راجع job/action/message/delivery/error. QUEUED/APPLIED ليستتسليمًا؛SENT موثقةبـprovider ACK. بعد BLOCKED أوHuman takeover راجعسببالمنع واتبعالمسارالبشري المصرح به،دونتغييرsnapshot أوتجاوزConsent. local job bounded backoff ثمDEAD_LETTER بعدخمسfailures؛UI recovery لهذهjob غيرمنفذة بعد،ولاmanual DB repair. UNKNOWN لاreplay. Source AI flow يتطلبpolicyصريحة؛Source Messaging دونAI مازالتخاضعةلقيدreadiness السابق. Live AI send/transfer تبقىمعطلةحتىالموافقاتوالضوابط؛لاenv bypass. [العقد](ai-initial-contact.md).
+من Lead ← «مراجعة مصدر الإنشاء» راجع job وaction وmessage وحالة التسليم. تثبت `SENT` إقرار المزوّد، وتعرض `QUEUED` انتظار المعالجة. عند `BLOCKED` أو تولّي الموظف، راجع السبب واتبع المسار البشري المتاح. تبقى `UNKNOWN` في مسار المراجعة القائم على أدلة المزوّد.
+
+بعد خمس إخفاقات محلية تظهر `DEAD_LETTER`. أصلح سبب المعالجة ثم افتح «مراجعة مصدر الإنشاء» واختر «إعادة المعالجة الأولية» وأدخل السبب بصلاحية Manager أو Super Admin. يتطلب الطلب الحالي نفس السياق والإصدار الأصليين قبل إنشاء أي إجراء إرسال. إذا تغير السياق، راجع الحالة واتبع المسار البشري. يسجل Audit المستخدم والسبب، ويستأنف عامل AI معالجة الطلب من الطابور. تبقى سياسات Consent والتحكم والإرسال الحي مطبقة. [العقد](ai-initial-contact.md).
 
 ## مراجعة قبول Initial AI وقت الإنشاء — Native154–157
 

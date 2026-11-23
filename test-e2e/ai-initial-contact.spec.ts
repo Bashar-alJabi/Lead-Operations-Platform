@@ -135,3 +135,61 @@ test('An approved Automation starts AI follow-up from a delivery receipt and sta
  await expect(schedule.getByRole('listitem')).toContainText('بدأت بواسطة Automation');
  expect(errors).toEqual([]);
 });
+
+test('A Manager recovers exhausted local initial processing and sees queued work before mock delivery',async({page})=>{
+ test.setTimeout(90_000);
+ const {headers,fixtureHeaders,create}=await configureInitialContact(page,{campaignName:'Browser initial local recovery',
+  templateName:'browser_initial_recovery',phone:'+15556668249',customerName:'Synthetic initial recovery lead',followupEnabled:false});
+ const lead=await create();
+ const path=`/api/leads/${lead}/intake-origin`;
+ const runtime=async()=>{
+  const result=await page.request.get(path);
+  expect(result.ok(),await result.text()).toBeTruthy();
+  return (await result.json()).origin.initialAI.runtime;
+ };
+ const fail=(failed:boolean)=>page.request.post('/__test__/ai-initial-local-failure',{headers:fixtureHeaders,data:{leadId:lead,fail:failed}});
+ expect((await fail(true)).ok()).toBeTruthy();
+ try{
+  for(let attempt=1;attempt<=5;attempt++){
+   await expect.poll(async()=>{
+    const result=await page.request.post('/__test__/ai-initial-process',{headers:fixtureHeaders});
+    expect(result.ok(),await result.text()).toBeTruthy();
+    return (await runtime()).failureCount;
+   },{timeout:20_000,intervals:[250,500,1000]}).toBe(attempt);
+  }
+ }finally{
+  expect((await fail(false)).ok()).toBeTruthy();
+ }
+ expect(await runtime()).toMatchObject({jobState:'DEAD_LETTER',actionState:null,messageId:null,canRequestRecovery:true});
+ await page.getByRole('button',{name:'Leads',exact:true}).click();
+ await page.getByRole('textbox',{name:'Name, phone, email or lead ID',exact:true}).fill(lead);
+ await page.getByRole('button',{name:'Apply filters',exact:true}).click();
+ await page.locator(`[data-lead-row="${lead}"]`).getByRole('button',{name:'Details',exact:true}).click();
+ const panel=page.locator('[data-lead-intake-origin]');
+ await panel.getByRole('button',{name:'Review intake origin',exact:true}).click();
+ const button=panel.getByRole('button',{name:'Retry initial processing',exact:true});
+ await expect(button).toBeDisabled();
+ await panel.getByLabel('Reason for retrying initial processing',{exact:true}).fill('Confirmed the isolated processing service recovered');
+ const retried=page.waitForResponse(response=>response.request().method()==='POST'&&new URL(response.url()).pathname.startsWith(path+'/initial-ai/'));
+ await button.click();
+ const response=await retried;
+ expect(response.ok(),await response.text()).toBeTruthy();
+ await expect(panel.locator('[data-initial-ai-runtime]')).toContainText('WAITING');
+ await expect(button).toHaveCount(0);
+ expect(await runtime()).toMatchObject({jobState:'WAITING',failureCount:0,actionState:null,messageId:null});
+ await expect.poll(async()=>{
+  const result=await page.request.post('/__test__/ai-initial-process',{headers:fixtureHeaders});
+  expect(result.ok(),await result.text()).toBeTruthy();
+  return (await runtime()).deliveryState;
+ }).toBe('QUEUED');
+ await panel.getByRole('button',{name:'Review intake origin',exact:true}).click();
+ await expect(panel.locator('[data-initial-ai-runtime]')).toContainText('Queuing does not prove delivery.');
+ await expect.poll(async()=>{
+  const result=await page.request.post('/__test__/ai-customer-send',{headers:fixtureHeaders,data:{dispatch:true}});
+  expect(result.ok(),await result.text()).toBeTruthy();
+  return (await runtime()).deliveryState;
+ }).toBe('SENT');
+ const completed=await runtime();
+ const denied=await page.request.post(new URL(response.url()).pathname,{headers,data:{version:completed.jobVersion,reason:'Attempt after a real dispatch'}});
+ expect(denied.status()).toBe(409);
+});

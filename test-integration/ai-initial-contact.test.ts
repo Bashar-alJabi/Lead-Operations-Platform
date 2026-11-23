@@ -131,6 +131,87 @@ test('Initial contact config to actual trusted intake, durable worker, central p
  assert.equal((await db`SELECT count(*)::int AS n FROM payment_record`)[0]!.n,0);
  await assert.rejects(db`UPDATE ai_initial_send_action SET content='{}' WHERE id=${action.id}`,/IMMUTABLE/);
  await assert.rejects(db`INSERT INTO ai_initial_job(admission_id) VALUES(${first.admission})`,/FRESH_JOB_SOURCE_REQUIRED/);
+ await t.test('A scoped operator can recover only an unchanged initial job that exhausted local processing before any send', {timeout:60_000},async()=>{
+  const recovery=await intake(),staleRecovery=await intake();
+  const admissions=[recovery.admission,staleRecovery.admission];
+  const sendsBefore=sends;
+  await db`CREATE FUNCTION reject_initial_recovery_fixture() RETURNS trigger LANGUAGE plpgsql AS $$
+   BEGIN IF NEW.action='AI_INITIAL_CONTACT_APPLIED' THEN RAISE EXCEPTION 'Synthetic initial local failure'; END IF; RETURN NEW; END $$`;
+  await db`CREATE TRIGGER reject_initial_recovery_fixture BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION reject_initial_recovery_fixture()`;
+  try{
+   for(let attempt=1;attempt<=5;attempt++){
+    for(const _admission of admissions)assert.equal(await processOneAIInitialContact(db),true);
+    const jobs=await db`SELECT state,failure_count,ceil(extract(epoch FROM (available_at-clock_timestamp()))*1000)::int AS wait_ms
+      FROM ai_initial_job WHERE admission_id IN ${db(admissions)}`;
+    assert.equal(jobs.length,2);
+    assert.ok(jobs.every(job=>job.failure_count===attempt&&job.state===(attempt===5?'DEAD_LETTER':'WAITING')));
+    if(attempt<5)await delay(Math.max(0,...jobs.map(job=>job.wait_ms))+25);
+   }
+  }finally{
+   await db`DROP TRIGGER reject_initial_recovery_fixture ON audit_log`;
+   await db`DROP FUNCTION reject_initial_recovery_fixture()`;
+  }
+  assert.equal(sends,sendsBefore);
+  assert.equal((await db`SELECT count(*)::int AS n FROM ai_initial_send_action WHERE admission_id IN ${db(admissions)}`)[0]!.n,0);
+  const originPath=(lead:string)=>'/api/leads/'+lead+'/intake-origin';
+  const retryPath=(target:{lead:string;admission:string})=>originPath(target.lead)+'/initial-ai/'+target.admission+'/retry';
+  const runtime=(await api('GET',originPath(recovery.lead))).json().origin.initialAI.runtime;
+  assert.equal(runtime.jobState,'DEAD_LETTER');assert.equal(runtime.canRequestRecovery,true);
+  const input={version:runtime.jobVersion,reason:'Verified the local incident is resolved'};
+  const path=retryPath(recovery);
+  assert.equal((await api('POST',path,input,'agent')).statusCode,403);
+  const [foreignBranch]=await db`INSERT INTO branch(organization_id,name) VALUES(${org},'Foreign recovery branch') RETURNING id`;
+  const [foreignManager]=await db`INSERT INTO user_account(organization_id,branch_id,role,name,email,password_hash)
+   VALUES(${org},${foreignBranch!.id},'MANAGER','Foreign recovery Manager','foreign@initialflow.test','synthetic-only') RETURNING id`;
+  const foreignToken=randomBytes(32).toString('hex');
+  await db`INSERT INTO user_session(user_id,token_hash,expires_at) VALUES(${foreignManager!.id},${sha256(foreignToken)},clock_timestamp()+interval '1 hour')`;
+  users.foreignRecovery={id:foreignManager!.id,cookie:'lop_session='+foreignToken};
+  assert.equal((await api('POST',path,input,'foreignRecovery')).statusCode,404);
+  assert.equal((await api('POST',path,{...input,version:String(input.version)})).statusCode,400);
+  assert.equal((await api('POST',path,{...input,reason:' 😀🙂 '})).statusCode,400);
+  assert.equal((await api('POST',path,{...input,version:input.version-1})).json().error,'AI_INITIAL_RECOVERY_VERSION_CONFLICT');
+  assert.equal((await api('POST',retryPath({...recovery,admission:staleRecovery.admission}),input)).statusCode,404);
+  const unknownVersion=(await api('GET',originPath(uncertain.lead))).json().origin.initialAI.runtime.jobVersion;
+  assert.equal((await api('POST',retryPath(uncertain),{...input,version:unknownVersion})).json().error,'AI_INITIAL_RECOVERY_UNAVAILABLE');
+  await assert.rejects(db`UPDATE ai_initial_job SET state='WAITING',failure_count=0,version=version+1 WHERE admission_id=${recovery.admission}`,
+   /AI_INITIAL_JOB_RECOVERY_PROOF_REQUIRED/);
+  await assert.rejects(db`INSERT INTO ai_initial_job_recovery(admission_id,job_version,actor_id,session_id,reason)
+   SELECT ${recovery.admission},${input.version},${users.manager!.id},id,${input.reason} FROM user_session WHERE user_id=${users.agent!.id}`,
+   /AI_INITIAL_RECOVERY_ACCESS_REVOKED/);
+  await db`CREATE FUNCTION reject_recovery_audit_fixture() RETURNS trigger LANGUAGE plpgsql AS $$
+   BEGIN IF NEW.action='AI_INITIAL_JOB_RECOVERED' THEN RAISE EXCEPTION 'Synthetic recovery Audit failure'; END IF; RETURN NEW; END $$`;
+  await db`CREATE TRIGGER reject_recovery_audit_fixture BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION reject_recovery_audit_fixture()`;
+  try{
+   assert.equal((await api('POST',path,input)).statusCode,500);
+   assert.equal((await db`SELECT state FROM ai_initial_job WHERE admission_id=${recovery.admission}`)[0]!.state,'DEAD_LETTER');
+   assert.equal((await db`SELECT count(*)::int AS n FROM ai_initial_job_recovery WHERE admission_id=${recovery.admission}`)[0]!.n,0);
+  }finally{
+   await db`DROP TRIGGER reject_recovery_audit_fixture ON audit_log`;
+   await db`DROP FUNCTION reject_recovery_audit_fixture()`;
+  }
+  const raced=await Promise.all(Array.from({length:4},()=>api('POST',path,input)));
+  assert.deepEqual(raced.map(result=>result.statusCode).sort(),[200,409,409,409],raced.map(result=>result.body).join('\n'));
+  const [proof]=await db`SELECT job_version,actor_id,reason FROM ai_initial_job_recovery WHERE admission_id=${recovery.admission}`;
+  assert.deepEqual(proof,{job_version:input.version,actor_id:users.manager!.id,reason:input.reason});
+  await assert.rejects(db`DELETE FROM ai_initial_job_recovery WHERE admission_id=${recovery.admission}`,/AI_INITIAL_RECOVERY_HISTORY_RETAINED/);
+  assert.equal((await db`SELECT count(*)::int AS n FROM audit_log WHERE target_id=${recovery.lead} AND action='AI_INITIAL_JOB_FAILED'`)[0]!.n,5);
+  assert.equal((await db`SELECT count(*)::int AS n FROM audit_log WHERE target_id=${recovery.lead} AND action='AI_INITIAL_JOB_RECOVERED'`)[0]!.n,1);
+  assert.equal((await db`SELECT count(*)::int AS n FROM ai_initial_send_action WHERE admission_id=${recovery.admission}`)[0]!.n,0);
+  assert.equal(await processOneAIInitialContact(db),true);
+  const [queued]=await db`SELECT j.state,m.delivery_state FROM ai_initial_job j
+   JOIN ai_initial_send_action a ON a.admission_id=j.admission_id JOIN conversation_message m ON m.id=a.message_id
+   WHERE j.admission_id=${recovery.admission}`;
+  assert.deepEqual(queued,{state:'DONE',delivery_state:'QUEUED'});
+  assert.equal(await processOneAIInitialContact(db),false);
+  assert.equal(sends,sendsBefore);
+
+  const current=(await api('GET',root)).json();
+  const refreshed=await api('PUT',root,{version:current.version,definition,reason:'Approve a new initial contact revision'});
+  assert.equal(refreshed.statusCode,200,refreshed.body);
+  const staleAttempt=await api('POST',retryPath(staleRecovery),input);
+  assert.equal(staleAttempt.statusCode,409,staleAttempt.body);
+  assert.equal(staleAttempt.json().error,'AI_INITIAL_RECOVERY_CONTEXT_CHANGED');
+ });
  // Real Source evaluation/intake uses the same fresh post-Routing source, with no Human session or fabricated customer message.
  await db`UPDATE background_job SET status='DEAD' WHERE status='QUEUED' AND queue='messaging'`;mode='ACK';
  await db`UPDATE campaign SET source_kind='META',version=version+1 WHERE id=${campaign}`;

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 type Origin = { id: string; originKind: 'HUMAN_MANUAL'|'SOURCE'|'APPROVED_IMPORT'|'RETURNING_INBOUND'; sourceKind: string; createdAt: string; routing: { method: string; reason: string; ownerId: string | null };
   initialAI: { id: string; state: 'ADMITTED'|'BLOCKED'; blockers: string[]; createdAt: string; knowledgeVersion: number | null;
     ownerAvailable: boolean | null; initialContactWithoutAgent: boolean | null; senderReason: string | null;
-    runtime?:{jobState:string;failureCount:number;errorCode:string|null;actionState:string|null;conversationId:string|null;messageId:string|null;deliveryState:string|null}|null } | null };
+    runtime?:{jobState:string;jobVersion:number;canRequestRecovery:boolean;failureCount:number;errorCode:string|null;actionState:string|null;conversationId:string|null;messageId:string|null;deliveryState:string|null}|null } | null };
 type Api = <T>(path: string, options?: RequestInit) => Promise<T>;
 const labels = {
   ar: { title: 'مصدر إنشاء Lead', read: 'مراجعة مصدر الإنشاء', empty: 'لا يتوفر سجل إنشاء موثّق لهذه Lead.', manual: 'إدخال يدوي بواسطة مستخدم مخوّل', source: 'استقبال من مصدر مرتبط', at: 'وقت توثيق الإنشاء', routing: 'التوزيع عند الإنشاء', owner: 'المالك عند الإنشاء', unassigned: 'دون مالك', note: 'هذا سجل تاريخي. قد يكون المالك الحالي مختلفًا.' },
@@ -19,12 +19,25 @@ const performanceReasons: Record<string, { ar: string; en: string; fr: string }>
 };
 export function LeadIntakeOrigin({ leadId, revision, locale, api }: { leadId: string; revision: number; locale: 'ar'|'en'|'fr'; api: Api }) {
   const t = labels[locale], [value, setValue] = useState<{ origin: Origin | null } | null>(null), [busy, setBusy] = useState(false), [error, setError] = useState(''), sequence = useRef(0);
-  useEffect(() => { sequence.current++; setValue(null); setError(''); setBusy(false); return () => { sequence.current++; }; }, [leadId, revision]);
+  const [reason,setReason]=useState('');
+  const path='/api/leads/'+leadId+'/intake-origin';
+  useEffect(() => { sequence.current++; setValue(null); setError(''); setBusy(false); setReason(''); return () => { sequence.current++; }; }, [leadId, revision]);
   async function read() {
     const s = ++sequence.current; setBusy(true); setError(''); setValue(null);
-    try { const r = await api<{ origin: Origin | null }>('/api/leads/' + leadId + '/intake-origin'); if (sequence.current === s) setValue(r); }
+    try { const r = await api<{ origin: Origin | null }>(path); if (sequence.current === s) setValue(r); }
     catch (e) { if (sequence.current === s) { setValue(null); setError((e as Error).message); } }
     finally { if (sequence.current === s) setBusy(false); }
+  }
+  async function retry(admissionId:string,version:number){
+    const s=++sequence.current;setBusy(true);setError('');
+    try{
+      await api(path+'/initial-ai/'+admissionId+'/retry',{method:'POST',body:JSON.stringify({version,reason:reason.trim()})});
+      if(sequence.current===s){setReason('');await read();}
+    }catch(failure){
+      if(sequence.current===s){setValue(null);setError((failure as Error).message);}
+    }finally{
+      if(sequence.current===s)setBusy(false);
+    }
   }
   const o = value?.origin, a = o?.initialAI;
   const aiLabels = {
@@ -34,6 +47,11 @@ export function LeadIntakeOrigin({ leadId, revision, locale, api }: { leadId: st
   }[locale];
   const unassessed = { ar: 'غير مُقيّم', en: 'Not assessed', fr: 'Non évalué' }[locale];
   const busyReason = { ar: 'إعدادات AI قيد التحديث أو مشغولة. لم يبدأ التواصل الأولي.', en: 'AI configuration is being updated or busy. Initial contact has not started.', fr: 'La configuration IA est en cours de modification ou occupée. Le premier contact n’a pas commencé.' }[locale];
+  const recovery={
+    ar:{reason:'سبب إعادة المعالجة الأولية',submit:'إعادة المعالجة الأولية'},
+    en:{reason:'Reason for retrying initial processing',submit:'Retry initial processing'},
+    fr:{reason:'Motif de reprise du traitement initial',submit:'Relancer le traitement initial'},
+  }[locale];
   return <section className="panel" data-lead-intake-origin><h3>{t.title}</h3><button disabled={busy} onClick={() => void read()}>{t.read}</button>
     {error && <p role="alert">{error}</p>}{value && !o && <p>{t.empty}</p>}{o && <div data-lead-intake-record><p>{o.originKind==='RETURNING_INBOUND'
       ? {ar:'أُنشئت من رسالة عميل عائد',en:'Created from a returning customer message',fr:'Créé à partir du message d’un client de retour'}[locale]
@@ -43,7 +61,11 @@ export function LeadIntakeOrigin({ leadId, revision, locale, api }: { leadId: st
       <p style={{ overflowWrap: 'anywhere' }}>{t.owner}: {o.routing.ownerId ?? t.unassigned}</p><p>{t.note}</p>
       {a && <div data-initial-ai-admission><h4>{aiLabels.title}</h4><p>{a.state === 'ADMITTED' ? aiLabels.admitted : aiLabels.blocked}</p>
         {!a.runtime&&<p>{aiLabels.pending}</p>}{a.runtime&&<div data-initial-ai-runtime><p>{a.runtime.jobState} · {a.runtime.actionState??'—'} · {a.runtime.deliveryState??'—'}</p>
-          <p>{ {ar:'الإدراج في قائمة الإرسال لا يثبت التسليم.',en:'Queuing does not prove delivery.',fr:'La mise en file ne prouve pas la livraison.'}[locale]}</p>{a.runtime.errorCode&&<p style={{overflowWrap:'anywhere'}}>{a.runtime.errorCode}</p>}</div>}
+          <p>{ {ar:'الإدراج في قائمة الإرسال لا يثبت التسليم.',en:'Queuing does not prove delivery.',fr:'La mise en file ne prouve pas la livraison.'}[locale]}</p>{a.runtime.errorCode&&<p style={{overflowWrap:'anywhere'}}>{a.runtime.errorCode}</p>}
+          {a.runtime.canRequestRecovery&&<div className="actions">
+            <label>{recovery.reason}<input value={reason} maxLength={500} disabled={busy} onChange={event=>setReason(event.target.value)}/></label>
+            <button type="button" disabled={busy||[...reason.trim()].length<3} onClick={()=>void retry(a.id,a.runtime!.jobVersion)}>{recovery.submit}</button>
+          </div>}</div>}
         <p>{aiLabels.knowledge}: {a.knowledgeVersion ?? '—'}</p><p style={{ overflowWrap: 'anywhere' }}>{aiLabels.sender}: {a.senderReason ?? unassessed}</p>
         <p>{aiLabels.availability}: {a.ownerAvailable === true ? aiLabels.yes : a.ownerAvailable === false ? aiLabels.no : unassessed}</p><p>{aiLabels.without}: {a.initialContactWithoutAgent === true ? aiLabels.yes : a.initialContactWithoutAgent === false ? aiLabels.no : unassessed}</p>
         {a.ownerAvailable === false && <p>{aiLabels.fallback}</p>}{a.blockers.length > 0 && <ul>{a.blockers.map(reason => <li key={reason} style={{ overflowWrap: 'anywhere' }}>{reason === 'AI_INITIAL_DEPENDENCY_BUSY' ? busyReason : reason}</li>)}</ul>}</div>}

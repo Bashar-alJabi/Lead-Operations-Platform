@@ -12,7 +12,7 @@
 
 يلزم أحدث Published Campaign Knowledge، وSender الحالي المحسوم مركزيًا، ولغة مدعومة وAI disclosure الحالية ضمن النص. القالب النصي ومعاملاته معتمدة بشريًا؛لا يولد النموذج claim تجارية لأولى الرسائل. approval تحتفظ بالقالب الخام وbinding/Knowledge versions/hash، وdispatch snapshot تستخدم projection آمنة ومتطابقة مع parser، دون provider approval examples. تغيير أي اعتماد مؤثر يبطل ready والسلطة القديمة؛لا backfill أوإحياء admissions تاريخية.
 
-`initialCampaignIssues` تتحقق من جاهزية هذه الإعدادات عند تفعيل الحملة؛التفعيل لا يلغي live-off أوconsent/controller/provider policy. Source AI flow يتطلب initial-message policy صريحة. قيد Source القديم للحملات Messaging-enabled/AI-disabled لم يُرفع: المراجعة التلقائية رفضت التوسيع لعدم إثبات المسار الأوسع؛هذه فجوة مستقلة يجب إثبات جاهزيتها قبل تغيير القيد.
+`initialCampaignIssues` تتحقق من جاهزية هذه الإعدادات عند تفعيل الحملة مع استمرار ضوابط الموافقة والتحكم والمزوّد وتعطيل الإرسال الحي. يتطلب Source AI policy صريحة للرسالة الأولى. تتحقق 229 من جاهزية Sender عند الإدخال إلى حملة Messaging مع تعطيل AI.
 
 ## المصدر والتنفيذ الذري
 
@@ -27,16 +27,16 @@
 ## الفشل والتاريخ
 
 - تعطلAI/config لا يمحوLead موثوقة. BLOCKED admission أوaction تحتفظ بالسبب، وpolicy denial قدتضعConversation فيAI_HANDOFF_REQUIRED للمراجعة البشرية.
-- local failure تعيدjob بعدbackoff محدود حتىخمس محاولات ثمDEAD_LETTER. لا public replay أوlocal dead-letter recovery UI جديدة فيbaseline هذه؛الاسترداد التشغيلي المتبقي مسجل كفجوة، والمتابعة البشرية المصرح بها متاحة.
+- يعيد العامل الفشل المحلي وفق backoff محدود حتى خمس محاولات ثم `DEAD_LETTER`. تتيح 249 للمدير المخوّل أو Super Admin طلب إعادة المعالجة من «مراجعة مصدر الإنشاء» بعد معالجة سبب الفشل. يشترط PostgreSQL جلسة حية ونطاق Lead الحالي وإصدار العمل والسياق المعتمد، ويثبت إيصالًا غير قابل للتعديل في المعاملة نفسها مع Audit وإعادة الإدراج. تُحفظ سجلات المحاولات السابقة. يعيد العامل الخاضع للضوابط الحالية فحص الأصل قبل إنشاء أي رسالة.
 - تغيرcurrent authority يمنع الإرسال القديم. Human takeover قبلdispatch يوقفAI؛لا تلقائيًا يعودللتحكم.
 - UNKNOWN provider outcome لا يعاد إرساله؛Needs Attention باقية ولا يمحوهاcustomer inbound.
 - Lead intake-origin API/UI تعرض job/action/message/delivery/error facts الحالية بصلاحياتLead الحالية. runtimeStarted لا تعنيsend،وsendAuthorized تخصlocal action فقط. الرسائل immutable،والتغييرات تصحح برسائل جديدة.
 
 ## الإثبات
 
-`test-integration/ai-initial-contact.test.ts` تختبر setup/activation APIs وmanual intake→actual mocked Meta template send→signed customer reply→existing AI reply، وactual Source intake→first send، وconsent block/Human takeover/UNKNOWN no-replay/config changes/four concurrent intakes/local retry/Audit rollback/native forged-Conversation denial/history/no financial effects.
+`test-integration/ai-initial-contact.test.ts` تختبر setup/activation APIs وmanual intake→actual mocked Meta template send→signed customer reply→existing AI reply، وactual Source intake→first send، وconsent block/Human takeover/UNKNOWN no-replay/config changes/four concurrent intakes/local retry/Audit rollback/native forged-Conversation denial/history/no financial effects. تختبر 249 نفاد المحاولات بالساعة الفعلية لقاعدة الاختبار، ورفض حسم الوكيل ومدير فرع آخر وتغير السياق، وإيصالًا واحدًا تحت التزامن مع استعادة الطابور والتراجع عند تعطل Audit.
 
-`test-e2e/ai-initial-contact.spec.ts` تختبر managed setup UI وtemplate preview/reason، actual Campaign configuration/activation وmanual Lead creation وqueued→sent UI، وثلاثلغات/RTL/390px/no overflow/no page errors. endpoints تحريكworker فيBrowser محصورة بالـtest server المعزول ومحميةبتوكن؛ليست production execution API. الاختباراتالكاملة ونتائجها النهائية فيprogress/coverage.
+`test-e2e/ai-initial-contact.spec.ts` تختبر managed setup UI وtemplate preview/reason، actual Campaign configuration/activation وmanual Lead creation وqueued→sent UI، وثلاثلغات/RTL/390px/no overflow/no page errors. أثبتت رحلة التعافي طلب الحسم من نموذج Lead ووصول الطلب إلى الطابور قبل إنشاء رسالة، ثم الإقرار بالمزوّد الوهمي عبر العامل الحالي. endpoints تحريكworker فيBrowser محصورة بالـtest server المعزول ومحميةبتوكن. الاختباراتالكاملة ونتائجها النهائية فيprogress/coverage.
 
 ## ترتيب العمل بعد هذه baseline
 
