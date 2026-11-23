@@ -1,5 +1,15 @@
 import type { Database } from '../db.js';
+import type postgres from 'postgres';
+import { resolveConfiguredSender } from '../messaging/sender-resolution.js';
 import { sourceBindingIssues } from './bindings.js';
+
+export async function campaignIntakeFlowReady(sql:Database|postgres.TransactionSql,campaign:postgres.Row):Promise<boolean> {
+  if (campaign.ai_config?.enabled)
+    return (await sql`SELECT 1 FROM ai_initial_message_policy WHERE campaign_id=${campaign.id}`).length>0;
+  if (!campaign.messaging_config?.enabled) return true;
+  const selection=await resolveConfiguredSender(sql,{organizationId:campaign.organization_id,branchId:campaign.branch_id,campaignId:campaign.id});
+  return selection.sender!==null;
+}
 
 // Bounded metadata only. Never return credentials, customer values or hidden field identifiers.
 export async function sourceBindingRows(db:Database,campaignId:string|null,after:string|null,limit:number,bindingId:string|null=null,connectionId:string|null=null) {
@@ -7,7 +17,7 @@ export async function sourceBindingRows(db:Database,campaignId:string|null,after
     b.active,b.connection_version,b.version,b.created_at,b.updated_at,f.external_id AS form_external_id,f.name AS form_name,
     p.external_id AS page_external_id,p.name AS page_name,c.name AS connection_name,c.status AS connection_status,
     c.version AS current_connection_version,c.kind AS connection_kind,
-    ca.source_kind,ca.status AS campaign_status,br.active AS branch_active,
+    ca.source_kind,ca.status AS campaign_status,ca.organization_id,ca.branch_id,br.active AS branch_active,
     COALESCE((ca.messaging_config->>'enabled')::boolean,false) AS messaging_enabled,COALESCE((ca.ai_config->>'enabled')::boolean,false) AS ai_enabled,
     f.active AS form_active,f.connection_version AS form_connection_version,p.active AS page_active,p.connection_version AS page_connection_version,
     (c.branch_id=ca.branch_id OR (c.branch_id IS NULL AND EXISTS (SELECT 1 FROM source_resource_access a WHERE a.resource_id=f.id AND a.branch_id=ca.branch_id AND a.active))) AS has_access,
@@ -55,9 +65,16 @@ export async function sourceCampaignIssues(db:Database,campaign:Record<string,an
 }
 export async function sourceConnectionRuntime(db:Database,connectionId:string) {
   let after:string|null=null;let ready=false;
+  const checkedCampaigns=new Set<string>();
   do {
     const rows=await sourceBindingRows(db,null,after,100,null,connectionId);
-    ready=rows.some((r)=>r.active && r.campaign_status==='ACTIVE' && !r.messaging_enabled && !r.ai_enabled && sourceBindingIssues(r).length===0);
+    for (const row of rows) {
+      if (row.campaign_status!=='ACTIVE'||row.ai_enabled||checkedCampaigns.has(row.campaign_id)||sourceBindingIssues(row).length) continue;
+      checkedCampaigns.add(row.campaign_id);
+      ready=await campaignIntakeFlowReady(db,{id:row.campaign_id,branch_id:row.branch_id,organization_id:row.organization_id,
+        messaging_config:{enabled:row.messaging_enabled}});
+      if (ready) break;
+    }
     after=!ready && rows.length===100 ? rows.at(-1)!.id as string : null;
   } while (after);
   return { processingAvailable:true,intakeReady:ready,processingStatus:ready ? 'SOURCE_INTAKE_READY' : 'SOURCE_SETUP_REVIEW_REQUIRED' };

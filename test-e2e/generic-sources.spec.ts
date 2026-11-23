@@ -3,7 +3,7 @@ import { createHmac, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { campaignRow } from './campaign-table.js';
 
-test('A manager verifies a Webhook, publishes mapping, receives a lead once and rotates its secret',async({page})=>{
+test('A manager verifies a Webhook, publishes mapping, and receives one lead for human follow-up with Messaging enabled',async({page})=>{
   const {password,testToken}=JSON.parse(await readFile('.local/e2e/fixture.json','utf8')) as {password:string;testToken:string};
   await page.setExtraHTTPHeaders({'x-e2e-rate-scope':randomUUID()});
   await page.goto('/');
@@ -47,6 +47,12 @@ test('A manager verifies a Webhook, publishes mapping, receives a lead once and 
   await page.getByRole('button',{name:'Campaigns',exact:true}).click();
   await page.getByRole('button',{name:'Retry',exact:true}).click();
   await (await campaignRow(page,campaignName)).getByRole('button',{name:'Details',exact:true}).click();
+  await page.getByLabel('Enable customer messaging',{exact:true}).check();
+  await expect(page.getByLabel('Enable AI assistant',{exact:true})).not.toBeChecked();
+  const saved=page.waitForResponse(response=>response.request().method()==='PATCH'&&new URL(response.url()).pathname.startsWith('/api/campaigns/'));
+  await page.getByRole('button',{name:'Save settings',exact:true}).first().click();
+  const savedSettings=await saved;
+  expect(savedSettings.status(),await savedSettings.text()).toBe(200);
   const sources=page.locator('.campaign-sources');
   await sources.getByRole('button',{name:'Bind Webhook schema',exact:true}).click();
   await sources.getByRole('combobox',{name:'Campaign source connection',exact:true}).selectOption({label:'Synthetic signed webhook · CONNECTED'});
@@ -104,6 +110,13 @@ test('A manager verifies a Webhook, publishes mapping, receives a lead once and 
   await expect(lead).toContainText(name);
   await expect(lead).toContainText(campaignName);
   await expect(lead.locator('img')).toHaveCount(0);
+  const origin=(await (await page.request.get('/api/leads/'+leadId+'/intake-origin')).json()).origin;
+  expect(origin.initialAI).toBeNull();
+  expect((await (await page.request.get('/api/leads/'+leadId+'/conversations')).json()).items).toEqual([]);
+  const dueAt=new Date(Date.now()+3600_000).toISOString();
+  const followUp=await page.request.post('/api/leads/'+leadId+'/followups',{headers:{origin:'http://127.0.0.1:4100'},
+    data:{dueAt,note:'Human follow-up after signed intake'}});
+  expect(followUp.status(),await followUp.text()).toBe(201);
 
   await page.getByRole('button',{name:'Webhook sources',exact:true}).click();
   await workspace.getByRole('listitem').filter({hasText:'Synthetic signed webhook'}).getByRole('button',{name:'Open connection',exact:true}).click();

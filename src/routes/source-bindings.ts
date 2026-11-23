@@ -69,7 +69,7 @@ export function registerSourceBindingRoutes(app:FastifyInstance,db:Database):voi
   app.get<{ Params:{ id:string };Querystring:{ after?:string;limit?:number } }>(root+'/bindings',{ schema:{ params:campaignParams,querystring:paging } },async(request)=> {
     const actor=await principalFromRequest(request,db);const camp=await sourceCampaign(db,actor,request.params.id);const limit=request.query.limit ?? 30;
     const rows=await sourceBindingRows(db,camp.id,request.query.after ?? null,limit+1);
-    const items=rows.slice(0,limit).map((row)=> {
+    const items=rows.slice(0,limit).map(({organization_id,branch_id,...row})=> {
       const issues=sourceBindingIssues({ ...row,source_kind:camp.source_kind,branch_active:camp.branch_active });return { ...row,ready:issues.length===0,issues };
     });
     return { items,nextAfter:rows.length>limit ? rows[limit-1]!.id : null };

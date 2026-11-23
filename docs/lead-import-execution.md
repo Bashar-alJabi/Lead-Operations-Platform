@@ -10,7 +10,7 @@
 
 تستخدمالخدمة `validateFieldValue` وتتحقق من required LEAD_CREATION و SOURCE/MANUAL Fields المسموحة للموافق الأصلي. لاتعادقراءةالخلايا الخام أوتخمين locale. تغير Configuration لايعيدكتابةالموافقة: القيمة التي تبقىصالحة ومسموحة يمكنتنفيذها،والقيمةالمحجوبة أوغيرالصالحة تحتاجتصحيحًا واستعادةصريحة. أي coercion يغيرالقيمةالمعتمدة يُرفض. attempt تحفظبصمةالتكوينالحالية معبقاءبصمةالموافقة و Mapping الأصلية. Native تعيد استخدام pure typed validator القائمة وتطابق القيم والمراجع الأصلية؛لا AI أو Provider call للتحقق.
 
-يبقى Source flow readiness الحالي مطبقًا: Messaging-enabled/AI-disabled أو AI-enabled دون initial policy يؤديإلى IMPORT_CAMPAIGN_FLOW_NOT_READY. هذاالمسار لايتجاوزالقيدالسابقالموثق في progress. عند AI مهيأةصراحة تعمل fresh intake admission الحالية من receipt الفعلية؛لا AI inference داخلقارئالملف أوخدمةالاستيراد.
+يستخدم الاستيراد تحقق الجاهزية نفسه في إدخال المصادر. إذا كانت Messaging مفعلة مع تعطيل AI، يتحقق العامل من Sender في نطاق الحملة قبل إنشاء الفرصة. يؤدي غياب Sender مؤهل أو غياب السياسة الأولية لحملة مفعّل فيها AI إلى `IMPORT_CAMPAIGN_FLOW_NOT_READY`. عند تفعيل AI مع سياسة أولية معتمدة، يسجّل إدخال الفرصة إيصالًا يمكن أن يطلق تقييم الجاهزية الأولية.
 
 ## Contacts والمراجعة التشغيلية
 

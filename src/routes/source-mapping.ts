@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { Database } from '../db.js';
 import { HttpError,lockCurrentSession,principalFromRequest,type Principal } from '../security.js';
 import { sourceCampaign,sourceFormForBranch,sourceFormAvailable,sourceBindingIssues } from '../sources/bindings.js';
-import { sourceBindingRows } from '../sources/readiness.js';
+import { campaignIntakeFlowReady,sourceBindingRows } from '../sources/readiness.js';
 import { recheckSourceActor } from '../sources/catalog-sync.js';
 import { sourceTransforms,sourceCatalogHash,mappingTargetHash,mappingTargets,validateMappingEntries,previewSourceMapping,suggestMapping,
   type MappingEntry,type MappingTarget,type SourceValue } from '../sources/field-mapping.js';
@@ -68,10 +68,13 @@ export function registerSourceMappingRoutes(app:FastifyInstance,db:Database):voi
     }
     const [runtime]=await sourceBindingRows(db,scope.camp.id,null,1,scope.binding.id);
     const setupIssues=sourceBindingIssues(runtime!);
+    const intakeReady=setupIssues.length===0 && scope.camp.status==='ACTIVE' && !runtime!.ai_enabled
+      && await campaignIntakeFlowReady(db,{id:scope.camp.id,organization_id:runtime!.organization_id,branch_id:scope.camp.branch_id,
+        messaging_config:{enabled:runtime!.messaging_enabled}});
     return { latest:await visibleRevision(db,actor,scope.camp.id,latest),publishedVersion:published?.version ?? null,
       bindingVersion:scope.binding.version,connectionVersion:scope.form.version,resourceVersion:scope.resource.version,questions:scope.questions,
       configured:issues.length===0,issues,draftWarnings,setupReady:setupIssues.length===0,setupIssues,
-      intakeReady:setupIssues.length===0 && scope.camp.status==='ACTIVE' && !runtime!.messaging_enabled && !runtime!.ai_enabled };
+      intakeReady };
   });
   app.get<{ Params:{ id:string;bindingId:string };Querystring:{ after?:string;limit?:number } }>(root+'/targets',{
     schema:{ params,querystring:{ type:'object',additionalProperties:false,properties:{ after:uuid,limit:{ type:'integer',minimum:1,maximum:100 } } } } },async(request)=> {

@@ -131,13 +131,15 @@ test('Generic Webhook creates one scoped lead through shared mapping and intake,
   const [manager,other]=await db`INSERT INTO user_account(organization_id,branch_id,role,name,email,password_hash) VALUES
     (${org!.id},${branch!.id},'MANAGER','Scoped manager','manager@webhook.test','fixture'),
     (${org!.id},${foreign!.id},'MANAGER','Other manager','other@webhook.test','fixture') RETURNING id`;
+  const [agent]=await db`INSERT INTO user_account(organization_id,branch_id,role,name,email,password_hash)
+    VALUES(${org!.id},${branch!.id},'AGENT','Human owner','agent@webhook.test','fixture') RETURNING id`;
   async function session(id:string) {
     const token=randomBytes(32).toString('hex');
     await db`INSERT INTO user_session(user_id,token_hash,expires_at) VALUES(${id},${sha256(token)},clock_timestamp()+interval '1 hour')`;
     return 'lop_session='+token;
   }
-  const cookie=await session(manager!.id), otherCookie=await session(other!.id);
-  const request=(method:'GET'|'POST'|'PUT',path:string,payload?:object,actingCookie=cookie)=>app.inject({
+  const cookie=await session(manager!.id), otherCookie=await session(other!.id),agentCookie=await session(agent!.id);
+  const request=(method:'GET'|'POST'|'PUT'|'PATCH',path:string,payload?:object,actingCookie=cookie)=>app.inject({
     method,url:path,payload,headers:{cookie:actingCookie,origin:process.env.APP_ORIGIN!},
   });
   const [campaign,second]=await db`INSERT INTO campaign(organization_id,branch_id,source_kind,name) VALUES
@@ -146,7 +148,7 @@ test('Generic Webhook creates one scoped lead through shared mapping and intake,
   assert.equal(create.statusCode,201,create.body);
   const {id,signingSecret,callbackPath}=create.json();
   const schemaPath='/api/sources/generic/connections/'+id+'/schema';
-  const input={version:0,connectionVersion:1,keys:['name','email'],reason:'Declare webhook field keys'};
+  const input={version:0,connectionVersion:1,keys:['name','email','phone'],reason:'Declare webhook field keys'};
   assert.equal((await request('PUT',schemaPath,input)).json().error,'GENERIC_SOURCE_TEST_REQUIRED');
   assert.equal((await request('GET',schemaPath,undefined,otherCookie)).statusCode,404);
   const body=JSON.stringify({testId:randomUUID()}),seconds=Math.floor(Date.now()/1000);
@@ -180,7 +182,8 @@ test('Generic Webhook creates one scoped lead through shared mapping and intake,
   const mapping=root+'/bindings/'+binding+'/mapping';
   const versions={bindingVersion:1,connectionVersion:1,resourceVersion:1};
   const entries=[{sourceKey:'name',kind:'CONTACT_NAME',transform:'TEXT',optionMap:[]},
-    {sourceKey:'email',kind:'CONTACT_EMAIL',transform:'TEXT',optionMap:[]}];
+    {sourceKey:'email',kind:'CONTACT_EMAIL',transform:'TEXT',optionMap:[]},
+    {sourceKey:'phone',kind:'CONTACT_PHONE',transform:'TEXT',optionMap:[]}];
   const preview=await request('POST',mapping+'/preview',{...versions,entries,values:[{key:'name',values:['Synthetic preview']}]});
   assert.equal(preview.statusCode,200,preview.body);
   assert.equal(preview.json().contact.name,'Synthetic preview');
@@ -189,6 +192,17 @@ test('Generic Webhook creates one scoped lead through shared mapping and intake,
   assert.equal((await request('GET',mapping)).json().configured,true);
   assert.equal((await request('GET',mapping,undefined,otherCookie)).statusCode,404);
   const campaignPath='/api/campaigns/'+campaign!.id;
+  const settings=(await request('GET',campaignPath)).json().campaign;
+  const humanSettings=await request('PATCH',campaignPath,{version:settings.version,name:settings.name,sourceKind:'GENERIC_SOURCE',
+    routingMethod:'ROUND_ROBIN',messagingEnabled:true,aiEnabled:false});
+  assert.equal(humanSettings.statusCode,200,humanSettings.body);
+  assert.equal((await request('PUT',campaignPath+'/agents',{agentId:agent!.id})).statusCode,200);
+  assert.ok((await request('GET',campaignPath+'/readiness')).json().issues.includes('MESSAGING_CONFIGURATION_NOT_READY'));
+  const [messageConnection]=await db`INSERT INTO integration_connection(organization_id,branch_id,kind,provider,name,status)
+    VALUES(${org!.id},${branch!.id},'MESSAGING','FAKE','Local messaging fixture','CONNECTED') RETURNING id`;
+  const [sender]=await db`INSERT INTO messaging_sender(organization_id,connection_id,external_sender_id,display_name,health,operator_enabled,capabilities)
+    VALUES(${org!.id},${messageConnection!.id},'synthetic-sender','Local Sender','HEALTHY',true,'{"text":true}') RETURNING id`;
+  assert.equal((await request('PUT','/api/messaging/branches/'+branch!.id+'/default-sender',{version:1,senderId:sender!.id})).statusCode,200);
   assert.equal((await request('GET',campaignPath+'/readiness')).json().ready,true);
   async function postEvent(payload:string,purpose='intake') {
     const timestamp=Math.floor(Date.now()/1000);
@@ -197,10 +211,11 @@ test('Generic Webhook creates one scoped lead through shared mapping and intake,
     return app.inject({method:'POST',url:'/api/webhooks/sources/generic/'+id+'/leads',payload,
       headers:{'content-type':'application/json','x-source-timestamp':String(timestamp),'x-source-signature':'v1='+signature}});
   }
-  const eventId=randomUUID(),first=JSON.stringify({eventId,fields:{name:'Synthetic Webhook Lead',email:'lead@webhook.test'}});
+  const eventId=randomUUID(),first=JSON.stringify({eventId,fields:{name:'Synthetic Webhook Lead',email:'lead@webhook.test',phone:'+15550907315'}});
   assert.equal((await postEvent(first)).statusCode,409);
   const activate=await request('POST',campaignPath+'/activate');
   assert.equal(activate.statusCode,200,activate.body);
+  assert.equal((await request('GET',mapping)).json().intakeReady,true);
   assert.equal((await postEvent(first,'test')).statusCode,401);
   assert.equal((await postEvent(JSON.stringify({eventId,fields:{name:'Invalid',payment:'claimed'}}))).statusCode,400);
   const burst=await Promise.all(Array.from({length:6},()=>postEvent(first)));
@@ -211,12 +226,17 @@ test('Generic Webhook creates one scoped lead through shared mapping and intake,
   assert.equal(await processOneSourceEvaluation(db),true);
   assert.equal(await processOneSourceIntake(db),true);
   assert.equal(await processOneSourceIntake(db),false);
-  const [lead]=await db`SELECT l.id,l.campaign_id,l.source_kind,c.email FROM lead l JOIN contact c ON c.id=l.contact_id`;
+  const [lead]=await db`SELECT l.id,l.campaign_id,l.source_kind,l.assigned_agent_id,c.email FROM lead l JOIN contact c ON c.id=l.contact_id`;
   assert.equal(lead!.campaign_id,campaign!.id);
   assert.equal(lead!.source_kind,'GENERIC_SOURCE');
   assert.equal(lead!.email,'lead@webhook.test');
+  assert.equal(lead!.assigned_agent_id,agent!.id);
   const origin=await request('GET','/api/leads/'+lead!.id+'/intake-origin');
   assert.equal(origin.json().origin.sourceKind,'GENERIC_SOURCE');
+  assert.equal(origin.json().origin.initialAI,null);
+  const dueAt=new Date(Date.now()+3600_000).toISOString();
+  const followUp=await request('POST','/api/leads/'+lead!.id+'/followups',{dueAt,note:'Authorized human follow-up'},agentCookie);
+  assert.equal(followUp.statusCode,201,followUp.body);
   assert.equal((await request('GET','/api/sources/submissions/'+submission+'/history')).json().items[0].state,'PROCESSED');
   assert.equal((await request('GET','/api/sources/submissions/'+submission+'/history',undefined,otherCookie)).statusCode,404);
   assert.equal((await db`SELECT count(*)::int AS n FROM payment_record`)[0]!.n,0);
@@ -248,4 +268,29 @@ test('Generic Webhook creates one scoped lead through shared mapping and intake,
   assert.equal(await processOneSourceEvaluation(db),true);
   assert.equal(await processOneSourceIntake(db),true);
   assert.equal((await db`SELECT count(*)::int AS n FROM lead`)[0]!.n,2);
+
+  await db`UPDATE messaging_sender SET operator_enabled=false WHERE id=${sender!.id}`;
+  assert.equal((await request('GET',mapping)).json().intakeReady,false);
+  const later=await postEvent(JSON.stringify({eventId:randomUUID(),fields:{name:'Requires current Sender',email:'wait@webhook.test'}}));
+  assert.equal(later.statusCode,202,later.body);
+  const laterId=later.json().id;
+  assert.equal(await processOneSourceEvaluation(db),true);
+  assert.equal(await processOneSourceIntake(db),true);
+  const [blocked]=await db`SELECT version,state,error_code FROM source_processing WHERE submission_id=${laterId}`;
+  assert.equal(blocked!.state,'NEEDS_ATTENTION');
+  assert.equal(blocked!.error_code,'SOURCE_CAMPAIGN_FLOW_NOT_READY');
+  assert.equal((await db`SELECT count(*)::int AS n FROM lead`)[0]!.n,2);
+  const reprocess='/api/sources/submissions/'+laterId+'/reprocess';
+  const reprocessBody={version:blocked!.version,reason:'Approved local Sender restored'};
+  assert.equal((await request('POST',reprocess,reprocessBody,otherCookie)).statusCode,404);
+  await db`UPDATE messaging_sender SET operator_enabled=true WHERE id=${sender!.id}`;
+  assert.equal((await request('GET',mapping)).json().intakeReady,true);
+  assert.equal((await request('POST',reprocess,reprocessBody)).statusCode,200);
+  assert.equal(await processOneSourceEvaluation(db),true);
+  assert.equal(await processOneSourceIntake(db),true);
+  assert.equal(await processOneSourceIntake(db),false);
+  assert.equal((await db`SELECT count(*)::int AS n FROM lead`)[0]!.n,3);
+  for (const table of ['ai_initial_job','ai_initial_admission','conversation_message','payment_record']){
+    assert.equal((await db.unsafe('SELECT count(*)::int AS n FROM '+table))[0]!.n,0,table);
+  }
 });

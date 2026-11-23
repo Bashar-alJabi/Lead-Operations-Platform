@@ -58,6 +58,16 @@ async function approvedIntake(f:Awaited<ReturnType<typeof fixture>>,rows:(string
 
 test('Approved Import executes real typed routed Leads exactly once after raw purge and original session revocation, retaining independent source provenance and current private result pages',async t=>{
  const f=await fixture(t),{db,api}=f,n=await addImportField(f,'NUMBER','intake_number',true,'SOURCE'),b=await addImportField(f,'BOOLEAN','intake_flag');
+ const [messagingConnection]=await db`INSERT INTO integration_connection(organization_id,branch_id,kind,provider,name,status)
+  VALUES(${f.org},${f.branch},'MESSAGING','FAKE','Import local messaging','CONNECTED') RETURNING id`;
+ const [sender]=await db`INSERT INTO messaging_sender(organization_id,connection_id,external_sender_id,display_name,health,operator_enabled,capabilities)
+  VALUES(${f.org},${messagingConnection!.id},'synthetic-import-sender','Import local Sender','HEALTHY',true,'{"text":true}') RETURNING id`;
+ assert.equal((await api('PUT','/api/messaging/branches/'+f.branch+'/default-sender',{version:1,senderId:sender!.id})).statusCode,200);
+ const campaignPath='/api/campaigns/'+f.campaign;
+ const campaign=(await api('GET',campaignPath)).json().campaign;
+ const settings=await api('PATCH',campaignPath,{version:campaign.version,name:campaign.name,sourceKind:'MANUAL',
+  routingMethod:'MANUAL',messagingEnabled:true,aiEnabled:false});
+ assert.equal(settings.statusCode,200,settings.body);
  const a=await approvedIntake(f,[['name','phone','n','b'],...Array.from({length:31},(_,i)=>['<svg onload=evil()> '+i,'+33'+String(120005000+i),'0','false'])],[{column:0,kind:'CONTACT_NAME'},{column:1,kind:'CONTACT_PHONE'},{column:2,kind:'LEAD_FIELD',fieldId:n},{column:3,kind:'LEAD_FIELD',fieldId:b}]);
  const intent={requestId:randomUUID()},starts=await Promise.all(Array.from({length:8},()=>api('POST',a.path+'/execute',intent)));assert.ok(starts.every(r=>r.statusCode===202),starts.map(r=>r.body).join('\n'));assert.equal(new Set(starts.map(r=>r.json().id)).size,1);
  assert.equal((await api('POST',a.path+'/execute',{requestId:randomUUID()})).statusCode,409);assert.equal((await api('POST',a.root+'/cancel',{version:(await f.status(a.file)).version})).statusCode,200);await f.work();
@@ -79,6 +89,8 @@ test('Approved Import executes real typed routed Leads exactly once after raw pu
  assert.equal((await db`SELECT count(*)::int n FROM field_value_history WHERE lead_id=${lead} AND source_import_dataset_id=${a.dataset}`)[0]!.n,2);
  for(const who of ['admin','agent','other','foreign'])assert.equal((await api('GET',a.path+'/execution',undefined,who)).statusCode,404);
  assert.equal((await api('POST',a.path+'/execute',intent)).statusCode,202);assert.equal((await db`SELECT count(*)::int n FROM payment_record`)[0]!.n,0);assert.equal((await db`SELECT count(*)::int n FROM messaging_consent`)[0]!.n,0);
+ assert.equal((await db`SELECT count(*)::int n FROM ai_initial_admission`)[0]!.n,0);
+ assert.equal((await db`SELECT count(*)::int n FROM conversation_message`)[0]!.n,0);
  await assert.rejects(db`UPDATE lead_import_result SET state='WAITING' WHERE submission_id=${first.submission_id}`,/IMPORT_RESULT_IMMUTABLE/);
  await assert.rejects(db`DELETE FROM lead_import_result_history WHERE submission_id=${first.submission_id}`,/IMPORT_RESULT_HISTORY_IMMUTABLE/);
  await assert.rejects(db`UPDATE lead_import_attempt SET configuration_hash=repeat('f',64) WHERE submission_id=${first.submission_id}`,/IMPORT_ATTEMPT_IMMUTABLE/);

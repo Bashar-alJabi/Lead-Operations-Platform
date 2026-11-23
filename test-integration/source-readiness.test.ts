@@ -94,9 +94,19 @@ test('Source readiness requires current operational setup and activation fences 
   try { await waitActivation();await db`UPDATE user_account SET active=false WHERE id=${users.manager!.id}`; }
   finally { actorHeld.unlock();await actorHeld.work; }
   assert.equal((await disabled).statusCode,403);await db`UPDATE user_account SET active=true WHERE id=${users.manager!.id}`;
+  await patchCampaign(true);
+  const [humanConnection]=await db`INSERT INTO integration_connection(organization_id,branch_id,kind,provider,name,status)
+    VALUES(${org},${branch},'MESSAGING','FAKE','Local human messaging','CONNECTED') RETURNING id`;
+  const [humanSender]=await db`INSERT INTO messaging_sender(organization_id,connection_id,external_sender_id,display_name,health,operator_enabled,capabilities)
+    VALUES(${org},${humanConnection!.id},'synthetic-human-sender','Local human sender','HEALTHY',true,'{"text":true}') RETURNING id`;
+  assert.equal((await api('PUT','/api/messaging/branches/'+branch+'/default-sender',{version:1,senderId:humanSender!.id})).statusCode,200);
   const activated=await Promise.all([activate(),activate()]);assert.ok(activated.every((r)=>r.statusCode===200));
   assert.equal(activated[0]!.json().version,activated[1]!.json().version);assert.equal((await db`SELECT count(*)::integer AS n FROM audit_log WHERE target_id=${campaign} AND action='CAMPAIGN_ACTIVATED'`)[0]!.n,1);
   assert.equal((await api('GET',base+'/webhook',undefined,'admin')).json().intakeReady,true);assert.equal((await api('GET',mapping)).json().intakeReady,true);
+  await db`UPDATE messaging_sender SET health='UNKNOWN' WHERE id=${humanSender!.id}`;
+  assert.equal((await api('GET',base+'/webhook',undefined,'admin')).json().intakeReady,false);
+  assert.equal((await api('GET',mapping)).json().intakeReady,false);
+  await db`UPDATE messaging_sender SET health='HEALTHY' WHERE id=${humanSender!.id}`;
   const raw=JSON.stringify({ object:'page',entry:[{ id:'11',time:1700000000,changes:[{ field:'leadgen',value:{ page_id:'11',form_id:'22',leadgen_id:'33',created_time:1699999999 } }] }] });
   const receipt=()=>app.inject({ method:'POST',url:'/api/webhooks/sources/meta/'+connection,payload:raw,
     headers:{ 'content-type':'application/json','x-hub-signature-256':'sha256='+createHmac('sha256',credentials.appSecret).update(raw).digest('hex') } });
@@ -104,6 +114,7 @@ test('Source readiness requires current operational setup and activation fences 
   assert.equal(await processOneSourceEvaluation(db),true);assert.equal(await processOneSourceIntake(db),true);
   const result=(await db`SELECT s.*,p.state AS processing_state FROM source_submission s JOIN source_processing p ON p.submission_id=s.id`)[0]!;
   assert.equal(result.processing_state,'PROCESSED');assert.ok(result.lead_id);assert.equal((await api('GET','/api/leads/'+result.lead_id)).statusCode,200);
+  assert.equal((await api('GET','/api/leads/'+result.lead_id+'/intake-origin')).json().origin.initialAI,null);
   assert.equal((await receipt()).statusCode,200);assert.equal(await processOneSourceRetrieval(db,{ retrieve:async()=> { throw new Error('duplicate provider call'); } }),false);
   assert.equal(await processOneSourceIntake(db),false);assert.equal((await db`SELECT count(*)::integer AS n FROM lead`)[0]!.n,1);
   assert.equal((await api('POST',camp+'/deactivate')).statusCode,200);assert.equal((await api('GET',base+'/webhook',undefined,'admin')).json().intakeReady,false);

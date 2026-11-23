@@ -8,6 +8,7 @@ import {validateFieldValue} from '../fields.js';
 import {routeLead} from '../routing.js';
 import {recordLeadIntakeOrigin} from '../lead-intake-origin.js';
 import {lockSourceIdentities,sourceCandidatePage} from '../sources/intake.js';
+import {campaignIntakeFlowReady} from '../sources/readiness.js';
 import {importLimits,importSourceKind,type ImportFile} from './service.js';
 import {importMappingTargets,importMappingHash} from './mapping.js';
 import {lockReviewFields,missingImportFields} from './review.js';
@@ -42,7 +43,7 @@ export async function currentImportRow(tx:postgres.TransactionSql,j:ImportFile,r
  if(!(await tx`SELECT lead_import_execution_allowed(${row.dataset_id}) allowed`)[0]!.allowed)throw new HttpError(409,'IMPORT_INTAKE_AUTHORITY_UNAVAILABLE');
  const c=(await tx`SELECT c.*,b.timezone FROM campaign c JOIN branch b ON b.id=c.branch_id WHERE c.id=${j.campaign_id}`)[0]!;
  // Retain the existing Source flow readiness boundary; this adapter cannot bypass it.
- if((c.messaging_config?.enabled||c.ai_config?.enabled)&&!(c.ai_config?.enabled&&(await tx`SELECT 1 FROM ai_initial_message_policy WHERE campaign_id=${c.id}`).length))throw new HttpError(409,'IMPORT_CAMPAIGN_FLOW_NOT_READY');
+ if(!await campaignIntakeFlowReady(tx,c))throw new HttpError(409,'IMPORT_CAMPAIGN_FLOW_NOT_READY');
  const ids=row.fields.map(f=>f.fieldId),targets=await importMappingTargets(tx,j,ids);
  if(targets.length!==ids.length)throw new HttpError(409,'IMPORT_FIELD_NOT_AVAILABLE');
  if(await missingImportFields(tx,j,ids))throw new HttpError(409,'IMPORT_REQUIRED_VALUE_MISSING');
