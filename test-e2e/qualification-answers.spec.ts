@@ -81,6 +81,13 @@ test('Human qualification answers are collected through authorized typed Fields 
     const qualified = managerAnalytics.locator('[data-analytics-metric="QUALIFICATION_COMPLETE"]');
     await expect(qualified).toContainText('Qualification complete');
     await expect(qualified.locator('strong')).toHaveText('1');
+    const groups=managerAnalytics.locator('[data-analytics-groups]');
+    await groups.getByRole('combobox',{name:'Group by',exact:true}).selectOption('SOURCE');
+    await groups.getByRole('button',{name:'Refresh analytics',exact:true}).click();
+    const manualGroup=groups.locator('article').filter({has:manager.getByRole('heading',{name:'MANUAL',exact:true})});
+    await expect(manualGroup.locator('strong')).toHaveText(['1','0']);
+    await manualGroup.getByRole('button',{name:'Filter this group',exact:true}).click();
+    await expect(managerAnalytics.getByRole('combobox',{name:'Source',exact:true})).toHaveValue('MANUAL');
     await qualified.click();
     const result = managerAnalytics.locator('[data-analytics-drilldown]');
     await expect(result.locator('[data-analytics-lead]')).toHaveCount(1);
@@ -97,6 +104,11 @@ test('Human qualification answers are collected through authorized typed Fields 
     await expect(ownerAnalytics.locator('[data-analytics-metric="ALL"] strong')).toHaveText('1');
     await expect(ownerAnalytics.locator('[data-analytics-metric="QUALIFICATION_COMPLETE"] strong')).toHaveText('0');
     await expect(ownerAnalytics.locator('[data-analytics-metric="QUALIFICATION_INCOMPLETE"] strong')).toHaveText('0');
+    const ownerGroups=ownerAnalytics.locator('[data-analytics-groups]');
+    await ownerGroups.getByRole('combobox',{name:'Group by',exact:true}).selectOption('SOURCE');
+    await ownerGroups.getByRole('button',{name:'Refresh analytics',exact:true}).click();
+    const ownerSource=ownerGroups.locator('article').filter({has:second.getByRole('heading',{name:'MANUAL',exact:true})});
+    await expect(ownerSource.locator('strong')).toHaveText(['—','—']);
     await ownerAnalytics.locator('[data-analytics-metric="QUALIFICATION_COMPLETE"]').click();
     await expect(ownerAnalytics.locator('[data-analytics-drilldown]')).toContainText('No records in this scope.');
     expect(errors).toEqual([]);

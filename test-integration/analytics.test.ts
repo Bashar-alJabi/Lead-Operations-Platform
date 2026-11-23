@@ -229,5 +229,20 @@ test('Analytics aggregates a larger cohort on the server while lead and grouping
  const next=await api('GET',drill+'&cursor='+encodeURIComponent(page.json().nextCursor));assert.equal(next.statusCode,200,next.body);
  assert.ok(next.json().items.every((l:any)=>!page.json().items.some((p:any)=>p.id===l.id)));
  assert.equal((await overview('sourceKind=GENERIC_SOURCE','agent')).leads.total,'0');
- const groups=await api('GET','/api/analytics/groups?sourceKind=GENERIC_SOURCE&limit=1');assert.equal(groups.statusCode,200,groups.body);assert.equal(groups.json().items.length,1);assert.equal(groups.json().items[0].leads,'5000');
+ const groups=await api('GET','/api/analytics/groups?by=SOURCE&sourceKind=GENERIC_SOURCE&limit=1');
+ assert.equal(groups.statusCode,200,groups.body);
+ const {items,nextAfter}=groups.json();
+ assert.equal(nextAfter,null);
+ assert.equal(items.length,1);
+ assert.deepEqual([items[0].id,items[0].leads,items[0].qualification_complete,items[0].qualification_incomplete],
+  ['GENERIC_SOURCE','5000','0','5000']);
+ const sourceGroups='/api/analytics/groups?by=SOURCE&limit=1&campaignId='+campaigns[0];
+ const firstGroup=await api('GET',sourceGroups);
+ assert.equal(firstGroup.statusCode,200,firstGroup.body);
+ assert.equal(firstGroup.json().items[0].id,'GENERIC_SOURCE');
+ assert.equal(firstGroup.json().nextAfter,'GENERIC_SOURCE');
+ const secondGroup=await api('GET',sourceGroups+'&after=GENERIC_SOURCE');
+ assert.equal(secondGroup.statusCode,200,secondGroup.body);
+ assert.deepEqual(secondGroup.json().items.map((item:{id:string;leads:string})=>[item.id,item.leads]),[['MANUAL','2']]);
+ assert.equal(secondGroup.json().nextAfter,null);
 });

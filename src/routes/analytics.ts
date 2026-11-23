@@ -69,9 +69,11 @@ export function registerAnalyticsRoutes(app:FastifyInstance,db:Database){
   return db.begin(async tx=>{
    const {q,field}=await access(tx,actor,request.query,request),id=tx.unsafe(by==='BRANCH'?'f.branch_id::text':by==='CAMPAIGN'?'f.campaign_id::text':'f.source_kind'),
     name=tx.unsafe(by==='BRANCH'?'f.branch_name':by==='CAMPAIGN'?'f.campaign_name':'f.source_kind');
-   const rows=await tx`${analyticsCtes(tx,actor,q,field)} SELECT ${id} AS id,max(${name}) AS name,count(*)::text AS leads,
+   const rows=await tx`${analyticsCtes(tx,actor,q,field,by==='SOURCE')} SELECT ${id} AS id,max(${name}) AS name,count(*)::text AS leads,
     (count(*) FILTER(WHERE converted))::text AS converted,(count(*) FILTER(WHERE conversion_defined))::text AS configured_leads,
     round(100.0*count(*) FILTER(WHERE converted)/nullif(count(*) FILTER(WHERE conversion_defined),0),2)::text AS rate,
+    CASE WHEN count(qualification_complete)>0 THEN (count(*) FILTER(WHERE qualification_complete IS TRUE))::text END AS qualification_complete,
+    CASE WHEN count(qualification_complete)>0 THEN (count(*) FILTER(WHERE qualification_complete IS FALSE))::text END AS qualification_incomplete,
     ${by==='CAMPAIGN'?tx.unsafe('max(f.conversion_type)'):tx.unsafe('NULL::text')} AS definition,
     ${by==='CAMPAIGN'?tx.unsafe('max(f.campaign_version)'):tx.unsafe('NULL::integer')} AS definition_version
     FROM facts f WHERE (${request.query.after??null}::text IS NULL OR ${id}>${request.query.after??null}) GROUP BY ${id}

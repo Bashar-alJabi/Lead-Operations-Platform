@@ -50,8 +50,19 @@ test('Actual Human qualification uses current authorized Fields, typed idempoten
     const { leads } = overview.json();
     assert.equal(leads.qualificationComplete, complete === true ? '1' : '0');
     assert.equal(leads.qualificationIncomplete, complete === false ? '1' : '0');
+    const groups=await api('GET','/api/analytics/groups?by=SOURCE&'+query,undefined,actor);
+    assert.equal(groups.statusCode,200,groups.body);
+    const {items}=groups.json();
+    if(actor==='manager'||actor==='agent'){
+      assert.equal(items.length,1);
+      assert.equal(items[0].id,'MANUAL');
+      assert.equal(items[0].qualification_complete,complete===null?null:leads.qualificationComplete);
+      assert.equal(items[0].qualification_incomplete,complete===null?null:leads.qualificationIncomplete);
+    }else{
+      assert.deepEqual(items,[]);
+    }
     for (const [metric, matches] of [['QUALIFICATION_COMPLETE', complete === true], ['QUALIFICATION_INCOMPLETE', complete === false]] as const) {
-      const detail = await api('GET', `/api/analytics/leads?${query}&metric=${metric}`, undefined, actor);
+      const detail = await api('GET', `/api/analytics/leads?${query}&sourceKind=MANUAL&metric=${metric}`, undefined, actor);
       assert.equal(detail.statusCode, 200, detail.body);
       assert.deepEqual(detail.json().items.map((item: { id: string }) => item.id), matches ? [lead] : []);
       assert.ok(!detail.body.includes('Interest?') && !detail.body.includes('img literal'));

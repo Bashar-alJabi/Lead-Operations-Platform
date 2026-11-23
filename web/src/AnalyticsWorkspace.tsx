@@ -8,7 +8,8 @@ type Filter=Record<'branchId'|'campaignId'|'assignedAgentId'|'sourceKind'|'lifec
 type Report={as_of:string;paymentMode:string;humanAuthorId:string|null;leads:Record<string,string>;communication:Record<string,string|null>;follow_ups:Record<string,string>;
  conversion:{configuredLeads:string;converted:string;unconfiguredLeads:string;rate:string|null};revenue:{currency:string;mode:string;amount:string;payments:string}[];
  payments:{state:string;count:string}[];conversations:{state:string;controller:string;count:string}[];enrollment_records:string};
-type Group={id:string;name:string;leads:string;configured_leads:string;converted:string;rate:string|null;definition:string|null;definition_version:number|null};
+type Group={id:string;name:string;leads:string;configured_leads:string;converted:string;rate:string|null;definition:string|null;definition_version:number|null;
+ qualification_complete:string|null;qualification_incomplete:string|null};
 type Author={id:string;name:string;contacted_leads:string;human_attempts:string;response_samples:string;response_seconds:string|null};
 type Lead={id:string;contact_name:string|null;campaign_name:string;branch_name:string;lifecycle:string;created_at:string;first_platform:string|null;first_ai:string|null;first_human:string|null;first_customer_response:string|null};
 type Field=FilterField&{id:string;label:string;options:{value:string;label:string;active:boolean}[]};
@@ -123,6 +124,7 @@ export function AnalyticsWorkspace({locale,api,user,branches,onOpenLead}:{locale
    <h3>{t.tasks}</h3><dl>{(['open','overdue','upcoming','completed','cancelled','human','automation'] as const).map(k=><div key={k}><dt>{k==='overdue'?t.overdueFollowUp:t[k]}</dt><dd>{count(report.follow_ups[k])}</dd></div>)}</dl>
    <section data-analytics-groups><h3>{t.groups}</h3><label>{t.by}<select aria-label={t.by} value={by} disabled={busy} onChange={e=>{setBy(e.target.value as typeof by);setGroups({items:[],nextAfter:null});}}><option value="CAMPAIGN">{t.campaign}</option><option value="BRANCH">{t.branch}</option><option value="SOURCE">{t.source}</option></select></label><button disabled={busy} onClick={()=>void page('groups')}>{t.refresh}</button>
     {groups.items.map(g=><article key={g.id}><h4>{g.name}</h4><p>{t.total}: {count(g.leads)} · {t.converted}: {count(g.converted)} / {count(g.configured_leads)} · {g.rate===null?t.none:g.rate+'%'}</p>{by==='CAMPAIGN'&&<p>{t.definition}: {definition(g.definition)} · {t.version} {g.definition_version}</p>}
+     {by==='SOURCE'&&<p>{t.qualificationComplete} <strong>{count(g.qualification_complete)}</strong> · {t.qualificationIncomplete} <strong>{count(g.qualification_incomplete)}</strong></p>}
      <button disabled={busy} onClick={()=>filterGroup(g)}>{t.filter}</button></article>)}{groups.nextAfter&&<button disabled={busy} onClick={()=>void page('groups',groups.nextAfter!)}>{t.more}</button>}</section>
    <section data-analytics-authors><h3>{t.authors}</h3>{authors.items.map(a=><article key={a.id}><h4>{a.name}</h4><p>{t.leadsContacted}: {count(a.contacted_leads)} · {t.humanAttempts}: {count(a.human_attempts)} · {t.samples}: {count(a.response_samples)} · {t.humanResponseSeconds}: {a.response_seconds??'—'}</p></article>)}{!authors.items.length&&<p>{t.empty}</p>}{authors.nextAfter&&<button disabled={busy} onClick={()=>void page('agents',authors.nextAfter!)}>{t.more}</button>}</section>
   </div>}
