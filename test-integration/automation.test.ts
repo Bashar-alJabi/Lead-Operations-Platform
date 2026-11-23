@@ -12,10 +12,15 @@ import {processOneLeadAttentionNotification} from '../src/lead-attention-notific
 import {processOneConversationAttentionNotification} from '../src/conversation-attention-notifications.js';
 import {processOneInboundEvent} from '../src/messaging/inbound-events.js';
 import {sealSecret} from '../src/credentials.js';
+import {emptyAIOperationalConfig} from '../src/ai/operational-config.js';
+import {processOneAIHandoffSummary} from '../src/ai/handoff-summary.js';
+import type {AIAdapterRegistry} from '../src/ai/providers.js';
+import type {AIInferenceRegistry} from '../src/ai/inference-provider.js';
 const url=process.env.TEST_DATABASE_URL;
 if(!url||new URL(url).pathname!=='/lead_operations_test')throw new Error('Isolated TEST_DATABASE_URL required');
-async function fixture(t:TestContext){
- process.env.APP_ORIGIN='http://127.0.0.1:5173';const db=createDatabase(url),app=await buildApp(db,{logger:false,globalRateLimitMax:10000});
+async function fixture(t:TestContext,aiConnectionAdapters?:AIAdapterRegistry){
+ process.env.APP_ORIGIN='http://127.0.0.1:5173';const db=createDatabase(url),app=await buildApp(db,{logger:false,globalRateLimitMax:10000,
+  ...(aiConnectionAdapters?{aiConnectionAdapters}:{})});
  t.after(async()=>{await app.close();await db.end();});
  await db.begin(async tx=>{await tx`SET LOCAL client_min_messages TO warning`;await tx`TRUNCATE background_job CASCADE`;await tx`TRUNCATE organization CASCADE`;});
  const org=(await db`INSERT INTO organization(name) VALUES('Automation test') RETURNING id`)[0]!.id,
@@ -38,6 +43,92 @@ async function fixture(t:TestContext){
  async function execute(){for(let i=0;i<200&&await processOneAutomationExecution(db);i++);}
  return {db,app,org,branch,other,campaign,users,api,def,rule,create,matches,execute};
 }
+
+test('Automation summaries require the approved scoped source, preserve evidence and stop before inference on revoked approval',async t=>{
+ const {db,org,branch,campaign,users,api,def,rule,create,matches,execute}=await fixture(t,{
+  OPENAI:{listModels:async()=>['synthetic-automation-summary']},
+ });
+ process.env.CREDENTIAL_ENCRYPTION_KEY=randomBytes(32).toString('hex');
+ const credential='synthetic-only-automation-summary';
+ const connection=await api('POST','/api/ai/connections',{branchId:branch,name:'Automation summary test',provider:'OPENAI',credential,
+  reason:'Configure a synthetic summary catalog'});
+ assert.equal(connection.statusCode,201,connection.body);
+ const {id:aiConnection}=connection.json();
+ const probe=await api('POST',`/api/ai/connections/${aiConnection}/test`,{version:1});
+ assert.equal(probe.statusCode,200,probe.body);
+ const model=await api('POST','/api/ai/profiles',{connectionId:aiConnection,name:'Synthetic automation summary',task:'SUMMARIZATION',
+  modelId:'synthetic-automation-summary',active:true,maxOutputTokens:512,reason:'Permit internal summaries'});
+ assert.equal(model.statusCode,201,model.body);
+ const config=emptyAIOperationalConfig();config.profiles.SUMMARIZATION=model.json().id;
+ const configured=await api('PUT',`/api/ai/campaigns/${campaign}/configuration`,{version:0,definition:config,reason:'Approve scoped summary profile'});
+ assert.equal(configured.statusCode,200,configured.body);
+ const action={triggerType:'CONVERSATION_STATE_CHANGED',actionType:'REQUEST_CONVERSATION_SUMMARY',delayMinutes:0,priority:'NORMAL',note:''};
+ assert.equal((await api('POST','/api/automations',{...def,...action,branchId:branch,campaignId:campaign},'agent')).statusCode,403);
+ await rule({...action,name:'Approve automation summary'});
+ await rule({...action,name:'Second approved summary of the same conversation'});
+ const transport=(await db`INSERT INTO integration_connection(organization_id,branch_id,kind,provider,name)
+  VALUES(${org},${branch},'MESSAGING','META_WHATSAPP_CLOUD','Synthetic summary history') RETURNING id`)[0]!.id;
+ const sender=(await db`INSERT INTO messaging_sender(organization_id,connection_id,external_sender_id,display_name,capabilities)
+  VALUES(${org},${transport},'15550001291','Synthetic summary sender','{"text":true}') RETURNING id`)[0]!.id;
+ async function conversation(){
+  const lead=await create();
+  const id=(await db`INSERT INTO conversation(lead_id,connection_id,sender_id,channel,participant_ref,controller_type,state)
+   VALUES(${lead},${transport},${sender},'WHATSAPP','+15554000001','NONE','WAITING_FOR_HUMAN') RETURNING id`)[0]!.id;
+  await db`INSERT INTO conversation_message(conversation_id,connection_id,sender_id,direction,author_type,body,delivery_state)
+   VALUES(${id},${transport},${sender},'INBOUND','CUSTOMER','Client asks about the next intake session','RECEIVED'),
+    (${id},${transport},${sender},'INBOUND','CUSTOMER','card number: 4242 4242 4242 4242','RECEIVED')`;
+  await db`UPDATE conversation SET state='HUMAN_ACTIVE',controller_type='HUMAN',controller_user_id=${users.agent!.id},version=version+1 WHERE id=${id}`;
+  return {lead,id};
+ }
+ const first=await conversation();
+ await matches();
+ await Promise.all(Array.from({length:4},()=>processOneAutomationExecution(db)));
+ await execute();
+ const jobs=await db`SELECT * FROM ai_handoff_summary WHERE conversation_id=${first.id}`;
+ assert.equal(jobs.length,1);
+ const job=jobs[0]!;
+ assert.equal(job.state,'QUEUED');assert.equal(job.actor_id,null);assert.equal(job.session_id,null);assert.equal(job.action_id,null);
+ assert.ok(job.automation_execution_id);
+ assert.equal((await db`SELECT count(*)::int AS n FROM automation_execution WHERE result_code='AUTOMATION_SUMMARY_ALREADY_PENDING'`)[0]!.n,1);
+ await assert.rejects(db`INSERT INTO ai_handoff_summary(automation_execution_id,request_id,organization_id,branch_id,campaign_id,lead_id,conversation_id,context,context_hash)
+  VALUES(${job.automation_execution_id},${randomUUID()},${org},${branch},${campaign},${first.lead},${first.id},'{}','')`,
+  /AUTOMATION_SUMMARY_APPROVED_EXECUTION_REQUIRED/);
+ let calls=0;
+ const adapters:AIInferenceRegistry={OPENAI:{simulate:async()=>{throw Error('Unexpected simulation');},summarize:async input=>{
+  calls++;
+  assert.equal(input.credential,credential);assert.equal(input.model,'synthetic-automation-summary');
+  const data=input.data as {references:{id:string;text:string}[]};
+  assert.equal(data.references.length,1);
+  assert.match(data.references[0]!.text,/Client asks about/);
+  return {decision:'ANSWER',referenceIds:[data.references[0]!.id],handoffReason:null};
+ }}};
+ assert.equal(await processOneAIHandoffSummary(db,{adapters}),true);
+ assert.equal(calls,1);
+ const history=`/api/conversations/${first.id}/ai-handoffs`;
+ const scoped=await api('GET',history,undefined,'agent');
+ assert.equal(scoped.statusCode,200,scoped.body);
+ assert.equal(scoped.json().automationSummaries[0].state,'COMPLETED');
+ assert.match(scoped.json().automationSummaries[0].result.answer,/Client asks about/);
+ assert.equal(JSON.stringify(scoped.json().automationSummaries).includes('card number:'),false);
+ assert.equal(scoped.json().package.summaries.length,0);
+ for(const account of ['second','other','foreign'])assert.equal((await api('GET',history,undefined,account)).statusCode,404);
+ assert.equal((await db`SELECT count(*)::int AS n FROM audit_log WHERE action='AI_AUTOMATION_SUMMARY_COMPLETED' AND target_id=${job.id}`)[0]!.n,1);
+
+ const liveDisabled=await conversation();
+ await matches();await execute();
+ assert.equal(await processOneAIHandoffSummary(db),true);
+ assert.deepEqual((await db`SELECT state,error_code FROM ai_handoff_summary WHERE conversation_id=${liveDisabled.id}`)[0],
+  {state:'BLOCKED',error_code:'AI_LIVE_DATA_TRANSFER_DISABLED'});
+
+ const pending=await conversation();
+ await matches();await execute();
+ await db`UPDATE user_account SET active=false WHERE id=${users.manager!.id}`;
+ assert.equal(await processOneAIHandoffSummary(db,{adapters}),true);
+ const [blocked]=await db`SELECT state,error_code FROM ai_handoff_summary WHERE conversation_id=${pending.id}`;
+ assert.deepEqual(blocked,{state:'BLOCKED',error_code:'AUTOMATION_SUMMARY_CONTEXT_CHANGED'});
+ assert.equal(calls,1);
+ assert.equal((await db`SELECT count(*)::int AS n FROM conversation_message WHERE direction='OUTBOUND'`)[0]!.n,0);
+});
 
 test('Automation requests one authorized AI handoff, retains ownership, and links its downstream event to the rule',async t=>{
  const {db,org,branch,campaign,users,api,def,rule,create,matches,execute}=await fixture(t);

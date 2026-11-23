@@ -73,7 +73,14 @@ export function registerAICustomerHistoryRoutes(app: FastifyInstance, db: Databa
       const summaries = await tx`SELECT s.id,s.action_id,s.state,s.error_code,s.created_at,s.completed_at,s.attempt_count,s.result,s.context->'summaryContext'->'truncated' AS truncated,
           s.context->'sourceContext'->'knowledge'->'version' AS knowledge_version,s.context->'profile'->>'id' AS profile_id,
           s.context IS DISTINCT FROM ai_handoff_summary_context(s.action_id) AS stale
-        FROM ai_handoff_summary s WHERE s.conversation_id=${request.params.id} AND s.lead_id=${access.lead.id} AND s.campaign_id=${access.lead.campaign_id}
+        FROM ai_handoff_summary s WHERE s.action_id IS NOT NULL AND s.conversation_id=${request.params.id}
+          AND (s.lead_id,s.campaign_id) = (${access.lead.id},${access.lead.campaign_id})
+        ORDER BY s.created_at DESC,s.id DESC LIMIT 5`;
+      const automationSummaries = await tx`SELECT s.id,s.automation_execution_id,s.state,s.error_code,s.created_at,s.completed_at,s.result,
+          s.context->'summaryContext'->'truncated' AS truncated,s.context IS DISTINCT FROM ai_automation_summary_context(s.automation_execution_id) AS stale
+        FROM ai_handoff_summary s WHERE s.automation_execution_id IS NOT NULL AND s.conversation_id=${request.params.id}
+          AND (s.organization_id,s.branch_id,s.lead_id,s.campaign_id) =
+            (${actor.organizationId},${access.lead.branch_id},${access.lead.id},${access.lead.campaign_id})
         ORDER BY s.created_at DESC,s.id DESC LIMIT 5`;
       // Transport evidence, not a claim that a semantic answer was satisfactory. FAILED/QUEUED never count as a reply.
       const awaiting = (await tx`SELECT m.id,m.body,m.message_kind,m.created_at FROM conversation_message m WHERE m.conversation_id=${request.params.id}
@@ -88,7 +95,7 @@ export function registerAICustomerHistoryRoutes(app: FastifyInstance, db: Databa
       const items = rows.slice(0, limit), last = items.at(-1);
       await tx`INSERT INTO audit_log(organization_id,branch_id,actor_user_id,action,target_type,target_id,detail)
         VALUES(${actor.organizationId},${access.lead.branch_id},${actor.id},'AI_HUMAN_HANDOFF_HISTORY_READ','CONVERSATION',${request.params.id},${tx.json({ count: items.length })})`;
-      return { items, current, qualification, reception, package: { summaries, awaitingCustomerMessage: awaiting, publication, refreshAvailable,
+      return { items, current, qualification, reception, automationSummaries, package: { summaries, awaitingCustomerMessage: awaiting, publication, refreshAvailable,
         suggestedNextAction: current.state === 'WAITING_FOR_HUMAN' ? 'REVIEW_AND_ACCEPT_HUMAN_CONTROL' : current.controller_type === 'HUMAN' ? 'REVIEW_AND_RESPOND_AS_CURRENT_CONTROLLER' : 'REVIEW_CURRENT_CONTROL',
         liveTransferEnabled: false }, nextCursor: rows.length > limit && last ? encodeCursor({ timestamp: last.created_at.toISOString(), id: last.id }) : null };
     });

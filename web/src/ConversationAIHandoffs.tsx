@@ -2,11 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { HandoffReception, type Reception } from './HandoffReception.js';
 import { HandoffSLA } from './HandoffSLA.js';
 type Api = <T>(path: string, options?: RequestInit) => Promise<T>;
+type SummaryResult={id:string;state:string;error_code:string|null;stale:boolean;truncated:boolean;completed_at:string|null;
+  result:{decision:string;answer:string}|null};
 type Result = { items: { id: string; state: string; error_code: string | null; handoff_reason: string; created_at: string; qualification_action_id: string | null; knowledge_version: number; customer_question: string; reception_at_request:Reception|null }[];reception:Reception|null;
   nextCursor: string | null; current: { state: string; controller_type: string; campaign_name: string; source_kind: string };
   qualification: { questions: { id: string; prompt: string; value: unknown; source: string | null }[]; result: { missingQuestionIds: string[] } | null; blockers: string[] };
-  package: { summaries: { id: string; state: string; error_code: string | null; stale: boolean; truncated: boolean; completed_at: string | null; knowledge_version: number;
-    result: { decision: string; answer: string } | null }[]; awaitingCustomerMessage: { id: string; body: string; message_kind: string; created_at: string } | null;
+  automationSummaries?:SummaryResult[];
+  package: { summaries: (SummaryResult & {knowledge_version:number})[]; awaitingCustomerMessage: { id: string; body: string; message_kind: string; created_at: string } | null;
     publication: { version: number; references: { id: string; text: string }[] } | null; refreshAvailable: boolean; suggestedNextAction: string } };
 const labels = {
   en: { title: 'AI human handoff requests', read: 'Review handoff requests', more: 'Older handoff requests', empty: 'No AI human handoff requests.', current: 'Current conversation', question: 'Customer question at request', qualification: 'Current qualification', version: 'Published knowledge version', note: 'Use the conversation history and qualification panels to review the evidence. Taking over explicitly accepts human control. Lead ownership remains separate.', restricted: 'Some qualification items are unavailable or restricted.' },
@@ -20,6 +22,7 @@ const packageLabels = {
 };
 export function ConversationAIHandoffs({ conversationId, locale, api, revision }: { conversationId: string; locale: 'ar' | 'en' | 'fr'; api: Api; revision: string }) {
   const qualificationAction = { ar: 'إجراء Qualification المصدر', en: 'Source Qualification action', fr: 'Action de qualification source' }[locale];
+  const automationTitle={ar:'ملخصات أُنشئت بواسطة Automation',en:'Automation summaries',fr:'Résumés générés par l’automatisation'}[locale];
   const t = labels[locale], p = packageLabels[locale], [value, setValue] = useState<Result | null>(null), [busy, setBusy] = useState(false), [error, setError] = useState(''), sequence = useRef(0);
   useEffect(() => { sequence.current++; setValue(null); setError(''); setBusy(false); return () => { sequence.current++; }; }, [conversationId, revision]);
   async function load(older = false) {
@@ -55,6 +58,14 @@ export function ConversationAIHandoffs({ conversationId, locale, api, revision }
         {value.package.refreshAvailable && <button disabled={busy} onClick={() => void refresh()}>{p.refresh}</button>}
         {value.package.publication && <details><summary>{p.refs} · {value.package.publication.version}</summary>{value.package.publication.references.map(r => <p key={r.id} dir="auto" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{r.text}</p>)}</details>}
       </div>
+      {!!value.automationSummaries?.length && <section data-automation-conversation-summaries><h5>{automationTitle}</h5>
+        <p>{p.attribution}</p>{value.automationSummaries.map(summary=><article key={summary.id}>
+          <p dir="ltr">{summary.state} {summary.error_code}</p>
+          {summary.completed_at&&<time dateTime={summary.completed_at}>{new Date(summary.completed_at).toLocaleString(locale)}</time>}
+          {summary.stale&&<p>{p.stale}</p>}{summary.truncated&&<p>{p.truncated}</p>}
+          {summary.result?.decision==='ANSWER'&&<p dir="auto" style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{summary.result.answer}</p>}
+        </article>)}
+      </section>}
       <h5>{t.qualification}</h5>{value.qualification.blockers.length > 0 && <p>{t.restricted}</p>}{value.qualification.questions.map(q => <p key={q.id} style={{ overflowWrap: 'anywhere' }}>{q.prompt}: {q.value === null ? '—' : typeof q.value === 'string' ? q.value : JSON.stringify(q.value)} · {q.source ?? '—'}</p>)}
       {value.qualification.result && <div><h5>{p.missing}</h5>{value.qualification.result.missingQuestionIds.map(id => <p key={id}>{value.qualification.questions.find(q => q.id === id)?.prompt}</p>)}</div>}
       {value.nextCursor && <button disabled={busy} onClick={() => void load(true)}>{t.more}</button>}</>}

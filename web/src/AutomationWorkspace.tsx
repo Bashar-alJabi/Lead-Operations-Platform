@@ -255,10 +255,16 @@ export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{local
   fr:{action:'Transférer la conversation à un agent',help:'Une conversation contrôlée par l’IA passe en attente d’un agent si la campagne a approuvé le transfert. Le responsable du prospect reste le même.',
    unavailable:'Aucune conversation unique n’est disponible pour le transfert',changed:'La conversation n’est plus contrôlée par l’IA',denied:'La campagne n’a pas approuvé l’outil de transfert'},
  }[locale];
+ const automationSummary={
+  ar:{action:'تلخيص المحادثة للموظفين',help:'يلخّص سجل محادثة واحدة باستخدام Profile التلخيص المعتمدة للحملة.'},
+  en:{action:'Summarize conversation for staff',help:'Summarizes one conversation using the campaign’s approved summary profile.'},
+  fr:{action:'Résumer la conversation pour les agents',help:'Résume une conversation avec le profil de synthèse approuvé pour la campagne.'},
+ }[locale];
  const actionLabels={CREATE_FOLLOW_UP:t.follow,SEND_IN_APP_NOTIFICATION:t.notify,SET_FIELD_VALUE:fieldAction.action,ADD_TAGS:fieldAction.addTags,
   ASSIGN_LEAD:assignment.action,REQUEST_HUMAN_ATTENTION:{
    ar:'طلب مراجعة بشرية',en:'Request human review',fr:'Demander une vérification humaine',
-  }[locale],CLOSE_LEAD:{ar:'إغلاق الفرصة',en:'Close lead',fr:'Clôturer le prospect'}[locale],REQUEST_CONVERSATION_HANDOFF:handoff.action};
+  }[locale],CLOSE_LEAD:{ar:'إغلاق الفرصة',en:'Close lead',fr:'Clôturer le prospect'}[locale],REQUEST_CONVERSATION_HANDOFF:handoff.action,
+  REQUEST_CONVERSATION_SUMMARY:automationSummary.action};
  const causal={
   ar:{AUTOMATION_CAUSAL_REPEAT:'نُفذت القاعدة سابقًا في هذه السلسلة',AUTOMATION_CAUSAL_LIMIT:'بلغت السلسلة حد إجراءات الأتمتة'},
   en:{AUTOMATION_CAUSAL_REPEAT:'Rule already ran in this chain',AUTOMATION_CAUSAL_LIMIT:'Automation chain limit reached'},
@@ -369,7 +375,8 @@ export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{local
    {form.actionType==='CREATE_FOLLOW_UP'&&<><label>{t.delay}<input type="number" min={0} max={525600} required value={form.delayMinutes} onChange={e=>change('delayMinutes',Number(e.target.value))}/></label>
     <label>{t.priority}<select aria-label={t.priority} value={form.priority} onChange={e=>change('priority',e.target.value)}>{['LOW','NORMAL','HIGH'].map(s=><option key={s}>{s}</option>)}</select></label></>}
    {form.actionType==='REQUEST_CONVERSATION_HANDOFF'&&<p>{handoff.help}</p>}
-   {!writesField&&!assignsLead&&form.actionType!=='CLOSE_LEAD'&&form.actionType!=='REQUEST_CONVERSATION_HANDOFF'&&<><p>{t.timing}</p><label>{t.note}<textarea maxLength={4000} value={form.note} onChange={e=>change('note',e.target.value)}/></label></>}
+   {form.actionType==='REQUEST_CONVERSATION_SUMMARY'&&<p>{automationSummary.help}</p>}
+   {!writesField&&!assignsLead&&!['CLOSE_LEAD','REQUEST_CONVERSATION_HANDOFF','REQUEST_CONVERSATION_SUMMARY'].includes(form.actionType)&&<><p>{t.timing}</p><label>{t.note}<textarea maxLength={4000} value={form.note} onChange={e=>change('note',e.target.value)}/></label></>}
    <label><input type="checkbox" checked={form.enabled} onChange={e=>change('enabled',e.target.checked)}/>{t.enabled}</label>
    <label>{t.reason}<input minLength={3} maxLength={500} required value={form.reason} onChange={e=>change('reason',e.target.value)}/></label>
    {selected&&<p>{t.version} {selected.version}</p>}<div className="actions"><button disabled={busy||missingConditionValue||invalidDate||missingTarget||missingAssignee}>{t.save}</button><button type="button" disabled={busy} onClick={()=>setEditing(false)}>{t.cancel}</button></div>

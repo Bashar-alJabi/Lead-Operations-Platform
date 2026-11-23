@@ -75,7 +75,7 @@ export async function processOneAIHandoffSummary(db: Database, options: { adapte
     const retry = !blocked && failure?.retryable && held.attempt_count < 5;
     const state = blocked || failure?.code === 'AI_LIVE_DATA_TRANSFER_DISABLED' ? 'BLOCKED' : failure ? retry ? 'QUEUED' : 'FAILED' : 'COMPLETED';
     await tx`UPDATE ai_handoff_summary SET state=${state},result=${state === 'COMPLETED' ? tx.json(result!) : null},
-      error_code=${blocked ? 'AI_HANDOFF_SUMMARY_CONTEXT_CHANGED' : failure?.code ?? null},completed_lease_token=${token},lease_token=NULL,lease_until=NULL,
+      error_code=${blocked ? row.automation_execution_id ? 'AUTOMATION_SUMMARY_CONTEXT_CHANGED' : 'AI_HANDOFF_SUMMARY_CONTEXT_CHANGED' : failure?.code ?? null},completed_lease_token=${token},lease_token=NULL,lease_until=NULL,
       available_at=clock_timestamp()+(${delay ?? Math.min(300, 2 ** held.attempt_count)}*interval '1 second'),version=version+1 WHERE id=${row.id}`;
   });
   return true;
