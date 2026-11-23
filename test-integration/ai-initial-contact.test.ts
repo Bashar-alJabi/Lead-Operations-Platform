@@ -19,6 +19,7 @@ import {processOneAICustomerProposal} from '../src/ai/customer-worker.js';
 import {processOneAICustomerSend} from '../src/ai/customer-send.js';
 import {processOneSourceEvaluation} from '../src/sources/evaluation.js';
 import {processOneSourceIntake} from '../src/sources/intake.js';
+import {processOneAutomationExecution,processOneAutomationMatch} from '../src/automation.js';
 const url=process.env.TEST_DATABASE_URL;if(!url||new URL(url).pathname!=='/lead_operations_test')throw Error('Isolated test DB required');
 test('Initial contact config to actual trusted intake, durable worker, central policy, native outbox, mocked template delivery and signed customer reply',async t=>{
  process.env.APP_ORIGIN='http://127.0.0.1:5173';process.env.CREDENTIAL_ENCRYPTION_KEY=randomBytes(32).toString('hex');
@@ -260,4 +261,71 @@ test('Initial contact config to actual trusted intake, durable worker, central p
  assert.equal(interruption.length,1);assert.equal(interruption[0].state,'UNKNOWN');assert.equal(interruption[0].finalState,null);
  assert.equal(await dispatch(),false);assert.equal(await processOneAIFollowupFinalization(db),false);
  assert.equal((await db`SELECT count(*)::int AS n FROM audit_log WHERE target_id=${first.lead} AND action IN ('AI_FOLLOWUP_WAITING','AI_FOLLOWUP_READY','AI_FOLLOWUP_STOPPED')`)[0]!.n,3);
+
+ await t.test('Automation starts one follow-up from a genuine acknowledgement and retains approval through the sequence',async()=>{
+  const rule={name:'Start approved AI follow-up',enabled:true,triggerType:'LEAD_CREATED',lifecycle:'OPEN',ownerCondition:'ANY',
+   actionType:'START_AI_FOLLOWUP',delayMinutes:0,priority:'NORMAL',note:'',reason:'Approve follow-up for synthetic intake'};
+  assert.equal((await api('POST','/api/automations',{...rule,branchId:branch,campaignId:campaign},'agent')).statusCode,403);
+  const approvals=await Promise.all([rule,{...rule,name:'Second rule for the same acknowledgement'}].map(definition=>
+   api('POST','/api/automations',{...definition,branchId:branch,campaignId:campaign})));
+  for(const approval of approvals)assert.equal(approval.statusCode,201,approval.body);
+  const timingPath='/api/ai/campaigns/'+campaign+'/followup-policy';
+  assert.equal((await api('PUT',timingPath,{version:3,definition:{...recurringPolicy,enabled:false},reason:'Pause automatic follow-up scheduling'})).statusCode,200);
+  await db`UPDATE messaging_sender SET health='HEALTHY' WHERE id=${sender}`;
+  await db`UPDATE integration_connection SET status='CONNECTED' WHERE id=${mc}`;
+  const eligible=await intake(),replyLead=await intake(),uncertainLead=await intake();
+  for(const [index,item] of [eligible,replyLead,uncertainLead].entries()){
+   assert.equal(await processOneAIInitialContact(db),true);
+   mode=index===2?'UNKNOWN':'ACK';
+   assert.equal(await dispatch(),true);
+   assert.equal((await api('GET','/api/leads/'+item.lead+'/ai-followups')).json().items.length,0);
+  }
+  mode='ACK';
+  await db`UPDATE messaging_sender SET health='HEALTHY' WHERE id=${sender}`;
+  await db`UPDATE integration_connection SET status='CONNECTED' WHERE id=${mc}`;
+  const enabled=await api('PUT',timingPath,{version:4,definition:{...recurringPolicy,delaysSeconds:[1,1]},reason:'Enable the two approved follow-up steps'});
+  assert.equal(enabled.statusCode,200,enabled.body);
+  for(let index=0;index<200&&await processOneAutomationMatch(db);index++);
+  await Promise.all(Array.from({length:4},()=>processOneAutomationExecution(db)));
+  for(let index=0;index<200&&await processOneAutomationExecution(db);index++);
+  const read=(lead:string)=>api('GET','/api/leads/'+lead+'/ai-followups');
+  const [scheduled]=(await read(eligible.lead)).json().items;
+  assert.equal(scheduled.state,'WAITING');assert.equal(scheduled.startedByAutomation,true);
+  assert.equal(Date.parse(scheduled.dueAt)-Date.parse(scheduled.anchoredAt),1000);
+  assert.equal((await api('GET','/api/leads/'+eligible.lead+'/ai-followups',undefined,'second')).statusCode,404);
+  assert.equal((await read(uncertainLead.lead)).json().items.length,0);
+  const results=await db`SELECT result_code FROM automation_execution e JOIN automation_source s ON s.id=e.source_id
+   WHERE s.lead_id=${eligible.lead} OR s.lead_id=${uncertainLead.lead} ORDER BY result_code`;
+  assert.deepEqual(results.map(row=>row.result_code).sort(),['APPLIED','AUTOMATION_FOLLOWUP_ALREADY_SCHEDULED',
+   'AUTOMATION_FOLLOWUP_CONTEXT_UNAVAILABLE','AUTOMATION_FOLLOWUP_CONTEXT_UNAVAILABLE'].sort());
+  const [proof]=await db`SELECT s.automation_execution_id,e.rule_id,s.acknowledged_attempt_id,s.conversation_id FROM ai_followup_schedule s
+   JOIN automation_execution e ON e.id=s.automation_execution_id WHERE s.id=${scheduled.id}`;
+  assert.ok(proof);
+  await assert.rejects(db`INSERT INTO ai_followup_schedule(automation_execution_id,acknowledged_attempt_id)
+   VALUES(${proof.automation_execution_id},${proof.acknowledged_attempt_id})`,/AI_FOLLOWUP_ACK_REQUIRED/);
+  assert.equal((await db`SELECT count(*)::int AS n FROM audit_log WHERE action='AI_FOLLOWUP_WAITING'
+   AND detail->>'automationExecutionId'=${proof.automation_execution_id}`)[0]!.n,1);
+
+  const response=JSON.stringify({object:'whatsapp_business_account',entry:[{id:'123456789',changes:[{field:'messages',value:{
+   messaging_product:'whatsapp',metadata:{phone_number_id:'15550001111'},messages:[{id:'automation-reply-'+randomUUID(),
+    from:replyLead.phone.slice(1),timestamp:String(Math.floor(Date.now()/1000)),type:'text',text:{body:'I have a question'}}]}}]}]});
+  assert.equal((await app.inject({method:'POST',url:'/api/webhooks/messaging/meta/'+mc,payload:response,headers:{
+   'content-type':'application/json','x-hub-signature-256':'sha256='+createHmac('sha256','synthetic-initial-hmac').update(response).digest('hex')}})).statusCode,200);
+  assert.equal(await processOneInboundEvent(db),true);
+  assert.equal((await read(replyLead.lead)).json().items[0].reason,'CUSTOMER_REPLIED');
+
+  await delay(1100);
+  assert.equal(await processOneAIFollowupSchedule(db),true);assert.equal(await processOneAIFollowupSend(db),true);
+  const beforeSend=sends;
+  assert.equal(await dispatch(),true);assert.equal(sends,beforeSend+1);
+  const steps=(await read(eligible.lead)).json().items;
+  assert.deepEqual(steps.map((row:{ordinal:number;state:string;startedByAutomation:boolean})=>[row.ordinal,row.state,row.startedByAutomation]),
+   [[2,'WAITING',true],[1,'SENT',true]]);
+  await delay(1100);
+  assert.equal(await processOneAIFollowupSchedule(db),true);assert.equal(await processOneAIFollowupSend(db),true);
+  assert.equal((await read(eligible.lead)).json().items[0].state,'QUEUED');
+  assert.equal((await api('PUT','/api/automations/'+proof.rule_id,{...rule,version:1,enabled:false,reason:'Revoke follow-up approval'})).statusCode,200);
+  assert.equal(await dispatch(),true);assert.equal(sends,beforeSend+1);
+  assert.equal((await read(eligible.lead)).json().items[0].reason,'AUTOMATION_FOLLOWUP_APPROVAL_CHANGED');
+ });
 });

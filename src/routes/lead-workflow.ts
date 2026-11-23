@@ -67,7 +67,8 @@ export function registerLeadWorkflowRoutes(app: FastifyInstance, db: Database): 
     return db.begin(async tx => {
       const lead=await lockedLead(tx,actor,request.params.id,false);
       if (!await currentPaymentSession(tx,actor,request)) throw new HttpError(403,'LEAD_ACCESS_REVOKED');
-      const rows=await tx`SELECT s.id,s.ordinal,f.state AS "finalState",f.reason AS "finalReason",
+      const rows=await tx`SELECT s.id,s.ordinal,s.automation_execution_id IS NOT NULL AS "startedByAutomation",
+          f.state AS "finalState",f.reason AS "finalReason",
           CASE WHEN m.delivery_state IN ('SENT','DELIVERED','READ','UNKNOWN') THEN m.delivery_state
           WHEN s.state='STOPPED' THEN s.state WHEN a.blocked_reason IS NOT NULL THEN 'BLOCKED' ELSE COALESCE(m.delivery_state,s.state) END AS state,
         CASE WHEN m.delivery_state IN ('SENT','DELIVERED','READ') THEN NULL ELSE COALESCE(s.stop_reason,a.blocked_reason,m.last_error_code,j.last_error_code) END AS reason,

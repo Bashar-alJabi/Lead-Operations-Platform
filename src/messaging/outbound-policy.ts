@@ -58,11 +58,17 @@ export async function lockFollowupOutboundScope(tx:postgres.TransactionSql,id:st
   if (!scheduled) throw new HttpError(409,'AI_FOLLOWUP_CONTEXT_CHANGED');
   await tx`SELECT id FROM branch WHERE id=${scheduled.branch_id} FOR SHARE`;
   await tx`SELECT id FROM campaign WHERE id=${scheduled.campaign_id} FOR SHARE`;
-  const [source]=await tx`SELECT ai_followup_send_context(${scheduled.id}) AS context`;
-  if (!source?.context) throw new HttpError(409,'AI_FOLLOWUP_CONTEXT_CHANGED');
-  const locked=await loadOutboundScope(tx,conversationId,null,source.context.scope as ApprovedScope);
-  const [current]=await tx`SELECT ai_followup_send_context(${scheduled.id}) AS context`;
-  if (!current?.context) throw new HttpError(409,'AI_FOLLOWUP_CONTEXT_CHANGED');
+  const scheduleId=scheduled.id;
+  async function currentContext() {
+    const [source]=await tx`SELECT ai_followup_send_context(${scheduleId}) AS context`;
+    if (source?.context) return source.context;
+    const [stopped]=await tx`SELECT ai_followup_stop_reason(s) AS reason FROM ai_followup_schedule s
+      WHERE s.id=${scheduleId} AND s.automation_execution_id IS NOT NULL`;
+    throw new HttpError(409,stopped?.reason ?? 'AI_FOLLOWUP_CONTEXT_CHANGED');
+  }
+  const context=await currentContext();
+  const locked=await loadOutboundScope(tx,conversationId,null,context.scope as ApprovedScope);
+  await currentContext();
   return locked;
 }
 

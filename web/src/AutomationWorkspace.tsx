@@ -260,11 +260,16 @@ export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{local
   en:{action:'Summarize conversation for staff',help:'Summarizes one conversation using the campaign’s approved summary profile.'},
   fr:{action:'Résumer la conversation pour les agents',help:'Résume une conversation avec le profil de synthèse approuvé pour la campagne.'},
  }[locale];
+ const aiFollowup={
+  ar:{action:'بدء متابعة AI',help:'يبدأ تسلسل المتابعة المعتمد للحملة بعد رسالة AI مؤكدة في المحادثة الحالية.',unavailable:'المحادثة غير مؤهلة لبدء متابعة AI',duplicate:'جُدولت متابعة لهذه الرسالة سابقًا'},
+  en:{action:'Start AI follow-up',help:'Starts the campaign’s approved follow-up sequence after an acknowledged AI message in the current conversation.',unavailable:'Conversation is not eligible for AI follow-up',duplicate:'Follow-up for this message was already scheduled'},
+  fr:{action:'Démarrer un suivi IA',help:'Démarre la séquence approuvée pour la campagne après un message IA confirmé dans la conversation actuelle.',unavailable:'Conversation non admissible au suivi IA',duplicate:'Un suivi a déjà été planifié pour ce message'},
+ }[locale];
  const actionLabels={CREATE_FOLLOW_UP:t.follow,SEND_IN_APP_NOTIFICATION:t.notify,SET_FIELD_VALUE:fieldAction.action,ADD_TAGS:fieldAction.addTags,
   ASSIGN_LEAD:assignment.action,REQUEST_HUMAN_ATTENTION:{
    ar:'طلب مراجعة بشرية',en:'Request human review',fr:'Demander une vérification humaine',
   }[locale],CLOSE_LEAD:{ar:'إغلاق الفرصة',en:'Close lead',fr:'Clôturer le prospect'}[locale],REQUEST_CONVERSATION_HANDOFF:handoff.action,
-  REQUEST_CONVERSATION_SUMMARY:automationSummary.action};
+  REQUEST_CONVERSATION_SUMMARY:automationSummary.action,START_AI_FOLLOWUP:aiFollowup.action};
  const causal={
   ar:{AUTOMATION_CAUSAL_REPEAT:'نُفذت القاعدة سابقًا في هذه السلسلة',AUTOMATION_CAUSAL_LIMIT:'بلغت السلسلة حد إجراءات الأتمتة'},
   en:{AUTOMATION_CAUSAL_REPEAT:'Rule already ran in this chain',AUTOMATION_CAUSAL_LIMIT:'Automation chain limit reached'},
@@ -277,6 +282,7 @@ export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{local
  const result=(s:string|null)=>s==='FIELD_ALREADY_MATCHES'?fieldAction.already:s==='AUTOMATION_TAG_LIMIT_REACHED'?fieldAction.limit:
   s==='AUTOMATION_HANDOFF_CONVERSATION_UNAVAILABLE'?handoff.unavailable:s==='AUTOMATION_HANDOFF_CONTROLLER_CHANGED'?handoff.changed:
   s==='AUTOMATION_HANDOFF_TOOL_NOT_APPROVED'?handoff.denied:
+  s==='AUTOMATION_FOLLOWUP_CONTEXT_UNAVAILABLE'?aiFollowup.unavailable:s==='AUTOMATION_FOLLOWUP_ALREADY_SCHEDULED'?aiFollowup.duplicate:
   s==='FIELD_REQUIRED'?{ar:'حقول مطلوبة للإغلاق لم تُستكمل',en:'Required closure fields are missing',fr:'Des champs requis pour la clôture sont manquants'}[locale]:
   s==='ASSIGNMENT_ALREADY_MATCHES'?assignment.already:s==='AUTOMATION_ASSIGNMENT_AGENT_UNAVAILABLE'?assignment.unavailable:
   s==='AUTOMATION_TRIGGER_FIELD_UNAVAILABLE'||s==='AUTOMATION_CONDITION_FIELD_UNAVAILABLE'||s==='AUTOMATION_ACTION_FIELD_UNAVAILABLE'
@@ -376,7 +382,8 @@ export function AutomationWorkspace({locale,api,user,branches,onOpenLead}:{local
     <label>{t.priority}<select aria-label={t.priority} value={form.priority} onChange={e=>change('priority',e.target.value)}>{['LOW','NORMAL','HIGH'].map(s=><option key={s}>{s}</option>)}</select></label></>}
    {form.actionType==='REQUEST_CONVERSATION_HANDOFF'&&<p>{handoff.help}</p>}
    {form.actionType==='REQUEST_CONVERSATION_SUMMARY'&&<p>{automationSummary.help}</p>}
-   {!writesField&&!assignsLead&&!['CLOSE_LEAD','REQUEST_CONVERSATION_HANDOFF','REQUEST_CONVERSATION_SUMMARY'].includes(form.actionType)&&<><p>{t.timing}</p><label>{t.note}<textarea maxLength={4000} value={form.note} onChange={e=>change('note',e.target.value)}/></label></>}
+   {form.actionType==='START_AI_FOLLOWUP'&&<p>{aiFollowup.help}</p>}
+   {!writesField&&!assignsLead&&!['CLOSE_LEAD','REQUEST_CONVERSATION_HANDOFF','REQUEST_CONVERSATION_SUMMARY','START_AI_FOLLOWUP'].includes(form.actionType)&&<><p>{t.timing}</p><label>{t.note}<textarea maxLength={4000} value={form.note} onChange={e=>change('note',e.target.value)}/></label></>}
    <label><input type="checkbox" checked={form.enabled} onChange={e=>change('enabled',e.target.checked)}/>{t.enabled}</label>
    <label>{t.reason}<input minLength={3} maxLength={500} required value={form.reason} onChange={e=>change('reason',e.target.value)}/></label>
    {selected&&<p>{t.version} {selected.version}</p>}<div className="actions"><button disabled={busy||missingConditionValue||invalidDate||missingTarget||missingAssignee}>{t.save}</button><button type="button" disabled={busy} onClick={()=>setEditing(false)}>{t.cancel}</button></div>
